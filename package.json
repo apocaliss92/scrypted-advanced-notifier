@@ -1,5 +1,9 @@
 {
    "name": "@apocaliss92/scrypted-homeassistant-utilities",
+   "repository": {
+      "type": "git",
+      "url": "https://github.com/apocaliss92/scrypted-homeassistant-utilities"
+   },
    "version": "0.0.1",
    "scripts": {
       "scrypted-setup-project": "scrypted-setup-project",
