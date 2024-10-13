@@ -1,4 +1,4 @@
-import sdk, { Camera, EventListenerRegister, MixinProvider, Notifier, ObjectDetectionResult, ObjectDetector, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { Camera, EventListenerRegister, MediaObject, MixinProvider, Notifier, ObjectDetectionResult, ObjectDetector, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import axios from "axios";
 import { sortBy } from 'lodash';
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
@@ -18,6 +18,13 @@ class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settin
             title: 'EntityID',
             type: 'string',
             subgroup: 'Metadata',
+            defaultValue: `binary_sensor.${this.mixinDevice.name}_triggered`
+        },
+        haDeviceClass: {
+            title: 'Device class',
+            type: 'string',
+            subgroup: 'Metadata',
+            defaultValue: 'motion'
         },
         whitelistedZones: {
             title: 'Whitelisted zones',
@@ -25,7 +32,7 @@ class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settin
             multiple: true,
             combobox: true,
             hide: true,
-            subgroup: 'Notifier',
+            subgroup: 'Detection',
             choices: [],
         },
         blacklistedZones: {
@@ -34,7 +41,7 @@ class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settin
             multiple: true,
             combobox: true,
             hide: true,
-            subgroup: 'Notifier',
+            subgroup: 'Detection',
             choices: [],
         },
         alwaysZones: {
@@ -43,7 +50,7 @@ class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settin
             multiple: true,
             combobox: true,
             hide: true,
-            subgroup: 'Notifier',
+            subgroup: 'Detection',
             choices: [],
         },
         detectionClasses: {
@@ -51,8 +58,36 @@ class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settin
             multiple: true,
             combobox: true,
             hide: true,
-            subgroup: 'Notifier',
+            subgroup: 'Detection',
             choices: [],
+        },
+        motionActiveDuration: {
+            subgroup: 'Detection',
+            title: 'Motion active duration',
+            description: 'How many seconds the motion sensors should stay active',
+            type: 'number',
+        },
+        personThreshold: {
+            title: 'Person threshold',
+            subgroup: 'Detection',
+            type: 'number',
+        },
+        animalThreshold: {
+            title: 'Animal threshold',
+            subgroup: 'Detection',
+            type: 'number',
+        },
+        vehicleThreshold: {
+            title: 'Vehicle threshold',
+            subgroup: 'Detection',
+            type: 'number',
+        },
+        haActions: {
+            title: 'HA actions',
+            description: 'Actions to show on the notification, i.e. {"action":"open_door","title":"Open door","icon":"sfsymbols:door"}',
+            subgroup: 'Notifier',
+            type: 'string',
+            multiple: true
         },
     });
 
@@ -122,6 +157,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
     private deviceRoomMap: Record<string, string> = {}
     private roomNameMap: Record<string, string> = {}
     private mqttClient: MqttClient;
+    private deviceTimeoutMap: Record<string, NodeJS.Timeout> = {};
 
     storageSettings = new StorageSettings(this, {
         serverId: {
@@ -150,6 +186,18 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
             group: 'MQTT',
             description: 'Specify the mqtt password.',
             type: 'password',
+        },
+        mqttActiveEntitiesTopic: {
+            title: 'Active entities topic',
+            group: 'MQTT',
+            description: 'Topic containing the active entities, will trigger the related devices activation for notifications',
+        },
+        activeDevicesForReporting: {
+            group: 'MQTT',
+            title: 'Active devices',
+            multiple: true,
+            type: 'string',
+            defaultValue: []
         },
         accessToken: {
             title: 'Personal access token',
@@ -183,7 +231,8 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
             defaultValue: ['http'],
         },
         domains: {
-            title: 'Domains to fetch',
+            title: 'Entity regex patterns',
+            description: 'Regex to filter out entities fetched',
             type: 'string',
             multiple: true,
         },
@@ -208,29 +257,19 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
             type: 'number',
             defaultValue: 10,
         },
-        activeDevices: {
+        activeDevicesForNotifications: {
             group: 'Notifier',
             title: 'Active devices',
-            subgroup: 'Devices',
             multiple: true,
             type: 'string',
         },
-        alwaysActiveDevices: {
+        alwaysActiveDevicesForNotifications: {
             group: 'Notifier',
             title: 'Always active devices',
-            subgroup: 'Devices',
             multiple: true,
             type: 'string',
             hide: true,
             defaultValue: [],
-        },
-        activeHaEntities: {
-            group: 'Notifier',
-            title: 'Active ha entities',
-            subgroup: 'Devices',
-            multiple: true,
-            type: 'string',
-            readonly: true,
         },
         notifiers: {
             group: 'Notifier',
@@ -289,6 +328,38 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
             description: 'Expression used to render the text when a binary sensor opens. Available arguments ${room} $[time}',
             defaultValue: 'Door/window opened in ${room}'
         },
+        motionActiveDuration: {
+            group: 'Detection',
+            title: 'Motion active duration',
+            description: 'How many seconds the motion sensors should stay active',
+            type: 'number',
+            defaultValue: 30,
+        },
+        personThreshold: {
+            group: 'Detection',
+            title: 'Person threshold',
+            type: 'number',
+            defaultValue: 0.8
+        },
+        animalThreshold: {
+            group: 'Detection',
+            title: 'Animal threshold',
+            type: 'number',
+            defaultValue: 0.7
+        },
+        vehicleThreshold: {
+            group: 'Detection',
+            title: 'Vehicle threshold',
+            type: 'number',
+            defaultValue: 0.7
+        },
+        requireScryptedNvrDetections: {
+            group: 'Detection',
+            title: 'Require Scrypted Detections',
+            description: 'When enabled, this sensor will ignore onboard camera detections.',
+            type: 'boolean',
+            defaultValue: true,
+        },
     });
 
     constructor(nativeId: string) {
@@ -316,11 +387,13 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
             this.storageSettings.settings.protocol.hide = isOn;
             start();
         });
-        this.storageSettings.settings.activeDevices.onPut = async () => {
-            this.syncHaEntityIds();
+        this.storageSettings.settings.activeDevicesForNotifications.onPut = async () => {
             await this.startEventsListeners();
         };
-        this.storageSettings.settings.alwaysActiveDevices.onPut = async () => {
+        this.storageSettings.settings.activeDevicesForReporting.onPut = async () => {
+            await this.startEventsListeners();
+        };
+        this.storageSettings.settings.alwaysActiveDevicesForNotifications.onPut = async () => {
             await this.startEventsListeners();
         };
         this.storageSettings.settings.minDelayTime.onPut = async () => {
@@ -329,7 +402,9 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         this.storageSettings.settings.mqttHost.onPut = () => this.setupMqttClient();
         this.storageSettings.settings.mqttUsename.onPut = () => this.setupMqttClient();
         this.storageSettings.settings.mqttPassword.onPut = () => this.setupMqttClient();
+        this.storageSettings.settings.mqttActiveEntitiesTopic.onPut = () => this.setupMqttClient();
 
+        this.setupMqttClient();
         this.initDevices().then(() => start());
         this.startCheckAlwaysActiveDevices().then().catch(console.log);
     }
@@ -339,13 +414,13 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         const mqttUsename = this.storageSettings.getItem('mqttUsename');
         const mqttPassword = this.storageSettings.getItem('mqttPassword');
 
-        if(!mqttHost || !mqttUsename || !mqttPassword) {
+        if (!mqttHost || !mqttUsename || !mqttPassword) {
             this.console.log('MQTT params not provided');
         }
 
         try {
             this.mqttClient = new MqttClient(mqttHost, mqttUsename, mqttPassword, this.console);
-        } catch(e) {
+        } catch (e) {
             this.console.log('Error setting up MQTT client', e);
         }
     }
@@ -369,9 +444,9 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
                 }
             }
 
-            if (this.storageSettings.getItem('alwaysActiveDevices')?.toString() !== forcedActiveDevices.toString()) {
+            if (this.storageSettings.getItem('alwaysActiveDevicesForNotifications')?.toString() !== forcedActiveDevices.toString()) {
                 this.console.log('Restarting loop to adjust the forced devices listeners');
-                this.storageSettings.putSetting('alwaysActiveDevices', forcedActiveDevices);
+                this.storageSettings.putSetting('alwaysActiveDevicesForNotifications', forcedActiveDevices);
             }
         };
         await funct();
@@ -380,10 +455,19 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         }, 20000);
     }
 
-    private syncHaEntityIds() {
-        this.storageSettings.putSetting('activeHaEntities', this.storageSettings
-            .getItem('activeDevices')
-            .map(deviceName => this.deviceHaEntityMap[deviceName]));
+    private syncHaEntityIds(devices: string[]) {
+        const deviceNames: string[] = [];
+        for (const device of devices) {
+            const deviceNameFromEntity = this.haEntityDeviceMap[device];
+            const entityFromDeviceName = this.deviceHaEntityMap[device];
+
+            if (deviceNameFromEntity) {
+                deviceNames.push(deviceNameFromEntity);
+            } else if (entityFromDeviceName) {
+                deviceNames.push(device);
+            }
+        }
+        this.storageSettings.putSetting('activeDevicesForNotifications', deviceNames);
     }
 
     private async initDevices() {
@@ -436,15 +520,23 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
             }
         }
 
-        this.storageSettings.settings.activeDevices.choices = devices;
-        this.storageSettings.settings.activeHaEntities.choices = devices;
+        this.storageSettings.settings.activeDevicesForNotifications.choices = devices;
+        this.storageSettings.settings.activeDevicesForReporting.choices = devices;
         this.deviceHaEntityMap = deviceHaEntityMap;
         this.haEntityDeviceMap = haEntityDeviceMap;
         this.deviceVideocameraMap = deviceVideocameraMap;
         this.deviceTypeMap = deviceTypeMap;
         this.deviceRoomMap = deviceRoomMap;
         // this.console.log(deviceHaEntityMap, haEntityDeviceMap, deviceVideocameraMap, deviceTypeMap);
-        this.syncHaEntityIds();
+
+        const mqttActiveEntitiesTopic = this.storageSettings.getItem('mqttActiveEntitiesTopic');
+        if (mqttActiveEntitiesTopic) {
+            this.mqttClient.subscribeToHaTopics(mqttActiveEntitiesTopic, (topic, message) => {
+                if (topic === mqttActiveEntitiesTopic) {
+                    this.syncHaEntityIds(message);
+                }
+            });
+        }
     }
 
     async getSettings() {
@@ -548,7 +640,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
 
             entityIds = sortBy(
                 entitiesResponse.data
-                    .filter(entityStatus => domains.length > 0 ? domains.includes(entityStatus.entity_id?.split('.')[0]) : true),
+                    .filter(entityStatus => domains.length > 0 ? domains.some(domain => new RegExp(domain).test(entityStatus.entity_id)) : true),
                 elem => elem.entity_id)
                 .map(entityStatus => entityStatus.entity_id);
 
@@ -599,14 +691,51 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         const blacklistedZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:blacklistedZones')?.value as string[]) ?? [];
         const alwaysZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:alwaysZones')?.value as string[]) ?? [];
 
+        const deviceVehicleThreshold = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:vehicleThreshold')?.value as number);
+        const devicePersonThreshold = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:personThreshold')?.value as number);
+        const deviceAnimalThreshold = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:animalThreshold')?.value as number);
+        const mainVehicleThreshold = this.storageSettings.getItem('vehicleThreshold');
+        const mainPersonThreshold = this.storageSettings.getItem('personThreshold');
+        const mainAnimalThreshold = this.storageSettings.getItem('animalThreshold');
+        const requireScryptedNvrDetections = this.storageSettings.getItem('requireScryptedNvrDetections');
+
+        const personThreshold = devicePersonThreshold || mainPersonThreshold || 0.8;
+        const vehicleThreshold = deviceVehicleThreshold || mainVehicleThreshold || 0.7;
+        const animalThreshold = deviceAnimalThreshold || mainAnimalThreshold || 0.7;
+
         return (detections: ObjectDetectionResult[]) => {
-            const filterByClassName = detections.filter(detection => detectionClasses.includes(detection.className));
-            return filterByClassName.find(detection => {
+            const filterByClassNameAndScore = detections.filter(detection => {
+                if (requireScryptedNvrDetections && !detection.boundingBox) {
+                    return false;
+                }
+
+                return detectionClasses.some(detectionClass => {
+                    if (detectionClass !== detection.className) {
+                        return false;
+                    }
+
+                    const scoreToUse = detectionClass === 'person' ? personThreshold :
+                        detectionClass === 'animal' ? animalThreshold :
+                            detectionClass === 'vehicle' ? vehicleThreshold : 0.7;
+
+                    if (detection.score > scoreToUse) {
+                        this.console.log(`Found a detection for class ${detectionClass} with score ${detection.score} (min ${scoreToUse})`);
+                        return true;
+                    }
+
+                })
+            });
+
+            return filterByClassNameAndScore.find(detection => {
                 const detectionZones = detection.zones;
                 const isAlwaysIncluded = alwaysZones.length ? detectionZones.some(zone => alwaysZones.includes(zone)) : false;
                 const isIncluded = whitelistedZones.length ? detectionZones.some(zone => whitelistedZones.includes(zone)) : true;
                 const isExcluded = blacklistedZones.length ? detectionZones.some(zone => blacklistedZones.includes(zone)) : false;
-                return isAlwaysIncluded || (isIncluded && !isExcluded);
+
+                if (isAlwaysIncluded || (isIncluded && !isExcluded)) {
+                    this.console.log(`Detection found because zones ${detection.zones} and alwaysZones ${alwaysZones}, whitelisted ${whitelistedZones}, blacklisted ${blacklistedZones}. Detection is ${JSON.stringify(detection)}`);
+                    return true;
+                }
             })
         }
     }
@@ -622,9 +751,19 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         return { externalUrl: externalUrl, haUrl: `/scrypted_${scryptedToken}?url=${encodeURIComponent(haUrl)}` }
     }
 
-    private replaceVariables(room: string, detectionTime: number, detection: ObjectDetectionResult, isDoorbell: boolean, notifierId: string) {
-        const detectionClass = detection.className;
-        const detectionLabel = detection.label;
+    private replaceVariables(
+        props: {
+            room: string,
+            detectionTime: number,
+            detection?: ObjectDetectionResult,
+            isDoorbell?: boolean,
+            isBooleanSensor?: boolean,
+            notifierId: string
+        }
+    ) {
+        const { detection, detectionTime, isDoorbell, notifierId, room, isBooleanSensor } = props;
+        const detectionClass = detection?.className;
+        const detectionLabel = detection?.label;
 
         const detectionTimeText = this.storageSettings.getItem(`notifier:${notifierId}:detectionTimeText` as any) || this.storageSettings.getItem('detectionTimeText');
         const personDetectedText = this.storageSettings.getItem(`notifier:${notifierId}:personDetectedText` as any) || this.storageSettings.getItem('personDetectedText');
@@ -632,11 +771,14 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         const animalDetectedText = this.storageSettings.getItem(`notifier:${notifierId}:animalDetectedText` as any) || this.storageSettings.getItem('animalDetectedText');
         const vehicleDetectedText = this.storageSettings.getItem(`notifier:${notifierId}:vehicleDetectedText` as any) || this.storageSettings.getItem('vehicleDetectedText');
         const doorbellText = this.storageSettings.getItem(`notifier:${notifierId}:doorbellText` as any) || this.storageSettings.getItem('doorbellText');
+        const doorWindowText = this.storageSettings.getItem(`notifier:${notifierId}:doorWindowText` as any) || this.storageSettings.getItem('doorWindowText');
 
         let textToUse: string;
 
         if (isDoorbell) {
             textToUse = doorbellText;
+        } if (isBooleanSensor) {
+            textToUse = doorWindowText;
         } else {
             switch (detectionClass) {
                 case 'person': {
@@ -663,9 +805,58 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
             .replace('${room}', room);
     }
 
+    async startMotionTimeoutAndPublish(
+        props: {
+            device: ScryptedDeviceBase,
+            detection: ObjectDetectionResult | undefined,
+            deviceSettings: Setting[],
+            image: MediaObject,
+            externalUrl: string,
+        }
+    ) {
+        const { detection, device, deviceSettings, externalUrl, image } = props;
+        const { id, name } = device;
+        const mainMotionDuration = this.storageSettings.getItem('motionActiveDuration');
+        const deviceMotionDuration = deviceSettings.find(setting => setting.key === 'homeassistantMetadata:motionActiveDuration')?.value;
+        const motionDuration = deviceMotionDuration ?? mainMotionDuration ?? 30;
+
+        const imageUrl = await mediaManager.convertMediaObjectToUrl(image, 'image/jpg');
+        const localImageUrl = await mediaManager.convertMediaObjectToLocalUrl(image, 'image/jpg');
+        const info = {
+            imageUrl,
+            localImageUrl,
+            scryptedUrl: externalUrl,
+            detection,
+        };
+        this.mqttClient.publishDeviceState(id, true, info);
+
+        const currentTimeout = this.deviceTimeoutMap[id];
+        if (currentTimeout) {
+            clearTimeout(currentTimeout);
+        }
+
+        this.deviceTimeoutMap[id] = setTimeout(() => {
+            this.mqttClient.publishDeviceState(id, false, info);
+        }, motionDuration * 1000);
+    }
+
+    checkDeviceLastDetection(deviceName: string, minDelay: number) {
+        const currentTime = new Date().getTime();
+        const lastDetection = this.deviceLastDetectionMap[deviceName];
+        let delayDone;
+        if (lastDetection && (currentTime - lastDetection) < 1000 * minDelay) {
+            delayDone = false;
+        } else {
+            delayDone = true;
+        }
+
+        return { delayDone, currentTime }
+    }
+
     async startEventsListeners() {
-        const activeDevices = this.storageSettings.getItem('activeDevices') as string[];
-        const alwaysActiveDevices = this.storageSettings.getItem('alwaysActiveDevices') as string[];
+        const activeDevicesForNotifications = this.storageSettings.getItem('activeDevicesForNotifications') as string[];
+        const activeDevicesForReporting = this.storageSettings.getItem('activeDevicesForReporting') as string[];
+        const alwaysActiveDevicesForNotifications = this.storageSettings.getItem('alwaysActiveDevicesForNotifications') as string[];
         const minDelay = this.storageSettings.getItem('minDelayTime') as number;
         if (this.activeListeners.length) {
             this.console.log(`Clearing ${this.activeListeners.length} listeners before starting a new loop: ${this.activeListeners.map(list => list.deviceName)}`);
@@ -674,20 +865,28 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         }
 
         try {
-            const allActiveDevices = [...activeDevices, ...alwaysActiveDevices];
-            this.console.log(`Starting listeners for ${allActiveDevices.length} devices: ${allActiveDevices}`);
+            const allActiveDevicesForNotifications = [...activeDevicesForNotifications, ...alwaysActiveDevicesForNotifications];
+
+            const allActiveDevices: string[] = [];
+            allActiveDevicesForNotifications.forEach(device => !allActiveDevices.includes(device) && allActiveDevices.push(device));
+            activeDevicesForReporting.forEach(device => !allActiveDevices.includes(device) && allActiveDevices.push(device));
+
+            this.console.log(`Starting listeners for ${allActiveDevices.length} with ${allActiveDevicesForNotifications.length} for notifications and ${activeDevicesForReporting.length} for reporting`);
             for (const deviceName of allActiveDevices) {
                 try {
                     const device = systemManager.getDeviceByName(deviceName) as unknown as (Camera & ScryptedDeviceBase & Settings);
+                    const deviceId = device.id;
                     const deviceSettings = await device.getSettings();
+                    if (activeDevicesForReporting.includes(deviceName)) {
+                        this.mqttClient?.setupDeviceAutodiscovery(deviceId, deviceName, deviceSettings);
+                    }
                     const room = this.deviceRoomMap[deviceName];
                     const deviceType = this.deviceTypeMap[deviceName];
                     const findAllowedDetection = this.getAllowedDetectionFinder(deviceSettings)
                     if ([ScryptedDeviceType.Camera, ScryptedDeviceType.Doorbell].includes(deviceType)) {
-                        const listener = systemManager.listenDevice(device.id, 'ObjectDetector', async (source, details, data) => {
-                            const currentTime = new Date().getTime();
-                            const lastDetection = this.deviceLastDetectionMap[deviceName];
-                            if (lastDetection && (currentTime - lastDetection) < 1000 * minDelay) {
+                        const listener = systemManager.listenDevice(deviceId, 'ObjectDetector', async (source, details, data) => {
+                            const { delayDone, currentTime } = this.checkDeviceLastDetection(deviceName, minDelay);
+                            if (!delayDone) {
                                 return;
                             }
 
@@ -698,33 +897,103 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
                                 const notifiers = this.storageSettings.getItem('notifiers') as string[];
                                 const image = await device.takePicture();
                                 const { externalUrl, haUrl } = this.getUrls(device.id, currentTime);
-                                this.console.log(`${deviceName}: sending image to ${notifiers.length} notifiers. Detection ${JSON.stringify(foundDetection)}. Ha URL is ${haUrl} and external url is ${externalUrl}`);
-                                for (const notifierId of notifiers) {
-                                    const eventDescription = this.replaceVariables(this.roomNameMap[room], currentTime, foundDetection, false, notifierId);
 
-                                    const addNvrLink = JSON.parse(this.storageSettings.getItem(`notifier:${notifierId}:addNvrLink` as any) || 'false');
+                                if (activeDevicesForReporting.includes(deviceName)) {
+                                    await this.startMotionTimeoutAndPublish({
+                                        device,
+                                        detection: foundDetection,
+                                        deviceSettings,
+                                        image,
+                                        externalUrl
+                                    });
+                                }
 
-                                    const body = addNvrLink ? `${eventDescription} - ${externalUrl}` : eventDescription;
+                                if (activeDevicesForNotifications.includes(deviceName)) {
+                                    this.console.log(`${deviceName}: sending image to ${notifiers.length} notifiers`);
+                                    for (const notifierId of notifiers) {
+                                        const eventDescription = this.replaceVariables({
+                                            detection: foundDetection,
+                                            detectionTime: currentTime,
+                                            notifierId: notifierId,
+                                            room: this.roomNameMap[room]
+                                        });
+                                        const addNvrLink = JSON.parse(this.storageSettings.getItem(`notifier:${notifierId}:addNvrLink` as any) || 'false');
+                                        const body = addNvrLink ? `${eventDescription} - ${externalUrl}` : eventDescription;
+                                        const notifier = systemManager.getDeviceById(notifierId) as unknown as (Notifier & ScryptedDevice);
 
-                                    const notifier = systemManager.getDeviceById(notifierId) as unknown as (Notifier & ScryptedDevice);
+                                        const haActions = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:haActions')?.value as string[]) ?? [];
 
-                                    await notifier.sendNotification(deviceName, {
-                                        body,
-                                        data: {
-                                            ha: {
-                                                url: haUrl,
-                                                clickAction: haUrl
+                                        await notifier.sendNotification(deviceName, {
+                                            body,
+                                            data: {
+                                                ha: {
+                                                    url: haUrl,
+                                                    clickAction: haUrl,
+                                                    actions: haActions.length ? haActions.map(action => JSON.parse(action)) : undefined,
+                                                }
                                             }
-                                        }
-                                    }, image)
+                                        }, image)
+                                    }
                                 }
                             }
                         });
                         this.activeListeners.push({ listener, deviceName });
                     } else if (deviceType === ScryptedDeviceType.Sensor) {
-                        const linkedCamera = this.deviceVideocameraMap[deviceName];
-                        if (!linkedCamera) {
-                            const isCameraDoorbell = this.deviceTypeMap[linkedCamera] === ScryptedDeviceType.Doorbell;
+                        const linkedCameraName = this.deviceVideocameraMap[deviceName];
+                        if (linkedCameraName) {
+                            const linkedCamera = systemManager.getDeviceByName(linkedCameraName) as unknown as (Camera);
+                            const listener = systemManager.listenDevice(deviceId, 'BinarySensor', async (_, __, isActive) => {
+                                if (!isActive) {
+                                    return;
+                                }
+                                const { delayDone, currentTime } = this.checkDeviceLastDetection(deviceName, minDelay);
+                                if (!delayDone) {
+                                    return;
+                                }
+
+                                this.deviceLastDetectionMap[deviceName] = currentTime;
+                                const isDoorbellButton = this.deviceTypeMap[linkedCameraName] === ScryptedDeviceType.Doorbell;
+
+
+                                const notifiers = this.storageSettings.getItem('notifiers') as string[];
+                                const image = await linkedCamera.takePicture();
+                                const { externalUrl, haUrl } = this.getUrls(device.id, currentTime);
+
+                                // if (activeDevicesForReporting.includes(deviceName)) {
+                                //     await this.startMotionTimeoutAndPublish(device, foundDetection, deviceSettings, image, externalUrl);
+                                // }
+
+                                if (activeDevicesForNotifications.includes(deviceName)) {
+                                    this.console.log(`${deviceName}: sending image to ${notifiers.length} notifiers`);
+                                    for (const notifierId of notifiers) {
+                                        const eventDescription = this.replaceVariables({
+                                            detectionTime: currentTime,
+                                            notifierId: notifierId,
+                                            room: this.roomNameMap[room],
+                                            isDoorbell: isDoorbellButton,
+                                            isBooleanSensor: !isDoorbellButton,
+                                        });
+                                        const addNvrLink = JSON.parse(this.storageSettings.getItem(`notifier:${notifierId}:addNvrLink` as any) || 'false');
+                                        const body = addNvrLink ? `${eventDescription} - ${externalUrl}` : eventDescription;
+                                        const notifier = systemManager.getDeviceById(notifierId) as unknown as (Notifier & ScryptedDevice);
+
+                                        const haActions = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:haActions')?.value as string[]) ?? [];
+
+                                        await notifier.sendNotification(deviceName, {
+                                            body,
+                                            data: {
+                                                ha: {
+                                                    url: haUrl,
+                                                    clickAction: haUrl,
+                                                    actions: haActions.length ? haActions.map(action => JSON.parse(action)) : undefined,
+                                                }
+                                            }
+                                        }, image)
+                                    }
+                                }
+
+                            });
+                            this.activeListeners.push({ listener, deviceName });
                         }
                     }
                 } catch (e) {
