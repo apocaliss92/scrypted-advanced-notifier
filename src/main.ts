@@ -68,12 +68,14 @@ class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settin
             title: 'Motion active duration',
             description: 'How many seconds the motion sensors should stay active',
             type: 'number',
+            hide: true,
         },
         scoreThreshold: {
             title: 'Default score threshold',
             subgroup: 'Detection',
             type: 'number',
             readonly: true,
+            hide: true,
         },
         haActions: {
             title: 'HA actions',
@@ -85,7 +87,7 @@ class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settin
         minDelayTime: {
             subgroup: 'Notifier',
             title: 'Minimum notification delay',
-            description: 'Minimum amount of time to wait until a notification is send from the same camera, in seconds',
+            description: 'Minimum amount of time to wait until a notification is sent from the same camera, in seconds',
             type: 'number',
         },
         skipDoorbellNotifications: {
@@ -140,6 +142,8 @@ class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settin
             this.storageSettings.settings.blacklistedZones.hide = false;
             this.storageSettings.settings.alwaysZones.hide = false;
             this.storageSettings.settings.detectionClasses.hide = false;
+            this.storageSettings.settings.motionActiveDuration.hide = false;
+            this.storageSettings.settings.scoreThreshold.hide = false;
             this.storageSettings.settings.skipDoorbellNotifications.hide = this.type !== ScryptedDeviceType.Doorbell;
 
             this.initValues().then().catch(this.console.log)
@@ -147,26 +151,30 @@ class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settin
     }
 
     async initValues() {
-        const mainPluginDevice = systemManager.getDeviceByName('Homeassistant utilities') as unknown as Settings;
-        const settings = await mainPluginDevice.getSettings() as Setting[];
-        const scoreThreshold = settings.find(setting => setting.key === 'scoreThreshold');
+        if (this.interfaces.includes(ScryptedInterface.VideoCamera)) {
+            const mainPluginDevice = systemManager.getDeviceByName('Homeassistant utilities') as unknown as Settings;
+            const settings = await mainPluginDevice.getSettings() as Setting[];
+            const scoreThreshold = settings.find(setting => setting.key === 'scoreThreshold');
 
-        this.storageSettings.putSetting('scoreThreshold', scoreThreshold?.value ?? 0.7);
+            this.storageSettings.putSetting('scoreThreshold', scoreThreshold?.value ?? 0.7);
+        }
     }
 
     async getMixinSettings(): Promise<Setting[]> {
         const settings: Setting[] = await this.storageSettings.getSettings();
 
-        const detectionClasses = this.storageSettings.getItem('detectionClasses') ?? [];
-        for (const detectionClass of detectionClasses) {
-            const key = `${detectionClass}:scoreThreshold`;
-            settings.push({
-                key,
-                title: `Score threshold for ${detectionClass}`,
-                subgroup: 'Detection',
-                type: 'number',
-                value: this.storageSettings.getItem(key as any)
-            })
+        if (this.interfaces.includes(ScryptedInterface.VideoCamera)) {
+            const detectionClasses = this.storageSettings.getItem('detectionClasses') ?? [];
+            for (const detectionClass of detectionClasses) {
+                const key = `${detectionClass}:scoreThreshold`;
+                settings.push({
+                    key,
+                    title: `Score threshold for ${detectionClass}`,
+                    subgroup: 'Detection',
+                    type: 'number',
+                    value: this.storageSettings.getItem(key as any)
+                })
+            }
         }
 
         return settings;
@@ -284,7 +292,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         minDelayTime: {
             group: 'Notifier',
             title: 'Minimum notification delay',
-            description: 'Minimum amount of time to wait until a notification is send from the same camera, in seconds',
+            description: 'Minimum amount of time to wait until a notification is sent from the same camera, in seconds',
             type: 'number',
             defaultValue: 30,
         },
