@@ -135,9 +135,6 @@ class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settin
                     choices,
                 }
             };
-            this.storageSettings.settings.detectionClasses.onPut = async (detectionClasses) => {
-                this.console.log(detectionClasses);
-            };
 
             this.storageSettings.settings.whitelistedZones.hide = false;
             this.storageSettings.settings.blacklistedZones.hide = false;
@@ -570,8 +567,6 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         this.deviceTypeMap = deviceTypeMap;
         this.deviceRoomMap = deviceRoomMap;
         this.doorbellDevices = doorbellDevices;
-        this.console.log('Doorbell devices', doorbellDevices);
-        // this.console.log(deviceHaEntityMap, haEntityDeviceMap, deviceVideocameraMap, deviceTypeMap);
 
         const mqttActiveEntitiesTopic = this.storageSettings.getItem('mqttActiveEntitiesTopic');
         if (mqttActiveEntitiesTopic) {
@@ -634,8 +629,6 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
 
         const domains = this.storageSettings.getItem('domains') as string[];
 
-        // console.log(url, domains);
-
         let rooms: string[] = [];
         const roomNameMap: Record<string, string> = {};
         let entityIds: string[] = [];
@@ -680,8 +673,6 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
                 .map(entityStatus => entityStatus.entity_id);
 
             scryptedToken = entitiesResponse.data.find(ent => ent.entity_id.includes(this.storageSettings.getItem('scryptedTokenEntity')))?.state;
-
-            // console.log(rooms, entityIds);
         } catch (e) {
             console.log(e);
         } finally {
