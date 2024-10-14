@@ -200,7 +200,6 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         scryptedToken: {
             title: 'Scrypted token',
             type: 'string',
-            hide: true,
         },
         mqttHost: {
             title: 'Host',
@@ -231,12 +230,12 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
             type: 'string',
             defaultValue: []
         },
-        scryptedTokenEntity: {
-            title: 'HA sensor entityId',
-            description: 'Where the scrypted token is stored, the prefix is enough',
-            type: 'string',
-            defaultValue: 'sensor.scrypted_token_'
-        },
+        // scryptedTokenEntity: {
+        //     title: 'Scrypted token entityId',
+        //     description: 'Where the scrypted token is stored, the prefix is enough',
+        //     type: 'string',
+        //     defaultValue: 'sensor.scrypted_token_'
+        // },
         nvrUrl: {
             title: 'NVR url',
             description: 'Url pointing to the NVR instance, useful to generate direct links to timeline',
@@ -249,7 +248,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
             immediate: true,
         },
         accessToken: {
-            title: 'Personal access token',
+            title: 'HAPersonal access token',
             type: 'string',
         },
         address: {
@@ -399,7 +398,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         this.storageSettings.settings.protocol.onPut = () => start();
         this.storageSettings.settings.accessToken.onPut = () => start();
         this.storageSettings.settings.nvrUrl.onPut = () => start();
-        this.storageSettings.settings.scryptedTokenEntity.onPut = () => start();
+        // this.storageSettings.settings.scryptedTokenEntity.onPut = () => start();
         this.storageSettings.settings.domains.onPut = () => start();
         this.storageSettings.settings.useHaPluginCredentials.onPut = ((_, isOn) => {
             this.storageSettings.settings.accessToken.hide = isOn;
@@ -519,7 +518,9 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         const cloudPlugin = systemManager.getDeviceByName('Scrypted Cloud') as unknown as Settings;
         const oauthUrl = await (cloudPlugin as any).getOauthUrl();
         const url = new URL(oauthUrl);
-        this.storageSettings.putSetting('serverId', url.searchParams.get('server_id'));
+        const serverId = url.searchParams.get('server_id');
+        this.storageSettings.putSetting('serverId', serverId);
+        this.console.log(`Server id found: ${serverId}`);
 
         for (const device of this.getElegibleDevices()) {
             const deviceName = device.name;
@@ -577,6 +578,8 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
                 }
             });
         }
+
+
     }
 
     async getSettings() {
@@ -632,7 +635,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         let rooms: string[] = [];
         const roomNameMap: Record<string, string> = {};
         let entityIds: string[] = [];
-        let scryptedToken: string;
+        // let scryptedToken: string;
 
         try {
             const roomsResponse = await axios.post<string>(`${url}/api/template`,
@@ -672,13 +675,13 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
                 elem => elem.entity_id)
                 .map(entityStatus => entityStatus.entity_id);
 
-            scryptedToken = entitiesResponse.data.find(ent => ent.entity_id.includes(this.storageSettings.getItem('scryptedTokenEntity')))?.state;
+            // scryptedToken = entitiesResponse.data.find(ent => ent.entity_id.includes(this.storageSettings.getItem('scryptedTokenEntity')))?.state;
         } catch (e) {
             console.log(e);
         } finally {
             await this.storageSettings.putSetting('fetchedEntities', entityIds);
             await this.storageSettings.putSetting('fetchedRooms', rooms);
-            await this.storageSettings.putSetting('scryptedToken', scryptedToken);
+            // await this.storageSettings.putSetting('scryptedToken', scryptedToken);
             this.roomNameMap = roomNameMap;
         }
     }
@@ -860,7 +863,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
 
         this.deviceTimeoutMap[id] = setTimeout(() => {
             this.console.log(`[${device.name}] End motion timeout`);
-            this.mqttClient.publishDeviceState(device, false, info);
+            this.mqttClient.publishDeviceState(device, false);
         }, motionDuration * 1000);
     }
 
@@ -946,6 +949,10 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
                             const image = await cameraDevice.takePicture();
                             this.lastPicture = cameraDevice.takePicture();
                             const { externalUrl, haUrl } = this.getUrls(cameraDevice.id, currentTime);
+                            this.console.log(`[${deviceName}] URLs built: ${JSON.stringify({
+                                externalUrl,
+                                haUrl,
+                            })}`);
 
                             if (activeDevicesForReporting.includes(deviceName)) {
                                 this.console.log(`[${deviceName}] Starting startMotionTimeoutAndPublish`);
