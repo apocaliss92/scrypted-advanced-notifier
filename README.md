@@ -71,3 +71,6 @@ Group `Homeassistant utilities`
 ## Todo
 - Add boundary box to the images
 - Add support to nearby locks
+- Send clips (if supported by scrypted, not sure yet)
+
+#### Feel free to reach me out on discord for suggestion or feature requests. This plugin contains the features required in my personal case, but there could be more!
