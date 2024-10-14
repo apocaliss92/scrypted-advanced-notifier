@@ -1,4 +1,4 @@
-import sdk, { Camera, EventListenerRegister, MediaObject, MixinProvider, Notifier, ObjectDetectionResult, ObjectDetector, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { Camera, EventListenerRegister, MediaObject, MixinProvider, Notifier, ObjectDetectionResult, ObjectDetector, RequestPictureOptions, ResponsePictureOptions, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import axios from "axios";
 import { sortBy } from 'lodash';
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
@@ -60,6 +60,7 @@ class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settin
             hide: true,
             subgroup: 'Detection',
             choices: [],
+            defaultValue: ['person']
         },
         motionActiveDuration: {
             subgroup: 'Detection',
@@ -67,20 +68,11 @@ class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settin
             description: 'How many seconds the motion sensors should stay active',
             type: 'number',
         },
-        personThreshold: {
-            title: 'Person threshold',
+        scoreThreshold: {
+            title: 'Default score threshold',
             subgroup: 'Detection',
             type: 'number',
-        },
-        animalThreshold: {
-            title: 'Animal threshold',
-            subgroup: 'Detection',
-            type: 'number',
-        },
-        vehicleThreshold: {
-            title: 'Vehicle threshold',
-            subgroup: 'Detection',
-            type: 'number',
+            readonly: true,
         },
         haActions: {
             title: 'HA actions',
@@ -127,19 +119,45 @@ class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settin
                 const choices = detectionClasses?.value ?? [];
                 return {
                     choices,
-                    defaultValue: choices.includes('person') ? ['person'] : [],
                 }
+            };
+            this.storageSettings.settings.detectionClasses.onPut = async (detectionClasses) => {
+                this.console.log(detectionClasses);
             };
 
             this.storageSettings.settings.whitelistedZones.hide = false;
             this.storageSettings.settings.blacklistedZones.hide = false;
             this.storageSettings.settings.alwaysZones.hide = false;
             this.storageSettings.settings.detectionClasses.hide = false;
+
+            this.initValues().then().catch(this.console.log)
         }
     }
 
+    async initValues() {
+        const mainPluginDevice = systemManager.getDeviceByName('Homeassistant utilities') as unknown as Settings;
+        const settings = await mainPluginDevice.getSettings() as Setting[];
+        const scoreThreshold = settings.find(setting => setting.key === 'scoreThreshold');
+
+        this.storageSettings.putSetting('scoreThreshold', scoreThreshold?.value ?? 0.7);
+    }
+
     async getMixinSettings(): Promise<Setting[]> {
-        return this.storageSettings.getSettings();
+        const settings: Setting[] = await this.storageSettings.getSettings();
+
+        const detectionClasses = this.storageSettings.getItem('detectionClasses') ?? [];
+        for (const detectionClass of detectionClasses) {
+            const key = `${detectionClass}:scoreThreshold`;
+            settings.push({
+                key,
+                title: `Score threshold for ${detectionClass}`,
+                subgroup: 'Detection',
+                type: 'number',
+                value: this.storageSettings.getItem(key as any)
+            })
+        }
+
+        return settings;
     }
 
     async putMixinSetting(key: string, value: string) {
@@ -147,7 +165,7 @@ class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settin
     }
 }
 
-export default class DeviceMetadataProvider extends ScryptedDeviceBase implements MixinProvider {
+export default class DeviceMetadataProvider extends ScryptedDeviceBase implements MixinProvider, Camera {
     private deviceHaEntityMap: Record<string, string> = {};
     private haEntityDeviceMap: Record<string, string> = {};
     private deviceVideocameraMap: Record<string, string> = {};
@@ -158,6 +176,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
     private roomNameMap: Record<string, string> = {}
     private mqttClient: MqttClient;
     private deviceTimeoutMap: Record<string, NodeJS.Timeout> = {};
+    private lastPicture: Promise<MediaObject>;
 
     storageSettings = new StorageSettings(this, {
         serverId: {
@@ -199,10 +218,6 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
             type: 'string',
             defaultValue: []
         },
-        accessToken: {
-            title: 'Personal access token',
-            type: 'string',
-        },
         scryptedTokenEntity: {
             title: 'HA sensor entityId',
             description: 'Where the scrypted token is stored, the prefix is enough',
@@ -219,6 +234,10 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
             title: 'Use HA plugin credentials',
             type: 'boolean',
             immediate: true,
+        },
+        accessToken: {
+            title: 'Personal access token',
+            type: 'string',
         },
         address: {
             title: 'Address',
@@ -239,14 +258,14 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         fetchedEntities: {
             group: 'Fetched entities',
             title: '',
-            subgroup: 'Rooms',
+            subgroup: 'Entities',
             readonly: true,
             multiple: true,
         },
         fetchedRooms: {
             group: 'Fetched entities',
             title: '',
-            subgroup: 'Entities',
+            subgroup: 'Rooms',
             readonly: true,
             multiple: true,
         },
@@ -335,30 +354,18 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
             type: 'number',
             defaultValue: 30,
         },
-        personThreshold: {
-            group: 'Detection',
-            title: 'Person threshold',
-            type: 'number',
-            defaultValue: 0.8
-        },
-        animalThreshold: {
-            group: 'Detection',
-            title: 'Animal threshold',
-            type: 'number',
-            defaultValue: 0.7
-        },
-        vehicleThreshold: {
-            group: 'Detection',
-            title: 'Vehicle threshold',
-            type: 'number',
-            defaultValue: 0.7
-        },
         requireScryptedNvrDetections: {
             group: 'Detection',
             title: 'Require Scrypted Detections',
             description: 'When enabled, this sensor will ignore onboard camera detections.',
             type: 'boolean',
             defaultValue: true,
+        },
+        scoreThreshold: {
+            title: 'Default score threshold',
+            group: 'Detection',
+            type: 'number',
+            defaultValue: 0.7,
         },
     });
 
@@ -405,8 +412,16 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         this.storageSettings.settings.mqttActiveEntitiesTopic.onPut = () => this.setupMqttClient();
 
         this.setupMqttClient();
-        this.initDevices().then(() => start());
+        this.initDevices().then(() => start()).catch(console.log);;
         this.startCheckAlwaysActiveDevices().then().catch(console.log);
+    }
+
+    takePicture(options?: RequestPictureOptions): Promise<MediaObject> {
+        return this.lastPicture;
+    }
+
+    getPictureOptions(): Promise<ResponsePictureOptions[]> {
+        return;
     }
 
     private setupMqttClient() {
@@ -533,6 +548,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         if (mqttActiveEntitiesTopic) {
             this.mqttClient.subscribeToHaTopics(mqttActiveEntitiesTopic, (topic, message) => {
                 if (topic === mqttActiveEntitiesTopic) {
+                    this.console.log(`Received update for ${mqttActiveEntitiesTopic} topic: ${JSON.stringify(message)}`);
                     this.syncHaEntityIds(message);
                 }
             });
@@ -685,23 +701,14 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
     async releaseMixin(id: string, mixinDevice: any): Promise<void> {
     }
 
-    private getAllowedDetectionFinder(deviceSettings: Setting[]) {
+    private getAllowedDetectionFinder(deviceSettings: Setting[], deviceName: string) {
         const detectionClasses = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:detectionClasses')?.value as string[]) ?? [];
         const whitelistedZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:whitelistedZones')?.value as string[]) ?? [];
         const blacklistedZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:blacklistedZones')?.value as string[]) ?? [];
         const alwaysZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:alwaysZones')?.value as string[]) ?? [];
 
-        const deviceVehicleThreshold = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:vehicleThreshold')?.value as number);
-        const devicePersonThreshold = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:personThreshold')?.value as number);
-        const deviceAnimalThreshold = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:animalThreshold')?.value as number);
-        const mainVehicleThreshold = this.storageSettings.getItem('vehicleThreshold');
-        const mainPersonThreshold = this.storageSettings.getItem('personThreshold');
-        const mainAnimalThreshold = this.storageSettings.getItem('animalThreshold');
         const requireScryptedNvrDetections = this.storageSettings.getItem('requireScryptedNvrDetections');
-
-        const personThreshold = devicePersonThreshold || mainPersonThreshold || 0.8;
-        const vehicleThreshold = deviceVehicleThreshold || mainVehicleThreshold || 0.7;
-        const animalThreshold = deviceAnimalThreshold || mainAnimalThreshold || 0.7;
+        const scoreThreshold = this.storageSettings.getItem('scoreThreshold');
 
         return (detections: ObjectDetectionResult[]) => {
             const filterByClassNameAndScore = detections.filter(detection => {
@@ -713,13 +720,12 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
                     if (detectionClass !== detection.className) {
                         return false;
                     }
+                    const detectionClassScoreThreshold = deviceSettings.find(setting => setting.key === `homeassistantMetadata:${detectionClass}:scoreThreshold`)?.value as number;
 
-                    const scoreToUse = detectionClass === 'person' ? personThreshold :
-                        detectionClass === 'animal' ? animalThreshold :
-                            detectionClass === 'vehicle' ? vehicleThreshold : 0.7;
+                    const scoreToUse = detectionClassScoreThreshold || scoreThreshold || 0.7;
 
                     if (detection.score > scoreToUse) {
-                        this.console.log(`Found a detection for class ${detectionClass} with score ${detection.score} (min ${scoreToUse})`);
+                        this.console.log(`[${deviceName}] Found a detection for class ${detectionClass} with score ${detection.score} (min ${scoreToUse}). Override is ${detectionClassScoreThreshold}`);
                         return true;
                     }
 
@@ -733,7 +739,13 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
                 const isExcluded = blacklistedZones.length ? detectionZones.some(zone => blacklistedZones.includes(zone)) : false;
 
                 if (isAlwaysIncluded || (isIncluded && !isExcluded)) {
-                    this.console.log(`Detection found because zones ${detection.zones} and alwaysZones ${alwaysZones}, whitelisted ${whitelistedZones}, blacklisted ${blacklistedZones}. Detection is ${JSON.stringify(detection)}`);
+                    this.console.log(`[${deviceName}] Found detection: ${JSON.stringify({
+                        detection,
+                        blacklistedZones,
+                        whitelistedZones,
+                        alwaysZones,
+                        detectionClasses
+                    })}`);
                     return true;
                 }
             })
@@ -815,7 +827,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         }
     ) {
         const { detection, device, deviceSettings, externalUrl, image } = props;
-        const { id, name } = device;
+        const { id } = device;
         const mainMotionDuration = this.storageSettings.getItem('motionActiveDuration');
         const deviceMotionDuration = deviceSettings.find(setting => setting.key === 'homeassistantMetadata:motionActiveDuration')?.value;
         const motionDuration = deviceMotionDuration ?? mainMotionDuration ?? 30;
@@ -828,7 +840,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
             scryptedUrl: externalUrl,
             detection,
         };
-        this.mqttClient.publishDeviceState(id, true, info);
+        this.mqttClient.publishDeviceState(device, true, info);
 
         const currentTimeout = this.deviceTimeoutMap[id];
         if (currentTimeout) {
@@ -836,7 +848,8 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         }
 
         this.deviceTimeoutMap[id] = setTimeout(() => {
-            this.mqttClient.publishDeviceState(id, false, info);
+            this.console.log(`[${device.name}] End motion timeout`);
+            this.mqttClient.publishDeviceState(device, false, info);
         }, motionDuration * 1000);
     }
 
@@ -872,17 +885,23 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
             activeDevicesForReporting.forEach(device => !allActiveDevices.includes(device) && allActiveDevices.push(device));
 
             this.console.log(`Starting listeners for ${allActiveDevices.length} with ${allActiveDevicesForNotifications.length} for notifications and ${activeDevicesForReporting.length} for reporting`);
+            this.console.log(`Devices: ${JSON.stringify({
+                activeDevicesForNotifications,
+                alwaysActiveDevicesForNotifications,
+                activeDevicesForReporting,
+                allActiveDevices,
+            })}`);
             for (const deviceName of allActiveDevices) {
                 try {
                     const device = systemManager.getDeviceByName(deviceName) as unknown as (Camera & ScryptedDeviceBase & Settings);
                     const deviceId = device.id;
                     const deviceSettings = await device.getSettings();
                     if (activeDevicesForReporting.includes(deviceName)) {
-                        this.mqttClient?.setupDeviceAutodiscovery(deviceId, deviceName, deviceSettings);
+                        this.mqttClient?.setupDeviceAutodiscovery(device, deviceName, deviceSettings);
                     }
                     const room = this.deviceRoomMap[deviceName];
                     const deviceType = this.deviceTypeMap[deviceName];
-                    const findAllowedDetection = this.getAllowedDetectionFinder(deviceSettings)
+                    const findAllowedDetection = this.getAllowedDetectionFinder(deviceSettings, deviceName)
                     if ([ScryptedDeviceType.Camera, ScryptedDeviceType.Doorbell].includes(deviceType)) {
                         const listener = systemManager.listenDevice(deviceId, 'ObjectDetector', async (source, details, data) => {
                             const { delayDone, currentTime } = this.checkDeviceLastDetection(deviceName, minDelay);
@@ -890,15 +909,17 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
                                 return;
                             }
 
-                            const foundDetection = findAllowedDetection(data.detections);
+                            const foundDetection = findAllowedDetection(data.detections,);
 
                             if (foundDetection) {
                                 this.deviceLastDetectionMap[deviceName] = currentTime;
                                 const notifiers = this.storageSettings.getItem('notifiers') as string[];
                                 const image = await device.takePicture();
+                                this.lastPicture = device.takePicture();
                                 const { externalUrl, haUrl } = this.getUrls(device.id, currentTime);
 
                                 if (activeDevicesForReporting.includes(deviceName)) {
+                                    this.console.log(`[${deviceName}] Starting startMotionTimeoutAndPublish`);
                                     await this.startMotionTimeoutAndPublish({
                                         device,
                                         detection: foundDetection,
@@ -906,10 +927,12 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
                                         image,
                                         externalUrl
                                     });
+                                } else {
+                                    this.console.log(`[${deviceName}] Skip startMotionTimeoutAndPublish`);
                                 }
 
-                                if (activeDevicesForNotifications.includes(deviceName)) {
-                                    this.console.log(`${deviceName}: sending image to ${notifiers.length} notifiers`);
+                                if (allActiveDevicesForNotifications.includes(deviceName)) {
+                                    this.console.log(`[${deviceName}] Sending image to ${notifiers.length} notifiers`);
                                     for (const notifierId of notifiers) {
                                         const eventDescription = this.replaceVariables({
                                             detection: foundDetection,
@@ -934,6 +957,8 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
                                             }
                                         }, image)
                                     }
+                                } else {
+                                    this.console.log(`[${deviceName}] Skip notify`);
                                 }
                             }
                         });
@@ -957,6 +982,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
 
                                 const notifiers = this.storageSettings.getItem('notifiers') as string[];
                                 const image = await linkedCamera.takePicture();
+                                this.lastPicture = device.takePicture();
                                 const { externalUrl, haUrl } = this.getUrls(device.id, currentTime);
 
                                 // if (activeDevicesForReporting.includes(deviceName)) {
@@ -964,7 +990,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
                                 // }
 
                                 if (activeDevicesForNotifications.includes(deviceName)) {
-                                    this.console.log(`${deviceName}: sending image to ${notifiers.length} notifiers`);
+                                    this.console.log(`[${deviceName}] Sending image to ${notifiers.length} notifiers`);
                                     for (const notifierId of notifiers) {
                                         const eventDescription = this.replaceVariables({
                                             detectionTime: currentTime,

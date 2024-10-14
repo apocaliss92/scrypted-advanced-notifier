@@ -1,6 +1,6 @@
 import { connect, Client } from 'mqtt';
 import { DeviceType } from './types';
-import { Setting } from '@scrypted/sdk';
+import { ScryptedDeviceBase, Setting } from '@scrypted/sdk';
 
 export const ACTIVE_DEVICES_ID = 'active_devices';
 
@@ -46,13 +46,13 @@ export default class MqttClient {
         return this.mqttClient;
     }
 
-    publish(topic: string, value: any) {
+    publish(device: ScryptedDeviceBase, topic: string, value: any) {
         if (typeof value === 'object')
             value = JSON.stringify(value);
         if (value.constructor.name !== Buffer.name)
             value = value.toString();
 
-        this.console.log(`Publishing ${topic}`);
+        this.console.log(`[${device.name}] Publishing ${topic}`);
         this.getMqttClient().publish(topic, value, { retain: true });
     }
 
@@ -60,7 +60,8 @@ export default class MqttClient {
     // this.getMqttClient().subscribe(topic, value, { retain: true });
     // }
 
-    private getMqttTopics(deviceId: string) {
+    private getMqttTopics(device: ScryptedDeviceBase) {
+        const deviceId = device.id;
         let sensorTopic: string;
         let autodiscoveryTopic: string;
 
@@ -81,13 +82,14 @@ export default class MqttClient {
         }
     }
 
-    setupDeviceAutodiscovery(id: string, name: string, deviceSettings: Setting[]) {
+    setupDeviceAutodiscovery(device: ScryptedDeviceBase, name: string, deviceSettings: Setting[]) {
+        const id = device.id;
         if (this.autodiscoveryPublishedMap[id]) {
             return;
         }
         const deviceClass = deviceSettings.find(setting => setting.key === 'homeassistantMetadata:haDeviceClass')?.value as string;
 
-        const { autodiscoveryTopic, sensorInfoTopic, sensorTopic } = this.getMqttTopics(id);
+        const { autodiscoveryTopic, sensorInfoTopic, sensorTopic } = this.getMqttTopics(device);
 
         const config = {
             state_topic: sensorTopic,
@@ -104,19 +106,20 @@ export default class MqttClient {
             object_id: `${name}_triggered`,
             device_class: deviceClass
         };
-        this.publish(autodiscoveryTopic, JSON.stringify(config));
+        this.publish(device, autodiscoveryTopic, JSON.stringify(config));
         this.autodiscoveryPublishedMap[id] = true;
     }
 
-    publishDeviceState(deviceId: string, value: boolean, info?: any) {
-        const { sensorTopic, sensorInfoTopic } = this.getMqttTopics(deviceId);
+    publishDeviceState(device: ScryptedDeviceBase, value: boolean, info?: any) {
+        const deviceId = device.id;
+        const { sensorTopic, sensorInfoTopic } = this.getMqttTopics(device);
 
         if (value === this.lastSetMap[sensorTopic]) {
             return;
         }
 
-        this.publish(sensorTopic, value);
-        info && this.publish(sensorInfoTopic, info);
+        this.publish(device, sensorTopic, value);
+        info && this.publish(device, sensorInfoTopic, info);
         this.lastSetMap[sensorTopic] = value;
     }
 
