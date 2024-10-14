@@ -474,7 +474,6 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
                     const linkedCamera = systemManager.getDeviceByName(linkedCameraName) as unknown as Settings;
                     const linkedCameraSettings = await linkedCamera.getSettings();
                     const skipDoorbellNotifications = linkedCameraSettings.find(setting => setting.key === 'homeassistantMetadata:skipDoorbellNotifications')?.value as boolean;
-                    this.console.log(`SkipNotification for ${linkedCamera} is ${skipDoorbellNotifications}`);
                     !skipDoorbellNotifications && forcedActiveDevices.push(deviceName);
                 }
             }
