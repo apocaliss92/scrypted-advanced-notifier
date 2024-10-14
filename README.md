@@ -73,4 +73,4 @@ Group `Homeassistant utilities`
 - Add support to nearby locks
 - Send clips (if supported by scrypted, not sure yet)
 
-#### Feel free to reach me out on discord for suggestion or feature requests. This plugin contains the features required in my personal case, but there could be more!
+#### Feel free to reach me out on discord (@apocaliss92) for suggestion or feature requests. This plugin contains the features required in my personal case, but there could be more!
