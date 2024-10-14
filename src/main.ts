@@ -688,7 +688,6 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
             ScryptedInterface.Camera,
             ScryptedInterface.VideoCamera,
             ScryptedInterface.BinarySensor,
-            ScryptedInterface.MotionSensor,
             ScryptedInterface.Lock
         ].some(int => interfaces.includes(int)) ?
             [
