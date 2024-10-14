@@ -310,28 +310,28 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
             group: 'Texts',
             title: 'Person detected text',
             type: 'string',
-            description: 'Expression used to render the text when a person is detected. Available arguments ${room} ${time}',
+            description: 'Expression used to render the text when a person is detected. Available arguments ${room} ${time} ${nvrLink}',
             defaultValue: 'Person detected in ${room}'
         },
         familiarDetectedText: {
             group: 'Texts',
             title: 'Familiar detected text',
             type: 'string',
-            description: 'Expression used to render the text when a familiar is detected. Available arguments ${room} ${time} ${person}',
+            description: 'Expression used to render the text when a familiar is detected. Available arguments ${room} ${time} ${person} ${nvrLink}',
             defaultValue: '${person} detected in ${room}'
         },
         animalDetectedText: {
             group: 'Texts',
             title: 'Animal detected text',
             type: 'string',
-            description: 'Expression used to render the text when an animal is detected. Available arguments ${room} ${time}',
+            description: 'Expression used to render the text when an animal is detected. Available arguments ${room} ${time} ${nvrLink}',
             defaultValue: 'Animal detected in ${room}'
         },
         vehicleDetectedText: {
             group: 'Texts',
             title: 'Vehicle detected text',
             type: 'string',
-            description: 'Expression used to render the text when a vehicle is detected. Available arguments ${room} ${time}',
+            description: 'Expression used to render the text when a vehicle is detected. Available arguments ${room} ${time} ${nvrLink}',
             defaultValue: 'Vehicle detected in ${room}'
         },
         doorbellText: {
@@ -345,7 +345,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
             group: 'Texts',
             title: 'Door/Window open text',
             type: 'string',
-            description: 'Expression used to render the text when a binary sensor opens. Available arguments ${room} $[time}',
+            description: 'Expression used to render the text when a binary sensor opens. Available arguments ${room} $[time} ${nvrLink}',
             defaultValue: 'Door/window opened in ${room}'
         },
         motionActiveDuration: {
@@ -461,7 +461,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
                     forcedActiveDevices.push(deviceName);
                 }
 
-                if(this.doorbellDevices.includes(deviceName)) {
+                if (this.doorbellDevices.includes(deviceName)) {
                     forcedActiveDevices.push(deviceName);
                 }
                 // const linkedDevice = this.deviceVideocameraMap[deviceName];
@@ -580,16 +580,6 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         for (const notifierId of notifiers) {
             const notifier = systemManager.getDeviceById(notifierId) as unknown as ScryptedDeviceBase;
             const notifierName = notifier.name;
-
-            const key = `notifier:${notifierId}:addNvrLink`;
-            settings.push({
-                key,
-                title: 'Add NVR link as body',
-                type: 'boolean',
-                group: 'Notifier',
-                subgroup: `${notifierName}`,
-                value: this.storage.getItem(key),
-            });
 
             textSettings.forEach(textSetting => {
                 const key = `notifier:${notifierId}:${textSetting.key}`;
@@ -773,7 +763,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         const nvrUrl = this.storageSettings.getItem('nvrUrl');
         const scryptedToken = this.storageSettings.getItem('scryptedToken');
 
-        const timelinePart = `#/timeline/${cameraId}?time=${time}&from=notification&serverId=24bc664f9d49dbf1&disableTransition=true`;
+        const timelinePart = `#/timeline/${cameraId}?time=${time}&from=notification&serverId=${serverId}&disableTransition=true`;
         const haUrl = `/api/scrypted/${scryptedToken}/endpoint/@scrypted/nvr/public/${timelinePart}`
         const externalUrl = `${nvrUrl}/${timelinePart}`
         return { externalUrl: externalUrl, haUrl: `/scrypted_${scryptedToken}?url=${encodeURIComponent(haUrl)}` }
@@ -784,12 +774,13 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
             room: string,
             detectionTime: number,
             detection?: ObjectDetectionResult,
-            isDoorbell?: boolean,
+            isDoorbelButton?: boolean,
             isBooleanSensor?: boolean,
-            notifierId: string
+            notifierId: string,
+            externalUrl: string,
         }
     ) {
-        const { detection, detectionTime, isDoorbell, notifierId, room, isBooleanSensor } = props;
+        const { detection, detectionTime, isDoorbelButton, notifierId, room, isBooleanSensor, externalUrl } = props;
         const detectionClass = detection?.className;
         const detectionLabel = detection?.label;
 
@@ -803,9 +794,9 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
 
         let textToUse: string;
 
-        if (isDoorbell) {
+        if (isDoorbelButton) {
             textToUse = doorbellText;
-        } if (isBooleanSensor) {
+        } else if (isBooleanSensor) {
             textToUse = doorWindowText;
         } else {
             switch (detectionClass) {
@@ -829,6 +820,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         const time = eval(detectionTimeText.replace('${time}', detectionTime));
         return textToUse.toString()
             .replace('${time}', time)
+            .replace('${nvrLink}', externalUrl)
             .replace('${person}', detectionLabel)
             .replace('${room}', room);
     }
@@ -836,7 +828,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
     async startMotionTimeoutAndPublish(
         props: {
             device: ScryptedDeviceBase,
-            detection: ObjectDetectionResult | undefined,
+            detection?: ObjectDetectionResult,
             deviceSettings: Setting[],
             image: MediaObject,
             externalUrl: string,
@@ -918,126 +910,83 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
                     const room = this.deviceRoomMap[deviceName];
                     const deviceType = this.deviceTypeMap[deviceName];
                     const findAllowedDetection = this.getAllowedDetectionFinder(deviceSettings, deviceName)
-                    if ([ScryptedDeviceType.Camera, ScryptedDeviceType.Doorbell].includes(deviceType)) {
-                        const listener = systemManager.listenDevice(deviceId, 'ObjectDetector', async (source, details, data) => {
-                            const { delayDone, currentTime } = this.checkDeviceLastDetection(deviceName, minDelay);
-                            if (!delayDone) {
-                                return;
-                            }
 
-                            const foundDetection = findAllowedDetection(data.detections,);
+                    const isCamera = [ScryptedDeviceType.Camera, ScryptedDeviceType.Doorbell].includes(deviceType);
+                    const isBooleanSensor = deviceType === ScryptedDeviceType.Sensor;
 
-                            if (foundDetection) {
-                                this.deviceLastDetectionMap[deviceName] = currentTime;
-                                const notifiers = this.storageSettings.getItem('notifiers') as string[];
-                                const image = await device.takePicture();
-                                this.lastPicture = device.takePicture();
-                                const { externalUrl, haUrl } = this.getUrls(device.id, currentTime);
+                    const linkedCameraName = isCamera ? deviceName : this.deviceVideocameraMap[deviceName];
+                    const isDoorbelButton = isBooleanSensor && this.deviceTypeMap[linkedCameraName] === ScryptedDeviceType.Doorbell
 
-                                if (activeDevicesForReporting.includes(deviceName)) {
-                                    this.console.log(`[${deviceName}] Starting startMotionTimeoutAndPublish`);
-                                    await this.startMotionTimeoutAndPublish({
-                                        device,
-                                        detection: foundDetection,
-                                        deviceSettings,
-                                        image,
-                                        externalUrl
-                                    });
-                                } else {
-                                    this.console.log(`[${deviceName}] Skip startMotionTimeoutAndPublish`);
-                                }
-
-                                if (allActiveDevicesForNotifications.includes(deviceName)) {
-                                    this.console.log(`[${deviceName}] Sending image to ${notifiers.length} notifiers`);
-                                    for (const notifierId of notifiers) {
-                                        const eventDescription = this.replaceVariables({
-                                            detection: foundDetection,
-                                            detectionTime: currentTime,
-                                            notifierId: notifierId,
-                                            room: this.roomNameMap[room]
-                                        });
-                                        const addNvrLink = JSON.parse(this.storageSettings.getItem(`notifier:${notifierId}:addNvrLink` as any) || 'false');
-                                        const body = addNvrLink ? `${eventDescription} - ${externalUrl}` : eventDescription;
-                                        const notifier = systemManager.getDeviceById(notifierId) as unknown as (Notifier & ScryptedDevice);
-
-                                        const haActions = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:haActions')?.value as string[]) ?? [];
-
-                                        await notifier.sendNotification(deviceName, {
-                                            body,
-                                            data: {
-                                                ha: {
-                                                    url: haUrl,
-                                                    clickAction: haUrl,
-                                                    actions: haActions.length ? haActions.map(action => JSON.parse(action)) : undefined,
-                                                }
-                                            }
-                                        }, image)
-                                    }
-                                } else {
-                                    this.console.log(`[${deviceName}] Skip notify`);
-                                }
-                            }
-                        });
-                        this.activeListeners.push({ listener, deviceName });
-                    } else if (deviceType === ScryptedDeviceType.Sensor) {
-                        const linkedCameraName = this.deviceVideocameraMap[deviceName];
-                        if (linkedCameraName) {
-                            const linkedCamera = systemManager.getDeviceByName(linkedCameraName) as unknown as (Camera);
-                            const listener = systemManager.listenDevice(deviceId, 'BinarySensor', async (_, __, isActive) => {
-                                if (!isActive) {
-                                    return;
-                                }
-                                const { delayDone, currentTime } = this.checkDeviceLastDetection(deviceName, minDelay);
-                                if (!delayDone) {
-                                    return;
-                                }
-
-                                this.deviceLastDetectionMap[deviceName] = currentTime;
-                                const isDoorbellButton = this.deviceTypeMap[linkedCameraName] === ScryptedDeviceType.Doorbell;
-
-
-                                const notifiers = this.storageSettings.getItem('notifiers') as string[];
-                                const image = await linkedCamera.takePicture();
-                                this.lastPicture = device.takePicture();
-                                const { externalUrl, haUrl } = this.getUrls(device.id, currentTime);
-
-                                // if (activeDevicesForReporting.includes(deviceName)) {
-                                //     await this.startMotionTimeoutAndPublish(device, foundDetection, deviceSettings, image, externalUrl);
-                                // }
-
-                                if (activeDevicesForNotifications.includes(deviceName)) {
-                                    this.console.log(`[${deviceName}] Sending image to ${notifiers.length} notifiers`);
-                                    for (const notifierId of notifiers) {
-                                        const eventDescription = this.replaceVariables({
-                                            detectionTime: currentTime,
-                                            notifierId: notifierId,
-                                            room: this.roomNameMap[room],
-                                            isDoorbell: isDoorbellButton,
-                                            isBooleanSensor: !isDoorbellButton,
-                                        });
-                                        const addNvrLink = JSON.parse(this.storageSettings.getItem(`notifier:${notifierId}:addNvrLink` as any) || 'false');
-                                        const body = addNvrLink ? `${eventDescription} - ${externalUrl}` : eventDescription;
-                                        const notifier = systemManager.getDeviceById(notifierId) as unknown as (Notifier & ScryptedDevice);
-
-                                        const haActions = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:haActions')?.value as string[]) ?? [];
-
-                                        await notifier.sendNotification(deviceName, {
-                                            body,
-                                            data: {
-                                                ha: {
-                                                    url: haUrl,
-                                                    clickAction: haUrl,
-                                                    actions: haActions.length ? haActions.map(action => JSON.parse(action)) : undefined,
-                                                }
-                                            }
-                                        }, image)
-                                    }
-                                }
-
-                            });
-                            this.activeListeners.push({ listener, deviceName });
+                    const event = isCamera ? 'ObjectDetector' : 'BinarySensor';
+                    const listener = systemManager.listenDevice(deviceId, event, async (_, __, data) => {
+                        const { delayDone, currentTime } = this.checkDeviceLastDetection(deviceName, minDelay);
+                        if (!delayDone) {
+                            return;
                         }
-                    }
+
+                        const foundDetection = isCamera ? findAllowedDetection(data.detections) : undefined;
+
+                        if ((isCamera && foundDetection) || (isBooleanSensor && !data) || (isDoorbelButton && data)) {
+                            this.console.log(`[${deviceName}] Received event ${event}: ${JSON.stringify(data)}. ${JSON.stringify({
+                                isCamera,
+                                isBooleanSensor,
+                                isDoorbelButton,
+                                linkedCameraName,
+                                event
+                            })}`)
+                            this.deviceLastDetectionMap[deviceName] = currentTime;
+                            const notifiers = this.storageSettings.getItem('notifiers') as string[];
+                            const cameraDevice = isCamera ? device : systemManager.getDeviceByName(linkedCameraName) as unknown as (Camera & ScryptedDeviceBase);
+                            const image = await cameraDevice.takePicture();
+                            this.lastPicture = cameraDevice.takePicture();
+                            const { externalUrl, haUrl } = this.getUrls(cameraDevice.id, currentTime);
+
+                            if (activeDevicesForReporting.includes(deviceName)) {
+                                this.console.log(`[${deviceName}] Starting startMotionTimeoutAndPublish`);
+                                await this.startMotionTimeoutAndPublish({
+                                    device,
+                                    detection: foundDetection,
+                                    deviceSettings,
+                                    image,
+                                    externalUrl,
+                                });
+                            } else {
+                                this.console.log(`[${deviceName}] Skip startMotionTimeoutAndPublish`);
+                            }
+
+                            if (allActiveDevicesForNotifications.includes(deviceName)) {
+                                this.console.log(`[${deviceName}] Sending image to ${notifiers.length} notifiers`);
+                                for (const notifierId of notifiers) {
+                                    const eventDescription = this.replaceVariables({
+                                        detection: foundDetection,
+                                        externalUrl,
+                                        detectionTime: currentTime,
+                                        notifierId: notifierId,
+                                        room: this.roomNameMap[room],
+                                        isBooleanSensor,
+                                        isDoorbelButton
+                                    });
+                                    const notifier = systemManager.getDeviceById(notifierId) as unknown as (Notifier & ScryptedDevice);
+
+                                    const haActions = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:haActions')?.value as string[]) ?? [];
+
+                                    await notifier.sendNotification(deviceName, {
+                                        body: eventDescription,
+                                        data: {
+                                            ha: {
+                                                url: haUrl,
+                                                clickAction: haUrl,
+                                                actions: haActions.length ? haActions.map(action => JSON.parse(action)) : undefined,
+                                            }
+                                        }
+                                    }, image)
+                                }
+                            } else {
+                                this.console.log(`[${deviceName}] Skip notify`);
+                            }
+                        }
+                    });
+                    this.activeListeners.push({ listener, deviceName });
                 } catch (e) {
                     this.console.log(e);
                 }
