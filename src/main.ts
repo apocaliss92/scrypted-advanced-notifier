@@ -81,6 +81,12 @@ class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settin
             type: 'string',
             multiple: true
         },
+        minDelayTime: {
+            subgroup: 'Notifier',
+            title: 'Minimum notification delay',
+            description: 'Minimum amount of time to wait until a notification is send from the same camera, in seconds',
+            type: 'number',
+        },
     });
 
     constructor(options: SettingsMixinDeviceOptions<any>) {
@@ -275,7 +281,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
             title: 'Minimum notification delay',
             description: 'Minimum amount of time to wait until a notification is send from the same camera, in seconds',
             type: 'number',
-            defaultValue: 10,
+            defaultValue: 30,
         },
         activeDevicesForNotifications: {
             group: 'Notifier',
@@ -402,9 +408,6 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
             await this.startEventsListeners();
         };
         this.storageSettings.settings.alwaysActiveDevicesForNotifications.onPut = async () => {
-            await this.startEventsListeners();
-        };
-        this.storageSettings.settings.minDelayTime.onPut = async () => {
             await this.startEventsListeners();
         };
         this.storageSettings.settings.mqttHost.onPut = () => this.setupMqttClient();
@@ -707,7 +710,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
     async releaseMixin(id: string, mixinDevice: any): Promise<void> {
     }
 
-    private getAllowedDetectionFinder(deviceSettings: Setting[], deviceName: string) {
+    private getAllowedDetectionFinder(deviceName: string, deviceSettings: Setting[]) {
         const detectionClasses = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:detectionClasses')?.value as string[]) ?? [];
         const whitelistedZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:whitelistedZones')?.value as string[]) ?? [];
         const blacklistedZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:blacklistedZones')?.value as string[]) ?? [];
@@ -861,8 +864,12 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         }, motionDuration * 1000);
     }
 
-    checkDeviceLastDetection(deviceName: string, minDelay: number) {
+    checkDeviceLastDetection(deviceName: string, deviceSettings: Setting[]) {
         const currentTime = new Date().getTime();
+        const mainMinDelay = this.storageSettings.getItem('minDelayTime') as number;
+        const deviceMinDelay = deviceSettings.find(setting => setting.key === 'homeassistantMetadata:minDelayTime')?.value as number;
+
+        const minDelay = deviceMinDelay || mainMinDelay || 30;
         const lastDetection = this.deviceLastDetectionMap[deviceName];
         let delayDone;
         if (lastDetection && (currentTime - lastDetection) < 1000 * minDelay) {
@@ -878,7 +885,6 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         const activeDevicesForNotifications = this.storageSettings.getItem('activeDevicesForNotifications') as string[];
         const activeDevicesForReporting = this.storageSettings.getItem('activeDevicesForReporting') as string[];
         const alwaysActiveDevicesForNotifications = this.storageSettings.getItem('alwaysActiveDevicesForNotifications') as string[];
-        const minDelay = this.storageSettings.getItem('minDelayTime') as number;
         if (this.activeListeners.length) {
             this.console.log(`Clearing ${this.activeListeners.length} listeners before starting a new loop: ${this.activeListeners.map(list => list.deviceName)}`);
             this.activeListeners.forEach(listener => listener?.listener?.removeListener());
@@ -909,7 +915,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
                     }
                     const room = this.deviceRoomMap[deviceName];
                     const deviceType = this.deviceTypeMap[deviceName];
-                    const findAllowedDetection = this.getAllowedDetectionFinder(deviceSettings, deviceName)
+                    const findAllowedDetection = this.getAllowedDetectionFinder(deviceName, deviceSettings)
 
                     const isCamera = [ScryptedDeviceType.Camera, ScryptedDeviceType.Doorbell].includes(deviceType);
                     const isBooleanSensor = deviceType === ScryptedDeviceType.Sensor;
@@ -919,7 +925,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
 
                     const event = isCamera ? 'ObjectDetector' : 'BinarySensor';
                     const listener = systemManager.listenDevice(deviceId, event, async (_, __, data) => {
-                        const { delayDone, currentTime } = this.checkDeviceLastDetection(deviceName, minDelay);
+                        const { delayDone, currentTime } = this.checkDeviceLastDetection(deviceName, deviceSettings);
                         if (!delayDone) {
                             return;
                         }
