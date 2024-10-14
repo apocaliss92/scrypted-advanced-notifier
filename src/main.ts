@@ -176,6 +176,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
     private roomNameMap: Record<string, string> = {}
     private mqttClient: MqttClient;
     private deviceTimeoutMap: Record<string, NodeJS.Timeout> = {};
+    private doorbellDevices: string[] = [];
     private lastPicture: Promise<MediaObject>;
 
     storageSettings = new StorageSettings(this, {
@@ -452,11 +453,21 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         const funct = async () => {
             const forcedActiveDevices: string[] = [];
             for (const device of this.getElegibleDevices()) {
+                const deviceName = device.name;
                 const settings = await device.getSettings();
+
                 const alwaysZones = (settings.find(setting => setting.key === 'homeassistantMetadata:alwaysZones')?.value as string[]) ?? [];
                 if (!!alwaysZones?.length) {
-                    forcedActiveDevices.push(device.name);
+                    forcedActiveDevices.push(deviceName);
                 }
+
+                if(this.doorbellDevices.includes(deviceName)) {
+                    forcedActiveDevices.push(deviceName);
+                }
+                // const linkedDevice = this.deviceVideocameraMap[deviceName];
+                // if(linkedDevice && this.deviceTypeMap[linkedDevice] === ScryptedDeviceType.Doorbell) {
+                //     forcedActiveDevices.push(deviceName);
+                // }
             }
 
             if (this.storageSettings.getItem('alwaysActiveDevicesForNotifications')?.toString() !== forcedActiveDevices.toString()) {
@@ -487,6 +498,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
 
     private async initDevices() {
         const devices: string[] = [];
+        const doorbellDevices: string[] = [];
         const haEntities: string[] = [];
         const deviceHaEntityMap: Record<string, string> = {};
         const haEntityDeviceMap: Record<string, string> = {};
@@ -529,7 +541,9 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
                     const doorbellButtonId = settings.find(setting => setting.key === 'replaceBinarySensor:replaceBinarySensor')?.value as string;
                     if (doorbellButtonId) {
                         const sensorDevice = systemManager.getDeviceById(doorbellButtonId);
-                        deviceVideocameraMap[sensorDevice.name] = deviceName;
+                        const sensorName = sensorDevice.name;
+                        doorbellDevices.push(sensorName);
+                        deviceVideocameraMap[sensorName] = deviceName;
                     }
                 }
             }
@@ -542,6 +556,8 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         this.deviceVideocameraMap = deviceVideocameraMap;
         this.deviceTypeMap = deviceTypeMap;
         this.deviceRoomMap = deviceRoomMap;
+        this.doorbellDevices = doorbellDevices;
+        this.console.log('Doorbell devices', doorbellDevices);
         // this.console.log(deviceHaEntityMap, haEntityDeviceMap, deviceVideocameraMap, deviceTypeMap);
 
         const mqttActiveEntitiesTopic = this.storageSettings.getItem('mqttActiveEntitiesTopic');
