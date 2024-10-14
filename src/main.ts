@@ -4,6 +4,7 @@ import { sortBy } from 'lodash';
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import MqttClient from './mqtt-client';
+import { link } from "fs";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -45,8 +46,8 @@ class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settin
             choices: [],
         },
         alwaysZones: {
-            title: 'Always zones',
-            description: 'Zones that will trigger a notification, regardless of the active devices',
+            title: 'Always enabled zones',
+            description: 'Zones that will trigger a notification, regardless of the device is active or not in the main selector',
             multiple: true,
             combobox: true,
             hide: true,
@@ -86,6 +87,13 @@ class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settin
             title: 'Minimum notification delay',
             description: 'Minimum amount of time to wait until a notification is send from the same camera, in seconds',
             type: 'number',
+        },
+        skipDoorbellNotifications: {
+            subgroup: 'Notifier',
+            title: 'Skip doorbell notifications',
+            type: 'boolean',
+            defaultValue: false,
+            hide: true,
         },
     });
 
@@ -135,6 +143,7 @@ class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settin
             this.storageSettings.settings.blacklistedZones.hide = false;
             this.storageSettings.settings.alwaysZones.hide = false;
             this.storageSettings.settings.detectionClasses.hide = false;
+            this.storageSettings.settings.skipDoorbellNotifications.hide = this.type !== ScryptedDeviceType.Doorbell;
 
             this.initValues().then().catch(this.console.log)
         }
@@ -465,12 +474,13 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
                 }
 
                 if (this.doorbellDevices.includes(deviceName)) {
-                    forcedActiveDevices.push(deviceName);
+                    const linkedCameraName = this.deviceVideocameraMap[deviceName];
+                    const linkedCamera = systemManager.getDeviceByName(linkedCameraName) as unknown as Settings;
+                    const linkedCameraSettings = await linkedCamera.getSettings();
+                    const skipDoorbellNotifications = linkedCameraSettings.find(setting => setting.key === 'homeassistantMetadata:skipDoorbellNotifications')?.value as boolean;
+                    this.console.log(`SkipNotification for ${linkedCamera} is ${skipDoorbellNotifications}`);
+                    !skipDoorbellNotifications && forcedActiveDevices.push(deviceName);
                 }
-                // const linkedDevice = this.deviceVideocameraMap[deviceName];
-                // if(linkedDevice && this.deviceTypeMap[linkedDevice] === ScryptedDeviceType.Doorbell) {
-                //     forcedActiveDevices.push(deviceName);
-                // }
             }
 
             if (this.storageSettings.getItem('alwaysActiveDevicesForNotifications')?.toString() !== forcedActiveDevices.toString()) {
