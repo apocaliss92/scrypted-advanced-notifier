@@ -133,7 +133,14 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
             subgroup: 'Webhooks',
             type: 'string',
             readonly: true,
-            // hide: true,
+            onGet: async () => {
+                const { lastEventSnapshotUrl } = await getWebookUrls(this.name);
+                const isWebhookEnabled = this.storageSettings.getItem('lastSnapshotWebhook');
+                return {
+                    hide: !isWebhookEnabled,
+                    value: isWebhookEnabled ? lastEventSnapshotUrl : undefined
+                }
+            }
         },
     });
 
@@ -186,14 +193,6 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
 
             this.initValues().then().catch(this.console.log)
         }
-    }
-
-    async refreshWebhooks() {
-        const lastSnapshotWebhookEnabled = this.storageSettings.getItem('lastSnapshotWebhook');
-        const { lastEventSnapshotUrl } = await getWebookUrls(this.name);
-
-        this.storageSettings.settings.lastSnapshotWebhookUrl.hide = !lastSnapshotWebhookEnabled;
-        this.storageSettings.putSetting('lastSnapshotWebhookUrl', lastSnapshotWebhookEnabled ? lastEventSnapshotUrl : undefined);
     }
 
     async initValues() {
