@@ -1,17 +1,26 @@
-import sdk, { Camera, EventListenerRegister, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ObjectDetector, RequestPictureOptions, ResponsePictureOptions, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, VideoClips, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { EventListenerRegister, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import axios from "axios";
 import { sortBy } from 'lodash';
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import MqttClient from './mqtt-client';
-import { link } from "fs";
-import { time } from "console";
 import { DeviceInterface } from "./types";
 
-const { systemManager, mediaManager } = sdk;
+const { systemManager, mediaManager, endpointManager } = sdk;
 
-class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settings {
+
+const getWebookUrls = async (cameraDevice: string) => {
+    const publicCloudEndpoint = await endpointManager.getPublicCloudEndpoint();
+    const lastEventSnapshotUrl = `snapshots/${cameraDevice}/last`;
+
+    return {
+        lastEventSnapshotUrl: `${publicCloudEndpoint}${lastEventSnapshotUrl}`,
+    }
+}
+
+class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implements Settings {
     storageSettings = new StorageSettings(this, {
+        // METADATA
         room: {
             title: 'Room',
             type: 'string',
@@ -29,6 +38,7 @@ class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settin
             subgroup: 'Metadata',
             defaultValue: 'motion'
         },
+        // DETECTION
         whitelistedZones: {
             title: 'Whitelisted zones',
             description: 'Zones that will trigger a notification',
@@ -79,6 +89,7 @@ class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settin
             readonly: true,
             hide: true,
         },
+        // NOTIFIER
         haActions: {
             title: 'HA actions',
             description: 'Actions to show on the notification, i.e. {"action":"open_door","title":"Open door","icon":"sfsymbols:door"}',
@@ -110,6 +121,19 @@ class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settin
             title: 'Videoclip duration',
             type: 'number',
             hide: true
+        },
+        // WEBHOOKS
+        lastSnapshotWebhook: {
+            subgroup: 'Webhooks',
+            title: 'Last snapshot webhook',
+            type: 'boolean',
+            immediate: true,
+        },
+        lastSnapshotWebhookUrl: {
+            subgroup: 'Webhooks',
+            type: 'string',
+            readonly: true,
+            // hide: true,
         },
     });
 
@@ -164,6 +188,14 @@ class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settin
         }
     }
 
+    async refreshWebhooks() {
+        const lastSnapshotWebhookEnabled = this.storageSettings.getItem('lastSnapshotWebhook');
+        const { lastEventSnapshotUrl } = await getWebookUrls(this.name);
+
+        this.storageSettings.settings.lastSnapshotWebhookUrl.hide = !lastSnapshotWebhookEnabled;
+        this.storageSettings.putSetting('lastSnapshotWebhookUrl', lastSnapshotWebhookEnabled ? lastEventSnapshotUrl : undefined);
+    }
+
     async initValues() {
         if (this.interfaces.includes(ScryptedInterface.VideoCamera)) {
             const mainPluginDevice = systemManager.getDeviceByName('Homeassistant utilities') as unknown as Settings;
@@ -199,7 +231,7 @@ class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settin
     }
 }
 
-export default class DeviceMetadataProvider extends ScryptedDeviceBase implements MixinProvider {
+export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase implements MixinProvider, HttpRequestHandler {
     private deviceHaEntityMap: Record<string, string> = {};
     private haEntityDeviceMap: Record<string, string> = {};
     private deviceVideocameraMap: Record<string, string> = {};
@@ -211,6 +243,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
     private mqttClient: MqttClient;
     private deviceTimeoutMap: Record<string, NodeJS.Timeout> = {};
     private doorbellDevices: string[] = [];
+    private deviceLastSnapshotMap: Record<string, string> = {};
 
     storageSettings = new StorageSettings(this, {
         pluginEnabled: {
@@ -513,6 +546,61 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         this.startCheckAlwaysActiveDevices().then().catch(console.log);
     }
 
+    async onRequest(request: HttpRequest, response: HttpResponse): Promise<void> {
+        const decodedUrl = decodeURIComponent(request.url);
+        const [_, __, ___, ____, _____, webhook, deviceName, spec] = decodedUrl.split('/');
+        const device = sdk.systemManager.getDeviceByName(deviceName) as unknown as (ScryptedDeviceBase & Settings);
+        const deviceSettings = await device.getSettings();
+
+        try {
+            if (deviceSettings) {
+                if (webhook === 'snapshots') {
+                    const isWebhookEnabled = deviceSettings.find(setting => setting.key === 'homeassistantMetadata:lastSnapshotWebhook')?.value as boolean;
+
+                    if (spec === 'last') {
+                        if (isWebhookEnabled) {
+                            const lastSnapshotUrl = this.deviceLastSnapshotMap[deviceName];
+
+                            if (lastSnapshotUrl) {
+                                const mo = await sdk.mediaManager.createFFmpegMediaObject({
+                                    inputArguments: [
+                                        // it may be h264 or h265.
+                                        // '-f', 'h264',
+                                        '-i', lastSnapshotUrl,
+                                    ]
+                                });
+                                const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
+                                response.send(jpeg, {
+                                    headers: {
+                                        'Content-Type': 'image/jpeg',
+                                    }
+                                });
+                                return;
+                            } else {
+                                response.send(`Last snapshot not found for device ${deviceName}`, {
+                                    code: 404,
+                                });
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            response.send(`${JSON.stringify(e)}, ${e.message}`, {
+                code: 400,
+            });
+
+            return;
+        }
+
+        response.send(`Webhook not found`, {
+            code: 404,
+        });
+
+        return;
+    }
+
     private setupMqttClient() {
         const mqttHost = this.storageSettings.getItem('mqttHost');
         const mqttUsename = this.storageSettings.getItem('mqttUsename');
@@ -804,7 +892,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
     }
 
     async getMixin(mixinDevice: any, mixinDeviceInterfaces: ScryptedInterface[], mixinDeviceState: WritableDeviceState): Promise<any> {
-        return new DeviceMetadataMixin({
+        return new HomeAssistantUtilitiesMixin({
             mixinDevice,
             mixinDeviceInterfaces,
             mixinDeviceState,
@@ -943,15 +1031,15 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
 
     async startMotionTimeoutAndPublish(
         props: {
-            device: ScryptedDeviceBase,
+            device: ScryptedDeviceBase & Settings,
             detection?: ObjectDetectionResult,
-            deviceSettings: Setting[],
             image: MediaObject,
             externalUrl: string,
         }
     ) {
-        const { detection, device, deviceSettings, externalUrl, image } = props;
-        const { id } = device;
+        const { detection, device, externalUrl, image } = props;
+        const deviceSettings = await device.getSettings();
+        const { id, name } = device;
         const mainMotionDuration = this.storageSettings.getItem('motionActiveDuration');
         const deviceMotionDuration = deviceSettings.find(setting => setting.key === 'homeassistantMetadata:motionActiveDuration')?.value;
         const motionDuration = deviceMotionDuration ?? mainMotionDuration ?? 30;
@@ -975,6 +1063,9 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
             this.console.log(`[${device.name}] End motion timeout`);
             this.mqttClient.publishDeviceState(device, false);
         }, motionDuration * 1000);
+
+        this.deviceLastSnapshotMap[name] = localImageUrl;
+
     }
 
     checkDeviceLastDetection(deviceName: string, deviceSettings: Setting[]) {
@@ -1123,7 +1214,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
             snapshotWidth: notifierSnapshotWidth || snapshotWidth,
         })}`);
 
-        await notifier.sendNotification((srcDevice ?? device).name, notifierOptions, image)
+        await notifier.sendNotification((srcDevice ?? device).name, notifierOptions, image);
     }
 
     async executeNotificationTest() {
@@ -1276,7 +1367,6 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
                                 await this.startMotionTimeoutAndPublish({
                                     device,
                                     detection: foundDetection,
-                                    deviceSettings,
                                     image,
                                     externalUrl,
                                 });

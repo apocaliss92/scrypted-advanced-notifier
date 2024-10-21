@@ -74,6 +74,9 @@ Group `Homeassistant utilities`
 - `Minimum notification delay`, override of the same plugin config
 - `Skip doorbell notifications`, sensors used as `Custom doorbell button` on the camera will not trigger a notification (available only for Doorbell devices)
 
+## Webhooks
+- `Last snapshot webhook`, enable the last snapshot webhook, below the public url where the image will be available
+
 ## Todo
 - Add boundary box to the images
 - Add support to nearby locks
@@ -87,3 +90,6 @@ Group `Homeassistant utilities`
 - Add configuration to ignore updating MQTT entities with images to reduce the load when no camera is active for notification
 - Add general switch to enable/disable the plugin
 - Add test suit to test a specific combination of camera-notifier-message
+
+0.0.7:
+- Webhooks added
