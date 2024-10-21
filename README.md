@@ -13,6 +13,7 @@ This plugin offers the following parts:
 # Plugin configuration
  After install the plugin a few configurations should be done on the plugin interface
  ## General
+ - Plugin enabled: simple switch to enable/disable the plugin
  - Scrypted token: can be found on homeassistant in the sensor created by the scrypted integration
  - NVR url: URL externally accessible to the NVR interface, default ot `https://nvr.scrypted.app`
  - HA credentials, check the `Use HA plugin credentials` to pick the one used on the main Homeassistant plugin
@@ -48,6 +49,9 @@ This plugin offers the following parts:
  - `Require Scrypted Detections`, ignore detections coming from the camera
  - `Default score threshold`, default minimum score to pick detections, can be overridden per camera-detection class combination
 
+ ## Test
+ Combination of device-notifier-message to send a test notification to
+
 # Mixin configuration
 Group `Homeassistant utilities`
 
@@ -81,3 +85,5 @@ Group `Homeassistant utilities`
 0.0.6:
 - Snapshot configurations added per plugin or notifier
 - Add configuration to ignore updating MQTT entities with images to reduce the load when no camera is active for notification
+- Add general switch to enable/disable the plugin
+- Add test suit to test a specific combination of camera-notifier-message
