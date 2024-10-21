@@ -8,13 +8,33 @@ import { DeviceInterface } from "./types";
 
 const { systemManager, mediaManager, endpointManager } = sdk;
 
-
-const getWebookUrls = async (cameraDevice: string) => {
-    const publicCloudEndpoint = await endpointManager.getPublicCloudEndpoint();
-    const lastEventSnapshotUrl = `snapshots/${cameraDevice}/last`;
+const getWebookSpecs = async () => {
+    const lastSnapshot = 'last';
 
     return {
-        lastEventSnapshotUrl: `${publicCloudEndpoint}${lastEventSnapshotUrl}`,
+        lastSnapshot,
+    }
+}
+
+const getWebookUrls = async (cameraDevice: string, console: Console) => {
+    let lastSnapshotCloudUrl: string;
+    let lastSnapshotLocalUrl: string;
+
+    const { lastSnapshot } = await getWebookSpecs();
+
+    try {
+        const cloudEndpoint = await endpointManager.getPublicCloudEndpoint();
+        const localEndpoint = await endpointManager.getPublicLocalEndpoint();
+
+        lastSnapshotCloudUrl = `${localEndpoint}snapshots/${cameraDevice}/${lastSnapshot}`;
+        lastSnapshotLocalUrl = `${cloudEndpoint}snapshots/${cameraDevice}/${lastSnapshot}`;
+    } catch (e) {
+        console.log('Error fetching webhookUrls', e);
+    }
+
+    return {
+        lastSnapshotCloudUrl,
+        lastSnapshotLocalUrl,
     }
 }
 
@@ -129,16 +149,28 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
             type: 'boolean',
             immediate: true,
         },
-        lastSnapshotWebhookUrl: {
+        lastSnapshotWebhookCloudUrl: {
             subgroup: 'Webhooks',
             type: 'string',
-            readonly: true,
+            title: 'Cloud URL',
+            // readonly: true,
+            // TODO: export on common fn
             onGet: async () => {
-                const { lastEventSnapshotUrl } = await getWebookUrls(this.name);
                 const isWebhookEnabled = this.storageSettings.getItem('lastSnapshotWebhook');
                 return {
                     hide: !isWebhookEnabled,
-                    value: isWebhookEnabled ? lastEventSnapshotUrl : undefined
+                }
+            }
+        },
+        lastSnapshotWebhookLocalUrl: {
+            subgroup: 'Webhooks',
+            type: 'string',
+            title: 'Local URL',
+            // readonly: true,
+            onGet: async () => {
+                const isWebhookEnabled = this.storageSettings.getItem('lastSnapshotWebhook');
+                return {
+                    hide: !isWebhookEnabled,
                 }
             }
         },
@@ -203,6 +235,10 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
 
             this.storageSettings.putSetting('scoreThreshold', scoreThreshold?.value ?? 0.7);
         }
+
+        const { lastSnapshotCloudUrl, lastSnapshotLocalUrl } = await getWebookUrls(this.name, this.console);
+        this.storageSettings.putSetting('lastSnapshotWebhookCloudUrl', lastSnapshotCloudUrl);
+        this.storageSettings.putSetting('lastSnapshotWebhookLocalUrl', lastSnapshotLocalUrl);
     }
 
     async getMixinSettings(): Promise<Setting[]> {
@@ -242,7 +278,6 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
     private mqttClient: MqttClient;
     private deviceTimeoutMap: Record<string, NodeJS.Timeout> = {};
     private doorbellDevices: string[] = [];
-    private deviceLastSnapshotMap: Record<string, string> = {};
 
     storageSettings = new StorageSettings(this, {
         pluginEnabled: {
@@ -496,6 +531,11 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                 await this.executeNotificationTest();
             },
         },
+        deviceLastSnapshotMap: {
+            hide: true,
+            json: true,
+            defaultValue: {}
+        }
     });
 
     constructor(nativeId: string) {
@@ -549,23 +589,25 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         const decodedUrl = decodeURIComponent(request.url);
         const [_, __, ___, ____, _____, webhook, deviceName, spec] = decodedUrl.split('/');
         const device = sdk.systemManager.getDeviceByName(deviceName) as unknown as (ScryptedDeviceBase & Settings);
-        const deviceSettings = await device.getSettings();
-
+        const deviceSettings = await device?.getSettings();
         try {
             if (deviceSettings) {
                 if (webhook === 'snapshots') {
+                    const { lastSnapshot } = await getWebookSpecs();
                     const isWebhookEnabled = deviceSettings.find(setting => setting.key === 'homeassistantMetadata:lastSnapshotWebhook')?.value as boolean;
 
-                    if (spec === 'last') {
+                    if (spec === lastSnapshot) {
                         if (isWebhookEnabled) {
-                            const lastSnapshotUrl = this.deviceLastSnapshotMap[deviceName];
+                            // response.send(`${JSON.stringify(this.storageSettings.getItem('deviceLastSnapshotMap'))}`, {
+                            //     code: 404,
+                            // });
+                            // return;
+                            const { imageUrl } = this.storageSettings.getItem('deviceLastSnapshotMap')[deviceName] ?? {};
 
-                            if (lastSnapshotUrl) {
+                            if (imageUrl) {
                                 const mo = await sdk.mediaManager.createFFmpegMediaObject({
                                     inputArguments: [
-                                        // it may be h264 or h265.
-                                        // '-f', 'h264',
-                                        '-i', lastSnapshotUrl,
+                                        '-i', imageUrl,
                                     ]
                                 });
                                 const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
@@ -576,7 +618,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                                 });
                                 return;
                             } else {
-                                response.send(`Last snapshot not found for device ${deviceName}`, {
+                                response.send(`Last snapshot not found for device ${deviceName} and spec ${spec}`, {
                                     code: 404,
                                 });
                                 return;
@@ -1032,7 +1074,8 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         props: {
             device: ScryptedDeviceBase & Settings,
             detection?: ObjectDetectionResult,
-            image: MediaObject,
+            image?: MediaObject,
+            fullSizeImage?: MediaObject,
             externalUrl: string,
         }
     ) {
@@ -1052,6 +1095,10 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             detection,
         };
         this.mqttClient.publishDeviceState(device, true, info);
+        this.storageSettings.putSetting('deviceLastSnapshotMap', {
+            ...this.storageSettings.getItem('deviceLastSnapshotMap') ?? {},
+            [name]: { imageUrl }
+        });
 
         const currentTimeout = this.deviceTimeoutMap[id];
         if (currentTimeout) {
@@ -1059,12 +1106,9 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         }
 
         this.deviceTimeoutMap[id] = setTimeout(() => {
-            this.console.log(`[${device.name}] End motion timeout`);
+            this.console.log(`[${name}] End motion timeout`);
             this.mqttClient.publishDeviceState(device, false);
         }, motionDuration * 1000);
-
-        this.deviceLastSnapshotMap[name] = localImageUrl;
-
     }
 
     checkDeviceLastDetection(deviceName: string, deviceSettings: Setting[]) {
