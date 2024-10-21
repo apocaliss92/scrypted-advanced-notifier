@@ -31,6 +31,8 @@ This plugin offers the following parts:
  - `Minimum notification delay`, delay between notifications from the same camera, can be overridden on the device
  - `Active devices`, devices enabled for the notifications, they can be manually selected or triggered by the MQTT `Active entities topic` topic
  - `Notifiers`, notifiers to be used to send notifications
+ - `Ignore snapshot on no notifiers`, do not take any snapshot for the cameras not active to notify
+ - `Snapshot width/height` - Dimensions of the snapshot (also enabled in specific notifier tab to be overridden)
 
  ## Texts
  Contains a configurable text contains parameters to show the notification texts. Usefull for translations in local languages. The following parameters can be used:
@@ -71,6 +73,11 @@ Group `Homeassistant utilities`
 ## Todo
 - Add boundary box to the images
 - Add support to nearby locks
-- Send clips (if supported by scrypted, not sure yet)
+- Send clips (Not supported by NVR)
 
 #### Feel free to reach me out on discord (@apocaliss92) for suggestion or feature requests. This plugin contains the features required in my personal case, but there could be more!
+
+### Changelog:
+0.0.6:
+- Snapshot configurations added per plugin or notifier
+- Add configuration to ignore updating MQTT entities with images to reduce the load when no camera is active for notification

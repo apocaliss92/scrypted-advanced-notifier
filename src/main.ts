@@ -1,4 +1,4 @@
-import sdk, { Camera, EventListenerRegister, MediaObject, MixinProvider, Notifier, ObjectDetectionResult, ObjectDetector, RequestPictureOptions, ResponsePictureOptions, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { Camera, EventListenerRegister, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ObjectDetector, RequestPictureOptions, ResponsePictureOptions, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, VideoClips, WritableDeviceState } from "@scrypted/sdk";
 import axios from "axios";
 import { sortBy } from 'lodash';
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
@@ -97,6 +97,18 @@ class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settin
             defaultValue: false,
             hide: true,
         },
+        disableVideoclips: {
+            subgroup: 'Notifier',
+            title: 'Disable videoclips',
+            type: 'boolean',
+            hide: true
+        },
+        videoclipDuration: {
+            subgroup: 'Notifier',
+            title: 'Videoclip duration',
+            type: 'number',
+            hide: true
+        },
     });
 
     constructor(options: SettingsMixinDeviceOptions<any>) {
@@ -185,7 +197,7 @@ class DeviceMetadataMixin extends SettingsMixinDeviceBase<any> implements Settin
     }
 }
 
-export default class DeviceMetadataProvider extends ScryptedDeviceBase implements MixinProvider, Camera {
+export default class DeviceMetadataProvider extends ScryptedDeviceBase implements MixinProvider {
     private deviceHaEntityMap: Record<string, string> = {};
     private haEntityDeviceMap: Record<string, string> = {};
     private deviceVideocameraMap: Record<string, string> = {};
@@ -197,7 +209,6 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
     private mqttClient: MqttClient;
     private deviceTimeoutMap: Record<string, NodeJS.Timeout> = {};
     private doorbellDevices: string[] = [];
-    private lastPicture: Promise<MediaObject>;
 
     storageSettings = new StorageSettings(this, {
         serverId: {
@@ -318,6 +329,11 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
             combobox: true,
             deviceFilter: `(type === '${ScryptedDeviceType.Notifier}')`,
         },
+        ignoreSnapshotIfNoNotifiers: {
+            group: 'Notifier',
+            title: 'Skip snapshot when no no devices active for notifications',
+            type: 'boolean',
+        },
         detectionTimeText: {
             group: 'Texts',
             title: 'Detection time',
@@ -366,6 +382,32 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
             type: 'string',
             description: 'Expression used to render the text when a binary sensor opens. Available arguments ${room} $[time} ${nvrLink}',
             defaultValue: 'Door/window opened in ${room}'
+        },
+        snapshotWidth: {
+            group: 'Notifier',
+            title: 'Snapshot width',
+            type: 'number',
+            defaultValue: 1280
+        },
+        snapshotHeight: {
+            group: 'Notifier',
+            title: 'Snapshot height',
+            type: 'number',
+            defaultValue: 720
+        },
+        sendVideoclip: {
+            group: 'Notifier',
+            title: 'Send videoclip',
+            type: 'boolean',
+            defaultValue: false,
+            hide: true
+        },
+        videoclipDuration: {
+            group: 'Notifier',
+            title: 'Videoclip duration',
+            type: 'number',
+            defaultValue: 10,
+            hide: true
         },
         motionActiveDuration: {
             group: 'Detection',
@@ -431,14 +473,6 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         this.setupMqttClient();
         this.initDevices().then(() => start()).catch(console.log);;
         this.startCheckAlwaysActiveDevices().then().catch(console.log);
-    }
-
-    takePicture(options?: RequestPictureOptions): Promise<MediaObject> {
-        return this.lastPicture;
-    }
-
-    getPictureOptions(): Promise<ResponsePictureOptions[]> {
-        return;
     }
 
     private setupMqttClient() {
@@ -594,6 +628,8 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
 
         const notifiers = this.storageSettings.getItem('notifiers') ?? [];
         const textSettings = settings.filter(setting => setting.group === 'Texts');
+        const notificationSettings = settings.filter(setting => setting.group === 'Notifier')
+            .filter(setting => ['snapshotWidth', 'snapshotHeight', 'videoclipDuration'].includes(setting.key));
 
         for (const notifierId of notifiers) {
             const notifier = systemManager.getDeviceById(notifierId) as unknown as ScryptedDeviceBase;
@@ -607,7 +643,26 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
                     key,
                     subgroup: `${notifierName}`
                 });
-            })
+            });
+
+            notificationSettings.forEach(notificationSetting => {
+                const key = `notifier:${notifierId}:${notificationSetting.key}`;
+                settings.push({
+                    ...notificationSetting,
+                    value: this.storage.getItem(key),
+                    key,
+                    subgroup: `${notifierName}`
+                });
+            });
+
+            // const disableVideoclipsKey = `notifier:${notifierId}:disableVideoclips`;
+            // settings.push({
+            //     key: disableVideoclipsKey,
+            //     type: 'boolean',
+            //     subgroup: `${notifierName}`,
+            //     title: 'Disable videoclips',
+            //     group: 'Notifier'
+            // })
         }
 
         return settings;
@@ -744,7 +799,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
                     const scoreToUse = detectionClassScoreThreshold || scoreThreshold || 0.7;
 
                     if (detection.score > scoreToUse) {
-                        this.console.log(`[${deviceName}] Found a detection for class ${detectionClass} with score ${detection.score} (min ${scoreToUse}). Override is ${detectionClassScoreThreshold}`);
+                        // this.console.log(`[${deviceName}] Found a detection for class ${detectionClass} with score ${detection.score} (min ${scoreToUse}). Override is ${detectionClassScoreThreshold}`);
                         return true;
                     }
 
@@ -891,6 +946,24 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
         return { delayDone, currentTime }
     }
 
+    private async checkVideoclipEnabled(deviceSettings: Setting[], notifierId: string) {
+        const isMainEnabled = this.storageSettings.values.sendVideoclip;
+
+        if (isMainEnabled) {
+            const notifierDisabled = this.storageSettings.getItem(`notifier:${notifierId}:disableVideoclips` as any) as boolean;
+
+            if (!notifierDisabled) {
+                const deviceDisabled = deviceSettings.find(setting => setting.key === 'disableVideoclips')?.value as boolean;
+
+                if (!deviceDisabled) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     async startEventsListeners() {
         const activeDevicesForNotifications = this.storageSettings.getItem('activeDevicesForNotifications') as string[];
         const activeDevicesForReporting = this.storageSettings.getItem('activeDevicesForReporting') as string[];
@@ -917,7 +990,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
             })}`);
             for (const deviceName of allActiveDevices) {
                 try {
-                    const device = systemManager.getDeviceByName(deviceName) as unknown as (Camera & ScryptedDeviceBase & Settings);
+                    const device = systemManager.getDeviceByName(deviceName) as unknown as (Camera & ScryptedDeviceBase & Settings & VideoClips);
                     const deviceId = device.id;
                     const deviceSettings = await device.getSettings();
                     if (activeDevicesForReporting.includes(deviceName)) {
@@ -943,18 +1016,35 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
                         const foundDetection = isCamera ? findAllowedDetection(data.detections) : undefined;
 
                         if ((isCamera && foundDetection) || (isBooleanSensor && !data) || (isDoorbelButton && data)) {
+                            const isNotifierActive = allActiveDevicesForNotifications.includes(deviceName);
+                            this.deviceLastDetectionMap[deviceName] = currentTime;
+                            const notifiers = this.storageSettings.getItem('notifiers') as string[];
+                            const ignoreSnapshotIfNoNotifiers = this.storageSettings.getItem('ignoreSnapshotIfNoNotifiers') as boolean;
+                            const videoclipDurationInSeconds = (deviceSettings.find(setting => setting.key === 'videoclipDuration')?.value || this.storageSettings.getItem('videoclipDuration') || 10) as number;
+                            const snapshotWidth = this.storageSettings.getItem('snapshotWidth') as number;
+                            const snapshotHeight = this.storageSettings.getItem('snapshotHeight') as number;
+                            const cameraDevice = isCamera ? device : systemManager.getDeviceByName(linkedCameraName) as unknown as (Camera & ScryptedDeviceBase & VideoClips);
+
+                            // const videClipFound = cameraDevice.getVideoClips && (await cameraDevice.getVideoClips({ startTime: currentTime - (videoclipDurationInSeconds * 60 * 1000) }))?.[0];
+                            let image = isNotifierActive || !ignoreSnapshotIfNoNotifiers ? (await cameraDevice.takePicture({
+                                reason: 'event',
+                                picture: {
+                                    height: snapshotHeight,
+                                    width: snapshotWidth,
+                                },
+                            })) : undefined;
+
                             this.console.log(`[${deviceName}] Received event ${event}: ${JSON.stringify(data)}. ${JSON.stringify({
                                 isCamera,
                                 isBooleanSensor,
                                 isDoorbelButton,
                                 linkedCameraName,
-                                event
-                            })}`)
-                            this.deviceLastDetectionMap[deviceName] = currentTime;
-                            const notifiers = this.storageSettings.getItem('notifiers') as string[];
-                            const cameraDevice = isCamera ? device : systemManager.getDeviceByName(linkedCameraName) as unknown as (Camera & ScryptedDeviceBase);
-                            const image = await cameraDevice.takePicture();
-                            this.lastPicture = cameraDevice.takePicture();
+                                event,
+                                snapshotHeight,
+                                snapshotWidth,
+                                // videClipFound,
+                            })}`);
+
                             const { externalUrl, haUrl } = this.getUrls(cameraDevice.id, currentTime);
                             this.console.log(`[${deviceName}] URLs built: ${JSON.stringify({
                                 externalUrl,
@@ -974,7 +1064,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
                                 this.console.log(`[${deviceName}] Skip startMotionTimeoutAndPublish`);
                             }
 
-                            if (allActiveDevicesForNotifications.includes(deviceName)) {
+                            if (isNotifierActive) {
                                 this.console.log(`[${deviceName}] Sending image to ${notifiers.length} notifiers`);
                                 for (const notifierId of notifiers) {
                                     const eventDescription = this.replaceVariables({
@@ -988,18 +1078,75 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
                                     });
                                     const notifier = systemManager.getDeviceById(notifierId) as unknown as (Notifier & ScryptedDevice);
 
-                                    const haActions = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:haActions')?.value as string[]) ?? [];
+                                    const notifierSnapshotWidth = this.storageSettings.getItem(`notifier:${notifierId}:snapshotWidth` as any);
+                                    const notifiernapshotHeight = this.storageSettings.getItem(`notifier:${notifierId}:snapshotHeight` as any);
 
-                                    await notifier.sendNotification(deviceName, {
+                                    const haActions = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:haActions')?.value as string[]) ?? [];
+                                    // const shouldSendVideoClip = await this.checkVideoclipEnabled(deviceSettings, notifierId);
+
+                                    if (notifierSnapshotWidth !== snapshotWidth || notifiernapshotHeight !== snapshotHeight) {
+                                        image = await cameraDevice.takePicture({
+                                            reason: 'event',
+                                            picture: {
+                                                height: notifiernapshotHeight,
+                                                width: notifierSnapshotWidth,
+                                            },
+                                        });
+                                    }
+
+                                    // let imageUrl: string;
+                                    // let videoUrl: string;
+
+                                    // try {
+                                    // if (shouldSendVideoClip) {
+                                    //     this.console.log(`Videoclip should be sent. Following was found: ${videClipFound}`);
+                                    //     const videoClipMo = await cameraDevice.getVideoClip(videClipFound.videoId);
+
+                                    //     if (videoClipMo) {
+                                    //         videoUrl = await mediaManager.convertMediaObjectToUrl(videoClipMo, 'video/mp4');
+                                    //     }
+                                    // }
+
+                                    // } catch (e) {
+                                    //     this.console.log(`[${deviceName}] Error trying to fetch videoClip ${JSON.stringify(videClipFound)}`, e);
+                                    // }
+
+                                    // try {
+                                    //     if (!videoUrl && image) {
+                                    //         imageUrl = await mediaManager.convertMediaObjectToUrl(image, 'image/jpeg');
+                                    //     }
+                                    // } catch (e) {
+                                    //     this.console.log(`[${deviceName}] Error trying to fetch image ${JSON.stringify(image)}`, e);
+
+                                    // }
+
+                                    // this.console.log(`[${deviceName}] The media sent will be the following: ${JSON.stringify({
+                                    //     videClipFound,
+                                    //     shouldSendVideoClip: shouldSendVideoClip,
+                                    //     imageUrl,
+                                    //     videoUrl,
+                                    // })}`)
+
+                                    const notifierOptions: NotifierOptions = {
                                         body: eventDescription,
                                         data: {
                                             ha: {
+                                                // image: imageUrl,
+                                                // video: videoUrl,
                                                 url: haUrl,
                                                 clickAction: haUrl,
                                                 actions: haActions.length ? haActions.map(action => JSON.parse(action)) : undefined,
                                             }
-                                        }
-                                    }, image)
+                                        },
+                                    }
+
+                                    this.console.log(`[${deviceName}] Sending notification to ${notifier.name}: ${JSON.stringify({
+                                        ...notifierOptions,
+                                        snapshotHeight: notifiernapshotHeight || snapshotHeight,
+                                        snapshotWidth: notifierSnapshotWidth || snapshotWidth,
+                                    })}`);
+
+                                    await notifier.sendNotification(deviceName, notifierOptions, image)
                                 }
                             } else {
                                 this.console.log(`[${deviceName}] Skip notify`);
@@ -1008,7 +1155,7 @@ export default class DeviceMetadataProvider extends ScryptedDeviceBase implement
                     });
                     this.activeListeners.push({ listener, deviceName });
                 } catch (e) {
-                    this.console.log(e);
+                    this.console.log(`[${deviceName}] Error in main loop`, e);
                 }
             }
         } catch (e) {
