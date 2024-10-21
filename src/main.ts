@@ -732,7 +732,8 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         this.storageSettings.putSetting('serverId', serverId);
         this.console.log(`Server id found: ${serverId}`);
 
-        for (const device of this.getElegibleDevices()) {
+        const allDevices = this.getElegibleDevices();
+        for (const device of allDevices) {
             const deviceName = device.name;
             const deviceType = device.type;
             const settings = await device.getSettings();
@@ -768,6 +769,13 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                     }
                 }
             }
+        }
+
+        const sensorsNotMapped = allDevices.filter(device => device.type !== ScryptedDeviceType.Camera && !deviceVideocameraMap[device.name])
+            .map(sensor => sensor.name);
+
+        if (sensorsNotMapped.length) {
+            this.console.log(`Following binary sensors are not mapped to any camera yet: ${sensorsNotMapped}`);
         }
 
         this.storageSettings.settings.activeDevicesForNotifications.choices = devices;
@@ -1300,7 +1308,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         const isBooleanSensor = deviceType === ScryptedDeviceType.Sensor;
 
         const cameraDevice = await this.getCameraDevice(device);
-        const isDoorbelButton = isBooleanSensor && this.deviceTypeMap[cameraDevice.name] === ScryptedDeviceType.Doorbell;
+        const isDoorbelButton = cameraDevice && isBooleanSensor && this.deviceTypeMap[cameraDevice.name] === ScryptedDeviceType.Doorbell;
 
         return {
             isCamera,
@@ -1364,7 +1372,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                     const event = isCamera ? 'ObjectDetector' : 'BinarySensor';
                     const listener = systemManager.listenDevice(deviceId, event, async (_, __, data) => {
                         const { delayDone, currentTime } = this.checkDeviceLastDetection(deviceName, deviceSettings);
-                        if (!delayDone) {
+                        if (!delayDone && !isDoorbelButton) {
                             return;
                         }
 
@@ -1372,7 +1380,8 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
 
                         if ((isCamera && foundDetection) || (isBooleanSensor && !data) || (isDoorbelButton && data)) {
                             const isNotifierActive = allActiveDevicesForNotifications.includes(deviceName);
-                            this.deviceLastDetectionMap[deviceName] = currentTime;
+                            this.deviceLastDetectionMap[cameraDevice.name] = currentTime;
+                            // this.deviceLastDetectionMap[deviceName] = currentTime;
                             const notifiers = this.storageSettings.getItem('notifiers') as string[];
                             const ignoreSnapshotIfNoNotifiers = this.storageSettings.getItem('ignoreSnapshotIfNoNotifiers') as boolean;
                             const snapshotWidth = this.storageSettings.getItem('snapshotWidth') as number;
