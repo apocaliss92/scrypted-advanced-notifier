@@ -93,3 +93,7 @@ Group `Homeassistant utilities`
 
 0.0.7:
 - Webhooks added
+
+0.0.12:
+- Add force disable of a notifier per device
+- Motion added to detections
