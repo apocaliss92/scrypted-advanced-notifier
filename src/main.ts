@@ -1141,8 +1141,9 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             scryptedUrl: externalUrl,
             detection,
             triggerTime,
+            image,
         };
-        this.mqttClient.publishDeviceState(device, true, info);
+        await this.mqttClient.publishDeviceState(device, true, info);
         this.storageSettings.putSetting('deviceLastSnapshotMap', {
             ...this.storageSettings.getItem('deviceLastSnapshotMap') ?? {},
             [name]: { imageUrl }

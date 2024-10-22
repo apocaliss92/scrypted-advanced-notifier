@@ -1,20 +1,19 @@
 import { connect, Client } from 'mqtt';
-import { DeviceType } from './types';
-import { ObjectDetectionResult, ScryptedDeviceBase, Setting } from '@scrypted/sdk';
+import sdk, { MediaObject, ObjectDetectionResult, ScryptedDeviceBase, Setting } from '@scrypted/sdk';
 
 interface MqttEntity {
-    entity: 'triggered' | 'image' | 'classname' | 'zones' | 'label' | 'lastTrigger';
-    domain: 'sensor' | 'binary_sensor' | 'image';
+    entity: 'triggered' | 'lastImage' | 'lastClassname' | 'lastZones' | 'lastLabel' | 'lastTrigger';
+    domain: 'sensor' | 'binary_sensor' | 'camera';
     isMainEntity?: boolean;
     deviceClass?: string;
 }
 
 const mqttEntities: MqttEntity[] = [
     { entity: 'triggered', domain: 'binary_sensor', isMainEntity: true },
-    { entity: 'image', domain: 'image' },
-    { entity: 'classname', domain: 'sensor' },
-    { entity: 'zones', domain: 'sensor' },
-    { entity: 'label', domain: 'sensor' },
+    { entity: 'lastImage', domain: 'camera' },
+    { entity: 'lastClassname', domain: 'sensor' },
+    { entity: 'lastZones', domain: 'sensor' },
+    { entity: 'lastLabel', domain: 'sensor' },
     { entity: 'lastTrigger', domain: 'sensor', deviceClass: 'timestamp' },
 ]
 
@@ -104,9 +103,9 @@ export default class MqttClient {
                 json_attributes_topic: mainEntity ? getInfoTopic(entity) : undefined,
                 json_attributes_template: mainEntity ? '{{ value_json | tojson }}' : undefined,
                 dev: mqttdevice,
-                unique_id: `scrypted-ha-utilities-${entity}-${id}`,
+                unique_id: `scrypted-ha-utilities-${id}-${entity}`,
                 name: entity.charAt(0).toUpperCase() + entity.slice(1),
-                object_id: `${mqttdevice.ids}_${entity}`,
+                object_id: `${name}_${entity}`,
                 device_class: mainEntity ? haDeviceClass : deviceClass
             };
 
@@ -115,10 +114,9 @@ export default class MqttClient {
                 config.payload_off = 'false';
                 config.state_topic = getEntityTopic(entity);
             }
-            if (domain === 'image') {
-                // config.url_topic = getEntityTopic(entity);
-                config.image_topic = getEntityTopic(entity);
-                config.content_type = 'image/jpg';
+            if (domain === 'camera') {
+                config.topic = getEntityTopic(entity);
+                config.image_encoding = 'b64';
             }
             if (domain === 'sensor') {
                 config.state_topic = getEntityTopic(entity);
@@ -130,33 +128,38 @@ export default class MqttClient {
         this.autodiscoveryPublishedMap[id] = true;
     }
 
-    publishDeviceState(device: ScryptedDeviceBase, triggered: boolean, info?: {
+    async publishDeviceState(device: ScryptedDeviceBase, triggered: boolean, info?: {
         imageUrl: string,
         localImageUrl: string,
         scryptedUrl: string,
         detection: ObjectDetectionResult,
-        triggerTime: number
+        triggerTime: number,
+        image: MediaObject
     }) {
         try {
-            (!triggered ? mqttEntities.filter(entity => entity.entity === 'triggered') : mqttEntities).forEach(mqttEntity => {
+            const entitiesToRun = (!triggered ? mqttEntities.filter(entity => entity.entity === 'triggered') : mqttEntities);
+            for (const mqttEntity of entitiesToRun) {
                 const { getEntityTopic, getInfoTopic } = this.getMqttTopicTopics(device);
                 const { entity, isMainEntity: mainEntity } = mqttEntity;
 
                 let value: any = triggered;
                 switch (entity) {
-                    case 'image': {
-                        value = info?.imageUrl;
+                    case 'lastImage': {
+                        if (info?.image) {
+                            const buffer = await sdk.mediaManager.convertMediaObjectToBuffer(info.image, 'image/jpeg');
+                            value = await buffer.toString('base64');
+                        }
                         break;
                     }
                     case 'lastTrigger': {
                         value = new Date(info?.triggerTime).toISOString();
                         break;
                     }
-                    case 'classname': {
+                    case 'lastClassname': {
                         value = info?.detection?.className;
                         break;
                     }
-                    case 'label': {
+                    case 'lastLabel': {
                         value = info?.detection?.label ?? 'none';
                         break;
                     }
@@ -164,7 +167,7 @@ export default class MqttClient {
                         value = triggered;
                         break;
                     }
-                    case 'zones': {
+                    case 'lastZones': {
                         value = (info?.detection?.zones || []);
                         if (!value.length) value.push('none');
                         value = value.toString();
@@ -174,7 +177,7 @@ export default class MqttClient {
 
                 this.publish(device, getEntityTopic(entity), value);
                 mainEntity && info && this.publish(device, getInfoTopic(entity), info);
-            })
+            }
         } catch (e) {
             this.console.log(`[${device.name}] Error publishing`, e);
         }
