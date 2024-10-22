@@ -266,13 +266,13 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
         activeNotifiers.forEach(notifierId => {
             const notifierDevice = systemManager.getDeviceById(notifierId);
             const key = `notifier-${notifierId}:disabled`;
-                settings.push({
-                    key,
-                    title: `Disable notifier ${notifierDevice.name}`,
-                    subgroup: 'Notifier',
-                    type: 'boolean',
-                    value: JSON.parse(this.storageSettings.getItem(key as any) ?? 'false'),
-                });
+            settings.push({
+                key,
+                title: `Disable notifier ${notifierDevice.name}`,
+                subgroup: 'Notifier',
+                type: 'boolean',
+                value: JSON.parse(this.storageSettings.getItem(key as any) ?? 'false'),
+            });
         })
 
         return settings;
@@ -1123,22 +1123,24 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             image?: MediaObject,
             fullSizeImage?: MediaObject,
             externalUrl: string,
+            triggerTime: number,
         }
     ) {
-        const { detection, device, externalUrl, image } = props;
+        const { detection, device, externalUrl, image, triggerTime } = props;
         const deviceSettings = await device.getSettings();
         const { id, name } = device;
         const mainMotionDuration = this.storageSettings.getItem('motionActiveDuration');
         const deviceMotionDuration = deviceSettings.find(setting => setting.key === 'homeassistantMetadata:motionActiveDuration')?.value;
         const motionDuration = deviceMotionDuration ?? mainMotionDuration ?? 30;
 
-        const imageUrl = await mediaManager.convertMediaObjectToUrl(image, 'image/jpg');
-        const localImageUrl = await mediaManager.convertMediaObjectToLocalUrl(image, 'image/jpg');
+        const imageUrl = await mediaManager.convertMediaObjectToUrl(image, 'image/jpeg');
+        const localImageUrl = await mediaManager.convertMediaObjectToLocalUrl(image, 'image/jpeg');
         const info = {
             imageUrl,
             localImageUrl,
             scryptedUrl: externalUrl,
             detection,
+            triggerTime,
         };
         this.mqttClient.publishDeviceState(device, true, info);
         this.storageSettings.putSetting('deviceLastSnapshotMap', {
@@ -1212,10 +1214,10 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         const deviceName = device.name
         const deviceSettings = await device.getSettings();
         const srcDeviceSettings = await srcDevice.getSettings();
-        const disableNotifierSetting = srcDeviceSettings.find(setting => setting.key ===  `homeassistantMetadata:notifier-${notifierId}:disabled`)?.value ?? false;
+        const disableNotifierSetting = srcDeviceSettings.find(setting => setting.key === `homeassistantMetadata:notifier-${notifierId}:disabled`)?.value ?? false;
         const notifier = systemManager.getDeviceById(notifierId) as unknown as (Notifier & ScryptedDevice);
 
-        if(disableNotifierSetting) {
+        if (disableNotifierSetting) {
             this.console.log(`[${srcDevice.name}] Notifier ${notifier.name} forced disabled.`);
             return;
         }
@@ -1464,6 +1466,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                                     detection: foundDetection,
                                     image,
                                     externalUrl,
+                                    triggerTime: currentTime
                                 });
                             } else {
                                 this.console.log(`[${deviceName}] Skip startMotionTimeoutAndPublish`);

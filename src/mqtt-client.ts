@@ -1,12 +1,25 @@
 import { connect, Client } from 'mqtt';
 import { DeviceType } from './types';
-import { ScryptedDeviceBase, Setting } from '@scrypted/sdk';
+import { ObjectDetectionResult, ScryptedDeviceBase, Setting } from '@scrypted/sdk';
 
-export const ACTIVE_DEVICES_ID = 'active_devices';
+interface MqttEntity {
+    entity: 'triggered' | 'image' | 'classname' | 'zones' | 'label' | 'lastTrigger';
+    domain: 'sensor' | 'binary_sensor' | 'image';
+    isMainEntity?: boolean;
+    deviceClass?: string;
+}
+
+const mqttEntities: MqttEntity[] = [
+    { entity: 'triggered', domain: 'binary_sensor', isMainEntity: true },
+    { entity: 'image', domain: 'image' },
+    { entity: 'classname', domain: 'sensor' },
+    { entity: 'zones', domain: 'sensor' },
+    { entity: 'label', domain: 'sensor' },
+    { entity: 'lastTrigger', domain: 'sensor', deviceClass: 'timestamp' },
+]
 
 export default class MqttClient {
     mqttClient: Client;
-    lastSetMap: { [topic: string]: any } = {};
     autodiscoveryPublishedMap: Record<string, boolean> = {};
     mqttPathmame: string;
     host: string;
@@ -56,71 +69,115 @@ export default class MqttClient {
         this.getMqttClient().publish(topic, value, { retain: true });
     }
 
-    // subscribe(topic: string) {
-    // this.getMqttClient().subscribe(topic, value, { retain: true });
-    // }
-
-    private getMqttTopics(device: ScryptedDeviceBase) {
+    private getMqttTopicTopics(device: ScryptedDeviceBase) {
         const deviceId = device.id;
-        let sensorTopic: string;
-        let autodiscoveryTopic: string;
 
-        if (deviceId === ACTIVE_DEVICES_ID) {
-            sensorTopic = `scrypted/homeassistantUtilities/activeDevices`;
-            autodiscoveryTopic = `homeassistant/binary_sensor/scrypted-homeassistant-utilities-active-devices/config`;
-        } else {
-            sensorTopic = `scrypted/homeassistantUtilities/deviceTrigger/${deviceId}`;
-            autodiscoveryTopic = `homeassistant/binary_sensor/scrypted-homeassistant-utilities-${deviceId}/DeviceTrigger/config`;
-        }
-
-        const sensorInfoTopic = `${sensorTopic}/info`;
+        const getEntityTopic = (entity: string) => `scrypted/homeassistantUtilities/${deviceId}/${entity}`;
+        const getInfoTopic = (entity: string,) => `${getEntityTopic(entity)}/info`;
+        const getDiscoveryTopic = (domain: string, entity: string) => `homeassistant/${domain}/scrypted-homeassistant-utilities-${deviceId}/${entity}/config`;
 
         return {
-            sensorTopic,
-            sensorInfoTopic,
-            autodiscoveryTopic
+            getEntityTopic,
+            getDiscoveryTopic,
+            getInfoTopic,
         }
     }
 
     setupDeviceAutodiscovery(device: ScryptedDeviceBase, name: string, deviceSettings: Setting[]) {
         const id = device.id;
+
         if (this.autodiscoveryPublishedMap[id]) {
             return;
         }
-        const deviceClass = deviceSettings.find(setting => setting.key === 'homeassistantMetadata:haDeviceClass')?.value as string;
 
-        const { autodiscoveryTopic, sensorInfoTopic, sensorTopic } = this.getMqttTopics(device);
-
-        const config = {
-            state_topic: sensorTopic,
-            json_attributes_topic: sensorInfoTopic,
-            json_attributes_template: '{{ value_json | tojson }}',
-            payload_on: 'true',
-            payload_off: 'false',
-            dev: {
-                ids: `scrypted-deviceTrigger-${id}`,
-                name: `Device trigger for ${name}`
-            },
-            unique_id: `scrypted-homeassistant-utilities-${id}`,
-            name: `${name} triggered`,
-            object_id: `${name}_triggered`,
-            device_class: deviceClass
+        const haDeviceClass = deviceSettings.find(setting => setting.key === 'homeassistantMetadata:haDeviceClass')?.value as string;
+        const mqttdevice = {
+            ids: `scrypted-ha-utilities-${id}`,
+            name: `Scrypted HA utilities ${name}`
         };
-        this.publish(device, autodiscoveryTopic, JSON.stringify(config));
+
+        mqttEntities.forEach(mqttEntity => {
+            const { getDiscoveryTopic, getEntityTopic, getInfoTopic } = this.getMqttTopicTopics(device);
+            const { domain, entity, isMainEntity: mainEntity, deviceClass } = mqttEntity;
+
+            const config: any = {
+                json_attributes_topic: mainEntity ? getInfoTopic(entity) : undefined,
+                json_attributes_template: mainEntity ? '{{ value_json | tojson }}' : undefined,
+                dev: mqttdevice,
+                unique_id: `scrypted-ha-utilities-${entity}-${id}`,
+                name: entity.charAt(0).toUpperCase() + entity.slice(1),
+                object_id: `${mqttdevice.ids}_${entity}`,
+                device_class: mainEntity ? haDeviceClass : deviceClass
+            };
+
+            if (domain === 'binary_sensor') {
+                config.payload_on = 'true';
+                config.payload_off = 'false';
+                config.state_topic = getEntityTopic(entity);
+            }
+            if (domain === 'image') {
+                // config.url_topic = getEntityTopic(entity);
+                config.image_topic = getEntityTopic(entity);
+                config.content_type = 'image/jpg';
+            }
+            if (domain === 'sensor') {
+                config.state_topic = getEntityTopic(entity);
+            }
+
+            this.publish(device, getDiscoveryTopic(domain, entity), JSON.stringify(config));
+        })
+
         this.autodiscoveryPublishedMap[id] = true;
     }
 
-    publishDeviceState(device: ScryptedDeviceBase, value: boolean, info?: any) {
-        const deviceId = device.id;
-        const { sensorTopic, sensorInfoTopic } = this.getMqttTopics(device);
+    publishDeviceState(device: ScryptedDeviceBase, triggered: boolean, info?: {
+        imageUrl: string,
+        localImageUrl: string,
+        scryptedUrl: string,
+        detection: ObjectDetectionResult,
+        triggerTime: number
+    }) {
+        try {
+            (!triggered ? mqttEntities.filter(entity => entity.entity === 'triggered') : mqttEntities).forEach(mqttEntity => {
+                const { getEntityTopic, getInfoTopic } = this.getMqttTopicTopics(device);
+                const { entity, isMainEntity: mainEntity } = mqttEntity;
 
-        if (value === this.lastSetMap[sensorTopic]) {
-            return;
+                let value: any = triggered;
+                switch (entity) {
+                    case 'image': {
+                        value = info?.imageUrl;
+                        break;
+                    }
+                    case 'lastTrigger': {
+                        value = new Date(info?.triggerTime).toISOString();
+                        break;
+                    }
+                    case 'classname': {
+                        value = info?.detection?.className;
+                        break;
+                    }
+                    case 'label': {
+                        value = info?.detection?.label ?? 'none';
+                        break;
+                    }
+                    case 'triggered': {
+                        value = triggered;
+                        break;
+                    }
+                    case 'zones': {
+                        value = (info?.detection?.zones || []);
+                        if (!value.length) value.push('none');
+                        value = value.toString();
+                        break;
+                    }
+                }
+
+                this.publish(device, getEntityTopic(entity), value);
+                mainEntity && info && this.publish(device, getInfoTopic(entity), info);
+            })
+        } catch (e) {
+            this.console.log(`[${device.name}] Error publishing`, e);
         }
-
-        this.publish(device, sensorTopic, value);
-        info && this.publish(device, sensorInfoTopic, info);
-        this.lastSetMap[sensorTopic] = value;
     }
 
     subscribeToHaTopics(entitiesActiveTopic: string, cb?: (topic: string, entitiesActive: string[]) => void) {

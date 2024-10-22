@@ -97,3 +97,6 @@ Group `Homeassistant utilities`
 0.0.12:
 - Add force disable of a notifier per device
 - Motion added to detections
+
+0.0.13:
+- Split sensor in multiple
