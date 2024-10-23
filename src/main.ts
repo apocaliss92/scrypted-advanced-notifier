@@ -26,6 +26,15 @@ const classnamePrio = {
     motion: 5,
 }
 
+const defaultDetectionClasses = [
+    'person',
+    'vehicle',
+    'animal',
+    'package',
+    'face',
+    'plate'
+]
+
 const getWebookUrls = async (cameraDevice: string, console: Console) => {
     let lastSnapshotCloudUrl: string;
     let lastSnapshotLocalUrl: string;
@@ -123,7 +132,7 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
             title: 'Default score threshold',
             subgroup: 'Detection',
             type: 'number',
-            readonly: true,
+            defaultValue: 0.7,
             hide: true,
         },
         // NOTIFIER
@@ -226,7 +235,7 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
             this.storageSettings.settings.detectionClasses.onGet = async () => {
                 const settings = await this.mixinDevice.getSettings();
                 const detectionClasses = settings.find(setting => new RegExp('objectdetectionplugin:.*:allowList').test(setting.key));
-                const choices = detectionClasses?.value ?? [];
+                const choices = detectionClasses?.value ?? defaultDetectionClasses;
 
                 return {
                     choices,
@@ -246,13 +255,13 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
     }
 
     async initValues() {
-        if (this.interfaces.includes(ScryptedInterface.VideoCamera)) {
-            const mainPluginDevice = systemManager.getDeviceByName('Homeassistant utilities') as unknown as Settings;
-            const settings = await mainPluginDevice.getSettings() as Setting[];
-            const scoreThreshold = settings.find(setting => setting.key === 'scoreThreshold');
+        // if (this.interfaces.includes(ScryptedInterface.VideoCamera)) {
+        //     const mainPluginDevice = systemManager.getDeviceByName('Homeassistant utilities') as unknown as Settings;
+        //     const settings = await mainPluginDevice.getSettings() as Setting[];
+        //     const scoreThreshold = settings.find(setting => setting.key === 'scoreThreshold');
 
-            this.storageSettings.putSetting('scoreThreshold', scoreThreshold?.value ?? 0.7);
-        }
+        //     this.storageSettings.putSetting('scoreThreshold', scoreThreshold?.value ?? 0.7);
+        // }
 
         const { lastSnapshotCloudUrl, lastSnapshotLocalUrl } = await getWebookUrls(this.name, this.console);
         this.storageSettings.putSetting('lastSnapshotWebhookCloudUrl', lastSnapshotCloudUrl);
@@ -536,12 +545,6 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         //     type: 'number',
         //     defaultValue: 30,
         // },
-        scoreThreshold: {
-            title: 'Default score threshold',
-            group: 'Detection',
-            type: 'number',
-            defaultValue: 0.7,
-        },
         testDevice: {
             title: 'Device',
             group: 'Test',
@@ -1030,9 +1033,9 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         const whitelistedZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:whitelistedZones')?.value as string[]) ?? [];
         const blacklistedZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:blacklistedZones')?.value as string[]) ?? [];
         const requireScryptedNvrDetections = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:requireScryptedNvrDetections')?.value as boolean) ?? true;
+        const scoreThreshold = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:scoreThreshold')?.value as number) || 0.7;
         const alwaysZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:alwaysZones')?.value as string[]) ?? [];
 
-        const scoreThreshold = this.storageSettings.getItem('scoreThreshold');
 
         return (detections: ObjectDetectionResult[]) => {
             if (!detections?.length) {
@@ -1053,7 +1056,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                     }
                     const detectionClassScoreThreshold = deviceSettings.find(setting => setting.key === `homeassistantMetadata:${detectionClass}:scoreThreshold`)?.value as number;
 
-                    const scoreToUse = detectionClassScoreThreshold || scoreThreshold || 0.7;
+                    const scoreToUse = detectionClassScoreThreshold || scoreThreshold;
 
                     if (detection.score > scoreToUse) {
                         // this.console.log(`[${deviceName}] Found a detection for class ${detectionClass} with score ${detection.score} (min ${scoreToUse}). Override is ${detectionClassScoreThreshold}`);

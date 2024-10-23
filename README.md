@@ -45,9 +45,6 @@ This plugin offers the following parts:
 
  These texts can be overridden for each notifier, an use case would be a whatsapp notifier, where there is no click action and an explicit link to the nvr can be shown
 
- ## Detection
- - `Default score threshold`, default minimum score to pick detections, can be overridden per camera-detection class combination
-
  ## Test
  Combination of device-notifier-message to send a test notification to
 
