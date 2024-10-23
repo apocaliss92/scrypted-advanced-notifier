@@ -64,7 +64,7 @@ export default class MqttClient {
         if (value.constructor.name !== Buffer.name)
             value = value.toString();
 
-        this.console.log(`[${device.name}] Publishing ${topic}`);
+        // this.console.log(`[${device.name}] Publishing ${topic}`);
         this.getMqttClient().publish(topic, value, { retain: true });
     }
 
@@ -156,16 +156,23 @@ export default class MqttClient {
         this.autodiscoveryPublishedMap[id] = true;
     }
 
-    async publishDeviceState(device: ScryptedDeviceBase, deviceSettings: Setting[], triggered: boolean, info?: {
-        imageUrl: string,
-        localImageUrl: string,
-        scryptedUrl: string,
-        detection: ObjectDetectionResult,
-        triggerTime: number,
-        image: MediaObject
+    async publishDeviceState(props: {
+        device: ScryptedDeviceBase,
+        deviceSettings: Setting[],
+        triggered: boolean,
+        info?: {
+            imageUrl: string,
+            localImageUrl: string,
+            scryptedUrl: string,
+            detection: ObjectDetectionResult,
+            triggerTime: number,
+            image: MediaObject
+        }
     }) {
+        const { device, triggered, info } = props;
         try {
-            const entitiesToRun = (!triggered ? mqttEntities.filter(entity => entity.entity === 'triggered') : mqttEntities);
+            const entitiesToRun = triggered ? mqttEntities : mqttEntities.filter(entity => entity.entity === 'triggered');
+            // this.console.log(`[${device.name}] Entities to publish: ${JSON.stringify(entitiesToRun)}`)
             for (const mqttEntity of entitiesToRun) {
                 const { getEntityTopic, getInfoTopic } = this.getMqttTopicTopics(device);
                 const { entity, isMainEntity: mainEntity } = mqttEntity;
@@ -184,7 +191,7 @@ export default class MqttClient {
                         break;
                     }
                     case 'lastClassname': {
-                        value = info?.detection?.className;
+                        value = info?.detection?.className ?? 'motion';
                         break;
                     }
                     case 'lastLabel': {
@@ -203,8 +210,9 @@ export default class MqttClient {
                     }
                 }
 
+                // this.console.log(`[${device.name}] Publishing ${value} to ${getEntityTopic(entity)}`)
                 this.publish(device, getEntityTopic(entity), value);
-                mainEntity && info && this.publish(device, getInfoTopic(entity), info);
+                mainEntity && triggered && info && this.publish(device, getInfoTopic(entity), info);
             }
         } catch (e) {
             this.console.log(`[${device.name}] Error publishing`, e);

@@ -5,7 +5,7 @@
       "type": "git",
       "url": "https://github.com/apocaliss92/scrypted-homeassistant-utilities"
    },
-   "version": "0.0.15",
+   "version": "0.0.16",
    "scripts": {
       "scrypted-setup-project": "scrypted-setup-project",
       "prescrypted-setup-project": "scrypted-package-json",
@@ -45,6 +45,7 @@
       "sharp": "^0.33.5"
    },
    "devDependencies": {
+      "@types/lodash": "^4.17.12",
       "@types/node": "^20.11.0"
    }
 }

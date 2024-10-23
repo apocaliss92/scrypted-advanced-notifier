@@ -5,7 +5,6 @@ https://github.com/apocaliss92/scrypted-homeassistant-utilities - For requests a
 This plugin was createdy for the necessity to hook some homeassistant mechanisms with Scrypted. The use case is the component Alarm (https://github.com/nielsfaber/alarmo) running on homeassistant to handle an alarm system. It would push over MQTT the currently active devices to monitor my home (cameras, proximity sensors, door/window sensors, lock sensors...) and take action when any of them would be triggered. The only complicated part of this was to send screenshots to my devices when this would happen. Scrypted helps exactly on this part.
 <br/>
 <br/>
-<mark>Some parts of this plugin are highly inspired by the Smart motion sensor</mark>
 
 This plugin offers the following parts:
 - A mixin to configure the scrypted devices to work with the plugin
@@ -47,8 +46,6 @@ This plugin offers the following parts:
  These texts can be overridden for each notifier, an use case would be a whatsapp notifier, where there is no click action and an explicit link to the nvr can be shown
 
  ## Detection
- - `Motion active duration`, minimum amount of seconds to wait before turning off the triggered sensors
- - `Require Scrypted Detections`, ignore detections coming from the camera
  - `Default score threshold`, default minimum score to pick detections, can be overridden per camera-detection class combination
 
  ## Test
@@ -67,7 +64,7 @@ Group `Homeassistant utilities`
 - `Blacklisted zones`, zones that should NOT trigger a notification/motion
 - `Always enabled zones`, zones that should ALWAYS trigger a notification/motion, regardless of the activation of the camera
 - `Detection classes`, detection classes that should trigger a notification/motion
-- `Motion active duration`, override of the same plugin config
+- `Require Scrypted Detections`, ignore detections coming from the camera
 - `Default score threshold`, override of the same plugin config
 - `Score threshold for {eachDetectionClass}`, a specific threshold for each detection class enabled on the camera 
 
@@ -106,3 +103,8 @@ Group `Homeassistant utilities`
 0.0.15:
 - Fix flow hanging when no message available on the active devices topic
 - Init config to provide streams on mqtt
+
+0.0.16:
+- Allow motion only detections
+- requireScryptedNvrDetections moved on the camera
+- flow init improved

@@ -16,6 +16,16 @@ const getWebookSpecs = async () => {
     }
 }
 
+const classnamePrio = {
+    face: 1,
+    plate: 1,
+    person: 3,
+    vehicle: 3,
+    animal: 3,
+    package: 3,
+    motion: 5,
+}
+
 const getWebookUrls = async (cameraDevice: string, console: Console) => {
     let lastSnapshotCloudUrl: string;
     let lastSnapshotLocalUrl: string;
@@ -95,12 +105,19 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
             choices: [],
             defaultValue: ['person']
         },
-        motionActiveDuration: {
+        // motionActiveDuration: {
+        //     subgroup: 'Detection',
+        //     title: 'Motion active duration',
+        //     description: 'How many seconds the motion sensors should stay active',
+        //     type: 'number',
+        //     hide: true,
+        // },
+        requireScryptedNvrDetections: {
             subgroup: 'Detection',
-            title: 'Motion active duration',
-            description: 'How many seconds the motion sensors should stay active',
-            type: 'number',
-            hide: true,
+            title: 'Require Scrypted Detections',
+            description: 'When enabled, this sensor will ignore onboard camera detections.',
+            type: 'boolean',
+            defaultValue: true,
         },
         scoreThreshold: {
             title: 'Default score threshold',
@@ -210,7 +227,7 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
                 const settings = await this.mixinDevice.getSettings();
                 const detectionClasses = settings.find(setting => new RegExp('objectdetectionplugin:.*:allowList').test(setting.key));
                 const choices = detectionClasses?.value ?? [];
-                choices.includes('motion') && choices.push('motion');
+
                 return {
                     choices,
                 }
@@ -220,7 +237,7 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
             this.storageSettings.settings.blacklistedZones.hide = false;
             this.storageSettings.settings.alwaysZones.hide = false;
             this.storageSettings.settings.detectionClasses.hide = false;
-            this.storageSettings.settings.motionActiveDuration.hide = false;
+            // this.storageSettings.settings.motionActiveDuration.hide = false;
             this.storageSettings.settings.scoreThreshold.hide = false;
             this.storageSettings.settings.skipDoorbellNotifications.hide = this.type !== ScryptedDeviceType.Doorbell;
 
@@ -293,10 +310,11 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
     private deviceRoomMap: Record<string, string> = {}
     private roomNameMap: Record<string, string> = {}
     private mqttClient: MqttClient;
-    private deviceTimeoutMap: Record<string, NodeJS.Timeout> = {};
+    private deviceTimeoutMap: Record<string, EventListenerRegister> = {};
     private doorbellDevices: string[] = [];
-    private init = false;
-    private initTimeout: NodeJS.Timeout
+    private mqttInit = false;
+    private firstCheckAlwaysActiveDevices = false;
+    private initListener: NodeJS.Timeout;
 
     storageSettings = new StorageSettings(this, {
         pluginEnabled: {
@@ -511,20 +529,13 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             defaultValue: 10,
             hide: true
         },
-        motionActiveDuration: {
-            group: 'Detection',
-            title: 'Motion active duration',
-            description: 'How many seconds the motion sensors should stay active',
-            type: 'number',
-            defaultValue: 30,
-        },
-        requireScryptedNvrDetections: {
-            group: 'Detection',
-            title: 'Require Scrypted Detections',
-            description: 'When enabled, this sensor will ignore onboard camera detections.',
-            type: 'boolean',
-            defaultValue: true,
-        },
+        // motionActiveDuration: {
+        //     group: 'Detection',
+        //     title: 'Motion active duration',
+        //     description: 'How many seconds the motion sensors should stay active',
+        //     type: 'number',
+        //     defaultValue: 30,
+        // },
         scoreThreshold: {
             title: 'Default score threshold',
             group: 'Detection',
@@ -568,9 +579,9 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
     constructor(nativeId: string) {
         super(nativeId);
 
-        const start = () => {
-            this.start().catch(e => this.console.log(e));
-            this.startEventsListeners().catch(e => this.console.log(e));
+        const start = async () => {
+            await this.start();
+            await this.startEventsListeners();
         };
 
         const useHaPluginCredentials = Boolean(this.storageSettings.getItem('useHaPluginCredentials') ?? false);
@@ -578,18 +589,18 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         this.storageSettings.settings.address.hide = useHaPluginCredentials;
         this.storageSettings.settings.protocol.hide = useHaPluginCredentials;
 
-        this.storageSettings.settings.address.onPut = () => start();
-        this.storageSettings.settings.protocol.onPut = () => start();
-        this.storageSettings.settings.accessToken.onPut = () => start();
-        this.storageSettings.settings.nvrUrl.onPut = () => start();
+        this.storageSettings.settings.address.onPut = async () => await start();
+        this.storageSettings.settings.protocol.onPut = async () => await start();
+        this.storageSettings.settings.accessToken.onPut = async () => await start();
+        this.storageSettings.settings.nvrUrl.onPut = async () => await start();
         // this.storageSettings.settings.scryptedTokenEntity.onPut = () => start();
-        this.storageSettings.settings.domains.onPut = () => start();
-        this.storageSettings.settings.useHaPluginCredentials.onPut = ((_, isOn) => {
+        this.storageSettings.settings.domains.onPut = async () => await start();
+        this.storageSettings.settings.useHaPluginCredentials.onPut = async (_, isOn) => {
             this.storageSettings.settings.accessToken.hide = isOn;
             this.storageSettings.settings.address.hide = isOn;
             this.storageSettings.settings.protocol.hide = isOn;
-            start();
-        });
+            await start();
+        };
         this.storageSettings.settings.activeDevicesForNotifications.onPut = async () => {
             await this.startEventsListeners();
         };
@@ -607,9 +618,21 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         this.storageSettings.settings.mqttPassword.onPut = () => this.setupMqttClient();
         this.storageSettings.settings.mqttActiveEntitiesTopic.onPut = () => this.setupMqttClient();
 
-        this.setupMqttClient();
-        this.initDevices().then(() => start()).catch(console.log);;
-        this.startCheckAlwaysActiveDevices().then().catch(console.log);
+        this.initFlow().then().catch(console.log);
+    }
+
+    async initFlow() {
+        try {
+            this.setupMqttClient();
+            await this.initDevices();
+            await this.startCheckAlwaysActiveDevices();
+
+            this.initListener = setInterval(async () => {
+                await this.startEventsListeners();
+            }, 3000)
+        } catch (e) {
+            this.console.log(`Error in initFLow`, e);
+        }
     }
 
     async onRequest(request: HttpRequest, response: HttpResponse): Promise<void> {
@@ -696,7 +719,8 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
     private async startCheckAlwaysActiveDevices() {
         const funct = async () => {
             const forcedActiveDevices: string[] = [];
-            if (this.storageSettings.getItem('pluginEnabled')) {
+            const pluginEnabled = this.storageSettings.getItem('pluginEnabled');
+            if (pluginEnabled) {
                 for (const device of this.getElegibleDevices()) {
                     const deviceName = device.name;
                     const settings = await device.getSettings();
@@ -716,12 +740,22 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                 }
 
                 if (this.storageSettings.getItem('alwaysActiveDevicesForNotifications')?.toString() !== forcedActiveDevices.toString()) {
-                    this.console.log('Restarting loop to adjust the devices listeners');
+                    if (!this.firstCheckAlwaysActiveDevices) {
+                        this.console.log('Restarting loop to adjust the devices listeners');
+                    } else {
+                        this.console.log(`Setting forcedActiveDevices: ${JSON.stringify(forcedActiveDevices)}`);
+                    }
                     this.storageSettings.putSetting('alwaysActiveDevicesForNotifications', forcedActiveDevices);
                 }
+
+                this.firstCheckAlwaysActiveDevices = true;
+            } else {
+                this.console.log(`Plugin is not enabled`);
             }
         };
+
         await funct();
+
         setInterval(async () => {
             await funct();
         }, 20000);
@@ -822,22 +856,21 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         if (mqttActiveEntitiesTopic) {
             this.mqttClient.subscribeToHaTopics(mqttActiveEntitiesTopic, (topic, message) => {
                 if (topic === mqttActiveEntitiesTopic) {
-                    this.init = true;
+                    this.mqttInit = true;
                     this.console.log(`Received update for ${mqttActiveEntitiesTopic} topic: ${JSON.stringify(message)}`);
                     this.syncHaEntityIds(message);
                 }
             });
 
             setTimeout(() => {
-                if (!this.init) {
+                if (!this.mqttInit) {
                     this.console.log(`No message received on topic ${mqttActiveEntitiesTopic}. Forcing init`);
-                    this.init = true;
+                    this.mqttInit = true;
                 }
             }, 10000)
         } else {
-            this.init = true;
+            this.mqttInit = true;
         }
-
     }
 
     async getSettings() {
@@ -996,13 +1029,20 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         const detectionClasses = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:detectionClasses')?.value as string[]) ?? [];
         const whitelistedZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:whitelistedZones')?.value as string[]) ?? [];
         const blacklistedZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:blacklistedZones')?.value as string[]) ?? [];
+        const requireScryptedNvrDetections = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:requireScryptedNvrDetections')?.value as boolean) ?? true;
         const alwaysZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:alwaysZones')?.value as string[]) ?? [];
 
-        const requireScryptedNvrDetections = this.storageSettings.getItem('requireScryptedNvrDetections');
         const scoreThreshold = this.storageSettings.getItem('scoreThreshold');
 
         return (detections: ObjectDetectionResult[]) => {
-            const filterByClassNameAndScore = detections.filter(detection => {
+            if (!detections?.length) {
+                return;
+            }
+
+            const sortedDetectionsByPriority = sortBy(detections, (detection) => detection.className ? classnamePrio[detection.className] : 100);
+            // this.console.log(`[${deviceName}] Detections ordered by priority: ${JSON.stringify(sortedDetectionsByPriority)}. Originals: ${JSON.stringify(detections)}`);
+
+            const filterByClassNameAndScore = sortedDetectionsByPriority.filter(detection => {
                 if (requireScryptedNvrDetections && !detection.boundingBox) {
                     return false;
                 }
@@ -1133,14 +1173,16 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             fullSizeImage?: MediaObject,
             externalUrl: string,
             triggerTime: number,
+            triggered: boolean,
+            skipMotionCheck: boolean
         }
     ) {
-        const { detection, device, externalUrl, image, triggerTime } = props;
+        const { detection, device, externalUrl, image, triggerTime, triggered, skipMotionCheck } = props;
         const deviceSettings = await device.getSettings();
         const { id, name } = device;
-        const mainMotionDuration = this.storageSettings.getItem('motionActiveDuration');
-        const deviceMotionDuration = deviceSettings.find(setting => setting.key === 'homeassistantMetadata:motionActiveDuration')?.value;
-        const motionDuration = deviceMotionDuration ?? mainMotionDuration ?? 30;
+        // const mainMotionDuration = this.storageSettings.getItem('motionActiveDuration');
+        // const deviceMotionDuration = deviceSettings.find(setting => setting.key === 'homeassistantMetadata:motionActiveDuration')?.value;
+        // const motionDuration = deviceMotionDuration ?? mainMotionDuration ?? 30;
 
         const imageUrl = await mediaManager.convertMediaObjectToUrl(image, 'image/jpeg');
         const localImageUrl = await mediaManager.convertMediaObjectToLocalUrl(image, 'image/jpeg');
@@ -1152,21 +1194,39 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             triggerTime,
             image,
         };
-        await this.mqttClient.publishDeviceState(device, deviceSettings, true, info);
-        this.storageSettings.putSetting('deviceLastSnapshotMap', {
-            ...this.storageSettings.getItem('deviceLastSnapshotMap') ?? {},
-            [name]: { imageUrl }
-        });
 
-        const currentTimeout = this.deviceTimeoutMap[id];
-        if (currentTimeout) {
-            clearTimeout(currentTimeout);
+        if (triggered) {
+            this.console.log(`[${device.name}] Motion activated`);
+        } else {
+            this.console.log(`[${name}] Motion finished`);
+        }
+        await this.mqttClient.publishDeviceState({ device, deviceSettings, triggered, info });
+
+        if (imageUrl) {
+            this.storageSettings.putSetting('deviceLastSnapshotMap', {
+                ...this.storageSettings.getItem('deviceLastSnapshotMap') ?? {},
+                [name]: { imageUrl }
+            });
         }
 
-        this.deviceTimeoutMap[id] = setTimeout(() => {
-            this.console.log(`[${name}] End motion timeout`);
-            this.mqttClient.publishDeviceState(device, deviceSettings, false);
-        }, motionDuration * 1000);
+        // const currentTimeout = this.deviceTimeoutMap[id];
+        // if (currentTimeout) {
+        //     clearTimeout(currentTimeout);
+        // }
+        this.deviceTimeoutMap[id]?.removeListener();
+
+        if (!skipMotionCheck) {
+            this.deviceTimeoutMap[id] = systemManager.listenDevice(device.id, ScryptedInterface.MotionSensor, async (_, __, data) => {
+                if (!data) {
+                    this.console.log(`[${name}] End motion by motion`);
+                    await this.mqttClient.publishDeviceState({ device, deviceSettings, triggered: false, info });
+                }
+            })
+            // this.deviceTimeoutMap[id] = setTimeout(async () => {
+            //     this.console.log(`[${name}] End motion by timeout`);
+            //     await this.mqttClient.publishDeviceState({ device, deviceSettings, triggered: false, info });
+            // }, motionDuration * 1000);
+        }
     }
 
     checkDeviceLastDetection(deviceName: string, deviceSettings: Setting[]) {
@@ -1369,11 +1429,13 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
     }
 
     async startEventsListeners() {
-        if (!this.init) {
-            this.console.log(`Plugin not initialized yet, waiting`);
+        if (!this.mqttInit || !this.firstCheckAlwaysActiveDevices) {
+            this.console.log(`Plugin not initialized yet, waiting. mqttInit: ${this.mqttInit} and firstCheckAlwaysActiveDevices: ${this.firstCheckAlwaysActiveDevices}`);
 
             return;
         }
+
+        this.initListener && clearTimeout(this.initListener);
 
         const pluginEnabled = this.storageSettings.getItem('pluginEnabled') as boolean;
 
@@ -1424,17 +1486,29 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                         isDoorbelButton,
                     } = await this.getDeviceFlags(device);
 
-                    const event = isCamera ? 'ObjectDetector' : 'BinarySensor';
+                    const detectionClasses = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:detectionClasses')?.value as string[]) ?? [];
+                    const isOnlyMotion = isCamera && detectionClasses.length === 1 && detectionClasses[0] === 'motion';
+                    const event = isCamera ? isOnlyMotion ? ScryptedInterface.MotionSensor : ScryptedInterface.ObjectDetector : ScryptedInterface.BinarySensor;
+                    this.console.log(`[${deviceName}] Starting event listener for ${event}, ${JSON.stringify({
+                        isCamera,
+                        isOnlyMotion,
+                        detectionClasses,
+                        event,
+                    })}`);
                     const listener = systemManager.listenDevice(deviceId, event, async (_, __, data) => {
                         const { delayDone, currentTime } = this.checkDeviceLastDetection(deviceName, deviceSettings);
                         if (!delayDone && !isDoorbelButton) {
                             return;
                         }
 
-                        const foundDetection = isCamera ? findAllowedDetection(data.detections) : undefined;
+                        const foundDetection = isCamera && !isOnlyMotion ? findAllowedDetection(data.detections) : undefined;
 
                         // TODO - Add configuration to check the event data
-                        if ((isCamera && foundDetection) || ((isBooleanSensor || isDoorbelButton) && data)) {
+                        if (
+                            (isOnlyMotion) ||
+                            (isCamera && foundDetection) ||
+                            ((isBooleanSensor || isDoorbelButton) && data)
+                        ) {
                             const isNotifierActive = allActiveDevicesForNotifications.includes(deviceName);
                             this.deviceLastDetectionMap[isDoorbelButton ? cameraDevice.name : deviceName] = currentTime;
                             const notifiers = this.storageSettings.getItem('notifiers') as string[];
@@ -1470,13 +1544,14 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                             })}`);
 
                             if (activeDevicesForReporting.includes(deviceName)) {
-                                this.console.log(`[${deviceName}] Starting startMotionTimeoutAndPublish`);
                                 await this.startMotionTimeoutAndPublish({
                                     device,
                                     detection: foundDetection,
                                     image,
                                     externalUrl,
-                                    triggerTime: currentTime
+                                    triggerTime: currentTime,
+                                    triggered: isOnlyMotion ? data : true,
+                                    skipMotionCheck: isOnlyMotion
                                 });
                             } else {
                                 this.console.log(`[${deviceName}] Skip startMotionTimeoutAndPublish`);
