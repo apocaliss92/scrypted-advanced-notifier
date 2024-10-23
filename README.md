@@ -1,5 +1,7 @@
 # Homeassistant utilities plugin
 
+https://github.com/apocaliss92/scrypted-homeassistant-utilities - For requests and bugs
+
 This plugin was createdy for the necessity to hook some homeassistant mechanisms with Scrypted. The use case is the component Alarm (https://github.com/nielsfaber/alarmo) running on homeassistant to handle an alarm system. It would push over MQTT the currently active devices to monitor my home (cameras, proximity sensors, door/window sensors, lock sensors...) and take action when any of them would be triggered. The only complicated part of this was to send screenshots to my devices when this would happen. Scrypted helps exactly on this part.
 <br/>
 <br/>
@@ -100,3 +102,7 @@ Group `Homeassistant utilities`
 
 0.0.13:
 - Split sensor in multiple
+
+0.0.15:
+- Fix flow hanging when no message available on the active devices topic
+- Init config to provide streams on mqtt

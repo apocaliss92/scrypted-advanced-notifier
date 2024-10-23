@@ -72,7 +72,7 @@ export default class MqttClient {
         const deviceId = device.id;
 
         const getEntityTopic = (entity: string) => `scrypted/homeassistantUtilities/${deviceId}/${entity}`;
-        const getInfoTopic = (entity: string,) => `${getEntityTopic(entity)}/info`;
+        const getInfoTopic = (entity: string) => `${getEntityTopic(entity)}/info`;
         const getDiscoveryTopic = (domain: string, entity: string) => `homeassistant/${domain}/scrypted-homeassistant-utilities-${deviceId}/${entity}/config`;
 
         return {
@@ -82,7 +82,13 @@ export default class MqttClient {
         }
     }
 
-    setupDeviceAutodiscovery(device: ScryptedDeviceBase, name: string, deviceSettings: Setting[]) {
+    private async findDeviceStreams(deviceSettings: Setting[], localIp: string) {
+        const streams = deviceSettings.filter(setting => setting.key === 'prebuffer:rtspRebroadcastUrl');
+
+        return streams.map(stream => ({ name: stream.subgroup.split(': ')[1], url: (stream.value as string)?.replace('localhost', localIp) }))
+    }
+
+    async setupDeviceAutodiscovery(device: ScryptedDeviceBase, name: string, deviceSettings: Setting[]) {
         const id = device.id;
 
         if (this.autodiscoveryPublishedMap[id]) {
@@ -95,8 +101,9 @@ export default class MqttClient {
             name: `Scrypted HA utilities ${name}`
         };
 
+        const { getDiscoveryTopic, getEntityTopic, getInfoTopic } = this.getMqttTopicTopics(device);
+
         mqttEntities.forEach(mqttEntity => {
-            const { getDiscoveryTopic, getEntityTopic, getInfoTopic } = this.getMqttTopicTopics(device);
             const { domain, entity, isMainEntity: mainEntity, deviceClass } = mqttEntity;
 
             const config: any = {
@@ -108,27 +115,48 @@ export default class MqttClient {
                 object_id: `${name}_${entity}`,
                 device_class: mainEntity ? haDeviceClass : deviceClass
             };
+            const topic = getEntityTopic(entity);
 
             if (domain === 'binary_sensor') {
                 config.payload_on = 'true';
                 config.payload_off = 'false';
-                config.state_topic = getEntityTopic(entity);
+                config.state_topic = topic;
             }
             if (domain === 'camera') {
-                config.topic = getEntityTopic(entity);
+                config.topic = topic;
                 config.image_encoding = 'b64';
             }
             if (domain === 'sensor') {
-                config.state_topic = getEntityTopic(entity);
+                config.state_topic = topic;
             }
 
             this.publish(device, getDiscoveryTopic(domain, entity), JSON.stringify(config));
         })
 
+        // Add IP configuration
+        // const localIp = (await sdk.endpointManager.getLocalAddresses())[0];
+        // if (localIp) {
+        //     const deviceStreams = await this.findDeviceStreams(deviceSettings, localIp);
+
+        //     deviceStreams.map(stream => {
+        //         const entity = stream.name.replace(/ /g,'');
+        //         const config: any = {
+        //             dev: mqttdevice,
+        //             unique_id: `scrypted-ha-utilities-${id}-${entity}`,
+        //             name: entity.charAt(0).toUpperCase() + entity.slice(1),
+        //             object_id: `${name}_${entity}`,
+        //             topic: getEntityTopic(entity)
+        //         };
+
+        //         this.publish(device, getDiscoveryTopic('camera', entity), JSON.stringify(config));
+        //         this.publish(device, getEntityTopic(entity), stream.url);
+        //     })
+        // }
+
         this.autodiscoveryPublishedMap[id] = true;
     }
 
-    async publishDeviceState(device: ScryptedDeviceBase, triggered: boolean, info?: {
+    async publishDeviceState(device: ScryptedDeviceBase, deviceSettings: Setting[], triggered: boolean, info?: {
         imageUrl: string,
         localImageUrl: string,
         scryptedUrl: string,

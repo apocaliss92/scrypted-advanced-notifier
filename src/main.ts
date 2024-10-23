@@ -296,6 +296,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
     private deviceTimeoutMap: Record<string, NodeJS.Timeout> = {};
     private doorbellDevices: string[] = [];
     private init = false;
+    private initTimeout: NodeJS.Timeout
 
     storageSettings = new StorageSettings(this, {
         pluginEnabled: {
@@ -826,9 +827,17 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                     this.syncHaEntityIds(message);
                 }
             });
+
+            setTimeout(() => {
+                if (!this.init) {
+                    this.console.log(`No message received on topic ${mqttActiveEntitiesTopic}. Forcing init`);
+                    this.init = true;
+                }
+            }, 10000)
         } else {
             this.init = true;
         }
+
     }
 
     async getSettings() {
@@ -1143,7 +1152,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             triggerTime,
             image,
         };
-        await this.mqttClient.publishDeviceState(device, true, info);
+        await this.mqttClient.publishDeviceState(device, deviceSettings, true, info);
         this.storageSettings.putSetting('deviceLastSnapshotMap', {
             ...this.storageSettings.getItem('deviceLastSnapshotMap') ?? {},
             [name]: { imageUrl }
@@ -1156,7 +1165,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
 
         this.deviceTimeoutMap[id] = setTimeout(() => {
             this.console.log(`[${name}] End motion timeout`);
-            this.mqttClient.publishDeviceState(device, false);
+            this.mqttClient.publishDeviceState(device, deviceSettings, false);
         }, motionDuration * 1000);
     }
 
@@ -1361,7 +1370,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
 
     async startEventsListeners() {
         if (!this.init) {
-            this.console.log(`Plugin not initialized yed, waiting`);
+            this.console.log(`Plugin not initialized yet, waiting`);
 
             return;
         }
@@ -1404,7 +1413,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                     const deviceId = device.id;
                     const deviceSettings = await device.getSettings();
                     if (activeDevicesForReporting.includes(deviceName)) {
-                        this.mqttClient?.setupDeviceAutodiscovery(device, deviceName, deviceSettings);
+                        await this.mqttClient?.setupDeviceAutodiscovery(device, deviceName, deviceSettings);
                     }
                     const findAllowedDetection = this.getAllowedDetectionFinder(deviceName, deviceSettings)
 
