@@ -1,6 +1,6 @@
 import sdk, { EventListenerRegister, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import axios from "axios";
-import { sortBy } from 'lodash';
+import { sortBy, uniqBy } from 'lodash';
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import MqttClient from './mqtt-client';
@@ -27,6 +27,7 @@ const classnamePrio = {
 }
 
 const defaultDetectionClasses = [
+    'motion',
     'person',
     'vehicle',
     'animal',
@@ -1029,60 +1030,61 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
     }
 
     private getAllowedDetectionFinder(deviceName: string, deviceSettings: Setting[]) {
-        const detectionClasses = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:detectionClasses')?.value as string[]) ?? [];
-        const whitelistedZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:whitelistedZones')?.value as string[]) ?? [];
-        const blacklistedZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:blacklistedZones')?.value as string[]) ?? [];
+        const detectionClasses = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:detectionClasses')?.value ?? []) as string[];
+        const whitelistedZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:whitelistedZones')?.value ?? []) as string[];
+        const blacklistedZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:blacklistedZones')?.value ?? []) as string[];
         const requireScryptedNvrDetections = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:requireScryptedNvrDetections')?.value as boolean) ?? true;
         const scoreThreshold = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:scoreThreshold')?.value as number) || 0.7;
-        const alwaysZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:alwaysZones')?.value as string[]) ?? [];
-
+        const alwaysZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:alwaysZones')?.value ?? []) as string[];
 
         return (detections: ObjectDetectionResult[]) => {
-            if (!detections?.length) {
-                return;
-            }
+            let foundDetection: ObjectDetectionResult | undefined;
+            let relevantDetections: ObjectDetectionResult[] = [];
 
-            const sortedDetectionsByPriority = sortBy(detections, (detection) => detection.className ? classnamePrio[detection.className] : 100);
-            // this.console.log(`[${deviceName}] Detections ordered by priority: ${JSON.stringify(sortedDetectionsByPriority)}. Originals: ${JSON.stringify(detections)}`);
+            if (detections?.length) {
+                const sortedDetectionsByPriority = sortBy(detections, (detection) => detection.className ? classnamePrio[detection.className] : 100);
+                // this.console.log(`[${deviceName}] Detections ordered by priority: ${JSON.stringify(sortedDetectionsByPriority)}. Originals: ${JSON.stringify(detections)}`);
 
-            const filterByClassNameAndScore = sortedDetectionsByPriority.filter(detection => {
-                if (requireScryptedNvrDetections && !detection.boundingBox) {
-                    return false;
-                }
-
-                return detectionClasses.some(detectionClass => {
-                    if (detectionClass !== detection.className) {
+                const filterByScore = sortedDetectionsByPriority.filter(detection => {
+                    if (requireScryptedNvrDetections && !detection.boundingBox) {
                         return false;
                     }
-                    const detectionClassScoreThreshold = deviceSettings.find(setting => setting.key === `homeassistantMetadata:${detectionClass}:scoreThreshold`)?.value as number;
 
-                    const scoreToUse = detectionClassScoreThreshold || scoreThreshold;
+                    const scoreToUse = deviceSettings.find(setting => setting.key === `homeassistantMetadata:${detection.className}:scoreThreshold`)?.value as number
+                        || scoreThreshold;
 
-                    if (detection.score > scoreToUse) {
-                        // this.console.log(`[${deviceName}] Found a detection for class ${detectionClass} with score ${detection.score} (min ${scoreToUse}). Override is ${detectionClassScoreThreshold}`);
+                    // this.console.log(`[${deviceName}] Found a detection for class ${detectionClass} with score ${detection.score} (min ${scoreToUse}). Override is ${detectionClassScoreThreshold}`);
+                    return detection.score > scoreToUse
+                });
+
+                const filterByClassName = filterByScore.filter(detection => detectionClasses.includes(detection.className));
+
+                foundDetection = filterByClassName.find(detection => {
+                    const detectionZones = detection.zones;
+                    const isAlwaysIncluded = alwaysZones.length ? detectionZones.some(zone => alwaysZones.includes(zone)) : false;
+                    const isIncluded = whitelistedZones.length ? detectionZones.some(zone => whitelistedZones.includes(zone)) : true;
+                    const isExcluded = blacklistedZones.length ? detectionZones.some(zone => blacklistedZones.includes(zone)) : false;
+
+                    if (isAlwaysIncluded || (isIncluded && !isExcluded)) {
+                        this.console.log(`[${deviceName}] Found detection: ${JSON.stringify({
+                            detection,
+                            blacklistedZones,
+                            whitelistedZones,
+                            alwaysZones,
+                            detectionClasses
+                        })}`);
                         return true;
                     }
+                });
 
-                })
-            });
+                relevantDetections = uniqBy(filterByScore, detection => detection.className);
+            }
 
-            return filterByClassNameAndScore.find(detection => {
-                const detectionZones = detection.zones;
-                const isAlwaysIncluded = alwaysZones.length ? detectionZones.some(zone => alwaysZones.includes(zone)) : false;
-                const isIncluded = whitelistedZones.length ? detectionZones.some(zone => whitelistedZones.includes(zone)) : true;
-                const isExcluded = blacklistedZones.length ? detectionZones.some(zone => blacklistedZones.includes(zone)) : false;
+            return {
+                foundDetection,
+                relevantDetections,
+            }
 
-                if (isAlwaysIncluded || (isIncluded && !isExcluded)) {
-                    this.console.log(`[${deviceName}] Found detection: ${JSON.stringify({
-                        detection,
-                        blacklistedZones,
-                        whitelistedZones,
-                        alwaysZones,
-                        detectionClasses
-                    })}`);
-                    return true;
-                }
-            })
         }
     }
 
@@ -1504,7 +1506,16 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                             return;
                         }
 
-                        const foundDetection = isCamera && !isOnlyMotion ? findAllowedDetection(data.detections) : undefined;
+                        let foundDetection: ObjectDetectionResult;
+                        if (isCamera && !isOnlyMotion) {
+                            const { foundDetection: foundSpecificDetection, relevantDetections } = findAllowedDetection(data.detections);
+                            foundDetection = foundSpecificDetection;
+
+                            // this.console.log(`[${deviceName}] ${JSON.stringify({
+                            //     foundSpecificDetection, 
+                            //     relevantDetections,
+                            // })}`)
+                        }
 
                         // TODO - Add configuration to check the event data
                         if (
@@ -1534,17 +1545,17 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                                 isBooleanSensor,
                                 isDoorbelButton,
                                 linkedCameraName: cameraDevice.name,
-                                event,
+                                // event,
                                 snapshotHeight,
                                 snapshotWidth,
                                 // videClipFound,
                             })}`);
 
                             const { externalUrl, haUrl } = this.getUrls(cameraDevice.id, currentTime);
-                            this.console.log(`[${deviceName}] URLs built: ${JSON.stringify({
-                                externalUrl,
-                                haUrl,
-                            })}`);
+                            // this.console.log(`[${deviceName}] URLs built: ${JSON.stringify({
+                            //     externalUrl,
+                            //     haUrl,
+                            // })}`);
 
                             if (activeDevicesForReporting.includes(deviceName)) {
                                 await this.startMotionTimeoutAndPublish({

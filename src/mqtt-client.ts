@@ -134,24 +134,24 @@ export default class MqttClient {
         })
 
         // Add IP configuration
-        // const localIp = (await sdk.endpointManager.getLocalAddresses())[0];
-        // if (localIp) {
-        //     const deviceStreams = await this.findDeviceStreams(deviceSettings, localIp);
+        const localIp = (await sdk.endpointManager.getLocalAddresses())[0];
+        if (localIp) {
+            const deviceStreams = await this.findDeviceStreams(deviceSettings, localIp);
 
-        //     deviceStreams.map(stream => {
-        //         const entity = stream.name.replace(/ /g,'');
-        //         const config: any = {
-        //             dev: mqttdevice,
-        //             unique_id: `scrypted-ha-utilities-${id}-${entity}`,
-        //             name: entity.charAt(0).toUpperCase() + entity.slice(1),
-        //             object_id: `${name}_${entity}`,
-        //             topic: getEntityTopic(entity)
-        //         };
+            deviceStreams.map(stream => {
+                const entity = stream.name.replace(/ /g,'');
+                const config: any = {
+                    dev: mqttdevice,
+                    unique_id: `scrypted-ha-utilities-${id}-${entity}`,
+                    name: entity.charAt(0).toUpperCase() + entity.slice(1),
+                    object_id: `${name}_${entity}`,
+                    topic: getEntityTopic(entity)
+                };
 
-        //         this.publish(device, getDiscoveryTopic('camera', entity), JSON.stringify(config));
-        //         this.publish(device, getEntityTopic(entity), stream.url);
-        //     })
-        // }
+                this.publish(device, getDiscoveryTopic('sensor', entity), JSON.stringify(config));
+                this.publish(device, getEntityTopic(entity), stream.url);
+            })
+        }
 
         this.autodiscoveryPublishedMap[id] = true;
     }
@@ -195,7 +195,11 @@ export default class MqttClient {
                         break;
                     }
                     case 'lastLabel': {
-                        value = info?.detection?.label ?? 'none';
+                        if (['face', 'plate'].includes(info?.detection?.className)) {
+                            value = info?.detection?.label ?? 'unknown';
+                        } else {
+                            value = null;
+                        }
                         break;
                     }
                     case 'triggered': {
@@ -211,8 +215,10 @@ export default class MqttClient {
                 }
 
                 // this.console.log(`[${device.name}] Publishing ${value} to ${getEntityTopic(entity)}`)
-                this.publish(device, getEntityTopic(entity), value);
-                mainEntity && triggered && info && this.publish(device, getInfoTopic(entity), info);
+                if (value !== null) {
+                    this.publish(device, getEntityTopic(entity), value);
+                    mainEntity && triggered && info && this.publish(device, getInfoTopic(entity), info);
+                }
             }
         } catch (e) {
             this.console.log(`[${device.name}] Error publishing`, e);
