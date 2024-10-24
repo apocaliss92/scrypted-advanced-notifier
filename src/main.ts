@@ -36,6 +36,13 @@ const defaultDetectionClasses = [
     'plate'
 ]
 
+const detectionClassesToPublish = [
+    'motion',
+    'person',
+    'vehicle',
+    'animal',
+]
+
 const getWebookUrls = async (cameraDevice: string, console: Console) => {
     let lastSnapshotCloudUrl: string;
     let lastSnapshotLocalUrl: string;
@@ -325,6 +332,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
     private mqttInit = false;
     private firstCheckAlwaysActiveDevices = false;
     private initListener: NodeJS.Timeout;
+    private deviceLastDetectionsUpdate: Record<string, number> = {};
 
     storageSettings = new StorageSettings(this, {
         pluginEnabled: {
@@ -1077,7 +1085,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                     }
                 });
 
-                relevantDetections = uniqBy(filterByScore, detection => detection.className);
+                relevantDetections = uniqBy(filterByScore, detection => detection.className).filter(detection => detectionClassesToPublish.includes(detection.className));
             }
 
             return {
@@ -1174,30 +1182,22 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         props: {
             device: ScryptedDeviceBase & Settings,
             detection?: ObjectDetectionResult,
-            image?: MediaObject,
-            fullSizeImage?: MediaObject,
             externalUrl: string,
             triggerTime: number,
             triggered: boolean,
-            skipMotionCheck: boolean
+            skipMotionCheck: boolean,
+            b64Image?: string,
+            imageUrl: string,
         }
     ) {
-        const { detection, device, externalUrl, image, triggerTime, triggered, skipMotionCheck } = props;
-        const deviceSettings = await device.getSettings();
+        const { detection, device, externalUrl, triggerTime, triggered, skipMotionCheck, b64Image, imageUrl } = props;
         const { id, name } = device;
-        // const mainMotionDuration = this.storageSettings.getItem('motionActiveDuration');
-        // const deviceMotionDuration = deviceSettings.find(setting => setting.key === 'homeassistantMetadata:motionActiveDuration')?.value;
-        // const motionDuration = deviceMotionDuration ?? mainMotionDuration ?? 30;
 
-        const imageUrl = await mediaManager.convertMediaObjectToUrl(image, 'image/jpeg');
-        const localImageUrl = await mediaManager.convertMediaObjectToLocalUrl(image, 'image/jpeg');
         const info = {
-            imageUrl,
-            localImageUrl,
             scryptedUrl: externalUrl,
             detection,
             triggerTime,
-            image,
+            b64Image,
         };
 
         if (triggered) {
@@ -1205,7 +1205,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         } else {
             this.console.log(`[${name}] Motion finished`);
         }
-        await this.mqttClient.publishDeviceState({ device, deviceSettings, triggered, info });
+        await this.mqttClient.publishDeviceState({ device, triggered, info });
 
         if (imageUrl) {
             this.storageSettings.putSetting('deviceLastSnapshotMap', {
@@ -1224,7 +1224,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             this.deviceTimeoutMap[id] = systemManager.listenDevice(device.id, ScryptedInterface.MotionSensor, async (_, __, data) => {
                 if (!data) {
                     this.console.log(`[${name}] End motion by motion`);
-                    await this.mqttClient.publishDeviceState({ device, deviceSettings, triggered: false, info });
+                    await this.mqttClient.publishDeviceState({ device, triggered: false, info });
                 }
             })
             // this.deviceTimeoutMap[id] = setTimeout(async () => {
@@ -1249,6 +1249,23 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         }
 
         return { delayDone, currentTime }
+    }
+
+    checkDeviceLastMqttUpdate(deviceName: string, deviceSettings: Setting[], currentTime: number) {
+        // const mainMinDelay = this.storageSettings.getItem('minDelayTime') as number;
+        const minDelay = 50;
+        // const deviceMinDelay = deviceSettings.find(setting => setting.key === 'homeassistantMetadata:minDelayTime')?.value as number;
+
+        // const minDelay = deviceMinDelay || mainMinDelay || 30;
+        const lastDetection = this.deviceLastDetectionsUpdate[deviceName];
+        let delayDone;
+        if (lastDetection && (currentTime - lastDetection) < 1000 * minDelay) {
+            delayDone = false;
+        } else {
+            delayDone = true;
+        }
+
+        return { delayDone }
     }
 
     // private async checkVideoclipEnabled(deviceSettings: Setting[], notifierId: string) {
@@ -1480,7 +1497,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                     const deviceId = device.id;
                     const deviceSettings = await device.getSettings();
                     if (activeDevicesForReporting.includes(deviceName)) {
-                        await this.mqttClient?.setupDeviceAutodiscovery(device, deviceName, deviceSettings);
+                        await this.mqttClient?.setupDeviceAutodiscovery({ device, name: deviceName, deviceSettings, detectionClasses: detectionClassesToPublish });
                     }
                     const findAllowedDetection = this.getAllowedDetectionFinder(deviceName, deviceSettings)
 
@@ -1507,14 +1524,42 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                         }
 
                         let foundDetection: ObjectDetectionResult;
-                        if (isCamera && !isOnlyMotion) {
-                            const { foundDetection: foundSpecificDetection, relevantDetections } = findAllowedDetection(data.detections);
-                            foundDetection = foundSpecificDetection;
 
-                            // this.console.log(`[${deviceName}] ${JSON.stringify({
-                            //     foundSpecificDetection, 
-                            //     relevantDetections,
-                            // })}`)
+                        const { foundDetection: foundSpecificDetection, relevantDetections } = findAllowedDetection(data.detections);
+
+                        if (isCamera && !isOnlyMotion) {
+                            foundDetection = foundSpecificDetection;
+                        }
+
+                        const snapshotWidth = this.storageSettings.getItem('snapshotWidth') as number;
+                        const snapshotHeight = this.storageSettings.getItem('snapshotHeight') as number;
+
+                        let image;
+                        let imageUrl;
+                        let imageBuffer;
+                        let b64Image;
+
+                        const { delayDone: delayDoneMqtt } = this.checkDeviceLastMqttUpdate(deviceName, deviceSettings, currentTime);
+                        if (delayDoneMqtt && activeDevicesForReporting.includes(deviceName) && relevantDetections.length) {
+                            this.deviceLastDetectionsUpdate[deviceName] = currentTime;
+                            image = await cameraDevice.takePicture({
+                                reason: 'event',
+                                picture: {
+                                    height: snapshotHeight,
+                                    width: snapshotWidth,
+                                },
+                            });
+
+                            imageUrl = await mediaManager.convertMediaObjectToUrl(image, 'image/jpeg');
+                            imageBuffer = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg');
+                            b64Image = await imageBuffer.toString('base64');
+
+                            await this.mqttClient.publishRelevantDetections({
+                                b64Image,
+                                detections: relevantDetections,
+                                device,
+                                triggerTime: currentTime
+                            })
                         }
 
                         // TODO - Add configuration to check the event data
@@ -1527,18 +1572,22 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                             this.deviceLastDetectionMap[isDoorbelButton ? cameraDevice.name : deviceName] = currentTime;
                             const notifiers = this.storageSettings.getItem('notifiers') as string[];
                             const ignoreSnapshotIfNoNotifiers = this.storageSettings.getItem('ignoreSnapshotIfNoNotifiers') as boolean;
-                            const snapshotWidth = this.storageSettings.getItem('snapshotWidth') as number;
-                            const snapshotHeight = this.storageSettings.getItem('snapshotHeight') as number;
 
                             // const videoclipDurationInSeconds = (deviceSettings.find(setting => setting.key === 'videoclipDuration')?.value || this.storageSettings.getItem('videoclipDuration') || 10) as number;
                             // const videClipFound = cameraDevice.getVideoClips && (await cameraDevice.getVideoClips({ startTime: currentTime - (videoclipDurationInSeconds * 60 * 1000) }))?.[0];
-                            let image = isNotifierActive || !ignoreSnapshotIfNoNotifiers ? (await cameraDevice.takePicture({
-                                reason: 'event',
-                                picture: {
-                                    height: snapshotHeight,
-                                    width: snapshotWidth,
-                                },
-                            })) : undefined;
+
+                            if (!image) {
+                                image = (isNotifierActive || !ignoreSnapshotIfNoNotifiers ? (await cameraDevice.takePicture({
+                                    reason: 'event',
+                                    picture: {
+                                        height: snapshotHeight,
+                                        width: snapshotWidth,
+                                    },
+                                })) : undefined);
+                                imageUrl = await mediaManager.convertMediaObjectToUrl(image, 'image/jpeg');
+                                imageBuffer = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg');
+                                b64Image = await imageBuffer.toString('base64');
+                            }
 
                             this.console.log(`[${deviceName}] Received event ${event}: ${JSON.stringify(data)}. ${JSON.stringify({
                                 isCamera,
@@ -1561,7 +1610,8 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                                 await this.startMotionTimeoutAndPublish({
                                     device,
                                     detection: foundDetection,
-                                    image,
+                                    imageUrl,
+                                    b64Image,
                                     externalUrl,
                                     triggerTime: currentTime,
                                     triggered: isOnlyMotion ? data : true,

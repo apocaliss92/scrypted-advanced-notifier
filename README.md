@@ -105,3 +105,6 @@ Group `Homeassistant utilities`
 - Allow motion only detections
 - requireScryptedNvrDetections moved on the camera
 - flow init improved
+
+0.0.17:
+- MQTT entities created for vehicle animal and person, separated by the trigger event
