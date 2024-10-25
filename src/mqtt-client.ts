@@ -26,14 +26,13 @@ export default class MqttClient {
     password: string;
     console: Console;
 
-    constructor(host: string, username: string, password: string, console: Console) {
+    constructor(host: string, username: string, password: string) {
         this.host = host;
         this.username = username;
         this.password = password;
-        this.console = console;
     }
 
-    getMqttClient() {
+    getMqttClient(console: Console) {
         if (!this.mqttClient) {
             const url = this.host;
             const urlWithoutPath = new URL(url);
@@ -50,22 +49,22 @@ export default class MqttClient {
             });
             this.mqttClient.setMaxListeners(Infinity);
 
-            this.mqttClient.on('connect', packet => {
-                this.console.log('connected to mqtt', packet);
+            this.mqttClient.on('connect', data => {
+                console.log('connected to mqtt', JSON.stringify(data));
             })
         }
 
         return this.mqttClient;
     }
 
-    publish(device: ScryptedDeviceBase, topic: string, value: any, retain = true) {
+    publish(console: Console, topic: string, value: any, retain = true) {
         if (typeof value === 'object')
             value = JSON.stringify(value);
         if (value.constructor.name !== Buffer.name)
             value = value.toString();
 
-        // this.console.log(`[${device.name}] Publishing ${topic}`);
-        this.getMqttClient().publish(topic, value, { retain });
+        // console.debug(`Publishing ${JSON.stringify({ topic, value })}`);
+        this.getMqttClient(console).publish(topic, value, { retain });
     }
 
     private getMqttTopicTopics(device: ScryptedDeviceBase) {
@@ -95,9 +94,15 @@ export default class MqttClient {
         return { timeEntity, imageEntity }
     }
 
-    async setupDeviceAutodiscovery(props: { device: ScryptedDeviceBase, name: string, deviceSettings: Setting[], detectionClasses: string[] }) {
-        const { detectionClasses, device, deviceSettings, name } = props;
-        const id = device.id;
+    async setupDeviceAutodiscovery(props: {
+        device: ScryptedDeviceBase,
+        deviceSettings: Setting[],
+        detectionClasses: string[],
+        console: Console,
+        localIp: string,
+    }) {
+        const { detectionClasses, device, deviceSettings, console, localIp } = props;
+        const { name, id } = device;
 
         if (this.autodiscoveryPublishedMap[id]) {
             return;
@@ -138,13 +143,13 @@ export default class MqttClient {
                 config.state_topic = topic;
             }
 
-            this.publish(device, getDiscoveryTopic(domain, entity), JSON.stringify(config));
+            this.publish(console, getDiscoveryTopic(domain, entity), JSON.stringify(config));
         })
 
         // Add IP configuration
-        const localIp = (await sdk.endpointManager.getLocalAddresses())[0];
         if (localIp) {
             const deviceStreams = await this.findDeviceStreams(deviceSettings, localIp);
+            console.debug(`Streams found: ${JSON.stringify(deviceStreams)}`);
 
             deviceStreams.map(stream => {
                 const entity = stream.name.replace(/ /g, '');
@@ -153,11 +158,11 @@ export default class MqttClient {
                     unique_id: `scrypted-ha-utilities-${id}-${entity}`,
                     name: entity.charAt(0).toUpperCase() + entity.slice(1),
                     object_id: `${name}_${entity}`,
-                    topic: getEntityTopic(entity)
+                    state_topic: getEntityTopic(entity)
                 };
 
-                this.publish(device, getDiscoveryTopic('sensor', entity), JSON.stringify(config));
-                this.publish(device, getEntityTopic(entity), stream.url);
+                this.publish(console, getDiscoveryTopic('sensor', entity), JSON.stringify(config));
+                this.publish(console, getEntityTopic(entity), stream.url);
             })
         }
 
@@ -182,8 +187,8 @@ export default class MqttClient {
                 image_encoding: 'b64',
             };
 
-            this.publish(device, getDiscoveryTopic('sensor', timeEntity), JSON.stringify(timeConfig));
-            this.publish(device, getDiscoveryTopic('camera', imageEntity), JSON.stringify(imageConfig));
+            this.publish(console, getDiscoveryTopic('sensor', timeEntity), JSON.stringify(timeConfig));
+            this.publish(console, getDiscoveryTopic('camera', imageEntity), JSON.stringify(imageConfig));
         })
 
         this.autodiscoveryPublishedMap[id] = true;
@@ -191,6 +196,7 @@ export default class MqttClient {
 
     async publishDeviceState(props: {
         device: ScryptedDeviceBase,
+        console: Console,
         triggered: boolean,
         info?: {
             scryptedUrl: string,
@@ -199,10 +205,10 @@ export default class MqttClient {
             b64Image: string
         }
     }) {
-        const { device, triggered, info } = props;
+        const { device, triggered, info, console } = props;
         try {
             const entitiesToRun = triggered ? mqttEntities : mqttEntities.filter(entity => entity.entity === 'triggered');
-            // this.console.log(`[${device.name}] Entities to publish: ${JSON.stringify(entitiesToRun)}`)
+            console.debug(`Entities to publish: ${JSON.stringify(entitiesToRun)}`)
             for (const mqttEntity of entitiesToRun) {
                 const { getEntityTopic, getInfoTopic } = this.getMqttTopicTopics(device);
                 const { entity, isMainEntity: mainEntity } = mqttEntity;
@@ -243,43 +249,47 @@ export default class MqttClient {
                     }
                 }
 
-                // this.console.log(`[${device.name}] Publishing ${value} to ${getEntityTopic(entity)}`)
                 if (value !== null) {
-                    this.publish(device, getEntityTopic(entity), value, entity !== 'lastImage');
-                    mainEntity && triggered && info && this.publish(device, getInfoTopic(entity), info);
+                    this.publish(console, getEntityTopic(entity), value, entity !== 'lastImage');
+                    mainEntity && triggered && info && this.publish(console, getInfoTopic(entity), info);
+
+
+                    if(entity === 'lastClassname' && info.b64Image) {
+                        const { imageEntity } = this.getLastDetectionTopics(value);
+                        this.publish(console, getEntityTopic(imageEntity), info.b64Image);
+                    }
                 }
             }
         } catch (e) {
-            this.console.log(`[${device.name}] Error publishing`, e);
+            console.log(`Error publishing`, e);
         }
     }
 
     async publishRelevantDetections(props: {
         device: ScryptedDeviceBase,
+        console: Console,
         detections: ObjectDetectionResult[],
-        b64Image: string,
         triggerTime: number,
     }) {
 
-        const { device, detections, b64Image, triggerTime } = props;
+        const { device, detections, triggerTime, console } = props;
         try {
-            // this.console.log(`[${device.name}] Entities to publish: ${JSON.stringify(detections)}`)
+            console.debug(`Entities to publish: ${JSON.stringify(detections)}`)
             for (const detection of detections) {
                 const detectionClass = detection.className;
-                const { imageEntity, timeEntity } = this.getLastDetectionTopics(detectionClass);
-                const { getEntityTopic, getInfoTopic } = this.getMqttTopicTopics(device);
+                const { timeEntity } = this.getLastDetectionTopics(detectionClass);
+                const { getEntityTopic } = this.getMqttTopicTopics(device);
 
-                this.publish(device, getEntityTopic(imageEntity), b64Image);
-                this.publish(device, getEntityTopic(timeEntity), new Date(triggerTime).toISOString(), false);
+                this.publish(console, getEntityTopic(timeEntity), new Date(triggerTime).toISOString(), false);
             }
         } catch (e) {
-            this.console.log(`[${device.name}] Error publishing`, e);
+            console.log(`Error publishing`, e);
         }
     }
 
-    subscribeToHaTopics(entitiesActiveTopic: string, cb?: (topic: string, entitiesActive: string[]) => void) {
-        this.getMqttClient().subscribe([entitiesActiveTopic]);
-        this.getMqttClient().on('message', (messageTopic, message) => {
+    subscribeToHaTopics(entitiesActiveTopic: string, console: Console, cb?: (topic: string, entitiesActive: string[]) => void) {
+        this.getMqttClient(console).subscribe([entitiesActiveTopic]);
+        this.getMqttClient(console).on('message', (messageTopic, message) => {
             const messageString = message.toString();
             if (messageTopic === entitiesActiveTopic) {
                 cb && cb(messageTopic, messageString !== 'null' ? JSON.parse(messageString) : []);

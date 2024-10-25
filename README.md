@@ -18,23 +18,22 @@ This plugin offers the following parts:
  - Scrypted token: can be found on homeassistant in the sensor created by the scrypted integration
  - NVR url: URL externally accessible to the NVR interface, default ot `https://nvr.scrypted.app`
  - HA credentials, check the `Use HA plugin credentials` to pick the one used on the main Homeassistant plugin
- - Entity regex patterns: regexs to be passed to the HA endpoint to fetch the available entities. The plugin will autogenerate MQTT entities in form of `binary_sensor.{cameraName}_triggered`, an entry for this could be `binary_sensor.(.*)_triggered`. Add any HA entity id you need to map with the scrypted devices
 
  ##  MQTT
  - Connection parameters
  - `Active entities topic`, MQTT topic to subscribe to activate/deactivate device notifications. The value is expected to be an array of strings and it can contain either the names of the camera or the entity ids or a mix of them. As long as each camera is correctly mapped, the plugin will automatically derive the devices to enable
  - `Active devices`, devices enabled on the MQTT interface, the plugin will publish the current status of the devices listed
+ - `Snapshot width/height` - Dimensions of the snapshot for images to send over MQTT
 
  ## Fetched entities
+ - Entity regex patterns: regexs to be passed to the HA endpoint to fetch the available entities. The plugin will autogenerate MQTT entities in form of `binary_sensor.{cameraName}_triggered`, an entry for this could be `binary_sensor.(.*)_triggered`. Add any HA entity id you need to map with the scrypted devices
  - `Entities`, contains all the entity ids discoveredy HA
  - `Rooms`, contains all the rooms discovered from HA
+ - `Fetch entities from HA`, fetch data from HA (entities and rooms)
 
  ## Notifier
- - `Minimum notification delay`, delay between notifications from the same camera, can be overridden on the device
  - `Active devices`, devices enabled for the notifications, they can be manually selected or triggered by the MQTT `Active entities topic` topic
  - `Notifiers`, notifiers to be used to send notifications
- - `Ignore snapshot on no notifiers`, do not take any snapshot for the cameras not active to notify
- - `Snapshot width/height` - Dimensions of the snapshot (also enabled in specific notifier tab to be overridden)
 
  ## Texts
  Contains a configurable text contains parameters to show the notification texts. Usefull for translations in local languages. The following parameters can be used:
@@ -69,6 +68,7 @@ Group `Homeassistant utilities`
 - `HA actions`, actions to be included in the notification in form of JSON string, i.e. `{"action":"open_door","title":"Open door","icon":"sfsymbols:door"}`
 - `Minimum notification delay`, override of the same plugin config
 - `Skip doorbell notifications`, sensors used as `Custom doorbell button` on the camera will not trigger a notification (available only for Doorbell devices)
+- `Disable notifier {eachNotifier}`, if checked will disable notifications to the notifier for the specific camera
 
 ## Webhooks
 - `Last snapshot webhook`, enable the last snapshot webhook, below the public url where the image will be available
@@ -108,3 +108,6 @@ Group `Homeassistant utilities`
 
 0.0.17:
 - MQTT entities created for vehicle animal and person, separated by the trigger event
+
+0.1.0:
+- Project cleanup, some leaks fixed

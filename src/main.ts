@@ -77,7 +77,6 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
             title: 'EntityID',
             type: 'string',
             subgroup: 'Metadata',
-            defaultValue: `binary_sensor.${this.mixinDevice.name}_triggered`
         },
         haDeviceClass: {
             title: 'Device class',
@@ -156,6 +155,7 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
             title: 'Minimum notification delay',
             description: 'Minimum amount of time to wait until a notification is sent from the same camera, in seconds',
             type: 'number',
+            defaultValue: 30,
         },
         skipDoorbellNotifications: {
             subgroup: 'Notifier',
@@ -231,7 +231,7 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
         if (this.interfaces.includes(ScryptedInterface.VideoCamera)) {
             const getZones = async () => {
                 const settings = await this.mixinDevice.getSettings();
-                const zonesSetting = settings.find(setting => new RegExp('objectdetectionplugin:.*:zones').test(setting.key));
+                const zonesSetting = settings.find((setting: { key: string; }) => new RegExp('objectdetectionplugin:.*:zones').test(setting.key));
 
                 return {
                     choices: zonesSetting?.value ?? []
@@ -242,7 +242,7 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
             this.storageSettings.settings.alwaysZones.onGet = async () => await getZones();
             this.storageSettings.settings.detectionClasses.onGet = async () => {
                 const settings = await this.mixinDevice.getSettings();
-                const detectionClasses = settings.find(setting => new RegExp('objectdetectionplugin:.*:allowList').test(setting.key));
+                const detectionClasses = settings.find((setting: { key: string; }) => new RegExp('objectdetectionplugin:.*:allowList').test(setting.key));
                 const choices = detectionClasses?.value ?? defaultDetectionClasses;
 
                 return {
@@ -263,15 +263,7 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
     }
 
     async initValues() {
-        // if (this.interfaces.includes(ScryptedInterface.VideoCamera)) {
-        //     const mainPluginDevice = systemManager.getDeviceByName('Homeassistant utilities') as unknown as Settings;
-        //     const settings = await mainPluginDevice.getSettings() as Setting[];
-        //     const scoreThreshold = settings.find(setting => setting.key === 'scoreThreshold');
-
-        //     this.storageSettings.putSetting('scoreThreshold', scoreThreshold?.value ?? 0.7);
-        // }
-
-        const { lastSnapshotCloudUrl, lastSnapshotLocalUrl } = await getWebookUrls(this.name, this.console);
+        const { lastSnapshotCloudUrl, lastSnapshotLocalUrl } = await getWebookUrls(this.name, console);
         this.storageSettings.putSetting('lastSnapshotWebhookCloudUrl', lastSnapshotCloudUrl);
         this.storageSettings.putSetting('lastSnapshotWebhookLocalUrl', lastSnapshotLocalUrl);
     }
@@ -325,7 +317,6 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
     private activeListeners: { listener: EventListenerRegister, deviceName: string }[] = [];
     private deviceLastDetectionMap: Record<string, number> = {};
     private deviceRoomMap: Record<string, string> = {}
-    private roomNameMap: Record<string, string> = {}
     private mqttClient: MqttClient;
     private deviceTimeoutMap: Record<string, EventListenerRegister> = {};
     private doorbellDevices: string[] = [];
@@ -333,6 +324,8 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
     private firstCheckAlwaysActiveDevices = false;
     private initListener: NodeJS.Timeout;
     private deviceLastDetectionsUpdate: Record<string, number> = {};
+    private mainLogger: Console;
+    private deviceLoggerMap: Record<string, Console> = {};
 
     storageSettings = new StorageSettings(this, {
         pluginEnabled: {
@@ -341,8 +334,19 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             defaultValue: true,
             immediate: true,
         },
+        debug: {
+            title: 'Log debug messages',
+            type: 'boolean',
+            defaultValue: false,
+            immediate: true,
+        },
         serverId: {
             title: 'Server identifier',
+            type: 'string',
+            hide: true,
+        },
+        localIp: {
+            title: 'Server local ip',
             type: 'string',
             hide: true,
         },
@@ -379,17 +383,24 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             type: 'string',
             defaultValue: []
         },
-        // scryptedTokenEntity: {
-        //     title: 'Scrypted token entityId',
-        //     description: 'Where the scrypted token is stored, the prefix is enough',
-        //     type: 'string',
-        //     defaultValue: 'sensor.scrypted_token_'
-        // },
+        snapshotWidth: {
+            group: 'Notifier',
+            title: 'Snapshot width',
+            type: 'number',
+            defaultValue: 1280,
+        },
+        snapshotHeight: {
+            group: 'Notifier',
+            title: 'Snapshot height',
+            type: 'number',
+            defaultValue: 720,
+        },
         nvrUrl: {
             title: 'NVR url',
             description: 'Url pointing to the NVR instance, useful to generate direct links to timeline',
             type: 'string',
-            defaultValue: 'https://nvr.scrypted.app/'
+            defaultValue: 'https://nvr.scrypted.app/',
+            placeholder: 'https://nvr.scrypted.app/',
         },
         useHaPluginCredentials: {
             title: 'Use HA plugin credentials',
@@ -411,31 +422,37 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             defaultValue: ['http'],
         },
         domains: {
+            group: 'HA fetched data',
             title: 'Entity regex patterns',
             description: 'Regex to filter out entities fetched',
             type: 'string',
             multiple: true,
         },
+        fetchHaEntities: {
+            group: 'HA fetched data',
+            title: 'Fetch entities from HA',
+            type: 'button',
+            onPut: async () => await this.fetchHomeassistantData()
+        },
         fetchedEntities: {
-            group: 'Fetched entities',
+            group: 'HA fetched data',
             title: '',
             subgroup: 'Entities',
             readonly: true,
             multiple: true,
         },
         fetchedRooms: {
-            group: 'Fetched entities',
+            group: 'HA fetched data',
             title: '',
             subgroup: 'Rooms',
             readonly: true,
             multiple: true,
         },
-        minDelayTime: {
-            group: 'Notifier',
-            title: 'Minimum notification delay',
-            description: 'Minimum amount of time to wait until a notification is sent from the same camera, in seconds',
-            type: 'number',
-            defaultValue: 30,
+        fetchedRoomNames: {
+            group: 'HA fetched data',
+            json: true,
+            hide: true,
+            defaultValue: {}
         },
         activeDevicesForNotifications: {
             group: 'Notifier',
@@ -458,11 +475,6 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             multiple: true,
             combobox: true,
             deviceFilter: `(type === '${ScryptedDeviceType.Notifier}')`,
-        },
-        ignoreSnapshotIfNoNotifiers: {
-            group: 'Notifier',
-            title: 'Skip snapshot when no devices active for notifications',
-            type: 'boolean',
         },
         // TEXTS
         detectionTimeText: {
@@ -521,18 +533,6 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             description: 'Expression used to render the text when a binary sensor opens. Available arguments ${room} $[time} ${nvrLink}',
             defaultValue: 'Door/window opened in ${room}'
         },
-        snapshotWidth: {
-            group: 'Notifier',
-            title: 'Snapshot width',
-            type: 'number',
-            defaultValue: 1280
-        },
-        snapshotHeight: {
-            group: 'Notifier',
-            title: 'Snapshot height',
-            type: 'number',
-            defaultValue: 720
-        },
         sendVideoclip: {
             group: 'Notifier',
             title: 'Send videoclip',
@@ -547,13 +547,6 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             defaultValue: 10,
             hide: true
         },
-        // motionActiveDuration: {
-        //     group: 'Detection',
-        //     title: 'Motion active duration',
-        //     description: 'How many seconds the motion sensors should stay active',
-        //     type: 'number',
-        //     defaultValue: 30,
-        // },
         testDevice: {
             title: 'Device',
             group: 'Test',
@@ -592,7 +585,6 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         super(nativeId);
 
         const start = async () => {
-            await this.start();
             await this.startEventsListeners();
         };
 
@@ -605,7 +597,6 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         this.storageSettings.settings.protocol.onPut = async () => await start();
         this.storageSettings.settings.accessToken.onPut = async () => await start();
         this.storageSettings.settings.nvrUrl.onPut = async () => await start();
-        // this.storageSettings.settings.scryptedTokenEntity.onPut = () => start();
         this.storageSettings.settings.domains.onPut = async () => await start();
         this.storageSettings.settings.useHaPluginCredentials.onPut = async (_, isOn) => {
             this.storageSettings.settings.accessToken.hide = isOn;
@@ -630,20 +621,20 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         this.storageSettings.settings.mqttPassword.onPut = () => this.setupMqttClient();
         this.storageSettings.settings.mqttActiveEntitiesTopic.onPut = () => this.setupMqttClient();
 
-        this.initFlow().then().catch(console.log);
+        this.initFlow().then().catch(this.getLogger().log);
     }
 
     async initFlow() {
         try {
             this.setupMqttClient();
-            await this.initDevices();
+            await this.initData();
             await this.startCheckAlwaysActiveDevices();
 
             this.initListener = setInterval(async () => {
                 await this.startEventsListeners();
             }, 3000)
         } catch (e) {
-            this.console.log(`Error in initFLow`, e);
+            this.getLogger().log(`Error in initFLow`, e);
         }
     }
 
@@ -710,17 +701,25 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         const mqttPassword = this.storageSettings.getItem('mqttPassword');
 
         if (!mqttHost || !mqttUsename || !mqttPassword) {
-            this.console.log('MQTT params not provided');
+            this.getLogger().log('MQTT params not provided');
         }
 
         try {
-            this.mqttClient = new MqttClient(mqttHost, mqttUsename, mqttPassword, this.console);
+            this.mqttClient = new MqttClient(mqttHost, mqttUsename, mqttPassword);
         } catch (e) {
-            this.console.log('Error setting up MQTT client', e);
+            this.getLogger().log('Error setting up MQTT client', e);
         }
     }
 
     private getElegibleDevices() {
+        return Object.entries(systemManager.getSystemState()).filter(([deviceId]) => {
+            const device = systemManager.getDeviceById(deviceId) as unknown as (Settings & ScryptedDeviceBase);
+
+            return device.mixins?.includes(this.id) && !!device.getSettings;
+        }).map(([deviceId]) => systemManager.getDeviceById(deviceId) as unknown as (Settings & ScryptedDeviceBase))
+    }
+
+    private getScryptedTokens() {
         return Object.entries(systemManager.getSystemState()).filter(([deviceId]) => {
             const device = systemManager.getDeviceById(deviceId) as unknown as (Settings & ScryptedDeviceBase);
 
@@ -753,16 +752,16 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
 
                 if (this.storageSettings.getItem('alwaysActiveDevicesForNotifications')?.toString() !== forcedActiveDevices.toString()) {
                     if (!this.firstCheckAlwaysActiveDevices) {
-                        this.console.log('Restarting loop to adjust the devices listeners');
+                        this.getLogger().log('Restarting loop to adjust the devices listeners');
                     } else {
-                        this.console.log(`Setting forcedActiveDevices: ${JSON.stringify(forcedActiveDevices)}`);
+                        this.getLogger().log(`Setting forcedActiveDevices: ${JSON.stringify(forcedActiveDevices)}`);
                     }
                     this.storageSettings.putSetting('alwaysActiveDevicesForNotifications', forcedActiveDevices);
                 }
 
                 this.firstCheckAlwaysActiveDevices = true;
             } else {
-                this.console.log(`Plugin is not enabled`);
+                this.getLogger().log(`Plugin is not enabled`);
             }
         };
 
@@ -788,7 +787,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         this.storageSettings.putSetting('activeDevicesForNotifications', deviceNames);
     }
 
-    private async initDevices() {
+    private async initData() {
         const devices: string[] = [];
         const doorbellDevices: string[] = [];
         const haEntities: string[] = [];
@@ -797,13 +796,20 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         const deviceVideocameraMap: Record<string, string> = {};
         const deviceRoomMap: Record<string, string> = {};
         const deviceTypeMap: Record<string, ScryptedDeviceType> = {};
+        const roomNameMap: Record<string, string> = {};
 
         const cloudPlugin = systemManager.getDeviceByName('Scrypted Cloud') as unknown as Settings;
         const oauthUrl = await (cloudPlugin as any).getOauthUrl();
         const url = new URL(oauthUrl);
         const serverId = url.searchParams.get('server_id');
         this.storageSettings.putSetting('serverId', serverId);
-        this.console.log(`Server id found: ${serverId}`);
+        this.getLogger().log(`Server id found: ${serverId}`);
+
+
+        const localIp = (await sdk.endpointManager.getLocalAddresses())[0];
+        this.storageSettings.putSetting('localIp', localIp);
+        this.getLogger().log(`Local IP found: ${localIp}`);
+
 
         const allDevices = this.getElegibleDevices();
         for (const device of allDevices) {
@@ -848,7 +854,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             .map(sensor => sensor.name);
 
         if (sensorsNotMapped.length) {
-            this.console.log(`Following binary sensors are not mapped to any camera yet: ${sensorsNotMapped}`);
+            this.getLogger().log(`Following binary sensors are not mapped to any camera yet: ${sensorsNotMapped}`);
         }
 
         this.storageSettings.settings.activeDevicesForNotifications.choices = devices;
@@ -866,17 +872,17 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
 
         const mqttActiveEntitiesTopic = this.storageSettings.getItem('mqttActiveEntitiesTopic');
         if (mqttActiveEntitiesTopic) {
-            this.mqttClient.subscribeToHaTopics(mqttActiveEntitiesTopic, (topic, message) => {
+            this.mqttClient.subscribeToHaTopics(mqttActiveEntitiesTopic, this.getLogger(), (topic, message) => {
                 if (topic === mqttActiveEntitiesTopic) {
                     this.mqttInit = true;
-                    this.console.log(`Received update for ${mqttActiveEntitiesTopic} topic: ${JSON.stringify(message)}`);
+                    this.getLogger().log(`Received update for ${mqttActiveEntitiesTopic} topic: ${JSON.stringify(message)}`);
                     this.syncHaEntityIds(message);
                 }
             });
 
             setTimeout(() => {
                 if (!this.mqttInit) {
-                    this.console.log(`No message received on topic ${mqttActiveEntitiesTopic}. Forcing init`);
+                    this.getLogger().log(`No message received on topic ${mqttActiveEntitiesTopic}. Forcing init`);
                     this.mqttInit = true;
                 }
             }, 10000)
@@ -890,8 +896,6 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
 
         const notifiers = this.storageSettings.getItem('notifiers') ?? [];
         const textSettings = settings.filter(setting => setting.group === 'Texts');
-        const notificationSettings = settings.filter(setting => setting.group === 'Notifier')
-            .filter(setting => ['snapshotWidth', 'snapshotHeight', 'videoclipDuration'].includes(setting.key));
 
         for (const notifierId of notifiers) {
             const notifier = systemManager.getDeviceById(notifierId) as unknown as ScryptedDeviceBase;
@@ -907,24 +911,25 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                 });
             });
 
-            notificationSettings.forEach(notificationSetting => {
-                const key = `notifier:${notifierId}:${notificationSetting.key}`;
-                settings.push({
-                    ...notificationSetting,
-                    value: this.storage.getItem(key),
-                    key,
-                    subgroup: `${notifierName}`
-                });
+            const widthKey = `notifier:${notifierId}:snapshotWidth`;
+            settings.push({
+                title: 'Snapshot width',
+                group: 'Notifier',
+                subgroup: `${notifierName}`,
+                type: 'number',
+                value: this.storage.getItem(widthKey) || 1280,
+                key: widthKey,
             });
 
-            // const disableVideoclipsKey = `notifier:${notifierId}:disableVideoclips`;
-            // settings.push({
-            //     key: disableVideoclipsKey,
-            //     type: 'boolean',
-            //     subgroup: `${notifierName}`,
-            //     title: 'Disable videoclips',
-            //     group: 'Notifier'
-            // })
+            const heightKey = `notifier:${notifierId}:snapshotHeight`;
+            settings.push({
+                title: 'Snapshot height',
+                group: 'Notifier',
+                subgroup: `${notifierName}`,
+                type: 'number',
+                value: this.storage.getItem(heightKey) || 720,
+                key: heightKey,
+            });
         }
 
         return settings;
@@ -934,10 +939,11 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         return this.storageSettings.putSetting(key, value);
     }
 
-    start = async () => {
+    fetchHomeassistantData = async () => {
         let accessToken = this.storageSettings.getItem('accessToken');
         let address = this.storageSettings.getItem('address');
         let protocol = this.storageSettings.getItem('protocol');
+        const roomNameMap: Record<string, string> = {};
 
         if (this.storageSettings.getItem('useHaPluginCredentials')) {
             const haDevice = systemManager.getDeviceByName('Home Assistant') as unknown as Settings;
@@ -956,10 +962,16 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
 
         const domains = this.storageSettings.getItem('domains') as string[];
 
+        this.getLogger().log(`Start data fetching from HA: ${JSON.stringify({
+            accessToken,
+            address,
+            protocol,
+            url,
+            domains
+        })}`);
+
         let rooms: string[] = [];
-        const roomNameMap: Record<string, string> = {};
         let entityIds: string[] = [];
-        // let scryptedToken: string;
 
         try {
             const roomsResponse = await axios.post<string>(`${url}/api/template`,
@@ -998,15 +1010,15 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                     .filter(entityStatus => domains.length > 0 ? domains.some(domain => new RegExp(domain).test(entityStatus.entity_id)) : true),
                 elem => elem.entity_id)
                 .map(entityStatus => entityStatus.entity_id);
-
-            // scryptedToken = entitiesResponse.data.find(ent => ent.entity_id.includes(this.storageSettings.getItem('scryptedTokenEntity')))?.state;
         } catch (e) {
-            console.log(e);
+            this.getLogger().log(e);
         } finally {
+            this.getLogger().log(`Entities found: ${JSON.stringify(entityIds)}`);
+            this.getLogger().log(`Rooms found: ${JSON.stringify(rooms)}`);
+            this.getLogger().log(`Room names found: ${JSON.stringify(roomNameMap)}`);
             await this.storageSettings.putSetting('fetchedEntities', entityIds);
             await this.storageSettings.putSetting('fetchedRooms', rooms);
-            // await this.storageSettings.putSetting('scryptedToken', scryptedToken);
-            this.roomNameMap = roomNameMap;
+            await this.storageSettings.putSetting('fetchedRoomNames', roomNameMap as any);
         }
     }
 
@@ -1037,23 +1049,24 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
     async releaseMixin(id: string, mixinDevice: any): Promise<void> {
     }
 
-    private getAllowedDetectionFinder(deviceName: string, deviceSettings: Setting[]) {
+    private getAllowedDetectionFinder(device: DeviceInterface, deviceSettings: Setting[]) {
+        const deviceName = device.name;
         const detectionClasses = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:detectionClasses')?.value ?? []) as string[];
         const whitelistedZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:whitelistedZones')?.value ?? []) as string[];
         const blacklistedZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:blacklistedZones')?.value ?? []) as string[];
         const requireScryptedNvrDetections = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:requireScryptedNvrDetections')?.value as boolean) ?? true;
         const scoreThreshold = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:scoreThreshold')?.value as number) || 0.7;
         const alwaysZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:alwaysZones')?.value ?? []) as string[];
+        const deviceLogger = this.getDeviceLogger(device);
 
-        return (detections: ObjectDetectionResult[]) => {
-            let foundDetection: ObjectDetectionResult | undefined;
+        const pickElegibleDetections = (detections: ObjectDetectionResult[]) => {
             let relevantDetections: ObjectDetectionResult[] = [];
 
             if (detections?.length) {
                 const sortedDetectionsByPriority = sortBy(detections, (detection) => detection.className ? classnamePrio[detection.className] : 100);
-                // this.console.log(`[${deviceName}] Detections ordered by priority: ${JSON.stringify(sortedDetectionsByPriority)}. Originals: ${JSON.stringify(detections)}`);
+                deviceLogger.debug(`Detections ordered by priority: ${JSON.stringify(sortedDetectionsByPriority)}. Originals: ${JSON.stringify(detections)}`);
 
-                const filterByScore = sortedDetectionsByPriority.filter(detection => {
+                relevantDetections = sortedDetectionsByPriority.filter(detection => {
                     if (requireScryptedNvrDetections && !detection.boundingBox) {
                         return false;
                     }
@@ -1061,11 +1074,20 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                     const scoreToUse = deviceSettings.find(setting => setting.key === `homeassistantMetadata:${detection.className}:scoreThreshold`)?.value as number
                         || scoreThreshold;
 
-                    // this.console.log(`[${deviceName}] Found a detection for class ${detectionClass} with score ${detection.score} (min ${scoreToUse}). Override is ${detectionClassScoreThreshold}`);
+                    deviceLogger.debug(`Found a detection for class ${detection.className} with score ${detection.score} (min ${scoreToUse}).`);
                     return detection.score > scoreToUse
                 });
+            }
 
-                const filterByClassName = filterByScore.filter(detection => detectionClasses.includes(detection.className));
+            return relevantDetections;
+
+        }
+
+        const findAllowedDetection = (detections: ObjectDetectionResult[]) => {
+            let foundDetection: ObjectDetectionResult | undefined;
+
+            if (detections?.length) {
+                const filterByClassName = detections.filter(detection => detectionClasses.includes(detection.className));
 
                 foundDetection = filterByClassName.find(detection => {
                     const detectionZones = detection.zones;
@@ -1074,7 +1096,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                     const isExcluded = blacklistedZones.length ? detectionZones.some(zone => blacklistedZones.includes(zone)) : false;
 
                     if (isAlwaysIncluded || (isIncluded && !isExcluded)) {
-                        this.console.log(`[${deviceName}] Found detection: ${JSON.stringify({
+                        deviceLogger.debug(`Found detection: ${JSON.stringify({
                             detection,
                             blacklistedZones,
                             whitelistedZones,
@@ -1084,16 +1106,13 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                         return true;
                     }
                 });
-
-                relevantDetections = uniqBy(filterByScore, detection => detection.className).filter(detection => detectionClassesToPublish.includes(detection.className));
             }
 
-            return {
-                foundDetection,
-                relevantDetections,
-            }
+            return foundDetection;
 
         }
+
+        return { pickElegibleDetections, findAllowedDetection }
     }
 
     private getUrls(cameraId: string, time: number) {
@@ -1180,7 +1199,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
 
     async startMotionTimeoutAndPublish(
         props: {
-            device: ScryptedDeviceBase & Settings,
+            device: DeviceInterface,
             detection?: ObjectDetectionResult,
             externalUrl: string,
             triggerTime: number,
@@ -1192,6 +1211,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
     ) {
         const { detection, device, externalUrl, triggerTime, triggered, skipMotionCheck, b64Image, imageUrl } = props;
         const { id, name } = device;
+        const deviceLogger = this.getDeviceLogger(device);
 
         const info = {
             scryptedUrl: externalUrl,
@@ -1201,11 +1221,12 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         };
 
         if (triggered) {
-            this.console.log(`[${device.name}] Motion activated`);
+            deviceLogger.log(`Motion activated`);
         } else {
-            this.console.log(`[${name}] Motion finished`);
+            deviceLogger.log(`Motion finished`);
         }
-        await this.mqttClient.publishDeviceState({ device, triggered, info });
+
+        await this.mqttClient.publishDeviceState({ device, triggered, info, console: deviceLogger });
 
         if (imageUrl) {
             this.storageSettings.putSetting('deviceLastSnapshotMap', {
@@ -1214,103 +1235,62 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             });
         }
 
-        // const currentTimeout = this.deviceTimeoutMap[id];
-        // if (currentTimeout) {
-        //     clearTimeout(currentTimeout);
-        // }
         this.deviceTimeoutMap[id]?.removeListener();
 
         if (!skipMotionCheck) {
+            const tmpTimeout = setTimeout(async () => {
+                deviceLogger.log(`Trigger end motion by timeout`);
+                await this.mqttClient.publishDeviceState({ device, triggered: false, info, console: deviceLogger });
+            }, 20 * 1000);
+
             this.deviceTimeoutMap[id] = systemManager.listenDevice(device.id, ScryptedInterface.MotionSensor, async (_, __, data) => {
                 if (!data) {
-                    this.console.log(`[${name}] End motion by motion`);
-                    await this.mqttClient.publishDeviceState({ device, triggered: false, info });
+                    clearTimeout(tmpTimeout);
+                    deviceLogger.log(`Trigger end motion by MotionSensor event`);
+                    await this.mqttClient.publishDeviceState({ device, triggered: false, info, console: deviceLogger });
                 }
             })
-            // this.deviceTimeoutMap[id] = setTimeout(async () => {
-            //     this.console.log(`[${name}] End motion by timeout`);
-            //     await this.mqttClient.publishDeviceState({ device, deviceSettings, triggered: false, info });
-            // }, motionDuration * 1000);
         }
     }
 
-    checkDeviceLastDetection(deviceName: string, deviceSettings: Setting[]) {
-        const currentTime = new Date().getTime();
-        const mainMinDelay = this.storageSettings.getItem('minDelayTime') as number;
-        const deviceMinDelay = deviceSettings.find(setting => setting.key === 'homeassistantMetadata:minDelayTime')?.value as number;
+    checkDeviceLastDetection(deviceName: string, minDelay: number, currentTime: number) {
 
-        const minDelay = deviceMinDelay || mainMinDelay || 30;
         const lastDetection = this.deviceLastDetectionMap[deviceName];
-        let delayDone;
+        let delayDetectionDone: boolean;
         if (lastDetection && (currentTime - lastDetection) < 1000 * minDelay) {
-            delayDone = false;
+            delayDetectionDone = false;
         } else {
-            delayDone = true;
+            delayDetectionDone = true;
         }
 
-        return { delayDone, currentTime }
+        return { delayDetectionDone }
     }
-
-    checkDeviceLastMqttUpdate(deviceName: string, deviceSettings: Setting[], currentTime: number) {
-        // const mainMinDelay = this.storageSettings.getItem('minDelayTime') as number;
-        const minDelay = 50;
-        // const deviceMinDelay = deviceSettings.find(setting => setting.key === 'homeassistantMetadata:minDelayTime')?.value as number;
-
-        // const minDelay = deviceMinDelay || mainMinDelay || 30;
-        const lastDetection = this.deviceLastDetectionsUpdate[deviceName];
-        let delayDone;
-        if (lastDetection && (currentTime - lastDetection) < 1000 * minDelay) {
-            delayDone = false;
-        } else {
-            delayDone = true;
-        }
-
-        return { delayDone }
-    }
-
-    // private async checkVideoclipEnabled(deviceSettings: Setting[], notifierId: string) {
-    //     const isMainEnabled = this.storageSettings.values.sendVideoclip;
-
-    //     if (isMainEnabled) {
-    //         const notifierDisabled = this.storageSettings.getItem(`notifier:${notifierId}:disableVideoclips` as any) as boolean;
-
-    //         if (!notifierDisabled) {
-    //             const deviceDisabled = deviceSettings.find(setting => setting.key === 'disableVideoclips')?.value as boolean;
-
-    //             if (!deviceDisabled) {
-    //                 return true;
-    //             }
-    //         }
-    //     }
-
-    //     return false;
-    // }
 
     async notifyCamera(props: {
-        srcDevice: DeviceInterface,
+        device: DeviceInterface,
         notifierId: string,
         time: number,
         image?: MediaObject,
         detection?: ObjectDetectionResult
         forceMessageKey?: string
     }) {
-        const { srcDevice, notifierId, time, image: imageParent, detection, forceMessageKey } = props;
+        const { device: srcDevice, notifierId, time, image: imageParent, detection, forceMessageKey } = props;
 
         const device = await this.getCameraDevice(srcDevice);
+        const deviceLogger = this.getDeviceLogger(device);
 
         if (!device) {
-            this.console.log(`[${srcDevice.name}] There is no camera linked to the device ${srcDevice.name}`);
+            deviceLogger.log(`There is no camera linked to the device ${srcDevice.name}`);
             return;
         }
 
-        const deviceName = device.name
         const deviceSettings = await device.getSettings();
         const srcDeviceSettings = await srcDevice.getSettings();
         const disableNotifierSetting = srcDeviceSettings.find(setting => setting.key === `homeassistantMetadata:notifier-${notifierId}:disabled`)?.value ?? false;
         const notifier = systemManager.getDeviceById(notifierId) as unknown as (Notifier & ScryptedDevice);
 
         if (disableNotifierSetting) {
-            this.console.log(`[${srcDevice.name}] Notifier ${notifier.name} forced disabled.`);
+            deviceLogger.log(`Notifier ${notifier.name} forced disabled.`);
             return;
         }
 
@@ -1325,64 +1305,22 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             device: srcDevice,
         });
 
-        // const shouldSendVideoClip = await this.checkVideoclipEnabled(deviceSettings, notifierId);
-        // let imageUrl: string;
-        // let videoUrl: string;
+        const notifierSnapshotWidth = this.storageSettings.getItem(`notifier:${notifierId}:snapshotWidth` as any);
+        const notifiernapshotHeight = this.storageSettings.getItem(`notifier:${notifierId}:snapshotHeight` as any);
 
-        // try {
-        // if (shouldSendVideoClip) {
-        //     this.console.log(`Videoclip should be sent. Following was found: ${videClipFound}`);
-        //     const videoClipMo = await cameraDevice.getVideoClip(videClipFound.videoId);
-
-        //     if (videoClipMo) {
-        //         videoUrl = await mediaManager.convertMediaObjectToUrl(videoClipMo, 'video/mp4');
-        //     }
-        // }
-
-        // } catch (e) {
-        //     this.console.log(`[${deviceName}] Error trying to fetch videoClip ${JSON.stringify(videClipFound)}`, e);
-        // }
-
-        // try {
-        //     if (!videoUrl && image) {
-        //         imageUrl = await mediaManager.convertMediaObjectToUrl(image, 'image/jpeg');
-        //     }
-        // } catch (e) {
-        //     this.console.log(`[${deviceName}] Error trying to fetch image ${JSON.stringify(image)}`, e);
-
-        // }
-
-        // this.console.log(`[${deviceName}] The media sent will be the following: ${JSON.stringify({
-        //     videClipFound,
-        //     shouldSendVideoClip: shouldSendVideoClip,
-        //     imageUrl,
-        //     videoUrl,
-        // })}`)
-
-        const snapshotWidth = this.storageSettings.getItem('snapshotWidth') as number;
-        const snapshotHeight = this.storageSettings.getItem('snapshotHeight') as number;
-        const notifierSnapshotWidth = this.storageSettings.getItem(`notifier:${notifierId}:snapshotWidth` as any) || snapshotWidth;
-        const notifiernapshotHeight = this.storageSettings.getItem(`notifier:${notifierId}:snapshotHeight` as any) || snapshotHeight;
+        const { image } = await this.getCameraSnapshot({
+            cameraDevice: device,
+            snapshotHeight: notifiernapshotHeight,
+            snapshotWidth: notifierSnapshotWidth,
+            image: imageParent
+        });
 
         const haActions = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:haActions')?.value as string[]) ?? [];
-        let image = imageParent;
-
-        if (device.takePicture && (!image || notifierSnapshotWidth !== snapshotWidth || notifiernapshotHeight !== snapshotHeight)) {
-            image = await device.takePicture({
-                reason: 'event',
-                picture: {
-                    height: notifiernapshotHeight,
-                    width: notifierSnapshotWidth,
-                },
-            });
-        }
 
         const notifierOptions: NotifierOptions = {
             body: message,
             data: {
                 ha: {
-                    // image: imageUrl,
-                    // video: videoUrl,
                     url: haUrl,
                     clickAction: haUrl,
                     actions: haActions.length ? haActions.map(action => JSON.parse(action)) : undefined,
@@ -1390,11 +1328,8 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             },
         }
 
-        this.console.log(`[${deviceName}] Sending notification to ${notifier.name}: ${JSON.stringify({
-            ...notifierOptions,
-            snapshotHeight: notifiernapshotHeight || snapshotHeight,
-            snapshotWidth: notifierSnapshotWidth || snapshotWidth,
-        })}`);
+        deviceLogger.log(`Sending notification to ${notifier.name}`);
+        deviceLogger.debug(`${JSON.stringify(notifierOptions)}`);
 
         await notifier.sendNotification((srcDevice ?? device).name, notifierOptions, image);
     }
@@ -1404,16 +1339,14 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         const testNotifier = this.storageSettings.getItem('testNotifier') as ScryptedDevice;
         const testMessageKey = this.storageSettings.getItem('testMessage') as string;
 
-        this.console.log(`[TEST] Start notification test for ${testNotifier.name} - ${testDeviceName} with key ${testMessageKey}`);
-
         if (testDeviceName && testMessageKey && testNotifier) {
             const currentTime = new Date().getTime();
             const testDevice = systemManager.getDeviceByName(testDeviceName) as unknown as DeviceInterface;
             const notifierId = testNotifier.id;
 
-            this.console.log(`[TEST] Sending test notification to ${testNotifier.name} - ${testDevice.name} with key ${testMessageKey}}`);
+            this.getLogger().log(`Sending test notification to ${testNotifier.name} - ${testDevice.name} with key ${testMessageKey}}`);
 
-            this.notifyCamera({ srcDevice: testDevice, notifierId, time: currentTime, forceMessageKey: testMessageKey })
+            this.notifyCamera({ device: testDevice, notifierId, time: currentTime, forceMessageKey: testMessageKey })
         }
     }
 
@@ -1446,35 +1379,118 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             isBooleanSensor,
             cameraDevice,
             isDoorbelButton,
-            roomName: this.roomNameMap[room] ?? room
+            roomName: this.storageSettings.getItem('fetchedRoomNames')?.[room] ?? room
         }
     }
 
+    async executeReport(props: { currentTime: number, deviceName: string, detections: ObjectDetectionResult[], device: DeviceInterface }) {
+        const { currentTime, detections, device } = props;
+
+        this.getDeviceLogger(device).debug(`Reporting ${detections.length} detections: ${JSON.stringify(detections)}`)
+        await this.mqttClient.publishRelevantDetections({
+            detections,
+            device,
+            triggerTime: currentTime,
+            console: this.getDeviceLogger(device)
+        })
+    }
+
+    private async getCameraSnapshot(props: { cameraDevice: DeviceInterface, snapshotWidth: number, snapshotHeight: number, image?: MediaObject }) {
+        const { cameraDevice, snapshotWidth: snapshotWidthParent, snapshotHeight: snapshotHeightParent, image: imageParent } = props;
+        const snapshotWidth = this.storageSettings.getItem('snapshotWidth') as number;
+        const snapshotHeight = this.storageSettings.getItem('snapshotHeight') as number;
+
+        let image = imageParent;
+
+        if (!image || snapshotHeight !== snapshotHeightParent || snapshotWidth !== snapshotWidthParent) {
+            image = await cameraDevice.takePicture({
+                reason: 'event',
+                picture: {
+                    height: snapshotHeightParent,
+                    width: snapshotWidthParent,
+                },
+            });
+        }
+
+        const imageBuffer = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg');
+        const b64Image = imageBuffer.toString('base64');
+
+        return { image, b64Image };
+    }
+
+    private clearListeners() {
+        this.activeListeners.forEach(listener => listener?.listener?.removeListener());
+        this.activeListeners = [];
+    }
+
+    private getLogger(): Console {
+        if (!this.mainLogger) {
+            const isDebugEnabled = this.storageSettings.getItem('debug');
+
+            const log = (debug: boolean, message?: any, ...optionalParams: any[]) => {
+                const now = new Date().toLocaleString();
+                if (!debug || isDebugEnabled) {
+                    this.console.log(`[Homeassistant utilities] ${now} - `, message, ...optionalParams);
+                }
+            };
+
+            this.mainLogger = {
+                log: (message?: any, ...optionalParams: any[]) => log(false, message, ...optionalParams),
+                debug: (message?: any, ...optionalParams: any[]) => log(true, message, ...optionalParams),
+            } as Console
+        }
+
+        return this.mainLogger
+    }
+
+    private getDeviceLogger(device: DeviceInterface): Console {
+        const deviceName = device.name;
+        const deviceConsole = sdk.deviceManager.getDeviceConsole(device.nativeId);
+
+        if (!this.deviceLoggerMap[deviceName]) {
+            const isDebugEnabled = this.storageSettings.getItem('debug');
+
+            const log = (debug: boolean, message?: any, ...optionalParams: any[]) => {
+                const now = new Date().toLocaleString();
+                if (!debug || isDebugEnabled) {
+                    // this.console.log(`[${deviceName}] ${now} - `, message, ...optionalParams);
+                    deviceConsole.log(`[${deviceName}] ${now} - `, message, ...optionalParams);
+                }
+            };
+            this.deviceLoggerMap[deviceName] = {
+                log: (message?: any, ...optionalParams: any[]) => log(false, message, ...optionalParams),
+                debug: (message?: any, ...optionalParams: any[]) => log(true, message, ...optionalParams),
+            } as Console
+        }
+
+        return this.deviceLoggerMap[deviceName];
+    }
+
     async startEventsListeners() {
+        const pluginEnabled = this.storageSettings.getItem('pluginEnabled') as boolean;
+
+        if (!pluginEnabled) {
+            this.getLogger().log(`Plugin disabled. Clearing all the active listeners`);
+            this.clearListeners();
+
+            return;
+        }
+
         if (!this.mqttInit || !this.firstCheckAlwaysActiveDevices) {
-            this.console.log(`Plugin not initialized yet, waiting. mqttInit: ${this.mqttInit} and firstCheckAlwaysActiveDevices: ${this.firstCheckAlwaysActiveDevices}`);
+            this.getLogger().log(`Plugin not initialized yet, waiting. mqttInit: ${this.mqttInit} and firstCheckAlwaysActiveDevices: ${this.firstCheckAlwaysActiveDevices}`);
 
             return;
         }
 
         this.initListener && clearTimeout(this.initListener);
 
-        const pluginEnabled = this.storageSettings.getItem('pluginEnabled') as boolean;
-
-        if (!pluginEnabled) {
-            this.console.log(`Plugin disabled. Clearing all the active listeners`);
-            this.activeListeners.forEach(listener => listener?.listener?.removeListener());
-
-            return;
-        }
-
         const activeDevicesForNotifications = this.storageSettings.getItem('activeDevicesForNotifications') as string[];
         const activeDevicesForReporting = this.storageSettings.getItem('activeDevicesForReporting') as string[];
         const alwaysActiveDevicesForNotifications = this.storageSettings.getItem('alwaysActiveDevicesForNotifications') as string[];
+
         if (this.activeListeners.length) {
-            this.console.log(`Clearing ${this.activeListeners.length} listeners before starting a new loop: ${this.activeListeners.map(list => list.deviceName)}`);
-            this.activeListeners.forEach(listener => listener?.listener?.removeListener());
-            this.activeListeners = [];
+            this.getLogger().log(`Clearing ${this.activeListeners.length} listeners before starting a new loop: ${this.activeListeners.map(list => list.deviceName)}`);
+            this.clearListeners();
         }
 
         try {
@@ -1484,22 +1500,42 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             allActiveDevicesForNotifications.forEach(device => !allActiveDevices.includes(device) && allActiveDevices.push(device));
             activeDevicesForReporting.forEach(device => !allActiveDevices.includes(device) && allActiveDevices.push(device));
 
-            this.console.log(`Starting listeners for ${allActiveDevices.length} with ${allActiveDevicesForNotifications.length} for notifications and ${activeDevicesForReporting.length} for reporting`);
-            this.console.log(`Devices: ${JSON.stringify({
+            this.getLogger().log(`Starting listeners for ${allActiveDevices.length} with ${allActiveDevicesForNotifications.length} for notifications and ${activeDevicesForReporting.length} for reporting`);
+            this.getLogger().debug(`Devices: ${JSON.stringify({
                 activeDevicesForNotifications,
                 alwaysActiveDevicesForNotifications,
                 activeDevicesForReporting,
                 allActiveDevices,
             })}`);
+
+            const deviceReportLockMap: Record<string, boolean> = {};
             for (const deviceName of allActiveDevices) {
+                const device = systemManager.getDeviceByName(deviceName) as unknown as DeviceInterface;
+                const deviceLogger = this.getDeviceLogger(device);
+                deviceReportLockMap[deviceName] = false;
+                const isReportingActive = activeDevicesForReporting.includes(deviceName);
+
                 try {
-                    const device = systemManager.getDeviceByName(deviceName) as unknown as DeviceInterface;
+                    if (!device) {
+                        this.console.log(`Device ${deviceName} is not available anymore`);
+                        return;
+                    }
+
+
                     const deviceId = device.id;
                     const deviceSettings = await device.getSettings();
+
                     if (activeDevicesForReporting.includes(deviceName)) {
-                        await this.mqttClient?.setupDeviceAutodiscovery({ device, name: deviceName, deviceSettings, detectionClasses: detectionClassesToPublish });
+                        await this.mqttClient?.setupDeviceAutodiscovery({
+                            device,
+                            deviceSettings,
+                            detectionClasses: detectionClassesToPublish,
+                            console: deviceLogger,
+                            localIp: this.storageSettings.values.localIp,
+                        });
                     }
-                    const findAllowedDetection = this.getAllowedDetectionFinder(deviceName, deviceSettings)
+
+                    const { findAllowedDetection, pickElegibleDetections } = this.getAllowedDetectionFinder(device, deviceSettings)
 
                     const {
                         cameraDevice,
@@ -1511,100 +1547,77 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                     const detectionClasses = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:detectionClasses')?.value as string[]) ?? [];
                     const isOnlyMotion = isCamera && detectionClasses.length === 1 && detectionClasses[0] === 'motion';
                     const event = isCamera ? isOnlyMotion ? ScryptedInterface.MotionSensor : ScryptedInterface.ObjectDetector : ScryptedInterface.BinarySensor;
-                    this.console.log(`[${deviceName}] Starting event listener for ${event}, ${JSON.stringify({
+                    const minDelay = deviceSettings.find(setting => setting.key === 'homeassistantMetadata:minDelayTime')?.value as number ?? 30;
+
+                    deviceLogger.log(`Starting event listener for ${event}, ${JSON.stringify({
                         isCamera,
                         isOnlyMotion,
                         detectionClasses,
                         event,
                     })}`);
+
                     const listener = systemManager.listenDevice(deviceId, event, async (_, __, data) => {
-                        const { delayDone, currentTime } = this.checkDeviceLastDetection(deviceName, deviceSettings);
-                        if (!delayDone && !isDoorbelButton) {
-                            return;
-                        }
-
-                        let foundDetection: ObjectDetectionResult;
-
-                        const { foundDetection: foundSpecificDetection, relevantDetections } = findAllowedDetection(data.detections);
-
-                        if (isCamera && !isOnlyMotion) {
-                            foundDetection = foundSpecificDetection;
-                        }
+                        const currentTime = new Date().getTime();
 
                         const snapshotWidth = this.storageSettings.getItem('snapshotWidth') as number;
                         const snapshotHeight = this.storageSettings.getItem('snapshotHeight') as number;
 
-                        let image;
-                        let imageUrl;
-                        let imageBuffer;
-                        let b64Image;
+                        const relevantDetections = pickElegibleDetections(data.detections);
 
-                        const { delayDone: delayDoneMqtt } = this.checkDeviceLastMqttUpdate(deviceName, deviceSettings, currentTime);
-                        if (delayDoneMqtt && activeDevicesForReporting.includes(deviceName) && relevantDetections.length) {
-                            this.deviceLastDetectionsUpdate[deviceName] = currentTime;
-                            image = await cameraDevice.takePicture({
-                                reason: 'event',
-                                picture: {
-                                    height: snapshotHeight,
-                                    width: snapshotWidth,
-                                },
-                            });
+                        // deviceLogger.debug(`Event received: ${JSON.stringify(data)}. delayReportDone is ${delayReportDone} and delayDetectionDone is ${delayDetectionDone}`);
 
-                            imageUrl = await mediaManager.convertMediaObjectToUrl(image, 'image/jpeg');
-                            imageBuffer = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg');
-                            b64Image = await imageBuffer.toString('base64');
+                        const isReportLocked = deviceReportLockMap[deviceName] && isReportingActive;
 
-                            await this.mqttClient.publishRelevantDetections({
-                                b64Image,
-                                detections: relevantDetections,
-                                device,
-                                triggerTime: currentTime
-                            })
+                        try {
+                            if (!isReportLocked && relevantDetections.length > 0) {
+                                deviceReportLockMap[deviceName] = true;
+                                this.deviceLastDetectionsUpdate[deviceName] = currentTime;
+                                deviceLogger.debug(`Starting executeReport, ${JSON.stringify(relevantDetections)}`);
+
+                                await this.executeReport({ currentTime, device: cameraDevice, detections: relevantDetections, deviceName });
+                            } else {
+                                deviceLogger.debug(`Skip executeReport, ${JSON.stringify({ isReportLocked, isReportingActive, relevantDetections })}`);
+                            }
+                        } finally {
+                            deviceReportLockMap[deviceName] = false;
+                        }
+
+                        const { delayDetectionDone } = this.checkDeviceLastDetection(deviceName, minDelay, currentTime);
+
+                        const canContinue = delayDetectionDone || isDoorbelButton;
+                        if (!canContinue) {
+                            deviceLogger.debug(`Skip notifiers, ${JSON.stringify({ delayDetectionDone, isDoorbelButton, canContinue })}`);
+                            return;
+                        }
+
+                        let foundDetection: ObjectDetectionResult;
+                        if (isCamera && !isOnlyMotion) {
+                            foundDetection = findAllowedDetection(relevantDetections ?? pickElegibleDetections(data.detections));
                         }
 
                         // TODO - Add configuration to check the event data
                         if (
-                            (isOnlyMotion) ||
+                            isOnlyMotion ||
                             (isCamera && foundDetection) ||
                             ((isBooleanSensor || isDoorbelButton) && data)
                         ) {
+                            deviceLogger.log(`Allowed detection found`);
+                            deviceLogger.log(`${JSON.stringify({
+                                isOnlyMotion,
+                                isCamera,
+                                foundDetection,
+                                isBooleanSensor,
+                                isDoorbelButton,
+                            })}`);
+
                             const isNotifierActive = allActiveDevicesForNotifications.includes(deviceName);
                             this.deviceLastDetectionMap[isDoorbelButton ? cameraDevice.name : deviceName] = currentTime;
                             const notifiers = this.storageSettings.getItem('notifiers') as string[];
-                            const ignoreSnapshotIfNoNotifiers = this.storageSettings.getItem('ignoreSnapshotIfNoNotifiers') as boolean;
 
-                            // const videoclipDurationInSeconds = (deviceSettings.find(setting => setting.key === 'videoclipDuration')?.value || this.storageSettings.getItem('videoclipDuration') || 10) as number;
-                            // const videClipFound = cameraDevice.getVideoClips && (await cameraDevice.getVideoClips({ startTime: currentTime - (videoclipDurationInSeconds * 60 * 1000) }))?.[0];
+                            const { image, b64Image } = await this.getCameraSnapshot({ cameraDevice, snapshotHeight, snapshotWidth });
+                            const imageUrl = image ? await mediaManager.convertMediaObjectToUrl(image, 'image/jpeg') : undefined;
 
-                            if (!image) {
-                                image = (isNotifierActive || !ignoreSnapshotIfNoNotifiers ? (await cameraDevice.takePicture({
-                                    reason: 'event',
-                                    picture: {
-                                        height: snapshotHeight,
-                                        width: snapshotWidth,
-                                    },
-                                })) : undefined);
-                                imageUrl = await mediaManager.convertMediaObjectToUrl(image, 'image/jpeg');
-                                imageBuffer = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg');
-                                b64Image = await imageBuffer.toString('base64');
-                            }
-
-                            this.console.log(`[${deviceName}] Received event ${event}: ${JSON.stringify(data)}. ${JSON.stringify({
-                                isCamera,
-                                isBooleanSensor,
-                                isDoorbelButton,
-                                linkedCameraName: cameraDevice.name,
-                                // event,
-                                snapshotHeight,
-                                snapshotWidth,
-                                // videClipFound,
-                            })}`);
-
-                            const { externalUrl, haUrl } = this.getUrls(cameraDevice.id, currentTime);
-                            // this.console.log(`[${deviceName}] URLs built: ${JSON.stringify({
-                            //     externalUrl,
-                            //     haUrl,
-                            // })}`);
+                            const { externalUrl } = this.getUrls(cameraDevice.id, currentTime);
 
                             if (activeDevicesForReporting.includes(deviceName)) {
                                 await this.startMotionTimeoutAndPublish({
@@ -1618,30 +1631,31 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                                     skipMotionCheck: isOnlyMotion
                                 });
                             } else {
-                                this.console.log(`[${deviceName}] Skip startMotionTimeoutAndPublish`);
+                                deviceLogger.log(`Skip startMotionTimeoutAndPublish`);
                             }
 
                             if (isNotifierActive) {
-                                this.console.log(`[${deviceName}] Sending image to ${notifiers.length} notifiers`);
+                                deviceLogger.log(`Sending image to ${notifiers.length} notifiers`);
                                 for (const notifierId of notifiers) {
                                     try {
-                                        await this.notifyCamera({ srcDevice: device, notifierId, time: currentTime, image, detection: foundDetection });
+                                        await this.notifyCamera({ device, notifierId, time: currentTime, image, detection: foundDetection });
                                     } catch (e) {
-                                        this.console.log(`[${deviceName}] Error on notifier ${notifierId}`, e);
+                                        deviceLogger.log(`Error on notifier ${notifierId}`, e);
                                     }
                                 }
                             } else {
-                                this.console.log(`[${deviceName}] Skip notify`);
+                                deviceLogger.log(`Skip notify`);
                             }
                         }
+
                     });
                     this.activeListeners.push({ listener, deviceName });
                 } catch (e) {
-                    this.console.log(`[${deviceName}] Error in main loop`, e);
+                    deviceLogger.log(`Error in main loop`, e);
                 }
             }
         } catch (e) {
-            this.console.log(e);
+            this.getLogger().log(e);
         }
     }
 
