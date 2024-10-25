@@ -85,6 +85,12 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
             defaultValue: 'motion'
         },
         // DETECTION
+        linkedCamera: {
+            title: 'Linked camera',
+            type: 'device',
+            subgroup: 'Detection',
+            deviceFilter: `(type === '${ScryptedDeviceType.Camera}')`,
+        },
         whitelistedZones: {
             title: 'Whitelisted zones',
             description: 'Zones that will trigger a notification',
@@ -121,13 +127,6 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
             choices: [],
             defaultValue: ['person']
         },
-        // motionActiveDuration: {
-        //     subgroup: 'Detection',
-        //     title: 'Motion active duration',
-        //     description: 'How many seconds the motion sensors should stay active',
-        //     type: 'number',
-        //     hide: true,
-        // },
         requireScryptedNvrDetections: {
             subgroup: 'Detection',
             title: 'Require Scrypted Detections',
@@ -143,6 +142,13 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
             hide: true,
         },
         // NOTIFIER
+        triggerAlwaysNotification: {
+            title: 'Always enabled',
+            description: 'Enable to always check this entity for notifications, regardles of it\'s activation',
+            subgroup: 'Notifier',
+            type: 'boolean',
+            defaultValue: false,
+        },
         haActions: {
             title: 'HA actions',
             description: 'Actions to show on the notification, i.e. {"action":"open_door","title":"Open door","icon":"sfsymbols:door"}',
@@ -163,18 +169,6 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
             type: 'boolean',
             defaultValue: false,
             hide: true,
-        },
-        disableVideoclips: {
-            subgroup: 'Notifier',
-            title: 'Disable videoclips',
-            type: 'boolean',
-            hide: true
-        },
-        videoclipDuration: {
-            subgroup: 'Notifier',
-            title: 'Videoclip duration',
-            type: 'number',
-            hide: true
         },
         // WEBHOOKS
         lastSnapshotWebhook: {
@@ -533,20 +527,6 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             description: 'Expression used to render the text when a binary sensor opens. Available arguments ${room} $[time} ${nvrLink}',
             defaultValue: 'Door/window opened in ${room}'
         },
-        sendVideoclip: {
-            group: 'Notifier',
-            title: 'Send videoclip',
-            type: 'boolean',
-            defaultValue: false,
-            hide: true
-        },
-        videoclipDuration: {
-            group: 'Notifier',
-            title: 'Videoclip duration',
-            type: 'number',
-            defaultValue: 10,
-            hide: true
-        },
         testDevice: {
             title: 'Device',
             group: 'Test',
@@ -731,22 +711,28 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         const funct = async () => {
             const forcedActiveDevices: string[] = [];
             const pluginEnabled = this.storageSettings.getItem('pluginEnabled');
+            this.getLogger().log('Starting startCheckAlwaysActiveDevices');
             if (pluginEnabled) {
                 for (const device of this.getElegibleDevices()) {
                     const deviceName = device.name;
                     const settings = await device.getSettings();
 
-                    const alwaysZones = (settings.find(setting => setting.key === 'homeassistantMetadata:alwaysZones')?.value as string[]) ?? [];
-                    if (!!alwaysZones?.length) {
+                    const alwaysActive = (settings.find(setting => setting.key === 'homeassistantMetadata:triggerAlwaysNotification')?.value as boolean) ?? false;
+                    if (alwaysActive) {
                         forcedActiveDevices.push(deviceName);
-                    }
+                    } else {
+                        const alwaysZones = (settings.find(setting => setting.key === 'homeassistantMetadata:alwaysZones')?.value as string[]) ?? [];
+                        if (!!alwaysZones?.length) {
+                            forcedActiveDevices.push(deviceName);
+                        }
 
-                    if (this.doorbellDevices.includes(deviceName)) {
-                        const linkedCameraName = this.deviceVideocameraMap[deviceName];
-                        const linkedCamera = systemManager.getDeviceByName(linkedCameraName) as unknown as Settings;
-                        const linkedCameraSettings = await linkedCamera.getSettings();
-                        const skipDoorbellNotifications = linkedCameraSettings.find(setting => setting.key === 'homeassistantMetadata:skipDoorbellNotifications')?.value as boolean;
-                        !skipDoorbellNotifications && forcedActiveDevices.push(deviceName);
+                        if (this.doorbellDevices.includes(deviceName)) {
+                            const linkedCameraName = this.deviceVideocameraMap[deviceName];
+                            const linkedCamera = systemManager.getDeviceByName(linkedCameraName) as unknown as Settings;
+                            const linkedCameraSettings = await linkedCamera.getSettings();
+                            const skipDoorbellNotifications = linkedCameraSettings.find(setting => setting.key === 'homeassistantMetadata:skipDoorbellNotifications')?.value as boolean;
+                            !skipDoorbellNotifications && forcedActiveDevices.push(deviceName);
+                        }
                     }
                 }
 
@@ -818,6 +804,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             const settings = await device.getSettings();
             const haEntityId = settings.find(setting => setting.key === 'homeassistantMetadata:entityId')?.value as string;
             const room = settings.find(setting => setting.key === 'homeassistantMetadata:room')?.value as string;
+            const linkedCamera = settings.find(setting => setting.key === 'homeassistantMetadata:linkedCamera')?.value as string;
 
             deviceRoomMap[deviceName] = room;
             if (haEntityId) {
@@ -829,9 +816,13 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                 haEntityDeviceMap[haEntityId] = deviceName;
 
                 if (deviceType === ScryptedDeviceType.Camera || deviceType === ScryptedDeviceType.Doorbell) {
-                    const nearbySensors = settings.find(setting => setting.key === 'recording:nearbySensors')?.value as string[];
-                    if (nearbySensors) {
-                        for (const sensorId of nearbySensors) {
+                    const nearbySensors = settings.find(setting => setting.key === 'recording:nearbySensors')?.value as string[] ?? [];
+                    const nearbyLocks = settings.find(setting => setting.key === 'recording:nearbyLocks')?.value as string[] ?? [];
+
+                    const linkedSensors = [...nearbySensors, ...nearbyLocks];
+
+                    if (linkedSensors.length) {
+                        for (const sensorId of linkedSensors) {
                             const sensorDevice = systemManager.getDeviceById(sensorId);
                             deviceVideocameraMap[sensorDevice.name] = deviceName;
                         }
@@ -846,6 +837,11 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                         doorbellDevices.push(sensorName);
                         deviceVideocameraMap[sensorName] = deviceName;
                     }
+                }
+
+                if (linkedCamera) {
+                    const cameraDevice = systemManager.getDeviceById(linkedCamera);
+                    deviceVideocameraMap[cameraDevice.name] = deviceName;
                 }
             }
         }
@@ -1477,7 +1473,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         }
 
         if (!this.mqttInit || !this.firstCheckAlwaysActiveDevices) {
-            this.getLogger().log(`Plugin not initialized yet, waiting. mqttInit: ${this.mqttInit} and firstCheckAlwaysActiveDevices: ${this.firstCheckAlwaysActiveDevices}`);
+            this.getLogger().log(`Plugin not initialized yet, waiting. mqttInit  ${this.mqttInit} and firstCheckAlwaysActiveDevices  ${this.firstCheckAlwaysActiveDevices}`);
 
             return;
         }
@@ -1501,7 +1497,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             activeDevicesForReporting.forEach(device => !allActiveDevices.includes(device) && allActiveDevices.push(device));
 
             this.getLogger().log(`Starting listeners for ${allActiveDevices.length} with ${allActiveDevicesForNotifications.length} for notifications and ${activeDevicesForReporting.length} for reporting`);
-            this.getLogger().debug(`Devices: ${JSON.stringify({
+            this.getLogger().log(`Devices: ${JSON.stringify({
                 activeDevicesForNotifications,
                 alwaysActiveDevicesForNotifications,
                 activeDevicesForReporting,

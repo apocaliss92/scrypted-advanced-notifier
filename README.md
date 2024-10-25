@@ -56,6 +56,7 @@ Group `Homeassistant utilities`
 - `Device class`, deviceClass to be used on the HA entity, any of https://www.home-assistant.io/integrations/binary_sensor/#device-class. Default to `Motion`
 
 ## Detection (Available only for Camera/Doorbell devices)
+- `Linked camera`, camera linked to this sensor, will act as nearby sensor. Any trigger of the sensor will send a notification of the camera set
 - `Whitelisted zones`, zones that should trigger a notification/motion
 - `Blacklisted zones`, zones that should NOT trigger a notification/motion
 - `Always enabled zones`, zones that should ALWAYS trigger a notification/motion, regardless of the activation of the camera
@@ -65,6 +66,7 @@ Group `Homeassistant utilities`
 - `Score threshold for {eachDetectionClass}`, a specific threshold for each detection class enabled on the camera 
 
 ## Notifier
+- `Always enabled`, enable notifications of this device regardless of the main activation
 - `HA actions`, actions to be included in the notification in form of JSON string, i.e. `{"action":"open_door","title":"Open door","icon":"sfsymbols:door"}`
 - `Minimum notification delay`, override of the same plugin config
 - `Skip doorbell notifications`, sensors used as `Custom doorbell button` on the camera will not trigger a notification (available only for Doorbell devices)
@@ -111,3 +113,6 @@ Group `Homeassistant utilities`
 
 0.1.0:
 - Project cleanup, some leaks fixed
+
+0.1.1:
+- Linked camera added to each device, will act exactly as a nearby sensor
