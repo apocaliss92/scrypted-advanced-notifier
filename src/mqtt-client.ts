@@ -32,6 +32,20 @@ export default class MqttClient {
         this.password = password;
     }
 
+    async disconnect() {
+        return new Promise((r, f) => {
+            if (this.mqttClient) {
+                try {
+                    this.mqttClient.end(false, undefined, () => r(true))
+                } catch (e) {
+                    f(e);
+                }
+            } else {
+                r(true);
+            }
+        });
+    }
+
     getMqttClient(console: Console) {
         if (!this.mqttClient) {
             const url = this.host;
@@ -254,7 +268,7 @@ export default class MqttClient {
                     mainEntity && triggered && info && this.publish(console, getInfoTopic(entity), info);
 
 
-                    if(entity === 'lastClassname' && info.b64Image) {
+                    if (entity === 'lastClassname' && info.b64Image) {
                         const { imageEntity } = this.getLastDetectionTopics(value);
                         this.publish(console, getEntityTopic(imageEntity), info.b64Image);
                     }
@@ -288,6 +302,7 @@ export default class MqttClient {
     }
 
     subscribeToHaTopics(entitiesActiveTopic: string, console: Console, cb?: (topic: string, entitiesActive: string[]) => void) {
+        this.getMqttClient(console).removeAllListeners();
         this.getMqttClient(console).subscribe([entitiesActiveTopic]);
         this.getMqttClient(console).on('message', (messageTopic, message) => {
             const messageString = message.toString();

@@ -1,12 +1,13 @@
-import sdk, { EventListenerRegister, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { Camera, EventListenerRegister, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, VideoClips, WritableDeviceState } from "@scrypted/sdk";
 import axios from "axios";
 import { sortBy, uniqBy } from 'lodash';
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import MqttClient from './mqtt-client';
-import { DeviceInterface } from "./types";
 
 const { systemManager, mediaManager, endpointManager } = sdk;
+
+type DeviceInterface = Camera & ScryptedDeviceBase & Settings;
 
 const getWebookSpecs = async () => {
     const lastSnapshot = 'last';
@@ -90,6 +91,7 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
             type: 'device',
             subgroup: 'Detection',
             deviceFilter: `(type === '${ScryptedDeviceType.Camera}')`,
+            hide: true,
         },
         whitelistedZones: {
             title: 'Whitelisted zones',
@@ -248,11 +250,14 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
             this.storageSettings.settings.blacklistedZones.hide = false;
             this.storageSettings.settings.alwaysZones.hide = false;
             this.storageSettings.settings.detectionClasses.hide = false;
-            // this.storageSettings.settings.motionActiveDuration.hide = false;
             this.storageSettings.settings.scoreThreshold.hide = false;
             this.storageSettings.settings.skipDoorbellNotifications.hide = this.type !== ScryptedDeviceType.Doorbell;
 
             this.initValues().then().catch(this.console.log)
+        }
+
+        if ([ScryptedInterface.BinarySensor, ScryptedInterface.Lock].some(int => this.interfaces.includes(int))) {
+            this.storageSettings.settings.linkedCamera.hide = false;
         }
     }
 
@@ -596,19 +601,19 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         this.storageSettings.settings.pluginEnabled.onPut = async () => {
             await this.startEventsListeners();
         };
-        this.storageSettings.settings.mqttHost.onPut = () => this.setupMqttClient();
-        this.storageSettings.settings.mqttUsename.onPut = () => this.setupMqttClient();
-        this.storageSettings.settings.mqttPassword.onPut = () => this.setupMqttClient();
-        this.storageSettings.settings.mqttActiveEntitiesTopic.onPut = () => this.setupMqttClient();
+        this.storageSettings.settings.mqttHost.onPut = async () => await this.setupMqttClient();
+        this.storageSettings.settings.mqttUsename.onPut = async () => await this.setupMqttClient();
+        this.storageSettings.settings.mqttPassword.onPut = async () => await this.setupMqttClient();
+        this.storageSettings.settings.mqttActiveEntitiesTopic.onPut = async () => await this.setupMqttClient();
 
         this.initFlow().then().catch(this.getLogger().log);
     }
 
     async initFlow() {
         try {
-            this.setupMqttClient();
-            await this.initData();
-            await this.startCheckAlwaysActiveDevices();
+            await this.initPluginSettings();
+            await this.setupMqttClient();
+            await this.startRefreshDeviceData();
 
             this.initListener = setInterval(async () => {
                 await this.startEventsListeners();
@@ -675,10 +680,11 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         return;
     }
 
-    private setupMqttClient() {
+    private async setupMqttClient() {
         const mqttHost = this.storageSettings.getItem('mqttHost');
         const mqttUsename = this.storageSettings.getItem('mqttUsename');
         const mqttPassword = this.storageSettings.getItem('mqttPassword');
+        const mqttActiveEntitiesTopic = this.storageSettings.getItem('mqttActiveEntitiesTopic');
 
         if (!mqttHost || !mqttUsename || !mqttPassword) {
             this.getLogger().log('MQTT params not provided');
@@ -686,6 +692,25 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
 
         try {
             this.mqttClient = new MqttClient(mqttHost, mqttUsename, mqttPassword);
+
+            if (mqttActiveEntitiesTopic) {
+                this.mqttClient.subscribeToHaTopics(mqttActiveEntitiesTopic, this.getLogger(), (topic, message) => {
+                    if (topic === mqttActiveEntitiesTopic) {
+                        this.mqttInit = true;
+                        this.getLogger().log(`Received update for ${mqttActiveEntitiesTopic} topic: ${JSON.stringify(message)}`);
+                        this.syncHaEntityIds(message);
+                    }
+                });
+
+                setTimeout(() => {
+                    if (!this.mqttInit) {
+                        this.getLogger().log(`No message received on topic ${mqttActiveEntitiesTopic}. Forcing init`);
+                        this.mqttInit = true;
+                    }
+                }, 10000)
+            } else {
+                this.mqttInit = true;
+            }
         } catch (e) {
             this.getLogger().log('Error setting up MQTT client', e);
         }
@@ -699,19 +724,15 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         }).map(([deviceId]) => systemManager.getDeviceById(deviceId) as unknown as (Settings & ScryptedDeviceBase))
     }
 
-    private getScryptedTokens() {
-        return Object.entries(systemManager.getSystemState()).filter(([deviceId]) => {
-            const device = systemManager.getDeviceById(deviceId) as unknown as (Settings & ScryptedDeviceBase);
-
-            return device.mixins?.includes(this.id) && !!device.getSettings;
-        }).map(([deviceId]) => systemManager.getDeviceById(deviceId) as unknown as (Settings & ScryptedDeviceBase))
-    }
-
-    private async startCheckAlwaysActiveDevices() {
+    private async startRefreshDeviceData() {
         const funct = async () => {
+            if (!this.firstCheckAlwaysActiveDevices) {
+                this.getLogger().log('Refreshing devices data and devices always active for notifications');
+            }
+            await this.refreshDevicesLinks();
+
             const forcedActiveDevices: string[] = [];
             const pluginEnabled = this.storageSettings.getItem('pluginEnabled');
-            this.getLogger().log('Starting startCheckAlwaysActiveDevices');
             if (pluginEnabled) {
                 for (const device of this.getElegibleDevices()) {
                     const deviceName = device.name;
@@ -755,7 +776,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
 
         setInterval(async () => {
             await funct();
-        }, 20000);
+        }, 10000);
     }
 
     private syncHaEntityIds(devices: string[]) {
@@ -773,7 +794,23 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         this.storageSettings.putSetting('activeDevicesForNotifications', deviceNames);
     }
 
-    private async initData() {
+    private async initPluginSettings() {
+        const cloudPlugin = systemManager.getDeviceByName('Scrypted Cloud') as unknown as Settings;
+        const oauthUrl = await (cloudPlugin as any).getOauthUrl();
+        const url = new URL(oauthUrl);
+        const serverId = url.searchParams.get('server_id');
+        this.storageSettings.putSetting('serverId', serverId);
+        this.getLogger().log(`Server id found: ${serverId}`);
+
+        const localIp = (await sdk.endpointManager.getLocalAddresses())[0];
+        this.storageSettings.putSetting('localIp', localIp);
+        this.getLogger().log(`Local IP found: ${localIp}`);
+
+        const textSettings = Object.entries(this.storageSettings.settings).filter(([_, setting]) => setting.group === 'Texts').map(([key]) => key);
+        this.storageSettings.settings.testMessage.choices = textSettings;
+    }
+
+    private async refreshDevicesLinks() {
         const devices: string[] = [];
         const doorbellDevices: string[] = [];
         const haEntities: string[] = [];
@@ -782,20 +819,6 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         const deviceVideocameraMap: Record<string, string> = {};
         const deviceRoomMap: Record<string, string> = {};
         const deviceTypeMap: Record<string, ScryptedDeviceType> = {};
-        const roomNameMap: Record<string, string> = {};
-
-        const cloudPlugin = systemManager.getDeviceByName('Scrypted Cloud') as unknown as Settings;
-        const oauthUrl = await (cloudPlugin as any).getOauthUrl();
-        const url = new URL(oauthUrl);
-        const serverId = url.searchParams.get('server_id');
-        this.storageSettings.putSetting('serverId', serverId);
-        this.getLogger().log(`Server id found: ${serverId}`);
-
-
-        const localIp = (await sdk.endpointManager.getLocalAddresses())[0];
-        this.storageSettings.putSetting('localIp', localIp);
-        this.getLogger().log(`Local IP found: ${localIp}`);
-
 
         const allDevices = this.getElegibleDevices();
         for (const device of allDevices) {
@@ -849,7 +872,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         const sensorsNotMapped = allDevices.filter(device => device.type === ScryptedDeviceType.Sensor && !deviceVideocameraMap[device.name])
             .map(sensor => sensor.name);
 
-        if (sensorsNotMapped.length) {
+        if (sensorsNotMapped.length && !this.firstCheckAlwaysActiveDevices) {
             this.getLogger().log(`Following binary sensors are not mapped to any camera yet: ${sensorsNotMapped}`);
         }
 
@@ -862,29 +885,6 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         this.deviceTypeMap = deviceTypeMap;
         this.deviceRoomMap = deviceRoomMap;
         this.doorbellDevices = doorbellDevices;
-
-        const textSettings = Object.entries(this.storageSettings.settings).filter(([_, setting]) => setting.group === 'Texts').map(([key]) => key);
-        this.storageSettings.settings.testMessage.choices = textSettings;
-
-        const mqttActiveEntitiesTopic = this.storageSettings.getItem('mqttActiveEntitiesTopic');
-        if (mqttActiveEntitiesTopic) {
-            this.mqttClient.subscribeToHaTopics(mqttActiveEntitiesTopic, this.getLogger(), (topic, message) => {
-                if (topic === mqttActiveEntitiesTopic) {
-                    this.mqttInit = true;
-                    this.getLogger().log(`Received update for ${mqttActiveEntitiesTopic} topic: ${JSON.stringify(message)}`);
-                    this.syncHaEntityIds(message);
-                }
-            });
-
-            setTimeout(() => {
-                if (!this.mqttInit) {
-                    this.getLogger().log(`No message received on topic ${mqttActiveEntitiesTopic}. Forcing init`);
-                    this.mqttInit = true;
-                }
-            }, 10000)
-        } else {
-            this.mqttInit = true;
-        }
     }
 
     async getSettings() {
@@ -1473,7 +1473,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         }
 
         if (!this.mqttInit || !this.firstCheckAlwaysActiveDevices) {
-            this.getLogger().log(`Plugin not initialized yet, waiting. mqttInit  ${this.mqttInit} and firstCheckAlwaysActiveDevices  ${this.firstCheckAlwaysActiveDevices}`);
+            this.getLogger().log(`Plugin not initialized yet, waiting. mqttInit is ${this.mqttInit} and firstCheckAlwaysActiveDevices is ${this.firstCheckAlwaysActiveDevices}`);
 
             return;
         }
