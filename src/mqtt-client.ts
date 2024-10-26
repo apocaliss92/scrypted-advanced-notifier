@@ -271,6 +271,9 @@ export default class MqttClient {
                     if (entity === 'lastClassname' && info.b64Image) {
                         const { imageEntity } = this.getLastDetectionTopics(value);
                         this.publish(console, getEntityTopic(imageEntity), info.b64Image);
+
+                        const { imageEntity: motionImageEntity } = this.getLastDetectionTopics('motion');
+                        this.publish(console, getEntityTopic(motionImageEntity), info.b64Image);
                     }
                 }
             }
