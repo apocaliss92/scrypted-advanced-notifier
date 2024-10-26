@@ -841,7 +841,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
 
                 if (linkedCamera) {
                     const cameraDevice = systemManager.getDeviceById(linkedCamera);
-                    deviceVideocameraMap[cameraDevice.name] = deviceName;
+                    deviceVideocameraMap[deviceName] = cameraDevice.name;
                 }
             }
         }
