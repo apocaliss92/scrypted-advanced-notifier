@@ -1,4 +1,4 @@
-import sdk, { Camera, EventListenerRegister, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, VideoClips, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { Camera, EventDetails, EventListenerRegister, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, VideoClips, WritableDeviceState } from "@scrypted/sdk";
 import axios from "axios";
 import { sortBy, uniqBy } from 'lodash';
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
@@ -325,6 +325,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
     private deviceLastDetectionsUpdate: Record<string, number> = {};
     private mainLogger: Console;
     private deviceLoggerMap: Record<string, Console> = {};
+    private autodiscoveryPublishedMap: Record<string, boolean> = {};
 
     storageSettings = new StorageSettings(this, {
         pluginEnabled: {
@@ -707,7 +708,23 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                         this.getLogger().log(`No message received on topic ${mqttActiveEntitiesTopic}. Forcing init`);
                         this.mqttInit = true;
                     }
-                }, 10000)
+                }, 10000);
+
+                // systemManager.listen((async (eventSource: ScryptedDevice | undefined, eventDetails: EventDetails, eventData: any) => {
+                //     const deviceName = eventSource.name;
+                //     if(eventSource && this.isDeviceElegible(eventSource as unknown as DeviceInterface) && !this.autodiscoveryPublishedMap[deviceName]) {
+                //         if (activeDevicesForReporting.includes(deviceName) && !this.autodiscoveryPublishedMap[deviceName]) {
+                //             await this.mqttClient?.setupDeviceAutodiscovery({
+                //                 device,
+                //                 deviceSettings,
+                //                 detectionClasses: detectionClassesToPublish,
+                //                 console: deviceLogger,
+                //                 localIp: this.storageSettings.values.localIp,
+                //             });
+                //             this.autodiscoveryPublishedMap[deviceName] = true;
+                //         }
+                //     }
+                // }));
             } else {
                 this.mqttInit = true;
             }
@@ -716,12 +733,16 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         }
     }
 
+    private isDeviceElegible(device: DeviceInterface) {
+        return device.mixins?.includes(this.id) && !!device.getSettings;
+    }
+
     private getElegibleDevices() {
         return Object.entries(systemManager.getSystemState()).filter(([deviceId]) => {
-            const device = systemManager.getDeviceById(deviceId) as unknown as (Settings & ScryptedDeviceBase);
+            const device = systemManager.getDeviceById(deviceId) as unknown as (DeviceInterface);
 
-            return device.mixins?.includes(this.id) && !!device.getSettings;
-        }).map(([deviceId]) => systemManager.getDeviceById(deviceId) as unknown as (Settings & ScryptedDeviceBase))
+            return this.isDeviceElegible(device);
+        }).map(([deviceId]) => systemManager.getDeviceById(deviceId) as unknown as (DeviceInterface))
     }
 
     private async startRefreshDeviceData() {
@@ -1521,7 +1542,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                     const deviceId = device.id;
                     const deviceSettings = await device.getSettings();
 
-                    if (activeDevicesForReporting.includes(deviceName)) {
+                    if (activeDevicesForReporting.includes(deviceName) && !this.autodiscoveryPublishedMap[deviceName]) {
                         await this.mqttClient?.setupDeviceAutodiscovery({
                             device,
                             deviceSettings,
@@ -1529,6 +1550,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                             console: deviceLogger,
                             localIp: this.storageSettings.values.localIp,
                         });
+                        this.autodiscoveryPublishedMap[deviceName] = true;
                     }
 
                     const { findAllowedDetection, pickElegibleDetections } = this.getAllowedDetectionFinder(device, deviceSettings)

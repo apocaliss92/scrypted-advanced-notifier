@@ -19,7 +19,6 @@ const mqttEntities: MqttEntity[] = [
 
 export default class MqttClient {
     mqttClient: Client;
-    autodiscoveryPublishedMap: Record<string, boolean> = {};
     mqttPathmame: string;
     host: string;
     username: string;
@@ -118,10 +117,6 @@ export default class MqttClient {
         const { detectionClasses, device, deviceSettings, console, localIp } = props;
         const { name, id } = device;
 
-        if (this.autodiscoveryPublishedMap[id]) {
-            return;
-        }
-
         const haDeviceClass = deviceSettings.find(setting => setting.key === 'homeassistantMetadata:haDeviceClass')?.value as string;
         const mqttdevice = {
             ids: `scrypted-ha-utilities-${id}`,
@@ -204,8 +199,6 @@ export default class MqttClient {
             this.publish(console, getDiscoveryTopic('sensor', timeEntity), JSON.stringify(timeConfig));
             this.publish(console, getDiscoveryTopic('camera', imageEntity), JSON.stringify(imageConfig));
         })
-
-        this.autodiscoveryPublishedMap[id] = true;
     }
 
     async publishDeviceState(props: {
