@@ -66,6 +66,15 @@ const getWebookUrls = async (cameraDevice: string, console: Console) => {
     }
 }
 
+const getDefaultEntityId = (name: string) => {
+    const convertedName = name?.replace(/\W+/g, " ")
+        .split(/ |\B(?=[A-Z])/)
+        .map(word => word.toLowerCase())
+        .join('_') ?? 'not_set';
+
+    return `binary_sensor.${convertedName}_triggered`;
+}
+
 class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implements Settings {
     storageSettings = new StorageSettings(this, {
         // METADATA
@@ -78,6 +87,7 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
             title: 'EntityID',
             type: 'string',
             subgroup: 'Metadata',
+            defaultValue: getDefaultEntityId(this.name)
         },
         haDeviceClass: {
             title: 'Device class',
