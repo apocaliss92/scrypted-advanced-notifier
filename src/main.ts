@@ -1602,6 +1602,10 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                                 this.deviceLastDetectionsUpdate[deviceName] = currentTime;
                                 deviceLogger.debug(`Starting executeReport, ${JSON.stringify(relevantDetections)}`);
 
+                                // deviceLogger.log(`Relevant detections found`);
+                                // deviceLogger.log(`${JSON.stringify({
+                                //     relevantDetections
+                                // })}`);
                                 await this.executeReport({ currentTime, device: cameraDevice, detections: relevantDetections, deviceName });
                             } else {
                                 deviceLogger.debug(`Skip executeReport, ${JSON.stringify({ isReportLocked, isReportingActive, relevantDetections })}`);

@@ -101,8 +101,9 @@ export default class MqttClient {
     }
 
     private getLastDetectionTopics(detectionClass: string) {
-        const timeEntity = `${detectionClass}LastDetection`;
-        const imageEntity = `${detectionClass}LastDetectionImage`;
+        const sanitizedDetectionClass = detectionClass.charAt(0).toUpperCase() + detectionClass.slice(1);
+        const timeEntity = `LastDetection${sanitizedDetectionClass}`;
+        const imageEntity = `LastImage${sanitizedDetectionClass}`;
 
         return { timeEntity, imageEntity }
     }
@@ -155,28 +156,28 @@ export default class MqttClient {
             this.publish(console, getDiscoveryTopic(domain, entity), JSON.stringify(config));
         })
 
-        // Add IP configuration
-        if (localIp) {
-            const deviceStreams = await this.findDeviceStreams(deviceSettings, localIp);
-            console.debug(`Streams found: ${JSON.stringify(deviceStreams)}`);
+        // if (localIp) {
+        //     const deviceStreams = await this.findDeviceStreams(deviceSettings, localIp);
+        //     console.debug(`Streams found: ${JSON.stringify(deviceStreams)}`);
 
-            deviceStreams.map(stream => {
-                const entity = stream.name.replace(/ /g, '');
-                const config: any = {
-                    dev: mqttdevice,
-                    unique_id: `scrypted-ha-utilities-${id}-${entity}`,
-                    name: entity.charAt(0).toUpperCase() + entity.slice(1),
-                    object_id: `${name}_${entity}`,
-                    state_topic: getEntityTopic(entity)
-                };
+        //     deviceStreams.map(stream => {
+        //         const entity = stream.name.replace(/ /g, '');
+        //         const config: any = {
+        //             dev: mqttdevice,
+        //             unique_id: `scrypted-ha-utilities-${id}-${entity}`,
+        //             name: entity.charAt(0).toUpperCase() + entity.slice(1),
+        //             object_id: `${name}_${entity}`,
+        //             state_topic: getEntityTopic(entity)
+        //         };
 
-                this.publish(console, getDiscoveryTopic('sensor', entity), JSON.stringify(config));
-                this.publish(console, getEntityTopic(entity), stream.url);
-            })
-        }
+        //         this.publish(console, getDiscoveryTopic('sensor', entity), JSON.stringify(config));
+        //         this.publish(console, getEntityTopic(entity), stream.url);
+        //     })
+        // }
 
         detectionClasses.map(detectionClass => {
-            const { imageEntity, timeEntity } = this.getLastDetectionTopics(detectionClass);
+            const { timeEntity } = this.getLastDetectionTopics(detectionClass);
+            // const { imageEntity, timeEntity } = this.getLastDetectionTopics(detectionClass);
 
             const timeConfig: any = {
                 dev: mqttdevice,
@@ -187,17 +188,17 @@ export default class MqttClient {
                 state_topic: getEntityTopic(timeEntity)
             };
 
-            const imageConfig: any = {
-                dev: mqttdevice,
-                unique_id: `scrypted-ha-utilities-${id}-${imageEntity}`,
-                name: imageEntity.charAt(0).toUpperCase() + imageEntity.slice(1),
-                object_id: `${name}_${imageEntity}`,
-                topic: getEntityTopic(imageEntity),
-                image_encoding: 'b64',
-            };
+            // const imageConfig: any = {
+            //     dev: mqttdevice,
+            //     unique_id: `scrypted-ha-utilities-${id}-${imageEntity}`,
+            //     name: imageEntity.charAt(0).toUpperCase() + imageEntity.slice(1),
+            //     object_id: `${name}_${imageEntity}`,
+            //     topic: getEntityTopic(imageEntity),
+            //     image_encoding: 'b64',
+            // };
 
             this.publish(console, getDiscoveryTopic('sensor', timeEntity), JSON.stringify(timeConfig));
-            this.publish(console, getDiscoveryTopic('camera', imageEntity), JSON.stringify(imageConfig));
+            // this.publish(console, getDiscoveryTopic('camera', imageEntity), JSON.stringify(imageConfig));
         })
     }
 
@@ -223,9 +224,7 @@ export default class MqttClient {
                 let value: any = triggered;
                 switch (entity) {
                     case 'lastImage': {
-                        if (info?.b64Image) {
-                            value = info.b64Image;
-                        }
+                        value = info.b64Image || null;
                         break;
                     }
                     case 'lastTrigger': {
@@ -233,15 +232,11 @@ export default class MqttClient {
                         break;
                     }
                     case 'lastClassname': {
-                        value = info?.detection?.className ?? 'motion';
+                        value = info?.detection?.className || null;
                         break;
                     }
                     case 'lastLabel': {
-                        if (['face', 'plate'].includes(info?.detection?.className)) {
-                            value = info?.detection?.label ?? 'unknown';
-                        } else {
-                            value = null;
-                        }
+                        value = info?.detection?.label || null;
                         break;
                     }
                     case 'triggered': {
@@ -257,17 +252,18 @@ export default class MqttClient {
                 }
 
                 if (value !== null) {
-                    this.publish(console, getEntityTopic(entity), value, entity !== 'lastImage');
+                    // this.publish(console, getEntityTopic(entity), value, entity !== 'lastImage');
+                    this.publish(console, getEntityTopic(entity), value);
                     mainEntity && triggered && info && this.publish(console, getInfoTopic(entity), info);
 
 
-                    if (entity === 'lastClassname' && info.b64Image) {
-                        const { imageEntity } = this.getLastDetectionTopics(value);
-                        this.publish(console, getEntityTopic(imageEntity), info.b64Image);
+                    // if (entity === 'lastClassname' && info.b64Image) {
+                    //     const { imageEntity } = this.getLastDetectionTopics(value);
+                    //     this.publish(console, getEntityTopic(imageEntity), info.b64Image);
 
-                        const { imageEntity: motionImageEntity } = this.getLastDetectionTopics('motion');
-                        this.publish(console, getEntityTopic(motionImageEntity), info.b64Image);
-                    }
+                    //     const { imageEntity: motionImageEntity } = this.getLastDetectionTopics('motion');
+                    //     this.publish(console, getEntityTopic(motionImageEntity), info.b64Image);
+                    // }
                 }
             }
         } catch (e) {
