@@ -1373,7 +1373,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
 
             this.getLogger().log(`Sending test notification to ${testNotifier.name} - ${testDevice.name} with key ${testMessageKey}}`);
 
-            this.notifyCamera({ device: testDevice, notifierId, time: currentTime, forceMessageKey: testMessageKey })
+            this.notifyCamera({ device: testDevice, notifierId, time: currentTime, forceMessageKey: testMessageKey, detection: { label: 'Familiar' } as ObjectDetectionResult })
         }
     }
 
