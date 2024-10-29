@@ -264,7 +264,7 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
             this.storageSettings.settings.alwaysZones.hide = false;
             this.storageSettings.settings.detectionClasses.hide = false;
             this.storageSettings.settings.scoreThreshold.hide = this.storageSettings.values.useNvrDetections;
-            this.storageSettings.settings.useNvrImages.hide = !this.storageSettings.values.useNvrDetections;
+            // this.storageSettings.settings.useNvrImages.hide = !this.storageSettings.values.useNvrDetections;
             this.storageSettings.settings.skipDoorbellNotifications.hide = this.type !== ScryptedDeviceType.Doorbell;
 
             this.initValues().then().catch(this.console.log)
@@ -292,7 +292,7 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
 
     async getMixinSettings(): Promise<Setting[]> {
         const useNvrDetections = this.storageSettings.values.useNvrDetections;
-        this.storageSettings.settings.useNvrImages.hide = !useNvrDetections;
+        // this.storageSettings.settings.useNvrImages.hide = !useNvrDetections;
         const settings: Setting[] = await this.storageSettings.getSettings();
 
         if (this.interfaces.includes(ScryptedInterface.VideoCamera) && !useNvrDetections) {
