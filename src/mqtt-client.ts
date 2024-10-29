@@ -45,39 +45,50 @@ export default class MqttClient {
         });
     }
 
-    getMqttClient(console: Console) {
-        if (!this.mqttClient) {
-            const url = this.host;
-            const urlWithoutPath = new URL(url);
-            urlWithoutPath.pathname = '';
+    async getMqttClient(console: Console): Promise<Client> {
+        return new Promise((res, rej) => {
+            if (!this.mqttClient) {
+                const url = this.host;
+                const urlWithoutPath = new URL(url);
+                urlWithoutPath.pathname = '';
 
-            this.mqttPathmame = urlWithoutPath.toString();
-            if (!this.mqttPathmame.endsWith('/')) {
-                this.mqttPathmame = `${this.mqttPathmame}/`;
+                this.mqttPathmame = urlWithoutPath.toString();
+                if (!this.mqttPathmame.endsWith('/')) {
+                    this.mqttPathmame = `${this.mqttPathmame}/`;
+                }
+                console.log('Starting MQTT connection', this.host, this.username, this.mqttPathmame)
+                const client = connect(this.mqttPathmame, {
+                    rejectUnauthorized: false,
+                    username: this.username,
+                    password: this.password,
+                });
+                client.setMaxListeners(Infinity);
+
+                client.on('connect', data => {
+                    console.log('Connected to mqtt', JSON.stringify(data));
+                    this.mqttClient = client;
+                    res(this.mqttClient);
+                });
+
+                client.on('error', data => {
+                    console.log('Error connecting to mqtt', data);
+                    rej();
+                });
+            } else {
+                res(this.mqttClient);
             }
-            this.mqttClient = connect(this.mqttPathmame, {
-                rejectUnauthorized: false,
-                username: this.username,
-                password: this.password,
-            });
-            this.mqttClient.setMaxListeners(Infinity);
-
-            this.mqttClient.on('connect', data => {
-                console.log('connected to mqtt', JSON.stringify(data));
-            })
-        }
-
-        return this.mqttClient;
+        })
     }
 
-    publish(console: Console, topic: string, value: any, retain = true) {
+    async publish(console: Console, topic: string, value: any, retain = true) {
         if (typeof value === 'object')
             value = JSON.stringify(value);
         if (value.constructor.name !== Buffer.name)
             value = value.toString();
 
         // console.debug(`Publishing ${JSON.stringify({ topic, value })}`);
-        this.getMqttClient(console).publish(topic, value, { retain });
+        const client = await this.getMqttClient(console);
+        client.publish(topic, value, { retain });
     }
 
     private getMqttTopicTopics(device: ScryptedDeviceBase) {
@@ -94,11 +105,11 @@ export default class MqttClient {
         }
     }
 
-    private async findDeviceStreams(deviceSettings: Setting[], localIp: string) {
-        const streams = deviceSettings.filter(setting => setting.key === 'prebuffer:rtspRebroadcastUrl');
+    // private async findDeviceStreams(deviceSettings: Setting[], localIp: string) {
+    //     const streams = deviceSettings.filter(setting => setting.key === 'prebuffer:rtspRebroadcastUrl');
 
-        return streams.map(stream => ({ name: stream.subgroup.split(': ')[1], url: (stream.value as string)?.replace('localhost', localIp) }))
-    }
+    //     return streams.map(stream => ({ name: stream.subgroup.split(': ')[1], url: (stream.value as string)?.replace('localhost', localIp) }))
+    // }
 
     private getLastDetectionTopics(detectionClass: string) {
         const sanitizedDetectionClass = detectionClass.charAt(0).toUpperCase() + detectionClass.slice(1);
@@ -114,8 +125,9 @@ export default class MqttClient {
         detectionClasses: string[],
         console: Console,
         localIp: string,
+        withImage: boolean,
     }) {
-        const { detectionClasses, device, deviceSettings, console, localIp } = props;
+        const { detectionClasses, device, deviceSettings, console, withImage } = props;
         const { name, id } = device;
 
         const haDeviceClass = deviceSettings.find(setting => setting.key === 'homeassistantMetadata:haDeviceClass')?.value as string;
@@ -176,8 +188,7 @@ export default class MqttClient {
         // }
 
         detectionClasses.map(detectionClass => {
-            const { timeEntity } = this.getLastDetectionTopics(detectionClass);
-            // const { imageEntity, timeEntity } = this.getLastDetectionTopics(detectionClass);
+            const { imageEntity, timeEntity } = this.getLastDetectionTopics(detectionClass);
 
             const timeConfig: any = {
                 dev: mqttdevice,
@@ -187,18 +198,19 @@ export default class MqttClient {
                 device_class: 'timestamp',
                 state_topic: getEntityTopic(timeEntity)
             };
-
-            // const imageConfig: any = {
-            //     dev: mqttdevice,
-            //     unique_id: `scrypted-ha-utilities-${id}-${imageEntity}`,
-            //     name: imageEntity.charAt(0).toUpperCase() + imageEntity.slice(1),
-            //     object_id: `${name}_${imageEntity}`,
-            //     topic: getEntityTopic(imageEntity),
-            //     image_encoding: 'b64',
-            // };
-
             this.publish(console, getDiscoveryTopic('sensor', timeEntity), JSON.stringify(timeConfig));
-            // this.publish(console, getDiscoveryTopic('camera', imageEntity), JSON.stringify(imageConfig));
+
+            if (withImage) {
+                const imageConfig: any = {
+                    dev: mqttdevice,
+                    unique_id: `scrypted-ha-utilities-${id}-${imageEntity}`,
+                    name: imageEntity.charAt(0).toUpperCase() + imageEntity.slice(1),
+                    object_id: `${name}_${imageEntity}`,
+                    topic: getEntityTopic(imageEntity),
+                    image_encoding: 'b64',
+                };
+                this.publish(console, getDiscoveryTopic('camera', imageEntity), JSON.stringify(imageConfig));
+            }
         })
     }
 
@@ -276,30 +288,37 @@ export default class MqttClient {
         console: Console,
         detections: ObjectDetectionResult[],
         triggerTime: number,
+        b64Image?: string,
     }) {
 
-        const { device, detections, triggerTime, console } = props;
+        const { device, detections, triggerTime, console, b64Image } = props;
         try {
             console.debug(`Entities to publish: ${JSON.stringify(detections)}`)
             for (const detection of detections) {
                 const detectionClass = detection.className;
-                const { timeEntity } = this.getLastDetectionTopics(detectionClass);
+                const { timeEntity, imageEntity } = this.getLastDetectionTopics(detectionClass);
                 const { getEntityTopic } = this.getMqttTopicTopics(device);
 
                 this.publish(console, getEntityTopic(timeEntity), new Date(triggerTime).toISOString(), false);
+
+                if (b64Image) {
+                    this.publish(console, getEntityTopic(imageEntity), b64Image, false);
+                }
             }
         } catch (e) {
             console.log(`Error publishing`, e);
         }
     }
 
-    subscribeToHaTopics(entitiesActiveTopic: string, console: Console, cb?: (topic: string, entitiesActive: string[]) => void) {
-        this.getMqttClient(console).removeAllListeners();
-        this.getMqttClient(console).subscribe([entitiesActiveTopic]);
-        this.getMqttClient(console).on('message', (messageTopic, message) => {
+    async subscribeToHaTopics(entitiesActiveTopic: string, console: Console, cb: (topic: any, message: any) => void) {
+        const client = await this.getMqttClient(console);
+        client.removeAllListeners();
+        client.subscribe([entitiesActiveTopic]);
+
+        client.on('message', (messageTopic, message) => {
             const messageString = message.toString();
             if (messageTopic === entitiesActiveTopic) {
-                cb && cb(messageTopic, messageString !== 'null' ? JSON.parse(messageString) : []);
+                cb(messageTopic, messageString !== 'null' ? JSON.parse(messageString) : [])
             }
         })
     }

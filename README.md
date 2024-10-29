@@ -56,6 +56,8 @@ Group `Homeassistant utilities`
 - `Device class`, deviceClass to be used on the HA entity, any of https://www.home-assistant.io/integrations/binary_sensor/#device-class. Default to `Motion`
 
 ## Detection (Available only for Camera/Doorbell devices)
+- `Use NVR detections`, forward and filter notifications coming from NVR
+- `Use NVR images`, keep NVR images, otherwise generate with plugin
 - `Linked camera`, camera linked to this sensor, will act as nearby sensor. Any trigger of the sensor will send a notification of the camera set
 - `Whitelisted zones`, zones that should trigger a notification/motion
 - `Blacklisted zones`, zones that should NOT trigger a notification/motion
@@ -75,9 +77,11 @@ Group `Homeassistant utilities`
 ## Webhooks
 - `Last snapshot webhook`, enable the last snapshot webhook, below the public url where the image will be available
 
+### NVR notifications
+The plugin gives the possiblity to just extend and filter the notifications coming from NVR. To enable this, you need to enable for the interested cameras the flag `Use NVR detections` under Detection (Homeassistant utilities mixin). Afterwards you need to extend the notifiers with this extension and enable all the classes to want notifications for. A button will come later on to automatically synchronize the detection classes needed
+
 ## Todo
 - Add boundary box to the images
-- Add support to nearby locks
 - Send clips (Not supported by NVR)
 
 #### Feel free to reach me out on discord (@apocaliss92) for suggestion or feature requests. This plugin contains the features required in my personal case, but there could be more!
@@ -116,3 +120,6 @@ Group `Homeassistant utilities`
 
 0.1.1:
 - Linked camera added to each device, will act exactly as a nearby sensor
+
+0.2.0:
+- Add support to extend NVR notifications
