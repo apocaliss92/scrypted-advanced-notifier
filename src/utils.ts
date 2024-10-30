@@ -7,7 +7,6 @@ export const parseNotificationMessage = (title: string, options?: NotifierOption
     try {
         const cameraDevice = sdk.systemManager.getDeviceByName(title) as unknown as DeviceInterface;
         let messageKey: string;
-        let label: string;
         let detection: ObjectDetectionResult;
         const subtitle = options?.subtitle;
 
@@ -28,8 +27,10 @@ export const parseNotificationMessage = (title: string, options?: NotifierOption
         const allDetections: ObjectDetectionResult[] = options?.recordedEvent?.data?.detections ?? [];
 
         if (!isOffline && !isOnline) {
-
-            if (subtitle.includes('Person')) {
+            if (subtitle.includes('Maybe: Vehicle')) {
+                messageKey = 'plateDetectedText';
+                detection = allDetections.find(det => det.className === 'plate');
+            } else if (subtitle.includes('Person')) {
                 messageKey = 'personDetectedText';
                 detection = allDetections.find(det => det.className === 'person');
             } else if (subtitle.includes('Vehicle')) {
@@ -41,7 +42,6 @@ export const parseNotificationMessage = (title: string, options?: NotifierOption
             } else if (subtitle.includes('Maybe: ')) {
                 messageKey = 'familiarDetectedText';
                 detection = allDetections.find(det => det.className === 'face');
-                // label = options.recordedEvent.data.detections.find(det => !!det.label)?.label;
             } else if (subtitle.includes('Motion')) {
                 messageKey = 'motionDetectedText';
                 detection = allDetections.find(det => det.className === 'motion');
@@ -64,7 +64,6 @@ export const parseNotificationMessage = (title: string, options?: NotifierOption
         return {
             cameraDevice,
             messageKey,
-            label,
             detection,
             allDetections,
             isOnline,

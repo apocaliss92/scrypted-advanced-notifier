@@ -129,3 +129,6 @@ The plugin gives the possiblity to just extend and filter the notifications comi
 - Add reconnect checks for MQTT
 - Flow cleanup
 - Main MQTT credentials make available for use
+
+0.2.6:
+- Add support for plates

@@ -536,6 +536,13 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             description: 'Expression used to render the text when a familiar is detected. Available arguments ${room} ${time} ${person} ${nvrLink}',
             defaultValue: '${person} detected in ${room}'
         },
+        plateDetectedText: {
+            group: 'Texts',
+            title: 'Plate detected text',
+            type: 'string',
+            description: 'Expression used to render the text when a plate is detected. Available arguments ${room} ${time} ${plate} ${nvrLink}',
+            defaultValue: '${plate} detected in ${room}'
+        },
         animalDetectedText: {
             group: 'Texts',
             title: 'Animal detected text',
@@ -1319,6 +1326,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             const motionDetectedText = this.storageSettings.getItem(`notifier:${notifierId}:motionDetectedText` as any) || this.storageSettings.getItem('motionDetectedText');
             const personDetectedText = this.storageSettings.getItem(`notifier:${notifierId}:personDetectedText` as any) || this.storageSettings.getItem('personDetectedText');
             const familiarDetectedText = this.storageSettings.getItem(`notifier:${notifierId}:familiarDetectedText` as any) || this.storageSettings.getItem('familiarDetectedText');
+            const plateDetectedText = this.storageSettings.getItem(`notifier:${notifierId}:plateDetectedText` as any) || this.storageSettings.getItem('plateDetectedText');
             const animalDetectedText = this.storageSettings.getItem(`notifier:${notifierId}:animalDetectedText` as any) || this.storageSettings.getItem('animalDetectedText');
             const vehicleDetectedText = this.storageSettings.getItem(`notifier:${notifierId}:vehicleDetectedText` as any) || this.storageSettings.getItem('vehicleDetectedText');
             const doorbellText = this.storageSettings.getItem(`notifier:${notifierId}:doorbellText` as any) || this.storageSettings.getItem('doorbellText');
@@ -1332,6 +1340,10 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                 switch (detectionClass) {
                     case 'face': {
                         textToUse = familiarDetectedText;
+                        break;
+                    }
+                    case 'plate': {
+                        textToUse = plateDetectedText;
                         break;
                     }
                     case 'person': {
@@ -1359,6 +1371,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             .replace('${time}', time)
             .replace('${nvrLink}', externalUrl)
             .replace('${person}', detectionLabel)
+            .replace('${plate}', detectionLabel)
             .replace('${room}', roomName);
     }
 
