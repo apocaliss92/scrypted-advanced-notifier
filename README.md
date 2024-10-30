@@ -123,3 +123,7 @@ The plugin gives the possiblity to just extend and filter the notifications comi
 
 0.2.0:
 - Add support to extend NVR notifications
+
+0.2.2:
+- Add reconnect checks for MQTT
+- Flow cleanup

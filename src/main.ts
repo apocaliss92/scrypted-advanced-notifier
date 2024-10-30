@@ -98,8 +98,8 @@ class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implement
             description: 'If enabled, the NVR notifications will be used. Make sure to extend the notifiers with this extension',
             type: 'boolean',
             subgroup: 'Detection',
-            defaultValue: true,
-            immediate: true
+            immediate: true,
+            defaultValue: this.type === ScryptedDeviceType.Camera
         },
         useNvrImages: {
             title: 'Use NVR images',
@@ -350,6 +350,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
     private mainLogger: Console;
     private deviceLoggerMap: Record<string, Console> = {};
     private autodiscoveryPublishedMap: Record<string, boolean> = {};
+    private nvrNotificationSend: Record<number, boolean> = {};
 
     storageSettings = new StorageSettings(this, {
         pluginEnabled: {
@@ -781,7 +782,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                     const deviceName = device.name;
                     const deviceSettings = await device.getSettings();
 
-                    const useNvrDetections = deviceSettings.find(setting => setting.key === `homeassistantMetadata:useNvrDetections`)?.value ?? false;
+                    // const useNvrDetections = deviceSettings.find(setting => setting.key === `homeassistantMetadata:useNvrDetections`)?.value ?? false;
                     const alwaysActive = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:triggerAlwaysNotification')?.value as boolean) ?? false;
                     if (alwaysActive) {
                         forcedActiveDevices.push(deviceName);
@@ -1094,19 +1095,93 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
     }
 
     async sendNotificationToPlugin(notifierId: string, title: string, options?: NotifierOptions, mediaParent?: MediaObject, icon?: MediaObject | string) {
-        const { cameraDevice, messageKey, triggerTime, detection, allDetections, isOffline, isOnline, isBoolean } = parseNotificationMessage(title, options);
+        const triggerTime = options?.recordedEvent?.data.timestamp ?? new Date().getTime();
+        const isTheFirstNotifier = !this.nvrNotificationSend[triggerTime];
+        this.nvrNotificationSend[triggerTime] = true;
+        const { cameraDevice, messageKey, detection, allDetections, isOffline, isOnline, isBoolean } = parseNotificationMessage(title, options);
         const deviceLogger = this.getDeviceLogger(cameraDevice);
-        deviceLogger.log('Notification coming from NVR', title, JSON.stringify(options));
+        const {
+            allActiveDevicesForNotifications,
+            activeDevicesForReporting,
+            notifiers,
+        } = await this.getAllActiveDevices();
+        const cameraName = cameraDevice.name;
+        const device = systemManager.getDeviceByName(cameraName) as unknown as DeviceInterface;
 
-        if (!messageKey) {
-            deviceLogger.log('Notification not supported', JSON.stringify(options));
-            return;
+        let media = mediaParent;
+        let imageBuffer = await sdk.mediaManager.convertMediaObjectToBuffer(media, 'image/jpeg');
+
+        if (isTheFirstNotifier) {
+            deviceLogger.log(`Notification ${triggerTime} coming from NVR: ${JSON.stringify({ title, options })}`);
+
+            if (!messageKey) {
+                deviceLogger.log('Notification not supported', JSON.stringify({ title, options }));
+                return;
+            }
+
+            const { externalUrl } = this.getUrls(cameraDevice.id, triggerTime);
+
+            const isDetectionValid = await getIsDetectionValid(device, deviceLogger);
+            const { data, isValid: isDetectValid } = isDetectionValid(detection);
+
+            const isValid = isBoolean || isOnline || isOffline ? true : isDetectValid;
+
+            if (!isValid) {
+                deviceLogger.log(`Detection discarded: ${JSON.stringify(data)}`);
+                return;
+            }
+
+            // TODO: Move on top function
+            // if (!useNvrImages && detection.boundingBox) {
+            //     const { newImage, newImageBuffer } = await this.addBoundingToImage(detection.boundingBox, imageBuffer, deviceLogger);
+            //     media = newImage;
+            //     imageBuffer = newImageBuffer;
+            // } else {
+            //     deviceLogger.log(`Not adding boundboxes, ${JSON.stringify({
+            //         boundingBox: detection.boundingBox,
+            //         useNvrImages
+            //     })}`);
+            // }
+            // const imageWithBoundingMaybe = !useNvrImages ? this.
+
+            const b64Image = imageBuffer.toString('base64');
+
+
+            if (activeDevicesForReporting.includes(cameraName)) {
+                this.getDeviceLogger(device).log(`Reporting ${allDetections.length} detections: ${JSON.stringify(allDetections)}`)
+                await this.executeReport({
+                    currentTime: triggerTime,
+                    device: cameraDevice,
+                    detections: allDetections,
+                    deviceName: cameraName,
+                    b64Image
+                });
+            }
+
+            this.startMotionTimeoutAndPublish({
+                device: cameraDevice,
+                externalUrl,
+                b64Image,
+                triggered: true,
+                triggerTime,
+                detection,
+                skipMotionCheck: false
+            });
+        } else {
+            deviceLogger.debug(`Notification ${triggerTime} already reported, skipping MQTT report.`);
         }
 
-        const { externalUrl } = this.getUrls(cameraDevice.id, triggerTime);
+        // for (const notifierId of notifiers) {
+        const deviceSettings = await device.getSettings();
+        const useNvrDetections = deviceSettings.find(setting => setting.key === `homeassistantMetadata:useNvrDetections`)?.value as boolean ?? false;
+        const useNvrImages = deviceSettings.find(setting => setting.key === `homeassistantMetadata:useNvrImages`)?.value as boolean ?? true;
+        const notifier = systemManager.getDeviceById(notifierId) as unknown as DeviceInterface;
+        const notifiersActive = notifiers.includes(notifierId);
+        const deviceActiveForNotifications = allActiveDevicesForNotifications.includes(cameraName);
+        const canNotify = notifiersActive && deviceActiveForNotifications && useNvrDetections;
 
         if (isOnline || isOffline) {
-            deviceLogger.log('Logging online/offline event', JSON.stringify({
+            deviceLogger.debug('Logging online/offline event', JSON.stringify({
                 detection,
                 messageKey,
             }));
@@ -1123,53 +1198,16 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             return;
         }
 
-        const cameraName = cameraDevice.name;
-        const {
-            allActiveDevicesForNotifications,
-            activeDevicesForReporting,
-            notifiers,
-        } = await this.getAllActiveDevices();
-        const device = systemManager.getDeviceByName(cameraName) as unknown as DeviceInterface;
-        const notifier = systemManager.getDeviceById(notifierId) as unknown as DeviceInterface;
-        const deviceSettings = await device.getSettings();
-        const useNvrDetections = deviceSettings.find(setting => setting.key === `homeassistantMetadata:useNvrDetections`)?.value as boolean ?? false;
-        const useNvrImages = deviceSettings.find(setting => setting.key === `homeassistantMetadata:useNvrImages`)?.value as boolean ?? true;
+        if (!notifiersActive) {
+            deviceLogger.debug(`Notifier ${notifier.name} not enabled for notifications`);
+        }
 
-        const notifiersActive = notifiers.includes(notifierId);
-        const deviceActiveForNotifications = allActiveDevicesForNotifications.includes(cameraName);
-        const canNotify = notifiersActive && deviceActiveForNotifications && useNvrDetections;
-
-
-        let media = mediaParent;
-        let imageBuffer = await sdk.mediaManager.convertMediaObjectToBuffer(media, 'image/jpeg');
-        // if (!useNvrImages && detection.boundingBox) {
-        //     const { newImage, newImageBuffer } = await this.addBoundingToImage(detection.boundingBox, imageBuffer, deviceLogger);
-        //     media = newImage;
-        //     imageBuffer = newImageBuffer;
-        // } else {
-        //     deviceLogger.log(`Not adding boundboxes, ${JSON.stringify({
-        //         boundingBox: detection.boundingBox,
-        //         useNvrImages
-        //     })}`);
-        // }
-
-        const b64Image = imageBuffer.toString('base64');
-
-        // const imageWithBoundingMaybe = !useNvrImages ? this.
-
-        if (activeDevicesForReporting.includes(cameraName)) {
-            this.getDeviceLogger(device).log(`Reporting ${allDetections.length} detections: ${JSON.stringify(allDetections)}`)
-            await this.executeReport({
-                currentTime: triggerTime,
-                device: cameraDevice,
-                detections: allDetections,
-                deviceName: cameraName,
-                b64Image
-            });
+        if (!deviceActiveForNotifications) {
+            deviceLogger.debug(`Device ${cameraName} not enabled for notifications`);
         }
 
         if (!canNotify) {
-            deviceLogger.log(`Notifier or device ${cameraName}/${notifier.name} not enabled for notifications. ${JSON.stringify({
+            deviceLogger.debug(`Skipping notification. ${JSON.stringify({
                 notifiersActive,
                 deviceActiveForNotifications,
                 useNvrDetections,
@@ -1179,26 +1217,6 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
 
             return;
         }
-
-        const isDetectionValid = await getIsDetectionValid(device, deviceLogger);
-        const { data, isValid: isDetectValid } = isDetectionValid(detection);
-
-        const isValid = isBoolean ? true : isDetectValid;
-
-        if (!isValid) {
-            deviceLogger.log(`Detection discarded: ${JSON.stringify(data)}`);
-            return;
-        }
-
-        this.startMotionTimeoutAndPublish({
-            device: cameraDevice,
-            externalUrl,
-            b64Image,
-            triggered: true,
-            triggerTime,
-            detection,
-            skipMotionCheck: false
-        });
 
         this.notifyCamera({
             device: cameraDevice,
@@ -1210,6 +1228,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             source: NotificationSource.NVR,
             keepImage: useNvrImages
         });
+        // }
     }
 
     async getMixin(mixinDevice: any, mixinDeviceInterfaces: ScryptedInterface[], mixinDeviceState: WritableDeviceState): Promise<any> {
@@ -1753,7 +1772,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                                 this.deviceLastDetectionsUpdate[deviceName] = currentTime;
                                 await this.executeReport({ currentTime, device: cameraDevice, detections: accumulatedRelevantDetections, deviceName });
                             } else {
-                                deviceLogger.debug(`Skip executeReport, ${JSON.stringify({ isReportLocked, isReportingActive, accumulatedRelevantDetections })}`);
+                                // deviceLogger.debug(`Skip executeReport, ${JSON.stringify({ isReportLocked, isReportingActive, accumulatedRelevantDetections })}`);
                             }
                         } finally {
                             deviceReportLockMap[deviceName] = false;
@@ -1790,7 +1809,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
 
                         const canContinue = delayDetectionDone || isDoorbelButton;
                         if (!canContinue) {
-                            deviceLogger.debug(`Skip notifiers, ${JSON.stringify({ delayDetectionDone, isDoorbelButton, canContinue })}`);
+                            // deviceLogger.debug(`Skip notifiers, ${JSON.stringify({ delayDetectionDone, isDoorbelButton, canContinue })}`);
                             return;
                         }
                         deviceLogger.log(`Clearing accumulated detections: ${JSON.stringify(deviceAccumulatedDetectionsForNotifications[deviceName].slice(0, 5).map(det => det.className))}`);

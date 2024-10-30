@@ -1,67 +1,78 @@
 import sdk, { Camera, MediaObject, NotifierOptions, ObjectDetectionResult, ScryptedDeviceBase, Settings } from "@scrypted/sdk"
-import { sortBy } from "lodash";
+import { sortBy, uniq } from "lodash";
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Settings;
 
 export const parseNotificationMessage = (title: string, options?: NotifierOptions) => {
-    const cameraDevice = sdk.systemManager.getDeviceByName(title) as unknown as DeviceInterface;
-    let messageKey: string;
-    let label: string;
-    let detection: ObjectDetectionResult;
-    const triggerTime = options?.recordedEvent?.data.timestamp ?? new Date().getTime();
-    const subtitle = options?.subtitle;
+    try {
+        const cameraDevice = sdk.systemManager.getDeviceByName(title) as unknown as DeviceInterface;
+        let messageKey: string;
+        let label: string;
+        let detection: ObjectDetectionResult;
+        const subtitle = options?.subtitle;
 
-    let isOffline = false;
-    let isOnline = false;
-    let isBoolean = false;
+        let isOffline = false;
+        let isOnline = false;
+        let isBoolean = false;
 
-    if (subtitle === 'Offline') {
-        messageKey = 'offlinelText';
-        isOffline = true;
-    } else if (subtitle === 'Online') {
-        messageKey = 'onlinelText';
-        isOnline = true;
-    }
-
-    const allDetections = options?.recordedEvent?.data?.detections ?? [];
-
-    if (!isOffline && !isOnline) {
-
-        if (subtitle.includes('Person')) {
-            messageKey = 'personDetectedText';
-            detection = allDetections.find(det => det.className === 'person');
-        } else if (subtitle.includes('Vehicle')) {
-            detection = allDetections.find(det => det.className === 'vehicle');
-            messageKey = 'vehicleDetectedText';
-        } else if (subtitle.includes('Animal')) {
-            detection = allDetections.find(det => det.className === 'animal');
-            messageKey = 'animalDetectedText';
-        } else if (subtitle.includes('Maybe: ')) {
-            messageKey = 'familiarDetectedText';
-            detection = allDetections.find(det => det.className === 'face');
-            // label = options.recordedEvent.data.detections.find(det => !!det.label)?.label;
-        } else if (subtitle.includes('Motion')) {
-            messageKey = 'motionDetectedText';
-            detection = allDetections.find(det => det.className === 'motion');
-        } else if (subtitle.includes('Door')) {
-            messageKey = 'doorWindowText';
-            isBoolean = true;
-        } else if (subtitle.includes('ring')) {
-            messageKey = 'doorbellText';
-            isBoolean = true;
+        if (subtitle === 'Offline') {
+            messageKey = 'offlinelText';
+            isOffline = true;
+        } else if (subtitle === 'Online') {
+            messageKey = 'onlinelText';
+            isOnline = true;
         }
-    }
 
-    return {
-        cameraDevice,
-        messageKey,
-        label,
-        triggerTime,
-        detection,
-        allDetections,
-        isOnline,
-        isOffline,
-        isBoolean,
+        // TODO: Find the source device of the notification in case of door/window/doorbell
+
+        const allDetections: ObjectDetectionResult[] = options?.recordedEvent?.data?.detections ?? [];
+
+        if (!isOffline && !isOnline) {
+
+            if (subtitle.includes('Person')) {
+                messageKey = 'personDetectedText';
+                detection = allDetections.find(det => det.className === 'person');
+            } else if (subtitle.includes('Vehicle')) {
+                detection = allDetections.find(det => det.className === 'vehicle');
+                messageKey = 'vehicleDetectedText';
+            } else if (subtitle.includes('Animal')) {
+                detection = allDetections.find(det => det.className === 'animal');
+                messageKey = 'animalDetectedText';
+            } else if (subtitle.includes('Maybe: ')) {
+                messageKey = 'familiarDetectedText';
+                detection = allDetections.find(det => det.className === 'face');
+                // label = options.recordedEvent.data.detections.find(det => !!det.label)?.label;
+            } else if (subtitle.includes('Motion')) {
+                messageKey = 'motionDetectedText';
+                detection = allDetections.find(det => det.className === 'motion');
+            } else if (subtitle.includes('Door')) {
+                messageKey = 'doorWindowText';
+                isBoolean = true;
+            } else if (subtitle.includes('ring')) {
+                messageKey = 'doorbellText';
+                isBoolean = true;
+            }
+        }
+
+
+        if (detection) {
+            const allZones = uniq(allDetections.filter(innerDetection => innerDetection.className === detection.className)
+                .flatMap(det => det.zones));
+            detection.zones = allZones;
+        }
+
+        return {
+            cameraDevice,
+            messageKey,
+            label,
+            detection,
+            allDetections,
+            isOnline,
+            isOffline,
+            isBoolean,
+        }
+    } catch (e) {
+        console.log(`Error parsing notification: ${JSON.stringify({ title, options })}`, e)
     }
 }
 

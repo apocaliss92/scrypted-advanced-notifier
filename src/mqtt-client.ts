@@ -47,16 +47,7 @@ export default class MqttClient {
 
     async getMqttClient(console: Console): Promise<Client> {
         return new Promise((res, rej) => {
-            if (!this.mqttClient) {
-                const url = this.host;
-                const urlWithoutPath = new URL(url);
-                urlWithoutPath.pathname = '';
-
-                this.mqttPathmame = urlWithoutPath.toString();
-                if (!this.mqttPathmame.endsWith('/')) {
-                    this.mqttPathmame = `${this.mqttPathmame}/`;
-                }
-                console.log('Starting MQTT connection', this.host, this.username, this.mqttPathmame)
+            const _connect = async () => {
                 const client = connect(this.mqttPathmame, {
                     rejectUnauthorized: false,
                     username: this.username,
@@ -67,13 +58,32 @@ export default class MqttClient {
                 client.on('connect', data => {
                     console.log('Connected to mqtt', JSON.stringify(data));
                     this.mqttClient = client;
-                    res(this.mqttClient);
+                    res(client);
                 });
 
                 client.on('error', data => {
                     console.log('Error connecting to mqtt', data);
+                    this.mqttClient = undefined;
                     rej();
                 });
+            }
+
+            if (!this.mqttClient) {
+                const url = this.host;
+                const urlWithoutPath = new URL(url);
+                urlWithoutPath.pathname = '';
+
+                this.mqttPathmame = urlWithoutPath.toString();
+                if (!this.mqttPathmame.endsWith('/')) {
+                    this.mqttPathmame = `${this.mqttPathmame}/`;
+                }
+                console.log('Starting MQTT connection', this.host, this.username, this.mqttPathmame);
+
+                _connect();
+            } else if (!this.mqttClient.connected) {
+                console.log('MQTT disconnected. Reconnecting', this.host, this.username, this.mqttPathmame);
+
+                _connect();
             } else {
                 res(this.mqttClient);
             }
@@ -138,7 +148,7 @@ export default class MqttClient {
 
         const { getDiscoveryTopic, getEntityTopic, getInfoTopic } = this.getMqttTopicTopics(device);
 
-        mqttEntities.forEach(mqttEntity => {
+        for (const mqttEntity of mqttEntities) {
             const { domain, entity, isMainEntity: mainEntity, deviceClass } = mqttEntity;
 
             const config: any = {
@@ -165,8 +175,8 @@ export default class MqttClient {
                 config.state_topic = topic;
             }
 
-            this.publish(console, getDiscoveryTopic(domain, entity), JSON.stringify(config));
-        })
+            await this.publish(console, getDiscoveryTopic(domain, entity), JSON.stringify(config));
+        }
 
         // if (localIp) {
         //     const deviceStreams = await this.findDeviceStreams(deviceSettings, localIp);
@@ -187,7 +197,7 @@ export default class MqttClient {
         //     })
         // }
 
-        detectionClasses.map(detectionClass => {
+        for (const detectionClass of detectionClasses) {
             const { imageEntity, timeEntity } = this.getLastDetectionTopics(detectionClass);
 
             const timeConfig: any = {
@@ -198,7 +208,7 @@ export default class MqttClient {
                 device_class: 'timestamp',
                 state_topic: getEntityTopic(timeEntity)
             };
-            this.publish(console, getDiscoveryTopic('sensor', timeEntity), JSON.stringify(timeConfig));
+            await this.publish(console, getDiscoveryTopic('sensor', timeEntity), JSON.stringify(timeConfig));
 
             if (withImage) {
                 const imageConfig: any = {
@@ -209,9 +219,9 @@ export default class MqttClient {
                     topic: getEntityTopic(imageEntity),
                     image_encoding: 'b64',
                 };
-                this.publish(console, getDiscoveryTopic('camera', imageEntity), JSON.stringify(imageConfig));
+                await this.publish(console, getDiscoveryTopic('camera', imageEntity), JSON.stringify(imageConfig));
             }
-        })
+        }
     }
 
     async publishDeviceState(props: {
@@ -228,7 +238,7 @@ export default class MqttClient {
         const { device, triggered, info, console } = props;
         try {
             const entitiesToRun = triggered ? mqttEntities : mqttEntities.filter(entity => entity.entity === 'triggered');
-            console.debug(`Entities to publish: ${JSON.stringify(entitiesToRun)}`)
+            console.debug(`publishDeviceState: Entities to publish: ${JSON.stringify(entitiesToRun)}`)
             for (const mqttEntity of entitiesToRun) {
                 const { getEntityTopic, getInfoTopic } = this.getMqttTopicTopics(device);
                 const { entity, isMainEntity: mainEntity } = mqttEntity;
@@ -265,7 +275,7 @@ export default class MqttClient {
 
                 if (value !== null) {
                     // this.publish(console, getEntityTopic(entity), value, entity !== 'lastImage');
-                    this.publish(console, getEntityTopic(entity), value);
+                    await this.publish(console, getEntityTopic(entity), value);
                     mainEntity && triggered && info && this.publish(console, getInfoTopic(entity), info);
 
 
@@ -293,16 +303,16 @@ export default class MqttClient {
 
         const { device, detections, triggerTime, console, b64Image } = props;
         try {
-            console.debug(`Entities to publish: ${JSON.stringify(detections)}`)
+            console.debug(`publishRelevantDetections: Detections to publish: ${JSON.stringify(detections)}`)
             for (const detection of detections) {
                 const detectionClass = detection.className;
                 const { timeEntity, imageEntity } = this.getLastDetectionTopics(detectionClass);
                 const { getEntityTopic } = this.getMqttTopicTopics(device);
 
-                this.publish(console, getEntityTopic(timeEntity), new Date(triggerTime).toISOString(), false);
+                await this.publish(console, getEntityTopic(timeEntity), new Date(triggerTime).toISOString(), false);
 
                 if (b64Image) {
-                    this.publish(console, getEntityTopic(imageEntity), b64Image, false);
+                    await this.publish(console, getEntityTopic(imageEntity), b64Image, false);
                 }
             }
         } catch (e) {
