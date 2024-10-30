@@ -1629,11 +1629,9 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
 
     private getLogger(): Console {
         if (!this.mainLogger) {
-            const isDebugEnabled = this.storageSettings.getItem('debug');
-
             const log = (debug: boolean, message?: any, ...optionalParams: any[]) => {
                 const now = new Date().toLocaleString();
-                if (!debug || isDebugEnabled) {
+                if (!debug || this.storageSettings.getItem('debug')) {
                     this.console.log(`[Homeassistant utilities] ${now} - `, message, ...optionalParams);
                 }
             };
@@ -1652,11 +1650,9 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         const deviceConsole = sdk.deviceManager.getDeviceConsole(device.nativeId);
 
         if (!this.deviceLoggerMap[deviceName]) {
-            const isDebugEnabled = this.storageSettings.getItem('debug');
-
             const log = (debug: boolean, message?: any, ...optionalParams: any[]) => {
                 const now = new Date().toLocaleString();
-                if (!debug || isDebugEnabled) {
+                if (!debug || this.storageSettings.getItem('debug')) {
                     // this.console.log(`[${deviceName}] ${now} - `, message, ...optionalParams);
                     deviceConsole.log(`[${deviceName}] ${now} - `, message, ...optionalParams);
                 }

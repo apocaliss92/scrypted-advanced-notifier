@@ -307,7 +307,13 @@ export default class MqttClient {
             for (const detection of detections) {
                 const detectionClass = detection.className;
                 const { timeEntity, imageEntity } = this.getLastDetectionTopics(detectionClass);
-                const { getEntityTopic } = this.getMqttTopicTopics(device);
+                const { getEntityTopic, getInfoTopic } = this.getMqttTopicTopics(device);
+
+                console.debug(`Reporting ${timeEntity}: ${JSON.stringify({
+                    timeEntity,
+                    imageEntity,
+                    triggerTime,
+                })}`)
 
                 await this.publish(console, getEntityTopic(timeEntity), new Date(triggerTime).toISOString(), false);
 

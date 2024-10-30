@@ -56,8 +56,8 @@ Group `Homeassistant utilities`
 - `Device class`, deviceClass to be used on the HA entity, any of https://www.home-assistant.io/integrations/binary_sensor/#device-class. Default to `Motion`
 
 ## Detection (Available only for Camera/Doorbell devices)
-- `Use NVR detections`, forward and filter notifications coming from NVR
-- `Use NVR images`, keep NVR images, otherwise generate with plugin
+- `Use NVR detections`, forward and filter notifications coming from NVR. Should be activated only for cameras since there is no clean way to distinguish between sensors trigger and cameras
+- `Use NVR images`, keep NVR images, otherwise generate with plugin (Not available yet)
 - `Linked camera`, camera linked to this sensor, will act as nearby sensor. Any trigger of the sensor will send a notification of the camera set
 - `Whitelisted zones`, zones that should trigger a notification/motion
 - `Blacklisted zones`, zones that should NOT trigger a notification/motion
