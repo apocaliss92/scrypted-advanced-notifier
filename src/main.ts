@@ -711,8 +711,9 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         const isTheFirstNotifier = !this.nvrNotificationSend[triggerTime];
         this.nvrNotificationSend[triggerTime] = true;
         const deviceSensors = this.deviceLinkedSensors[title];
+        const cameraDevice = sdk.systemManager.getDeviceByName(title) as unknown as DeviceInterface;
+        const deviceLogger = this.getDeviceLogger(cameraDevice);
         const {
-            cameraDevice,
             messageKey,
             detection,
             allDetections,
@@ -721,8 +722,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             isDoorbell,
             isOffline,
             isOnline,
-        } = await parseNotificationMessage(title, deviceSensors, options);
-        const deviceLogger = this.getDeviceLogger(cameraDevice);
+        } = await parseNotificationMessage(cameraDevice, deviceSensors, options, deviceLogger);
         const {
             allActiveDevicesForNotifications,
             activeDevicesForReporting,
@@ -1100,7 +1100,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
 
         const title = (srcDevice ?? device).name;
 
-        deviceLogger.log(`Finally sending notification to ${notifier.name}. ${JSON.stringify({
+        deviceLogger.log(`Finally sending notification ${time} to ${notifier.name}. ${JSON.stringify({
             source,
             title,
             message,

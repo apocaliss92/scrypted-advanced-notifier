@@ -51,9 +51,8 @@ export const getWebookUrls = async (cameraDevice: string, console: Console) => {
     }
 }
 
-export const parseNotificationMessage = async (title: string, deviceSensors: string[], options?: NotifierOptions) => {
+export const parseNotificationMessage = async (cameraDevice: DeviceInterface, deviceSensors: string[], options?: NotifierOptions, console?: Console) => {
     try {
-        const cameraDevice = sdk.systemManager.getDeviceByName(title) as unknown as DeviceInterface;
         let triggerDevice: DeviceInterface;
         let messageKey: string;
         let detection: ObjectDetectionResult;
@@ -117,6 +116,8 @@ export const parseNotificationMessage = async (title: string, deviceSensors: str
             const activeSensors = deviceSensors.filter(sensorId => !systemState[sensorId].value);
             if (activeSensors.length === 1) {
                 triggerDevice = sdk.systemManager.getDeviceById(activeSensors[0]) as unknown as DeviceInterface
+            } else {
+                console.log(`Trigger sensor not found: ${JSON.stringify({ activeSensors, deviceSensors })}`);
             }
         }
 
@@ -140,7 +141,7 @@ export const parseNotificationMessage = async (title: string, deviceSensors: str
             isDetection
         }
     } catch (e) {
-        console.log(`Error parsing notification: ${JSON.stringify({ title, options })}`, e);
+        console.log(`Error parsing notification: ${JSON.stringify({ device: cameraDevice.name, options })}`, e);
         return {};
     }
 }
