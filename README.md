@@ -83,6 +83,7 @@ The plugin gives the possiblity to just extend and filter the notifications comi
 ## Todo
 - Add boundary box to the images
 - Send clips (Not supported by NVR)
+- Find actual source of events from NVR door/window notifications, maybe wait for official support
 
 #### Feel free to reach me out on discord (@apocaliss92) for suggestion or feature requests. This plugin contains the features required in my personal case, but there could be more!
 
@@ -124,6 +125,7 @@ The plugin gives the possiblity to just extend and filter the notifications comi
 0.2.0:
 - Add support to extend NVR notifications
 
-0.2.2:
+0.2.3:
 - Add reconnect checks for MQTT
 - Flow cleanup
+- Main MQTT credentials make available for use

@@ -379,6 +379,12 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             title: 'Scrypted token',
             type: 'string',
         },
+        useMqttPluginCredentials: {
+            title: 'Use MQTT plugin credentials',
+            group: 'MQTT',
+            type: 'boolean',
+            immediate: true,
+        },
         mqttHost: {
             title: 'Host',
             group: 'MQTT',
@@ -403,7 +409,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         },
         activeDevicesForReporting: {
             group: 'MQTT',
-            title: 'Active devices',
+            title: 'Active devices for MQTT reporting',
             multiple: true,
             type: 'string',
             defaultValue: []
@@ -613,10 +619,15 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             await this.startEventsListeners();
         };
 
-        const useHaPluginCredentials = Boolean(this.storageSettings.getItem('useHaPluginCredentials') ?? false);
+        const useHaPluginCredentials = JSON.parse(this.storageSettings.getItem('useHaPluginCredentials') ?? 'false');
         this.storageSettings.settings.accessToken.hide = useHaPluginCredentials;
         this.storageSettings.settings.address.hide = useHaPluginCredentials;
         this.storageSettings.settings.protocol.hide = useHaPluginCredentials;
+
+        const useMqttPluginCredentials = JSON.parse(this.storageSettings.getItem('useMqttPluginCredentials') ?? 'false');
+        this.storageSettings.settings.mqttHost.hide = useMqttPluginCredentials;
+        this.storageSettings.settings.mqttUsename.hide = useMqttPluginCredentials;
+        this.storageSettings.settings.mqttPassword.hide = useMqttPluginCredentials;
 
         this.storageSettings.settings.address.onPut = async () => await start();
         this.storageSettings.settings.protocol.onPut = async () => await start();
@@ -627,8 +638,8 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             this.storageSettings.settings.accessToken.hide = isOn;
             this.storageSettings.settings.address.hide = isOn;
             this.storageSettings.settings.protocol.hide = isOn;
-            await start();
         };
+
         this.storageSettings.settings.activeDevicesForNotifications.onPut = async () => {
             await this.startEventsListeners();
         };
@@ -640,6 +651,13 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         };
         this.storageSettings.settings.pluginEnabled.onPut = async () => {
             await this.startEventsListeners();
+        };
+        this.storageSettings.settings.useMqttPluginCredentials.onPut = async (_, isOn) => {
+            this.storageSettings.settings.mqttHost.hide = isOn;
+            this.storageSettings.settings.mqttUsename.hide = isOn;
+            this.storageSettings.settings.mqttPassword.hide = isOn;
+
+            await this.setupMqttClient();
         };
         this.storageSettings.settings.mqttHost.onPut = async () => await this.setupMqttClient();
         this.storageSettings.settings.mqttUsename.onPut = async () => await this.setupMqttClient();
@@ -721,9 +739,32 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
     }
 
     private async setupMqttClient() {
-        const mqttHost = this.storageSettings.getItem('mqttHost');
-        const mqttUsename = this.storageSettings.getItem('mqttUsename');
-        const mqttPassword = this.storageSettings.getItem('mqttPassword');
+        let mqttHost: string;
+        let mqttUsename: string;
+        let mqttPassword: string;
+
+        if (this.storageSettings.getItem('useMqttPluginCredentials')) {
+            this.getLogger().log(`Using MQTT plugin credentials.`);
+            const mqttDevice = systemManager.getDeviceByName('MQTT') as unknown as Settings;
+            const mqttSettings = await mqttDevice.getSettings();
+
+            const isInternalBroker = (JSON.parse(mqttSettings.find(setting => setting.key === 'enableBroker')?.value as string || 'false')) as boolean;
+
+            if (isInternalBroker) {
+                this.getLogger().log(`Internal MQTT broker not supported yet. Please disable useMqttPluginCredentials.`);
+            } else {
+                mqttHost = mqttSettings.find(setting => setting.key === 'externalBroker')?.value as string;
+                mqttUsename = mqttSettings.find(setting => setting.key === 'username')?.value as string;
+                mqttPassword = mqttSettings.find(setting => setting.key === 'password')?.value as string;
+            }
+        } else {
+            this.getLogger().log(`Using provided credentials.`);
+
+            mqttHost = this.storageSettings.getItem('mqttHost');
+            mqttUsename = this.storageSettings.getItem('mqttUsename');
+            mqttPassword = this.storageSettings.getItem('mqttPassword');
+        }
+
         const mqttActiveEntitiesTopic = this.storageSettings.getItem('mqttActiveEntitiesTopic');
 
         if (!mqttHost || !mqttUsename || !mqttPassword) {
@@ -1121,16 +1162,6 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
 
             const { externalUrl } = this.getUrls(cameraDevice.id, triggerTime);
 
-            const isDetectionValid = await getIsDetectionValid(device, deviceLogger);
-            const { data, isValid: isDetectValid } = isDetectionValid(detection);
-
-            const isValid = isBoolean || isOnline || isOffline ? true : isDetectValid;
-
-            if (!isValid) {
-                deviceLogger.log(`Detection discarded: ${JSON.stringify(data)}`);
-                return;
-            }
-
             // TODO: Move on top function
             // if (!useNvrImages && detection.boundingBox) {
             //     const { newImage, newImageBuffer } = await this.addBoundingToImage(detection.boundingBox, imageBuffer, deviceLogger);
@@ -1169,6 +1200,17 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             });
         } else {
             deviceLogger.debug(`Notification ${triggerTime} already reported, skipping MQTT report.`);
+        }
+
+
+        const isDetectionValid = await getIsDetectionValid(device, deviceLogger);
+        const { data, isValid: isDetectValid } = isDetectionValid(detection);
+
+        const isValid = isBoolean || isOnline || isOffline ? true : isDetectValid;
+
+        if (!isValid) {
+            deviceLogger.log(`Detection discarded: ${JSON.stringify(data)}`);
+            return;
         }
 
         // for (const notifierId of notifiers) {
