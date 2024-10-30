@@ -15,23 +15,24 @@ This plugin offers the following parts:
  After install the plugin a few configurations should be done on the plugin interface
  ## General
  - Plugin enabled: simple switch to enable/disable the plugin
+ - Log debug messages: verbose logging in console
  - Scrypted token: can be found on homeassistant in the sensor created by the scrypted integration
  - NVR url: URL externally accessible to the NVR interface, default ot `https://nvr.scrypted.app`
+
+ ## Homeassistant
  - HA credentials, check the `Use HA plugin credentials` to pick the one used on the main Homeassistant plugin
-
- ##  MQTT
- - Connection parameters
- - `Active entities topic`, MQTT topic to subscribe to activate/deactivate device notifications. The value is expected to be an array of strings and it can contain either the names of the camera or the entity ids or a mix of them. As long as each camera is correctly mapped, the plugin will automatically derive the devices to enable
- - `Active devices`, devices enabled on the MQTT interface, the plugin will publish the current status of the devices listed
- - `Snapshot width/height` - Dimensions of the snapshot for images to send over MQTT
-
- ## Fetched entities
  - Entity regex patterns: regexs to be passed to the HA endpoint to fetch the available entities. The plugin will autogenerate MQTT entities in form of `binary_sensor.{cameraName}_triggered`, an entry for this could be `binary_sensor.(.*)_triggered`. Add any HA entity id you need to map with the scrypted devices
  - `Entities`, contains all the entity ids discoveredy HA
  - `Rooms`, contains all the rooms discovered from HA
  - `Fetch entities from HA`, fetch data from HA (entities and rooms)
 
+ ##  MQTT
+ - MQTT credentials, check the `Use MQTT plugin credentials` to pick the one used on the main MQTT plugin
+ - `Active entities topic`, MQTT topic to subscribe to activate/deactivate device notifications. The value is expected to be an array of strings and it can contain either the names of the camera or the entity ids or a mix of them. As long as each camera is correctly mapped, the plugin will automatically derive the devices to enable
+ - `Active devices for MQTT reporting`, devices enabled on the MQTT interface, the plugin will publish the current status of the devices listed
+
  ## Notifier
+ - `Snapshot width/height` - Dimensions of the snapshot for images to send over MQTT
  - `Active devices`, devices enabled for the notifications, they can be manually selected or triggered by the MQTT `Active entities topic` topic
  - `Notifiers`, notifiers to be used to send notifications
 
@@ -41,13 +42,14 @@ This plugin offers the following parts:
  - `${time}` - Time string (as defined in the `Detection time` text, default to new Date(${time}).toLocaleString() - i.e. '14/10/2024, 20:41:16'). Read https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/toLocaleString for more info
  - `${nvrLink}` - Public link to the nvr timeline of the camera
  - `${person}` - Person name detected in a familiar detection
+ - `${plate}` - Plate detected in a vehicle detection
 
  These texts can be overridden for each notifier, an use case would be a whatsapp notifier, where there is no click action and an explicit link to the nvr can be shown
 
  ## Test
  Combination of device-notifier-message to send a test notification to
 
-# Mixin configuration
+# Camera Mixin configuration
 Group `Homeassistant utilities`
 
 ## Metadata
@@ -56,19 +58,17 @@ Group `Homeassistant utilities`
 - `Device class`, deviceClass to be used on the HA entity, any of https://www.home-assistant.io/integrations/binary_sensor/#device-class. Default to `Motion`
 
 ## Detection (Available only for Camera/Doorbell devices)
-- `Use NVR detections`, forward and filter notifications coming from NVR. Should be activated only for cameras since there is no clean way to distinguish between sensors trigger and cameras
-- `Use NVR images`, keep NVR images, otherwise generate with plugin (Not available yet)
+- `Use NVR detections`, forward and filter notifications coming from NVR
+- `Use NVR images`, keep NVR images, otherwise generate with plugin
 - `Linked camera`, camera linked to this sensor, will act as nearby sensor. Any trigger of the sensor will send a notification of the camera set
 - `Whitelisted zones`, zones that should trigger a notification/motion
 - `Blacklisted zones`, zones that should NOT trigger a notification/motion
-- `Always enabled zones`, zones that should ALWAYS trigger a notification/motion, regardless of the activation of the camera
 - `Detection classes`, detection classes that should trigger a notification/motion
-- `Require Scrypted Detections`, ignore detections coming from the camera
-- `Default score threshold`, override of the same plugin config
 - `Score threshold for {eachDetectionClass}`, a specific threshold for each detection class enabled on the camera 
 
 ## Notifier
 - `Always enabled`, enable notifications of this device regardless of the main activation
+- `Always enabled zones`, zones that should ALWAYS trigger a notification/motion, regardless of the activation of the camera
 - `HA actions`, actions to be included in the notification in form of JSON string, i.e. `{"action":"open_door","title":"Open door","icon":"sfsymbols:door"}`
 - `Minimum notification delay`, override of the same plugin config
 - `Skip doorbell notifications`, sensors used as `Custom doorbell button` on the camera will not trigger a notification (available only for Doorbell devices)
@@ -77,13 +77,22 @@ Group `Homeassistant utilities`
 ## Webhooks
 - `Last snapshot webhook`, enable the last snapshot webhook, below the public url where the image will be available
 
+# Notifier Mixin configuration
+Group `Homeassistant utilities`
+
+## Notifier
+ - `Snapshot width/height` - Dimensions of the snapshot for images for the notifier
+ - `Always enabled classnames` - Classnames that will always trigger a notification on this notifier
+
+## Texts
+ - Overrides for the tests defined on the plugin settings
+
 ### NVR notifications
 The plugin gives the possiblity to just extend and filter the notifications coming from NVR. To enable this, you need to enable for the interested cameras the flag `Use NVR detections` under Detection (Homeassistant utilities mixin). Afterwards you need to extend the notifiers with this extension and enable all the classes to want notifications for. A button will come later on to automatically synchronize the detection classes needed
 
 ## Todo
 - Add boundary box to the images
 - Send clips (Not supported by NVR)
-- Find actual source of events from NVR door/window notifications, maybe wait for official support
 
 #### Feel free to reach me out on discord (@apocaliss92) for suggestion or feature requests. This plugin contains the features required in my personal case, but there could be more!
 
@@ -132,3 +141,8 @@ The plugin gives the possiblity to just extend and filter the notifications comi
 
 0.2.6:
 - Add support for plates
+
+0.3.0:
+- Identify the source trigger sensor on NVR notification (door/window events) to check the plugin rules
+- Code split in multiple files
+- Notifier mixin added

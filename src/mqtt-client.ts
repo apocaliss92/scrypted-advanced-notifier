@@ -278,7 +278,7 @@ export default class MqttClient {
                     }
                     case 'lastZones': {
                         value = (info?.detection?.zones || []);
-                        if (!value.length) value.push('none');
+                        if (!value.length) value = ['none'];
                         value = value.toString();
                         break;
                     }

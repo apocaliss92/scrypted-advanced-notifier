@@ -1,11 +1,60 @@
-import sdk, { Camera, MediaObject, NotifierOptions, ObjectDetectionResult, ScryptedDeviceBase, Settings } from "@scrypted/sdk"
+import sdk, { Camera, MediaObject, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDeviceBase, Settings } from "@scrypted/sdk"
 import { sortBy, uniq } from "lodash";
+const { endpointManager } = sdk;
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Settings;
 
-export const parseNotificationMessage = (title: string, options?: NotifierOptions) => {
+export const defaultDetectionClasses = [
+    'motion',
+    'person',
+    'vehicle',
+    'animal',
+    'package',
+    'face',
+    'plate'
+]
+
+export const detectionClassesToPublish = [
+    'motion',
+    'person',
+    'vehicle',
+    'animal',
+]
+
+export const getWebookSpecs = async () => {
+    const lastSnapshot = 'last';
+
+    return {
+        lastSnapshot,
+    }
+}
+
+export const getWebookUrls = async (cameraDevice: string, console: Console) => {
+    let lastSnapshotCloudUrl: string;
+    let lastSnapshotLocalUrl: string;
+
+    const { lastSnapshot } = await getWebookSpecs();
+
+    try {
+        const cloudEndpoint = await endpointManager.getPublicCloudEndpoint();
+        const localEndpoint = await endpointManager.getPublicLocalEndpoint();
+
+        lastSnapshotCloudUrl = `${localEndpoint}snapshots/${cameraDevice}/${lastSnapshot}`;
+        lastSnapshotLocalUrl = `${cloudEndpoint}snapshots/${cameraDevice}/${lastSnapshot}`;
+    } catch (e) {
+        console.log('Error fetching webhookUrls', e);
+    }
+
+    return {
+        lastSnapshotCloudUrl,
+        lastSnapshotLocalUrl,
+    }
+}
+
+export const parseNotificationMessage = async (title: string, deviceSensors: string[], options?: NotifierOptions) => {
     try {
         const cameraDevice = sdk.systemManager.getDeviceByName(title) as unknown as DeviceInterface;
+        let triggerDevice: DeviceInterface;
         let messageKey: string;
         let detection: ObjectDetectionResult;
         const subtitle = options?.subtitle;
@@ -13,6 +62,8 @@ export const parseNotificationMessage = (title: string, options?: NotifierOption
         let isOffline = false;
         let isOnline = false;
         let isBoolean = false;
+        let isDoorbell = false;
+        let isDetection = false;
 
         if (subtitle === 'Offline') {
             messageKey = 'offlinelText';
@@ -30,27 +81,42 @@ export const parseNotificationMessage = (title: string, options?: NotifierOption
             if (subtitle.includes('Maybe: Vehicle')) {
                 messageKey = 'plateDetectedText';
                 detection = allDetections.find(det => det.className === 'plate');
+                isDetection = true;
             } else if (subtitle.includes('Person')) {
                 messageKey = 'personDetectedText';
                 detection = allDetections.find(det => det.className === 'person');
+                isDetection = true;
             } else if (subtitle.includes('Vehicle')) {
                 detection = allDetections.find(det => det.className === 'vehicle');
+                isDetection = true;
                 messageKey = 'vehicleDetectedText';
             } else if (subtitle.includes('Animal')) {
                 detection = allDetections.find(det => det.className === 'animal');
+                isDetection = true;
                 messageKey = 'animalDetectedText';
             } else if (subtitle.includes('Maybe: ')) {
                 messageKey = 'familiarDetectedText';
                 detection = allDetections.find(det => det.className === 'face');
+                isDetection = true;
             } else if (subtitle.includes('Motion')) {
                 messageKey = 'motionDetectedText';
                 detection = allDetections.find(det => det.className === 'motion');
-            } else if (subtitle.includes('Door')) {
+                isDetection = true;
+            } else if (subtitle.includes('Door/Window Open')) {
                 messageKey = 'doorWindowText';
                 isBoolean = true;
-            } else if (subtitle.includes('ring')) {
+            } else if (subtitle.includes('Doorbell Ringing')) {
                 messageKey = 'doorbellText';
-                isBoolean = true;
+                isDoorbell = true;
+            }
+        }
+
+        if (isDoorbell || isBoolean) {
+            const systemState = sdk.systemManager.getSystemState();
+
+            const activeSensors = deviceSensors.filter(sensorId => !systemState[sensorId].value);
+            if (activeSensors.length === 1) {
+                triggerDevice = sdk.systemManager.getDeviceById(activeSensors[0]) as unknown as DeviceInterface
             }
         }
 
@@ -62,6 +128,7 @@ export const parseNotificationMessage = (title: string, options?: NotifierOption
         }
 
         return {
+            triggerDevice,
             cameraDevice,
             messageKey,
             detection,
@@ -69,9 +136,12 @@ export const parseNotificationMessage = (title: string, options?: NotifierOption
             isOnline,
             isOffline,
             isBoolean,
+            isDoorbell,
+            isDetection
         }
     } catch (e) {
-        console.log(`Error parsing notification: ${JSON.stringify({ title, options })}`, e)
+        console.log(`Error parsing notification: ${JSON.stringify({ title, options })}`, e);
+        return {};
     }
 }
 
@@ -124,14 +194,16 @@ export const sortDetectionsByPriority = (detections: ObjectDetectionResult[]) =>
 
 }
 
-export const getIsDetectionValid = async (device: DeviceInterface, console?: Console) => {
+export const getIsDetectionValid = async (device: DeviceInterface, notifier: DeviceInterface, console?: Console) => {
     const deviceSettings = await device.getSettings();
+    const notifierSettings = await notifier?.getSettings();
 
     const detectionClasses = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:detectionClasses')?.value ?? []) as string[];
     const whitelistedZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:whitelistedZones')?.value ?? []) as string[];
     const blacklistedZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:blacklistedZones')?.value ?? []) as string[];
     const scoreThreshold = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:scoreThreshold')?.value as number) || 0.7;
     const alwaysZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:alwaysZones')?.value ?? []) as string[];
+    const notifierAlwaysClassnames = (notifierSettings?.find(setting => setting.key === 'homeassistantNotifierMetadata:alwaysClassnames')?.value ?? []) as string[];
 
     return (detection: ObjectDetectionResult) => {
         if (!detection) {
@@ -153,12 +225,18 @@ export const getIsDetectionValid = async (device: DeviceInterface, console?: Con
         const scoreOk = score >= scoreToUse;
         const classNameOk = detectionClasses.includes(className);
 
-        const isValid = zonesOk && faceOk && motionOk && scoreOk && classNameOk;
+        let isValid = false;
+        if (notifierAlwaysClassnames?.length && notifierAlwaysClassnames.includes(className)) {
+            isValid = faceOk && scoreOk && classNameOk;
+        } else {
+            isValid = zonesOk && faceOk && motionOk && scoreOk && classNameOk;
+        }
 
         const data: any = {
             detectionClasses,
             className,
             classNameOk,
+            notifierAlwaysClassnames,
 
             label,
             faceOk,
@@ -182,5 +260,100 @@ export const getIsDetectionValid = async (device: DeviceInterface, console?: Con
         }
 
         return { isValid, data };
+    }
+}
+
+export const getTextSettings = (forMixin: boolean) => {
+    const groupKey = forMixin ? 'subgroup' : 'group';
+
+    return {
+        detectionTimeText: {
+            [groupKey]: 'Texts',
+            title: 'Detection time',
+            type: 'string',
+            description: 'Expression used to render the time shown in notifications. Available arguments ${time}',
+            defaultValue: !forMixin ? 'new Date(${time}).toLocaleString()' : undefined,
+            placeholder: !forMixin ? 'new Date(${time}).toLocaleString()' : undefined
+        },
+        motionDetectedText: {
+            [groupKey]: 'Texts',
+            title: 'Motion',
+            type: 'string',
+            description: 'Expression used to render the text when a motion is detected. Available arguments ${room} ${time} ${nvrLink}',
+            defaultValue: !forMixin ? 'Motion detected in ${room}' : undefined,
+            placeholder: !forMixin ? 'Motion detected in ${room}' : undefined
+        },
+        personDetectedText: {
+            [groupKey]: 'Texts',
+            title: 'Person detected text',
+            type: 'string',
+            description: 'Expression used to render the text when a person is detected. Available arguments ${room} ${time} ${nvrLink}',
+            defaultValue: !forMixin ? 'Person detected in ${room}' : undefined,
+            placeholder: !forMixin ? 'Person detected in ${room}' : undefined
+        },
+        familiarDetectedText: {
+            [groupKey]: 'Texts',
+            title: 'Familiar detected text',
+            type: 'string',
+            description: 'Expression used to render the text when a familiar is detected. Available arguments ${room} ${time} ${person} ${nvrLink}',
+            defaultValue: !forMixin ? '${person} detected in ${room}' : undefined,
+            placeholder: !forMixin ? '${person} detected in ${room}' : undefined
+        },
+        plateDetectedText: {
+            [groupKey]: 'Texts',
+            title: 'Plate detected text',
+            type: 'string',
+            description: 'Expression used to render the text when a plate is detected. Available arguments ${room} ${time} ${plate} ${nvrLink}',
+            defaultValue: !forMixin ? '${plate} detected in ${room}' : undefined,
+            placeholder: !forMixin ? '${plate} detected in ${room}' : undefined
+        },
+        animalDetectedText: {
+            [groupKey]: 'Texts',
+            title: 'Animal detected text',
+            type: 'string',
+            description: 'Expression used to render the text when an animal is detected. Available arguments ${room} ${time} ${nvrLink}',
+            defaultValue: !forMixin ? 'Animal detected in ${room}' : undefined,
+            placeholder: !forMixin ? 'Animal detected in ${room}' : undefined
+        },
+        vehicleDetectedText: {
+            [groupKey]: 'Texts',
+            title: 'Vehicle detected text',
+            type: 'string',
+            description: 'Expression used to render the text when a vehicle is detected. Available arguments ${room} ${time} ${nvrLink}',
+            defaultValue: !forMixin ? 'Vehicle detected in ${room}' : undefined,
+            placeholder: !forMixin ? 'Vehicle detected in ${room}' : undefined
+        },
+        doorbellText: {
+            [groupKey]: 'Texts',
+            title: 'Doorbell ringing text',
+            type: 'string',
+            description: 'Expression used to render the text when a vehicle is detected. Available arguments ${room} $[time}',
+            defaultValue: !forMixin ? 'Someone at the door' : undefined,
+            placeholder: !forMixin ? 'Someone at the door' : undefined
+        },
+        doorWindowText: {
+            [groupKey]: 'Texts',
+            title: 'Door/Window open text',
+            type: 'string',
+            description: 'Expression used to render the text when a binary sensor opens. Available arguments ${room} $[time} ${nvrLink}',
+            defaultValue: !forMixin ? 'Door/window opened in ${room}' : undefined,
+            placeholder: !forMixin ? 'Door/window opened in ${room}' : undefined
+        },
+        onlineText: {
+            [groupKey]: 'Texts',
+            title: 'Online device text',
+            type: 'string',
+            description: 'Expression used to render the text when a device comes back onlin. Available arguments $[time}',
+            defaultValue: !forMixin ? 'Back online at ${time}' : undefined,
+            placeholder: !forMixin ? 'Back online at ${time}' : undefined
+        },
+        offlineText: {
+            [groupKey]: 'Texts',
+            title: 'Online device text',
+            type: 'string',
+            description: 'Expression used to render the text when a device goes onlin. Available arguments $[time}',
+            defaultValue: !forMixin ? 'Went offline at ${time}' : undefined,
+            placeholder: !forMixin ? 'Went offline at ${time}' : undefined
+        }
     }
 }

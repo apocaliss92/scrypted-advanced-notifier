@@ -1,348 +1,25 @@
-import sdk, { Camera, EventDetails, EventListenerRegister, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, Setting, Settings, SettingValue, VideoClips, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { EventListenerRegister, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, Setting, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import axios from "axios";
-import { isEqual, sortBy, uniqBy, xor } from 'lodash';
-import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
+import { isEqual, keyBy, sortBy } from 'lodash';
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import MqttClient from './mqtt-client';
-import { DeviceInterface, ExecuteReportProps, GetNotificationTextProps, getIsDetectionValid, NotifyCameraProps, parseNotificationMessage, sortDetectionsByPriority, NotificationSource } from "./utils";
+import { DeviceInterface, ExecuteReportProps, GetNotificationTextProps, getIsDetectionValid, NotifyCameraProps, parseNotificationMessage, sortDetectionsByPriority, NotificationSource, detectionClassesToPublish, getWebookSpecs, getTextSettings } from "./utils";
 import sharp from 'sharp';
+import { HomeAssistantUtilitiesNotifierMixin } from "./notifierMixin";
+import { HomeAssistantUtilitiesCameraMixin } from "./cameraMixin";
 
-const { systemManager, mediaManager, endpointManager } = sdk;
-
-const getWebookSpecs = async () => {
-    const lastSnapshot = 'last';
-
-    return {
-        lastSnapshot,
-    }
-}
-
-const defaultDetectionClasses = [
-    'motion',
-    'person',
-    'vehicle',
-    'animal',
-    'package',
-    'face',
-    'plate'
-]
-
-const detectionClassesToPublish = [
-    'motion',
-    'person',
-    'vehicle',
-    'animal',
-]
-
-const getWebookUrls = async (cameraDevice: string, console: Console) => {
-    let lastSnapshotCloudUrl: string;
-    let lastSnapshotLocalUrl: string;
-
-    const { lastSnapshot } = await getWebookSpecs();
-
-    try {
-        const cloudEndpoint = await endpointManager.getPublicCloudEndpoint();
-        const localEndpoint = await endpointManager.getPublicLocalEndpoint();
-
-        lastSnapshotCloudUrl = `${localEndpoint}snapshots/${cameraDevice}/${lastSnapshot}`;
-        lastSnapshotLocalUrl = `${cloudEndpoint}snapshots/${cameraDevice}/${lastSnapshot}`;
-    } catch (e) {
-        console.log('Error fetching webhookUrls', e);
-    }
-
-    return {
-        lastSnapshotCloudUrl,
-        lastSnapshotLocalUrl,
-    }
-}
-
-const getDefaultEntityId = (name: string) => {
-    const convertedName = name?.replace(/\W+/g, " ")
-        .split(/ |\B(?=[A-Z])/)
-        .map(word => word.toLowerCase())
-        .join('_') ?? 'not_set';
-
-    return `binary_sensor.${convertedName}_triggered`;
-}
-
-class HomeAssistantUtilitiesMixin extends SettingsMixinDeviceBase<any> implements Settings, Notifier {
-    storageSettings = new StorageSettings(this, {
-        // METADATA
-        room: {
-            title: 'Room',
-            type: 'string',
-            subgroup: 'Metadata'
-        },
-        entityId: {
-            title: 'EntityID',
-            type: 'string',
-            subgroup: 'Metadata',
-            defaultValue: getDefaultEntityId(this.name)
-        },
-        haDeviceClass: {
-            title: 'Device class',
-            type: 'string',
-            subgroup: 'Metadata',
-            defaultValue: 'motion'
-        },
-        // DETECTION
-        linkedCamera: {
-            title: 'Linked camera',
-            type: 'device',
-            subgroup: 'Detection',
-            deviceFilter: `(type === '${ScryptedDeviceType.Camera}')`,
-            hide: true,
-        },
-        useNvrDetections: {
-            title: 'Use NVR detections',
-            description: 'If enabled, the NVR notifications will be used. Make sure to extend the notifiers with this extension',
-            type: 'boolean',
-            subgroup: 'Detection',
-            immediate: true,
-            defaultValue: this.type === ScryptedDeviceType.Camera
-        },
-        useNvrImages: {
-            title: 'Use NVR images',
-            description: 'If enabled, the NVR images coming from NVR will be used, otherwise the one defined in the plugin',
-            type: 'boolean',
-            subgroup: 'Detection',
-            defaultValue: true,
-            immediate: true,
-            hide: true,
-        },
-        whitelistedZones: {
-            title: 'Whitelisted zones',
-            description: 'Zones that will trigger a notification',
-            multiple: true,
-            combobox: true,
-            hide: true,
-            subgroup: 'Detection',
-            choices: [],
-        },
-        blacklistedZones: {
-            title: 'Blacklisted zones',
-            description: 'Zones that will not trigger a notification',
-            multiple: true,
-            combobox: true,
-            hide: true,
-            subgroup: 'Detection',
-            choices: [],
-        },
-        detectionClasses: {
-            title: 'Detection classes',
-            multiple: true,
-            combobox: true,
-            hide: true,
-            subgroup: 'Detection',
-            choices: [],
-            defaultValue: ['person']
-        },
-        scoreThreshold: {
-            title: 'Default score threshold',
-            subgroup: 'Detection',
-            type: 'number',
-            defaultValue: 0.7,
-            hide: true,
-        },
-        // NOTIFIER
-        triggerAlwaysNotification: {
-            title: 'Always enabled',
-            description: 'Enable to always check this entity for notifications, regardles of it\'s activation',
-            subgroup: 'Notifier',
-            type: 'boolean',
-            defaultValue: false,
-        },
-        alwaysZones: {
-            title: 'Always enabled zones',
-            description: 'Zones that will trigger a notification, regardless of the device is active or not in the main selector',
-            multiple: true,
-            combobox: true,
-            hide: true,
-            subgroup: 'Notifier',
-            choices: [],
-        },
-        haActions: {
-            title: 'HA actions',
-            description: 'Actions to show on the notification, i.e. {"action":"open_door","title":"Open door","icon":"sfsymbols:door"}',
-            subgroup: 'Notifier',
-            type: 'string',
-            multiple: true
-        },
-        minDelayTime: {
-            subgroup: 'Notifier',
-            title: 'Minimum notification delay',
-            description: 'Minimum amount of time to wait until a notification is sent from the same camera, in seconds',
-            type: 'number',
-            defaultValue: 15,
-        },
-        skipDoorbellNotifications: {
-            subgroup: 'Notifier',
-            title: 'Skip doorbell notifications',
-            type: 'boolean',
-            defaultValue: false,
-            hide: true,
-        },
-        // WEBHOOKS
-        lastSnapshotWebhook: {
-            subgroup: 'Webhooks',
-            title: 'Last snapshot webhook',
-            type: 'boolean',
-            immediate: true,
-        },
-        lastSnapshotWebhookCloudUrl: {
-            subgroup: 'Webhooks',
-            type: 'string',
-            title: 'Cloud URL',
-            // readonly: true,
-            // TODO: export on common fn
-            onGet: async () => {
-                const isWebhookEnabled = this.storageSettings.getItem('lastSnapshotWebhook');
-                return {
-                    hide: !isWebhookEnabled,
-                }
-            }
-        },
-        lastSnapshotWebhookLocalUrl: {
-            subgroup: 'Webhooks',
-            type: 'string',
-            title: 'Local URL',
-            // readonly: true,
-            onGet: async () => {
-                const isWebhookEnabled = this.storageSettings.getItem('lastSnapshotWebhook');
-                return {
-                    hide: !isWebhookEnabled,
-                }
-            }
-        },
-    });
-
-    constructor(
-        options: SettingsMixinDeviceOptions<any>,
-        private sendNotificationToPlugin: (notifierId: string, title: string, options?: NotifierOptions, media?: MediaObject, icon?: MediaObject | string) => Promise<void>
-    ) {
-        super(options);
-
-        const mainPluginDevice = systemManager.getDeviceByName('Homeassistant utilities') as unknown as Settings;
-
-        this.storageSettings.settings.room.onGet = async () => {
-            const rooms = (await mainPluginDevice.getSettings()).find(setting => setting.key === 'fetchedRooms')?.value as string[];
-            return {
-                choices: rooms ?? []
-            }
-        }
-        this.storageSettings.settings.entityId.onGet = async () => {
-            const entities = (await mainPluginDevice.getSettings()).find(setting => setting.key === 'fetchedEntities')?.value as string[];
-            return {
-                choices: entities ?? []
-            }
-        }
-
-        if (this.interfaces.includes(ScryptedInterface.VideoCamera)) {
-            const getZones = async () => {
-                const settings = await this.mixinDevice.getSettings();
-                const zonesSetting = settings.find((setting: { key: string; }) => new RegExp('objectdetectionplugin:.*:zones').test(setting.key));
-
-                return {
-                    choices: zonesSetting?.value ?? []
-                }
-            }
-            this.storageSettings.settings.whitelistedZones.onGet = async () => await getZones();
-            this.storageSettings.settings.blacklistedZones.onGet = async () => await getZones();
-            this.storageSettings.settings.alwaysZones.onGet = async () => await getZones();
-            this.storageSettings.settings.detectionClasses.onGet = async () => {
-                const settings = await this.mixinDevice.getSettings();
-                const detectionClasses = settings.find((setting: { key: string; }) => new RegExp('objectdetectionplugin:.*:allowList').test(setting.key));
-                const choices = detectionClasses?.value ?? defaultDetectionClasses;
-
-                return {
-                    choices,
-                }
-            };
-
-            this.storageSettings.settings.whitelistedZones.hide = false;
-            this.storageSettings.settings.blacklistedZones.hide = false;
-            this.storageSettings.settings.alwaysZones.hide = false;
-            this.storageSettings.settings.detectionClasses.hide = false;
-            this.storageSettings.settings.scoreThreshold.hide = this.storageSettings.values.useNvrDetections;
-            // this.storageSettings.settings.useNvrImages.hide = !this.storageSettings.values.useNvrDetections;
-            this.storageSettings.settings.skipDoorbellNotifications.hide = this.type !== ScryptedDeviceType.Doorbell;
-
-            this.initValues().then().catch(this.console.log)
-        }
-
-        if ([ScryptedInterface.BinarySensor, ScryptedInterface.Lock].some(int => this.interfaces.includes(int))) {
-            this.storageSettings.settings.linkedCamera.hide = false;
-        }
-    }
-
-    async sendNotification(title: string, options?: NotifierOptions, media?: MediaObject, icon?: MediaObject | string): Promise<void> {
-        if (options?.data?.letGo) {
-            this.mixinDevice.sendNotification(title, options, media, icon);
-            return;
-        }
-
-        this.sendNotificationToPlugin(this.id, title, options, media, icon);
-    }
-
-    async initValues() {
-        const { lastSnapshotCloudUrl, lastSnapshotLocalUrl } = await getWebookUrls(this.name, console);
-        this.storageSettings.putSetting('lastSnapshotWebhookCloudUrl', lastSnapshotCloudUrl);
-        this.storageSettings.putSetting('lastSnapshotWebhookLocalUrl', lastSnapshotLocalUrl);
-    }
-
-    async getMixinSettings(): Promise<Setting[]> {
-        const useNvrDetections = this.storageSettings.values.useNvrDetections;
-        // this.storageSettings.settings.useNvrImages.hide = !useNvrDetections;
-        const settings: Setting[] = await this.storageSettings.getSettings();
-
-        if (this.interfaces.includes(ScryptedInterface.VideoCamera) && !useNvrDetections) {
-            const detectionClasses = this.storageSettings.getItem('detectionClasses') ?? [];
-            for (const detectionClass of detectionClasses) {
-                const key = `${detectionClass}:scoreThreshold`;
-                settings.push({
-                    key,
-                    title: `Score threshold for ${detectionClass}`,
-                    subgroup: 'Detection',
-                    type: 'number',
-                    value: this.storageSettings.getItem(key as any)
-                });
-            }
-        }
-
-        const mainPluginDevice = systemManager.getDeviceByName('Homeassistant utilities') as unknown as Settings;
-        const mainPluginSetttings = await mainPluginDevice.getSettings() as Setting[];
-        const activeNotifiers = (mainPluginSetttings.find(setting => setting.key === 'notifiers')?.value || []) as string[];
-
-        activeNotifiers.forEach(notifierId => {
-            const notifierDevice = systemManager.getDeviceById(notifierId);
-            const key = `notifier-${notifierId}:disabled`;
-            settings.push({
-                key,
-                title: `Disable notifier ${notifierDevice.name}`,
-                subgroup: 'Notifier',
-                type: 'boolean',
-                value: JSON.parse(this.storageSettings.getItem(key as any) ?? 'false'),
-            });
-        })
-
-        return settings;
-    }
-
-    async putMixinSetting(key: string, value: string) {
-        this.storage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
-    }
-}
+const { systemManager } = sdk;
 
 export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase implements MixinProvider, HttpRequestHandler {
     private deviceHaEntityMap: Record<string, string> = {};
     private haEntityDeviceMap: Record<string, string> = {};
     private deviceVideocameraMap: Record<string, string> = {};
-    private deviceTypeMap: Record<string, ScryptedDeviceType> = {};
     private activeListeners: { listener: EventListenerRegister, deviceName: string }[] = [];
     private deviceRoomMap: Record<string, string> = {}
     private mqttClient: MqttClient;
     private deviceTimeoutMap: Record<string, EventListenerRegister> = {};
     private doorbellDevices: string[] = [];
+    private deviceLinkedSensors: Record<string, string[]> = {};
     private mqttInit = false;
     private firstCheckAlwaysActiveDevices = false;
     private initListener: NodeJS.Timeout;
@@ -378,6 +55,60 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         scryptedToken: {
             title: 'Scrypted token',
             type: 'string',
+        },
+        accessToken: {
+            group: 'Homeassistant',
+            title: 'HAPersonal access token',
+            type: 'string',
+        },
+        address: {
+            group: 'Homeassistant',
+            title: 'Address',
+            type: 'string',
+        },
+        protocol: {
+            group: 'Homeassistant',
+            title: 'Protocol',
+            type: 'string',
+            choices: ['http', 'https'],
+            defaultValue: ['http'],
+        },
+        useHaPluginCredentials: {
+            group: 'Homeassistant',
+            title: 'Use HA plugin credentials',
+            type: 'boolean',
+            immediate: true,
+        },
+        domains: {
+            group: 'Homeassistant',
+            title: 'Entity regex patterns',
+            description: 'Regex to filter out entities fetched',
+            type: 'string',
+            multiple: true,
+        },
+        fetchHaEntities: {
+            group: 'Homeassistant',
+            title: 'Fetch entities from HA',
+            type: 'button',
+            onPut: async () => await this.fetchHomeassistantData()
+        },
+        fetchedEntities: {
+            group: 'Homeassistant',
+            title: '',
+            subgroup: 'Entities',
+            multiple: true,
+        },
+        fetchedRooms: {
+            group: 'Homeassistant',
+            title: '',
+            subgroup: 'Rooms',
+            multiple: true,
+        },
+        fetchedRoomNames: {
+            group: 'Homeassistant',
+            json: true,
+            hide: true,
+            defaultValue: {}
         },
         useMqttPluginCredentials: {
             title: 'Use MQTT plugin credentials',
@@ -433,58 +164,6 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             defaultValue: 'https://nvr.scrypted.app/',
             placeholder: 'https://nvr.scrypted.app/',
         },
-        useHaPluginCredentials: {
-            title: 'Use HA plugin credentials',
-            type: 'boolean',
-            immediate: true,
-        },
-        accessToken: {
-            title: 'HAPersonal access token',
-            type: 'string',
-        },
-        address: {
-            title: 'Address',
-            type: 'string',
-        },
-        protocol: {
-            title: 'Protocol',
-            type: 'string',
-            choices: ['http', 'https'],
-            defaultValue: ['http'],
-        },
-        domains: {
-            group: 'HA fetched data',
-            title: 'Entity regex patterns',
-            description: 'Regex to filter out entities fetched',
-            type: 'string',
-            multiple: true,
-        },
-        fetchHaEntities: {
-            group: 'HA fetched data',
-            title: 'Fetch entities from HA',
-            type: 'button',
-            onPut: async () => await this.fetchHomeassistantData()
-        },
-        fetchedEntities: {
-            group: 'HA fetched data',
-            title: '',
-            subgroup: 'Entities',
-            readonly: true,
-            multiple: true,
-        },
-        fetchedRooms: {
-            group: 'HA fetched data',
-            title: '',
-            subgroup: 'Rooms',
-            readonly: true,
-            multiple: true,
-        },
-        fetchedRoomNames: {
-            group: 'HA fetched data',
-            json: true,
-            hide: true,
-            defaultValue: {}
-        },
         activeDevicesForNotifications: {
             group: 'Notifier',
             title: 'Active devices',
@@ -508,83 +187,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             deviceFilter: `(type === '${ScryptedDeviceType.Notifier}')`,
         },
         // TEXTS
-        detectionTimeText: {
-            group: 'Texts',
-            title: 'Detection time',
-            type: 'string',
-            description: 'Expression used to render the time shown in notifications. Available arguments ${time}',
-            defaultValue: 'new Date(${time}).toLocaleString()'
-        },
-        motionDetectedText: {
-            group: 'Texts',
-            title: 'Motion',
-            type: 'string',
-            description: 'Expression used to render the text when a motion is detected. Available arguments ${room} ${time} ${nvrLink}',
-            defaultValue: 'Motion detected in ${room}'
-        },
-        personDetectedText: {
-            group: 'Texts',
-            title: 'Person detected text',
-            type: 'string',
-            description: 'Expression used to render the text when a person is detected. Available arguments ${room} ${time} ${nvrLink}',
-            defaultValue: 'Person detected in ${room}'
-        },
-        familiarDetectedText: {
-            group: 'Texts',
-            title: 'Familiar detected text',
-            type: 'string',
-            description: 'Expression used to render the text when a familiar is detected. Available arguments ${room} ${time} ${person} ${nvrLink}',
-            defaultValue: '${person} detected in ${room}'
-        },
-        plateDetectedText: {
-            group: 'Texts',
-            title: 'Plate detected text',
-            type: 'string',
-            description: 'Expression used to render the text when a plate is detected. Available arguments ${room} ${time} ${plate} ${nvrLink}',
-            defaultValue: '${plate} detected in ${room}'
-        },
-        animalDetectedText: {
-            group: 'Texts',
-            title: 'Animal detected text',
-            type: 'string',
-            description: 'Expression used to render the text when an animal is detected. Available arguments ${room} ${time} ${nvrLink}',
-            defaultValue: 'Animal detected in ${room}'
-        },
-        vehicleDetectedText: {
-            group: 'Texts',
-            title: 'Vehicle detected text',
-            type: 'string',
-            description: 'Expression used to render the text when a vehicle is detected. Available arguments ${room} ${time} ${nvrLink}',
-            defaultValue: 'Vehicle detected in ${room}'
-        },
-        doorbellText: {
-            group: 'Texts',
-            title: 'Doorbell ringing text',
-            type: 'string',
-            description: 'Expression used to render the text when a vehicle is detected. Available arguments ${room} $[time}',
-            defaultValue: 'Someone at the door'
-        },
-        doorWindowText: {
-            group: 'Texts',
-            title: 'Door/Window open text',
-            type: 'string',
-            description: 'Expression used to render the text when a binary sensor opens. Available arguments ${room} $[time} ${nvrLink}',
-            defaultValue: 'Door/window opened in ${room}'
-        },
-        onlineText: {
-            group: 'Texts',
-            title: 'Online device text',
-            type: 'string',
-            description: 'Expression used to render the text when a device comes back onlin. Available arguments $[time}',
-            defaultValue: 'Back online at ${time}'
-        },
-        offlineText: {
-            group: 'Texts',
-            title: 'Online device text',
-            type: 'string',
-            description: 'Expression used to render the text when a device goes onlin. Available arguments $[time}',
-            defaultValue: 'Went offline at ${time}'
-        },
+        ...getTextSettings(false) as any,
         testDevice: {
             title: 'Device',
             group: 'Test',
@@ -822,6 +425,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                 this.getLogger().log('Refreshing devices data and devices always active for notifications');
             }
             await this.refreshDevicesLinks();
+            this.nvrNotificationSend = {};
 
             const forcedActiveDevices: string[] = [];
             const pluginEnabled = this.storageSettings.getItem('pluginEnabled');
@@ -830,9 +434,9 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                     const deviceName = device.name;
                     const deviceSettings = await device.getSettings();
 
-                    // const useNvrDetections = deviceSettings.find(setting => setting.key === `homeassistantMetadata:useNvrDetections`)?.value ?? false;
+                    const useNvrDetections = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:useNvrDetections')?.value as boolean) ?? false;
                     const alwaysActive = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:triggerAlwaysNotification')?.value as boolean) ?? false;
-                    if (alwaysActive) {
+                    if (alwaysActive && !useNvrDetections) {
                         forcedActiveDevices.push(deviceName);
                     } else {
                         const alwaysZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:alwaysZones')?.value as string[]) ?? [];
@@ -911,8 +515,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         this.storageSettings.putSetting('localIp', localIp);
         this.getLogger().log(`Local IP found: ${localIp}`);
 
-        const textSettings = Object.entries(this.storageSettings.settings).filter(([_, setting]) => setting.group === 'Texts').map(([key]) => key);
-        this.storageSettings.settings.testMessage.choices = textSettings;
+        this.storageSettings.settings.testMessage.choices = Object.keys(getTextSettings(false)).map(key => key);
     }
 
     private async refreshDevicesLinks() {
@@ -923,7 +526,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         const haEntityDeviceMap: Record<string, string> = {};
         const deviceVideocameraMap: Record<string, string> = {};
         const deviceRoomMap: Record<string, string> = {};
-        const deviceTypeMap: Record<string, ScryptedDeviceType> = {};
+        const deviceLinkedSensors: Record<string, string[]> = {};
 
         const allDevices = this.getElegibleDevices();
         for (const device of allDevices) {
@@ -938,7 +541,6 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             if (haEntityId) {
                 haEntities.push(haEntityId);
                 devices.push(deviceName);
-                deviceTypeMap[deviceName] = deviceType;
 
                 deviceHaEntityMap[deviceName] = haEntityId;
                 haEntityDeviceMap[haEntityId] = deviceName;
@@ -947,10 +549,10 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                     const nearbySensors = settings.find(setting => setting.key === 'recording:nearbySensors')?.value as string[] ?? [];
                     const nearbyLocks = settings.find(setting => setting.key === 'recording:nearbyLocks')?.value as string[] ?? [];
 
-                    const linkedSensors = [...nearbySensors, ...nearbyLocks];
+                    deviceLinkedSensors[deviceName] = [...nearbySensors, ...nearbyLocks];
 
-                    if (linkedSensors.length) {
-                        for (const sensorId of linkedSensors) {
+                    if (deviceLinkedSensors[deviceName].length) {
+                        for (const sensorId of deviceLinkedSensors[deviceName]) {
                             const sensorDevice = systemManager.getDeviceById(sensorId);
                             deviceVideocameraMap[sensorDevice.name] = deviceName;
                         }
@@ -987,51 +589,13 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         this.deviceHaEntityMap = deviceHaEntityMap;
         this.haEntityDeviceMap = haEntityDeviceMap;
         this.deviceVideocameraMap = deviceVideocameraMap;
-        this.deviceTypeMap = deviceTypeMap;
         this.deviceRoomMap = deviceRoomMap;
         this.doorbellDevices = doorbellDevices;
+        this.deviceLinkedSensors = deviceLinkedSensors
     }
 
     async getSettings() {
         const settings: Setting[] = await this.storageSettings.getSettings();
-
-        const notifiers = this.storageSettings.getItem('notifiers') ?? [];
-        const textSettings = settings.filter(setting => setting.group === 'Texts');
-
-        for (const notifierId of notifiers) {
-            const notifier = systemManager.getDeviceById(notifierId) as unknown as ScryptedDeviceBase;
-            const notifierName = notifier.name;
-
-            textSettings.forEach(textSetting => {
-                const key = `notifier:${notifierId}:${textSetting.key}`;
-                settings.push({
-                    ...textSetting,
-                    value: this.storage.getItem(key),
-                    key,
-                    subgroup: `${notifierName}`
-                });
-            });
-
-            const widthKey = `notifier:${notifierId}:snapshotWidth`;
-            settings.push({
-                title: 'Snapshot width',
-                group: 'Notifier',
-                subgroup: `${notifierName}`,
-                type: 'number',
-                value: this.storage.getItem(widthKey) || 1280,
-                key: widthKey,
-            });
-
-            const heightKey = `notifier:${notifierId}:snapshotHeight`;
-            settings.push({
-                title: 'Snapshot height',
-                group: 'Notifier',
-                subgroup: `${notifierName}`,
-                type: 'number',
-                value: this.storage.getItem(heightKey) || 720,
-                key: heightKey,
-            });
-        }
 
         return settings;
     }
@@ -1136,7 +700,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         }
 
         if (interfaces.includes(ScryptedInterface.Notifier)) {
-            return [ScryptedInterface.Notifier]
+            return [ScryptedInterface.Notifier, ScryptedInterface.Settings]
         }
 
         return undefined;
@@ -1146,7 +710,18 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
         const triggerTime = options?.recordedEvent?.data.timestamp ?? new Date().getTime();
         const isTheFirstNotifier = !this.nvrNotificationSend[triggerTime];
         this.nvrNotificationSend[triggerTime] = true;
-        const { cameraDevice, messageKey, detection, allDetections, isOffline, isOnline, isBoolean } = parseNotificationMessage(title, options);
+        const deviceSensors = this.deviceLinkedSensors[title];
+        const {
+            cameraDevice,
+            messageKey,
+            detection,
+            allDetections,
+            isDetection,
+            triggerDevice: triggerDeviceParent,
+            isDoorbell,
+            isOffline,
+            isOnline,
+        } = await parseNotificationMessage(title, deviceSensors, options);
         const deviceLogger = this.getDeviceLogger(cameraDevice);
         const {
             allActiveDevicesForNotifications,
@@ -1154,21 +729,25 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             notifiers,
         } = await this.getAllActiveDevices();
         const cameraName = cameraDevice.name;
-        const device = systemManager.getDeviceByName(cameraName) as unknown as DeviceInterface;
+
+        const triggerDevice = triggerDeviceParent ?? cameraDevice;
+        const triggerDeviceName = triggerDevice.name;
 
         let media = mediaParent;
         let imageBuffer = await sdk.mediaManager.convertMediaObjectToBuffer(media, 'image/jpeg');
+        const b64Image = imageBuffer.toString('base64');
 
         if (isTheFirstNotifier) {
             deviceLogger.log(`Notification ${triggerTime} coming from NVR: ${JSON.stringify({ title, options })}`);
+
+            if (triggerDeviceParent) {
+                deviceLogger.debug(`Trigger device found: ${triggerDeviceParent.name}`);
+            }
 
             if (!messageKey) {
                 deviceLogger.log('Notification not supported', JSON.stringify({ title, options }));
                 return;
             }
-
-            const { externalUrl } = this.getUrls(cameraDevice.id, triggerTime);
-
             // TODO: Move on top function
             // if (!useNvrImages && detection.boundingBox) {
             //     const { newImage, newImageBuffer } = await this.addBoundingToImage(detection.boundingBox, imageBuffer, deviceLogger);
@@ -1182,11 +761,9 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             // }
             // const imageWithBoundingMaybe = !useNvrImages ? this.
 
-            const b64Image = imageBuffer.toString('base64');
 
-
-            if (activeDevicesForReporting.includes(cameraName)) {
-                this.getDeviceLogger(device).log(`Reporting ${allDetections.length} detections: ${JSON.stringify(allDetections)}`)
+            if (isDetection && activeDevicesForReporting.includes(triggerDeviceName)) {
+                this.getDeviceLogger(triggerDevice).log(`Reporting ${allDetections.length} detections: ${JSON.stringify(allDetections)}`)
                 await this.executeReport({
                     currentTime: triggerTime,
                     device: cameraDevice,
@@ -1195,48 +772,39 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                     b64Image
                 });
             }
-
-            this.startMotionTimeoutAndPublish({
-                device: cameraDevice,
-                externalUrl,
-                b64Image,
-                triggered: true,
-                triggerTime,
-                detection,
-                skipMotionCheck: false
-            });
         } else {
             deviceLogger.debug(`Notification ${triggerTime} already reported, skipping MQTT report.`);
         }
 
+        const notifier = systemManager.getDeviceById(notifierId) as unknown as DeviceInterface;
 
-        const isDetectionValid = await getIsDetectionValid(device, deviceLogger);
-        const { data, isValid: isDetectValid } = isDetectionValid(detection);
+        let isValid = !isDetection;
+        let data: any;
 
-        const isValid = isBoolean || isOnline || isOffline ? true : isDetectValid;
+        if (!isValid) {
+            const isDetectionValid = await getIsDetectionValid(cameraDevice, notifier, deviceLogger);
+            const { data: detectData, isValid: isDetectValid } = isDetectionValid(detection);
+            isValid = isDetectValid;
+            data = detectData;
+        }
 
         if (!isValid) {
             deviceLogger.log(`Detection discarded: ${JSON.stringify(data)}`);
             return;
         }
 
-        // for (const notifierId of notifiers) {
-        const deviceSettings = await device.getSettings();
-        const useNvrDetections = deviceSettings.find(setting => setting.key === `homeassistantMetadata:useNvrDetections`)?.value as boolean ?? false;
-        const useNvrImages = deviceSettings.find(setting => setting.key === `homeassistantMetadata:useNvrImages`)?.value as boolean ?? true;
-        const notifier = systemManager.getDeviceById(notifierId) as unknown as DeviceInterface;
-        const notifiersActive = notifiers.includes(notifierId);
-        const deviceActiveForNotifications = allActiveDevicesForNotifications.includes(cameraName);
-        const canNotify = notifiersActive && deviceActiveForNotifications && useNvrDetections;
+        const triggerDeviceSettings = await triggerDevice.getSettings();
+        const useNvrDetections = triggerDeviceSettings.find(setting => setting.key === `homeassistantMetadata:useNvrDetections`)?.value as boolean ?? false;
+        const useNvrImages = triggerDeviceSettings.find(setting => setting.key === `homeassistantMetadata:useNvrImages`)?.value as boolean ?? true;
 
-        if (isOnline || isOffline) {
-            deviceLogger.debug('Logging online/offline event', JSON.stringify({
-                detection,
-                messageKey,
-            }));
+        const disableNotifierSetting = triggerDeviceSettings.find(setting => setting.key === `homeassistantMetadata:notifier-${notifierId}:disabled`)?.value ?? false;
+        const notifierActive = notifiers.includes(notifierId) && !disableNotifierSetting;
+        const deviceActiveForNotifications = allActiveDevicesForNotifications.includes(triggerDeviceName);
+        const canNotify = notifierActive && deviceActiveForNotifications && useNvrDetections;
 
+        if (isOnline || isOffline || isDoorbell) {
             this.notifyCamera({
-                device: cameraDevice,
+                device: triggerDevice,
                 notifierId,
                 time: triggerTime,
                 detection,
@@ -1247,28 +815,42 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             return;
         }
 
-        if (!notifiersActive) {
+        if (!notifierActive) {
             deviceLogger.debug(`Notifier ${notifier.name} not enabled for notifications`);
         }
 
         if (!deviceActiveForNotifications) {
-            deviceLogger.debug(`Device ${cameraName} not enabled for notifications`);
+            deviceLogger.debug(`Device ${triggerDeviceName} not enabled for notifications`);
         }
 
         if (!canNotify) {
             deviceLogger.debug(`Skipping notification. ${JSON.stringify({
-                notifiersActive,
+                notifierActive,
+                disableNotifierSetting,
                 deviceActiveForNotifications,
                 useNvrDetections,
                 allActiveDevicesForNotifications,
                 cameraName,
+                triggerName: triggerDevice?.name,
             })}`);
 
             return;
         }
 
-        this.notifyCamera({
+        const { externalUrl } = this.getUrls(cameraDevice.id, triggerTime);
+
+        this.startMotionTimeoutAndPublish({
             device: cameraDevice,
+            externalUrl,
+            b64Image,
+            triggered: true,
+            triggerTime,
+            detection,
+            skipMotionCheck: false
+        });
+
+        this.notifyCamera({
+            device: triggerDevice,
             notifierId,
             time: triggerTime,
             detection,
@@ -1277,18 +859,37 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             source: NotificationSource.NVR,
             keepImage: useNvrImages
         });
-        // }
     }
 
     async getMixin(mixinDevice: any, mixinDeviceInterfaces: ScryptedInterface[], mixinDeviceState: WritableDeviceState): Promise<any> {
-        return new HomeAssistantUtilitiesMixin({
+        const props = {
             mixinDevice,
             mixinDeviceInterfaces,
             mixinDeviceState,
             mixinProviderNativeId: this.nativeId,
             group: 'Homeassistant utilities',
-            groupKey: 'homeassistantMetadata',
-        }, this.sendNotificationToPlugin.bind(this));
+        };
+
+        if (
+            [
+                ScryptedInterface.Camera,
+                ScryptedInterface.VideoCamera,
+                ScryptedInterface.BinarySensor,
+                ScryptedInterface.Lock,
+            ].some(int => mixinDeviceInterfaces.includes(int))
+        ) {
+            return new HomeAssistantUtilitiesCameraMixin({
+                ...props,
+                groupKey: 'homeassistantMetadata'
+            });
+        }
+
+        if (mixinDeviceInterfaces.includes(ScryptedInterface.Notifier)) {
+            return new HomeAssistantUtilitiesNotifierMixin({
+                ...props,
+                groupKey: 'homeassistantNotifierMetadata'
+            }, this.sendNotificationToPlugin.bind(this));
+        }
     }
 
     async releaseMixin(id: string, mixinDevice: any): Promise<void> {
@@ -1320,17 +921,21 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
 
         let textToUse: string;
 
+        const notifier = systemManager.getDeviceById(notifierId) as unknown as Settings;
+        const notifierSettings = await notifier.getSettings();
+        const notifierSettingsByKey = keyBy(notifierSettings, 'key');
+
         if (forceKey) {
-            textToUse = this.storageSettings.getItem(`notifier:${notifierId}:${forceKey}` as any) || this.storageSettings.getItem(forceKey as any);
+            textToUse = notifierSettingsByKey[`homeassistantNotifierMetadata:${forceKey}`]?.value || this.storageSettings.getItem(forceKey as any);
         } else {
-            const motionDetectedText = this.storageSettings.getItem(`notifier:${notifierId}:motionDetectedText` as any) || this.storageSettings.getItem('motionDetectedText');
-            const personDetectedText = this.storageSettings.getItem(`notifier:${notifierId}:personDetectedText` as any) || this.storageSettings.getItem('personDetectedText');
-            const familiarDetectedText = this.storageSettings.getItem(`notifier:${notifierId}:familiarDetectedText` as any) || this.storageSettings.getItem('familiarDetectedText');
-            const plateDetectedText = this.storageSettings.getItem(`notifier:${notifierId}:plateDetectedText` as any) || this.storageSettings.getItem('plateDetectedText');
-            const animalDetectedText = this.storageSettings.getItem(`notifier:${notifierId}:animalDetectedText` as any) || this.storageSettings.getItem('animalDetectedText');
-            const vehicleDetectedText = this.storageSettings.getItem(`notifier:${notifierId}:vehicleDetectedText` as any) || this.storageSettings.getItem('vehicleDetectedText');
-            const doorbellText = this.storageSettings.getItem(`notifier:${notifierId}:doorbellText` as any) || this.storageSettings.getItem('doorbellText');
-            const doorWindowText = this.storageSettings.getItem(`notifier:${notifierId}:doorWindowText` as any) || this.storageSettings.getItem('doorWindowText');
+            const motionDetectedText = notifierSettingsByKey['homeassistantNotifierMetadata:motionDetectedText']?.value || this.storageSettings.getItem('motionDetectedText');
+            const personDetectedText = notifierSettingsByKey['homeassistantNotifierMetadata:personDetectedText']?.value || this.storageSettings.getItem('personDetectedText');
+            const familiarDetectedText = notifierSettingsByKey['fhomeassistantNotifierMetadata:amiliarDetectedText']?.value || this.storageSettings.getItem('familiarDetectedText');
+            const plateDetectedText = notifierSettingsByKey['homeassistantNotifierMetadata:plateDetectedText']?.value || this.storageSettings.getItem('plateDetectedText');
+            const animalDetectedText = notifierSettingsByKey['homeassistantNotifierMetadata:animalDetectedText']?.value || this.storageSettings.getItem('animalDetectedText');
+            const vehicleDetectedText = notifierSettingsByKey['vhomeassistantNotifierMetadata:ehicleDetectedText']?.value || this.storageSettings.getItem('vehicleDetectedText');
+            const doorbellText = notifierSettingsByKey['homeassistantNotifierMetadata:doorbellText']?.value || this.storageSettings.getItem('doorbellText');
+            const doorWindowText = notifierSettingsByKey['homeassistantNotifierMetadata:doorWindowText']?.value || this.storageSettings.getItem('doorWindowText');
 
             if (isDoorbelButton) {
                 textToUse = doorbellText;
@@ -1493,10 +1098,16 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
             },
         }
 
-        deviceLogger.log(`Sending notification to ${notifier.name}. Notification coming from ${source}`);
+        const title = (srcDevice ?? device).name;
+
+        deviceLogger.log(`Finally sending notification to ${notifier.name}. ${JSON.stringify({
+            source,
+            title,
+            message,
+        })}`);
         deviceLogger.debug(`${JSON.stringify(notifierOptions)}`);
 
-        await notifier.sendNotification((srcDevice ?? device).name, notifierOptions, image, undefined);
+        await notifier.sendNotification(title, notifierOptions, image, undefined);
     }
 
     async executeNotificationTest() {
@@ -1538,13 +1149,13 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
     private async getDeviceFlags(device: DeviceInterface) {
         const deviceName = device.name;
         const room = this.deviceRoomMap[deviceName];
-        const deviceType = this.deviceTypeMap[deviceName];
+        const deviceType = device.type;
 
         const isCamera = [ScryptedDeviceType.Camera, ScryptedDeviceType.Doorbell].includes(deviceType);
         const isBooleanSensor = deviceType === ScryptedDeviceType.Sensor;
 
         const cameraDevice = await this.getCameraDevice(device);
-        const isDoorbelButton = cameraDevice && isBooleanSensor && this.deviceTypeMap[cameraDevice.name] === ScryptedDeviceType.Doorbell;
+        const isDoorbelButton = cameraDevice && isBooleanSensor && cameraDevice.type === ScryptedDeviceType.Doorbell;
 
         return {
             isCamera,
@@ -1754,7 +1365,7 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                 deviceAccumulatedDetectionsForNotifications[deviceName] = [];
                 deviceAccumulatedDetectionsForReporting[deviceName] = [];
                 const isReportingActive = activeDevicesForReporting.includes(deviceName);
-                const isDetectionValid = await getIsDetectionValid(device, undefined);
+                const isDetectionValid = await getIsDetectionValid(device, undefined, undefined);
 
                 try {
                     if (!device) {
@@ -1900,6 +1511,12 @@ export default class HomeAssistantUtilitiesProvider extends ScryptedDeviceBase i
                             if (isNotifierActive) {
                                 deviceLogger.log(`Sending image to ${notifiers.length} notifiers`);
                                 for (const notifierId of notifiers) {
+                                    const disableNotifierSetting = deviceSettings.find(setting => setting.key === `homeassistantMetadata:notifier-${notifierId}:disabled`)?.value ?? false;
+
+                                    if (disableNotifierSetting) {
+                                        deviceLogger.log(`Notifier ${notifierId} forced disabled`);
+                                        continue;
+                                    }
                                     try {
                                         await this.notifyCamera({
                                             device,
