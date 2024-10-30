@@ -45,7 +45,7 @@ export default class MqttClient {
         });
     }
 
-    async getMqttClient(console: Console): Promise<Client> {
+    async getMqttClient(console: Console, forceReconnect?: boolean): Promise<Client> {
         return new Promise((res, rej) => {
             const _connect = async () => {
                 const client = connect(this.mqttPathmame, {
@@ -68,7 +68,12 @@ export default class MqttClient {
                 });
             }
 
-            if (!this.mqttClient) {
+            if (!this.mqttClient || forceReconnect) {
+                if (this.mqttClient) {
+                    try {
+                        this.mqttClient.end();
+                    } catch (e) { }
+                }
                 const url = this.host;
                 const urlWithoutPath = new URL(url);
                 urlWithoutPath.pathname = '';
@@ -98,7 +103,13 @@ export default class MqttClient {
 
         // console.debug(`Publishing ${JSON.stringify({ topic, value })}`);
         const client = await this.getMqttClient(console);
-        client.publish(topic, value, { retain });
+        try {
+            client.publish(topic, value, { retain });
+        } catch (e) {
+            console.log('Error publishing to MQTT. Reconnecting', e);
+            await this.getMqttClient(console, true);
+            client.publish(topic, value, { retain });
+        }
     }
 
     private getMqttTopicTopics(device: ScryptedDeviceBase) {
