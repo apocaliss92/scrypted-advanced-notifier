@@ -361,39 +361,42 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         if (!this.mqttReportInProgress) {
             this.mqttReportInProgress = true;
             const mqttClient = await this.plugin.getMqttClient();
-            const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase;
 
-            try {
-                await mqttClient.publishRelevantDetections({
-                    console: logger,
-                    detections,
-                    device,
-                    triggerTime,
-                }).finally(() => this.mqttReportInProgress = false);
-            } catch (e) {
-                logger.log(`Error in reportDetectionsToMqtt`, e);
+            if (mqttClient) {
+                try {
+                    const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase;
+                    await mqttClient.publishRelevantDetections({
+                        console: logger,
+                        detections,
+                        device,
+                        triggerTime,
+                    }).finally(() => this.mqttReportInProgress = false);
+                } catch (e) {
+                    logger.log(`Error in reportDetectionsToMqtt`, e);
+                }
             }
         }
     }
 
     async reportTriggerToMqtt(props: { detection?: ObjectDetectionResult, b64Image?: string, triggered: boolean }) {
-        const { detection, b64Image, triggered } = props;
         const logger = this.getLogger();
-
         const mqttClient = await this.plugin.getMqttClient();
-        const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase;
 
-        try {
-            await mqttClient.publishDeviceState({
-                device,
-                triggered,
-                console: logger,
-                b64Image,
-                detection,
-                resettAllClasses: !triggered
-            }).finally(() => this.mqttReportInProgress = false);
-        } catch (e) {
-            logger.log(`Error in reportDetectionsToMqtt`, e);
+        if (mqttClient) {
+            try {
+                const { detection, b64Image, triggered } = props;
+                const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase;
+                await mqttClient.publishDeviceState({
+                    device,
+                    triggered,
+                    console: logger,
+                    b64Image,
+                    detection,
+                    resettAllClasses: !triggered
+                }).finally(() => this.mqttReportInProgress = false);
+            } catch (e) {
+                logger.log(`Error in reportDetectionsToMqtt`, e);
+            }
         }
     }
 
@@ -441,8 +444,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         return key;
     }
 
-    async startListeners() {
+    public async processDetections(props: { detections: ObjectDetectionResult[], triggerTime: number }) {
+        const { detections, triggerTime } = props;
         const logger = this.getLogger();
+
+        if (!detections?.length) {
+            return;
+        }
+
         const objectDetector = this.getObjectDetector();
 
         if (!objectDetector) {
@@ -450,160 +459,160 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             return;
         }
 
+        const {
+            alwaysZones,
+            blacklistedZones,
+            whitelistedZones,
+            detectionClasses,
+            scoreThreshold,
+            minDelayTime,
+            ignoreCameraDetections,
+            disabledNotifiers,
+        } = this.storageSettings.values;
+
+        const candidates = filterAndSortValidDetections(detections ?? [], logger);
+
+        // const mqttImage = detection.detectionId ? await objectDetector.getDetectionInput(detection.detectionId, details.eventId) : undefined;
+
+        // const mqttImage = await objectDetector.takePicture({
+        //     reason: 'event',
+        //     picture: {
+        //         height: snapshotHeight,
+        //         width: snapshotWidth,
+        //     },
+        // });
+        if (this.isActiveForMqttReporting) {
+            // let image;
+            // if (uniqueSortedDetections.length > 1) {
+            //     image = await objectDetector.takePicture({
+            //         reason: 'periodic',
+            //         picture: {
+            //             height: snapshotHeight,
+            //             width: snapshotWidth,
+            //         },
+            //     });
+            // }
+            this.reportDetectionsToMqtt(candidates, triggerTime, logger);
+        }
+
+        let dataToReport = {};
+        try {
+            const now = new Date().getTime();
+            logger.debug(`Detections incoming ${JSON.stringify(candidates)}`);
+            const match = candidates.find(d => {
+                if (ignoreCameraDetections && !d.boundingBox) {
+                    return false;
+                }
+
+                const { className: classnameRaw, score, label, zones } = d;
+                const className = detectionClassesDefaultMap[classnameRaw] ?? classnameRaw;
+
+                if (detectionClasses?.length && !detectionClasses.includes(className)) {
+                    logger.debug(`Classname ${className} not contained in ${detectionClasses}`);
+                    return false;
+                }
+                const lastDetectionkey = this.getLastDetectionkey(d);
+                const lastDetection = this.lastDetectionMap[lastDetectionkey];
+                if (lastDetection && (now - lastDetection) < 1000 * minDelayTime) {
+                    logger.debug(`Waiting for delay: ${(now - lastDetection) / 1000}s`);
+                    return false;
+                }
+
+                const scoreToUse = this.storageSettings.getItem(`${className}:scoreThreshold` as any) || scoreThreshold;
+                const scoreOk = !score || score > scoreToUse;
+
+                if (!scoreOk) {
+                    logger.debug(`Score ${score} not ok ${scoreToUse}`);
+                    return false;
+                }
+
+                const isAlwaysIncluded = alwaysZones.length ? zones.some(zone => alwaysZones.includes(zone)) : false;
+                const isIncluded = whitelistedZones.length ? zones.some(zone => whitelistedZones.includes(zone)) : true;
+                const isExcluded = blacklistedZones.length ? zones.some(zone => blacklistedZones.includes(zone)) : false;
+
+                const zonesOk = isAlwaysIncluded || (isIncluded && !isExcluded);
+
+                if (!zonesOk) {
+                    logger.debug(`Zones ${zones} not ok`);
+                    return false;
+                }
+
+                dataToReport = {
+                    isAlwaysIncluded,
+                    isIncluded,
+                    isExcluded,
+                    zones,
+                    zonesOk,
+
+                    score,
+                    scoreToUse,
+                    scoreOk,
+
+                    className,
+                    detectionClasses
+                };
+
+                return true;
+            });
+
+            let image;
+
+            if (match) {
+                this.lastDetectionMap[this.getLastDetectionkey(match)] = now;
+
+                // let image: MediaObject;
+                // const useDetectorImage = useNvrImages && !!detection.detectionId;
+                // if (useDetectorImage) {
+                //     image = await objectDetector.getDetectionInput(detection.detectionId, details.eventId);
+                // } else {
+                const image = await objectDetector.takePicture({
+                    reason: 'event',
+                    picture: {
+                        height: snapshotHeight,
+                        width: snapshotWidth,
+                    },
+                });
+                // }
+
+                logger.log(`Matching detection found: ${JSON.stringify({
+                    match,
+                    ...dataToReport,
+                    // useDetectorImage,
+                })}`);
+
+
+                if (image) {
+                    const imageUrl = await sdk.mediaManager.convertMediaObjectToLocalUrl(image, 'image/jpg');
+                    logger.log(`Updating webook last image URL: ${imageUrl}`);
+                    this.storageSettings.putSetting('lastSnapshotImageUrl', imageUrl);
+                }
+            }
+
+            this.triggerMotion(match, image);
+
+            this.plugin.matchDetectionFound({
+                triggerDeviceId: this.id,
+                match,
+                candidates,
+                image,
+                logger,
+                eventType: EventType.ObjectDetection,
+                triggerTime,
+                shouldNotify: this.isActiveForNotifications && !!match,
+                disabledNotifiers,
+            });
+        } catch (e) {
+            logger.log('Error finding a match', e);
+        }
+    }
+
+    async startListeners() {
         this.detectionListener = systemManager.listenDevice(this.id, ScryptedInterface.ObjectDetector, async (_, __, data) => {
             const detection: ObjectsDetected = data;
 
-            if (!detection.detections?.length) {
-                return;
-            }
-
             const { timestamp } = detection;
 
-            const {
-                alwaysZones,
-                blacklistedZones,
-                whitelistedZones,
-                detectionClasses,
-                scoreThreshold,
-                minDelayTime,
-                ignoreCameraDetections,
-                disabledNotifiers,
-            } = this.storageSettings.values;
-
-            const candidates = filterAndSortValidDetections(detection.detections ?? [], logger);
-
-            // const mqttImage = detection.detectionId ? await objectDetector.getDetectionInput(detection.detectionId, details.eventId) : undefined;
-
-            // const mqttImage = await objectDetector.takePicture({
-            //     reason: 'event',
-            //     picture: {
-            //         height: snapshotHeight,
-            //         width: snapshotWidth,
-            //     },
-            // });
-            if (this.isActiveForMqttReporting) {
-                // let image;
-                // if (uniqueSortedDetections.length > 1) {
-                //     image = await objectDetector.takePicture({
-                //         reason: 'periodic',
-                //         picture: {
-                //             height: snapshotHeight,
-                //             width: snapshotWidth,
-                //         },
-                //     });
-                // }
-                this.reportDetectionsToMqtt(candidates, timestamp, logger);
-            }
-
-            let dataToReport = {};
-            try {
-                const now = new Date().getTime();
-                logger.debug(`Detections incoming ${JSON.stringify(candidates)}`);
-                const match = candidates.find(d => {
-                    if (ignoreCameraDetections && !d.boundingBox) {
-                        return false;
-                    }
-
-                    const { className: classnameRaw, score, label, zones } = d;
-                    const className = detectionClassesDefaultMap[classnameRaw] ?? classnameRaw;
-
-                    if (detectionClasses?.length && !detectionClasses.includes(className)) {
-                        logger.debug(`Classname ${className} not contained in ${detectionClasses}`);
-                        return false;
-                    }
-                    const lastDetectionkey = this.getLastDetectionkey(d);
-                    const lastDetection = this.lastDetectionMap[lastDetectionkey];
-                    if (lastDetection && (now - lastDetection) < 1000 * minDelayTime) {
-                        logger.debug(`Waiting for delay: ${(now - lastDetection) / 1000}s`);
-                        return false;
-                    }
-
-                    const scoreToUse = this.storageSettings.getItem(`${className}:scoreThreshold` as any) || scoreThreshold;
-                    const scoreOk = !score || score > scoreToUse;
-
-                    if (!scoreOk) {
-                        logger.debug(`Score ${score} not ok ${scoreToUse}`);
-                        return false;
-                    }
-
-                    const isAlwaysIncluded = alwaysZones.length ? zones.some(zone => alwaysZones.includes(zone)) : false;
-                    const isIncluded = whitelistedZones.length ? zones.some(zone => whitelistedZones.includes(zone)) : true;
-                    const isExcluded = blacklistedZones.length ? zones.some(zone => blacklistedZones.includes(zone)) : false;
-
-                    const zonesOk = isAlwaysIncluded || (isIncluded && !isExcluded);
-
-                    if (!zonesOk) {
-                        logger.debug(`Zones ${zones} not ok`);
-                        return false;
-                    }
-
-                    dataToReport = {
-                        isAlwaysIncluded,
-                        isIncluded,
-                        isExcluded,
-                        zones,
-                        zonesOk,
-
-                        score,
-                        scoreToUse,
-                        scoreOk,
-
-                        className,
-                        detectionClasses
-                    };
-
-                    return true;
-                });
-
-                let image;
-
-                if (match) {
-                    this.lastDetectionMap[this.getLastDetectionkey(match)] = now;
-
-                    // let image: MediaObject;
-                    // const useDetectorImage = useNvrImages && !!detection.detectionId;
-                    // if (useDetectorImage) {
-                    //     image = await objectDetector.getDetectionInput(detection.detectionId, details.eventId);
-                    // } else {
-                    const image = await objectDetector.takePicture({
-                        reason: 'event',
-                        picture: {
-                            height: snapshotHeight,
-                            width: snapshotWidth,
-                        },
-                    });
-                    // }
-
-                    logger.log(`Matching detection found: ${JSON.stringify({
-                        match,
-                        ...dataToReport,
-                        // useDetectorImage,
-                    })}`);
-
-
-                    if (image) {
-                        const imageUrl = await sdk.mediaManager.convertMediaObjectToLocalUrl(image, 'image/jpg');
-                        logger.log(`Updating webook last image URL: ${imageUrl}`);
-                        this.storageSettings.putSetting('lastSnapshotImageUrl', imageUrl);
-                    }
-                }
-
-                this.triggerMotion(match, image);
-
-                this.plugin.matchDetectionFound({
-                    triggerDeviceId: this.id,
-                    match,
-                    candidates,
-                    image,
-                    logger,
-                    eventType: EventType.ObjectDetection,
-                    triggerTime: timestamp,
-                    shouldNotify: this.isActiveForNotifications && !!match,
-                    disabledNotifiers,
-                });
-            } catch (e) {
-                logger.log('Error finding a match', e);
-            }
+            this.processDetections({ detections: detection.detections, triggerTime: timestamp })
         });
     }
 }

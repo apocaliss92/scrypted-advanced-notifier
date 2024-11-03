@@ -30,6 +30,18 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             defaultValue: true,
             immediate: true,
         },
+        haEnabled: {
+            title: 'Homeassistent enabled',
+            type: 'boolean',
+            defaultValue: false,
+            immediate: true,
+        },
+        mqttEnabled: {
+            title: 'MQTT enabled',
+            type: 'boolean',
+            defaultValue: true,
+            immediate: true,
+        },
         debug: {
             title: 'Log debug messages',
             type: 'boolean',
@@ -50,6 +62,12 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             title: 'Scrypted token',
             type: 'string',
         },
+        useHaPluginCredentials: {
+            group: 'Homeassistant',
+            title: 'Use HA plugin credentials',
+            type: 'boolean',
+            immediate: true,
+        },
         accessToken: {
             group: 'Homeassistant',
             title: 'HAPersonal access token',
@@ -67,12 +85,6 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             choices: ['http', 'https'],
             defaultValue: ['http'],
         },
-        useHaPluginCredentials: {
-            group: 'Homeassistant',
-            title: 'Use HA plugin credentials',
-            type: 'boolean',
-            immediate: true,
-        },
         domains: {
             group: 'Homeassistant',
             title: 'Entity regex patterns',
@@ -85,24 +97,6 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             title: 'Fetch entities from HA',
             type: 'button',
             onPut: async () => await this.fetchHomeassistantData()
-        },
-        fetchedEntities: {
-            group: 'Homeassistant',
-            title: '',
-            subgroup: 'Entities',
-            multiple: true,
-        },
-        fetchedRooms: {
-            group: 'Homeassistant',
-            title: '',
-            subgroup: 'Rooms',
-            multiple: true,
-        },
-        fetchedRoomNames: {
-            group: 'Homeassistant',
-            json: true,
-            hide: true,
-            defaultValue: {}
         },
         useMqttPluginCredentials: {
             title: 'Use MQTT plugin credentials',
@@ -138,6 +132,18 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             multiple: true,
             type: 'string',
             defaultValue: []
+        },
+        fetchedEntities: {
+            group: 'Metadata',
+            title: '',
+            subgroup: 'Entities',
+            multiple: true,
+        },
+        fetchedRooms: {
+            group: 'Metadata',
+            title: '',
+            subgroup: 'Rooms',
+            multiple: true,
         },
         snapshotWidth: {
             group: 'Notifier',
@@ -214,29 +220,8 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
     constructor(nativeId: string) {
         super(nativeId);
 
-        const useHaPluginCredentials = JSON.parse(this.storageSettings.getItem('useHaPluginCredentials') ?? 'false');
-        this.storageSettings.settings.accessToken.hide = useHaPluginCredentials;
-        this.storageSettings.settings.address.hide = useHaPluginCredentials;
-        this.storageSettings.settings.protocol.hide = useHaPluginCredentials;
-
-        const useMqttPluginCredentials = JSON.parse(this.storageSettings.getItem('useMqttPluginCredentials') ?? 'false');
-        this.storageSettings.settings.mqttHost.hide = useMqttPluginCredentials;
-        this.storageSettings.settings.mqttUsename.hide = useMqttPluginCredentials;
-        this.storageSettings.settings.mqttPassword.hide = useMqttPluginCredentials;
-
-        this.storageSettings.settings.useHaPluginCredentials.onPut = async (_, isOn) => {
-            this.storageSettings.settings.accessToken.hide = isOn;
-            this.storageSettings.settings.address.hide = isOn;
-            this.storageSettings.settings.protocol.hide = isOn;
-        };
-
-        this.storageSettings.settings.useMqttPluginCredentials.onPut = async (_, isOn) => {
-            this.storageSettings.settings.mqttHost.hide = isOn;
-            this.storageSettings.settings.mqttUsename.hide = isOn;
-            this.storageSettings.settings.mqttPassword.hide = isOn;
-
-            await this.setupMqttClient();
-        };
+        this.storageSettings.settings.mqttEnabled.onPut = async () => await this.setupMqttClient();
+        this.storageSettings.settings.useMqttPluginCredentials.onPut = async () => await this.setupMqttClient();
         this.storageSettings.settings.mqttHost.onPut = async () => await this.setupMqttClient();
         this.storageSettings.settings.mqttUsename.onPut = async () => await this.setupMqttClient();
         this.storageSettings.settings.mqttPassword.onPut = async () => await this.setupMqttClient();
@@ -314,59 +299,61 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
     }
 
     private async setupMqttClient() {
-        let mqttHost: string;
-        let mqttUsename: string;
-        let mqttPassword: string;
+        if (this.storageSettings.values.mqttEnabled) {
+            let mqttHost: string;
+            let mqttUsename: string;
+            let mqttPassword: string;
 
-        const logger = this.getLogger();
+            const logger = this.getLogger();
 
-        if (this.mqttClient) {
-            await this.mqttClient.disconnect();
-            this.mqttClient = undefined;
-        }
+            if (this.mqttClient) {
+                await this.mqttClient.disconnect();
+                this.mqttClient = undefined;
+            }
 
-        if (this.storageSettings.getItem('useMqttPluginCredentials')) {
-            logger.log(`Using MQTT plugin credentials.`);
-            const mqttDevice = systemManager.getDeviceByName('MQTT') as unknown as Settings;
-            const mqttSettings = await mqttDevice.getSettings();
+            if (this.storageSettings.getItem('useMqttPluginCredentials')) {
+                logger.log(`Using MQTT plugin credentials.`);
+                const mqttDevice = systemManager.getDeviceByName('MQTT') as unknown as Settings;
+                const mqttSettings = await mqttDevice.getSettings();
 
-            const isInternalBroker = (JSON.parse(mqttSettings.find(setting => setting.key === 'enableBroker')?.value as string || 'false')) as boolean;
+                const isInternalBroker = (JSON.parse(mqttSettings.find(setting => setting.key === 'enableBroker')?.value as string || 'false')) as boolean;
 
-            if (isInternalBroker) {
-                logger.log(`Internal MQTT broker not supported yet. Please disable useMqttPluginCredentials.`);
+                if (isInternalBroker) {
+                    logger.log(`Internal MQTT broker not supported yet. Please disable useMqttPluginCredentials.`);
+                } else {
+                    mqttHost = mqttSettings.find(setting => setting.key === 'externalBroker')?.value as string;
+                    mqttUsename = mqttSettings.find(setting => setting.key === 'username')?.value as string;
+                    mqttPassword = mqttSettings.find(setting => setting.key === 'password')?.value as string;
+                }
             } else {
-                mqttHost = mqttSettings.find(setting => setting.key === 'externalBroker')?.value as string;
-                mqttUsename = mqttSettings.find(setting => setting.key === 'username')?.value as string;
-                mqttPassword = mqttSettings.find(setting => setting.key === 'password')?.value as string;
+                logger.log(`Using provided credentials.`);
+
+                mqttHost = this.storageSettings.getItem('mqttHost');
+                mqttUsename = this.storageSettings.getItem('mqttUsename');
+                mqttPassword = this.storageSettings.getItem('mqttPassword');
             }
-        } else {
-            logger.log(`Using provided credentials.`);
 
-            mqttHost = this.storageSettings.getItem('mqttHost');
-            mqttUsename = this.storageSettings.getItem('mqttUsename');
-            mqttPassword = this.storageSettings.getItem('mqttPassword');
-        }
+            const mqttActiveEntitiesTopic = this.storageSettings.getItem('mqttActiveEntitiesTopic');
 
-        const mqttActiveEntitiesTopic = this.storageSettings.getItem('mqttActiveEntitiesTopic');
-
-        if (!mqttHost || !mqttUsename || !mqttPassword) {
-            logger.log('MQTT params not provided');
-        }
-
-        try {
-            this.mqttClient = new MqttClient(mqttHost, mqttUsename, mqttPassword);
-            await this.mqttClient.getMqttClient(logger, true);
-
-            if (mqttActiveEntitiesTopic) {
-                await this.mqttClient.subscribeToHaTopics(mqttActiveEntitiesTopic, this.getLogger(), async (topic, message) => {
-                    if (topic === mqttActiveEntitiesTopic) {
-                        this.getLogger().log(`Received update for ${topic} topic: ${JSON.stringify(message)}`);
-                        await this.syncHaEntityIds(message);
-                    }
-                });
+            if (!mqttHost || !mqttUsename || !mqttPassword) {
+                logger.log('MQTT params not provided');
             }
-        } catch (e) {
-            this.getLogger().log('Error setting up MQTT client', e);
+
+            try {
+                this.mqttClient = new MqttClient(mqttHost, mqttUsename, mqttPassword);
+                await this.mqttClient.getMqttClient(logger, true);
+
+                if (mqttActiveEntitiesTopic) {
+                    await this.mqttClient.subscribeToHaTopics(mqttActiveEntitiesTopic, this.getLogger(), async (topic, message) => {
+                        if (topic === mqttActiveEntitiesTopic) {
+                            this.getLogger().log(`Received update for ${topic} topic: ${JSON.stringify(message)}`);
+                            await this.syncHaEntityIds(message);
+                        }
+                    });
+                }
+            } catch (e) {
+                this.getLogger().log('Error setting up MQTT client', e);
+            }
         }
     }
 
@@ -500,6 +487,39 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
     }
 
     async getSettings() {
+        const { haEnabled, useHaPluginCredentials, mqttEnabled, useMqttPluginCredentials } = this.storageSettings.values;
+        if (!haEnabled) {
+            this.storageSettings.settings.accessToken.hide = true;
+            this.storageSettings.settings.address.hide = true;
+            this.storageSettings.settings.protocol.hide = true;
+            this.storageSettings.settings.domains.hide = true;
+            this.storageSettings.settings.fetchHaEntities.hide = true;
+            this.storageSettings.settings.useHaPluginCredentials.hide = true;
+        } else {
+            this.storageSettings.settings.accessToken.hide = useHaPluginCredentials;
+            this.storageSettings.settings.address.hide = useHaPluginCredentials;
+            this.storageSettings.settings.protocol.hide = useHaPluginCredentials;
+            this.storageSettings.settings.domains.hide = false;
+            this.storageSettings.settings.fetchHaEntities.hide = false;
+            this.storageSettings.settings.useHaPluginCredentials.hide = false;
+        }
+
+        if (!mqttEnabled) {
+            this.storageSettings.settings.mqttHost.hide = true;
+            this.storageSettings.settings.mqttUsename.hide = true;
+            this.storageSettings.settings.mqttPassword.hide = true;
+            this.storageSettings.settings.activeDevicesForReporting.hide = true;
+            this.storageSettings.settings.mqttActiveEntitiesTopic.hide = true;
+            this.storageSettings.settings.useMqttPluginCredentials.hide = true;
+        } else {
+            this.storageSettings.settings.mqttHost.hide = useMqttPluginCredentials;
+            this.storageSettings.settings.mqttUsename.hide = useMqttPluginCredentials;
+            this.storageSettings.settings.mqttPassword.hide = useMqttPluginCredentials;
+            this.storageSettings.settings.activeDevicesForReporting.hide = false;
+            this.storageSettings.settings.mqttActiveEntitiesTopic.hide = false;
+            this.storageSettings.settings.useMqttPluginCredentials.hide = false;
+        }
+
         const settings: Setting[] = await this.storageSettings.getSettings();
 
         return settings;
@@ -513,7 +533,6 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         let accessToken = this.storageSettings.getItem('accessToken');
         let address = this.storageSettings.getItem('address');
         let protocol = this.storageSettings.getItem('protocol');
-        const roomNameMap: Record<string, string> = {};
 
         if (this.storageSettings.getItem('useHaPluginCredentials')) {
             const haDevice = systemManager.getDeviceByName('Home Assistant') as unknown as Settings;
@@ -568,11 +587,11 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
                         'Authorization': 'Bearer ' + accessToken,
                     }
                 });
-            rooms = sortBy(JSON.parse(roomsResponse.data.replace(new RegExp('\'', 'g'), '"')), elem => elem);
+            const roomIds = sortBy(JSON.parse(roomsResponse.data.replace(new RegExp('\'', 'g'), '"')), elem => elem);
 
-            for (const roomId of rooms) {
+            for (const roomId of roomIds) {
                 const roomName = await getRoomName(roomId);
-                roomNameMap[roomId] = roomName.data;
+                rooms.push(roomName.data);
             }
 
             entityIds = sortBy(
@@ -585,10 +604,8 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         } finally {
             this.getLogger().log(`Entities found: ${JSON.stringify(entityIds)}`);
             this.getLogger().log(`Rooms found: ${JSON.stringify(rooms)}`);
-            this.getLogger().log(`Room names found: ${JSON.stringify(roomNameMap)}`);
             await this.storageSettings.putSetting('fetchedEntities', entityIds);
             await this.storageSettings.putSetting('fetchedRooms', rooms);
-            await this.storageSettings.putSetting('fetchedRoomNames', roomNameMap as any);
         }
     }
 
@@ -918,8 +935,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         const { detection, detectionTime, notifierId, device, externalUrl, textKey, notifierSettings } = props;
         const detectionLabel = detection?.label;
 
-        const room = this.deviceRoomMap[device.name];
-        const roomName = this.storageSettings.getItem('fetchedRoomNames')?.[room] ?? room
+        const roomName = this.deviceRoomMap[device.name];
 
         const notifierSettingsByKey = keyBy(notifierSettings, 'key');
 

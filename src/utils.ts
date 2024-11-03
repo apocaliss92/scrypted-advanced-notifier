@@ -11,6 +11,8 @@ export enum EventType {
     ObjectDetection = 'ObjectDetection',
     Doorbell = 'Doorbell',
     Contact = 'Contact',
+    Offline = 'Offline',
+    Online = 'Online',
 }
 
 export const getDefaultEntityId = (name: string) => {
@@ -55,63 +57,55 @@ export const getWebookUrls = async (cameraDevice: string, console: Console) => {
 export const parseNotificationMessage = async (cameraDevice: DeviceInterface, deviceSensors: string[], options?: NotifierOptions, console?: Console) => {
     try {
         let triggerDevice: DeviceInterface;
-        let textKey: string;
+        let textKey: TextSettingKey;
         let detection: ObjectDetectionResult;
         const subtitle = options?.subtitle;
 
-        let isOffline = false;
-        let isOnline = false;
-        let isBoolean = false;
-        let isDoorbell = false;
-        let isDetection = false;
-
-        if (subtitle === 'Offline') {
-            textKey = 'offlinelText';
-            isOffline = true;
-        } else if (subtitle === 'Online') {
-            textKey = 'onlinelText';
-            isOnline = true;
-        }
-
-        // TODO: Find the source device of the notification in case of door/window/doorbell
-
+        let eventType: EventType;
         const allDetections: ObjectDetectionResult[] = options?.recordedEvent?.data?.detections ?? [];
 
-        if (!isOffline && !isOnline) {
+        if (subtitle === 'Offline') {
+            textKey = 'offlineText';
+            eventType = EventType.Offline;
+        } else if (subtitle === 'Online') {
+            textKey = 'onlineText';
+            eventType = EventType.Online;
+        } else {
+
             if (subtitle.includes('Maybe: Vehicle')) {
                 textKey = 'plateDetectedText';
                 detection = allDetections.find(det => det.className === 'plate');
-                isDetection = true;
+                eventType = EventType.ObjectDetection;
             } else if (subtitle.includes('Person')) {
                 textKey = 'personDetectedText';
                 detection = allDetections.find(det => det.className === 'person');
-                isDetection = true;
+                eventType = EventType.ObjectDetection;
             } else if (subtitle.includes('Vehicle')) {
                 detection = allDetections.find(det => det.className === 'vehicle');
-                isDetection = true;
+                eventType = EventType.ObjectDetection;
                 textKey = 'vehicleDetectedText';
             } else if (subtitle.includes('Animal')) {
                 detection = allDetections.find(det => det.className === 'animal');
-                isDetection = true;
+                eventType = EventType.ObjectDetection;
                 textKey = 'animalDetectedText';
             } else if (subtitle.includes('Maybe: ')) {
                 textKey = 'familiarDetectedText';
                 detection = allDetections.find(det => det.className === 'face');
-                isDetection = true;
+                eventType = EventType.ObjectDetection;
             } else if (subtitle.includes('Motion')) {
                 textKey = 'motionDetectedText';
                 detection = allDetections.find(det => det.className === 'motion');
-                isDetection = true;
+                eventType = EventType.ObjectDetection;
             } else if (subtitle.includes('Door/Window Open')) {
                 textKey = 'doorWindowText';
-                isBoolean = true;
+                eventType = EventType.Contact;
             } else if (subtitle.includes('Doorbell Ringing')) {
                 textKey = 'doorbellText';
-                isDoorbell = true;
+                eventType = EventType.Doorbell;
             }
         }
 
-        if (isDoorbell || isBoolean) {
+        if ([EventType.Contact, EventType.Doorbell].includes(eventType)) {
             const systemState = sdk.systemManager.getSystemState();
 
             const activeSensors = deviceSensors.filter(sensorId => !systemState[sensorId].value);
@@ -135,11 +129,8 @@ export const parseNotificationMessage = async (cameraDevice: DeviceInterface, de
             textKey,
             detection,
             allDetections,
-            isOnline,
-            isOffline,
-            isBoolean,
-            isDoorbell,
-            isDetection
+            eventType,
+            classname: detection ? detectionClassesDefaultMap[detection.className] : undefined
         }
     } catch (e) {
         console.log(`Error parsing notification: ${JSON.stringify({ device: cameraDevice.name, options })}`, e);
@@ -491,9 +482,10 @@ export const isDeviceEnabled = async (deviceName: string) => {
     const mainSettings = await mainPluginDevice.getSettings();
     const mainSettingsDic = keyBy(mainSettings, 'key');
 
-    const isPluginEnabled = mainSettingsDic['pluginEnabled'].value as boolean;
-    const isActiveForNotifications = (mainSettingsDic['activeDevicesForNotifications'].value as string || []).includes(deviceName);
-    const isActiveForMqttReporting = (mainSettingsDic['activeDevicesForReporting'].value as string || []).includes(deviceName);
+    const isPluginEnabled = mainSettingsDic.pluginEnabled.value as boolean;
+    const isMqttActive = mainSettingsDic.mqttEnabled.value as boolean;
+    const isActiveForNotifications = (mainSettingsDic.activeDevicesForNotifications?.value as string || []).includes(deviceName);
+    const isActiveForMqttReporting = isMqttActive && (mainSettingsDic.activeDevicesForReporting?.value as string || []).includes(deviceName);
 
     return {
         isPluginEnabled,
@@ -533,3 +525,81 @@ export const getTextKey = (props: { classname?: string, eventType: EventType }) 
 }
 
 export const firstUpperCase = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+// export type DetectionRulesSettings =
+//     | 'debug'
+//     | 'room'
+//     | 'entityId'
+//     | 'haDeviceClass'
+//     | 'useNvrDetections'
+//     | 'useNvrImages'
+//     | 'triggerAlwaysNotification'
+//     | 'haActions'
+//     | 'disabledNotifiers'
+
+// export const getDetectionRulesSettings = () => {
+//     const settings: StorageSettingsDict<DetectionRulesSettings> = {
+//         debug: {
+//             title: 'Log debug messages',
+//             type: 'boolean',
+//             defaultValue: false,
+//             immediate: true,
+//         },
+//         room: {
+//             title: 'Room',
+//             type: 'string',
+//         },
+//         entityId: {
+//             title: 'EntityID',
+//             type: 'string',
+//             defaultValue: getDefaultEntityId(name)
+//         },
+//         haDeviceClass: {
+//             title: 'Device class',
+//             type: 'string'
+//         },
+//         // DETECTION
+//         useNvrDetections: {
+//             title: 'Use NVR detections',
+//             description: 'If enabled, the NVR notifications will be used. Make sure to extend the notifiers with this extension',
+//             type: 'boolean',
+//             subgroup: 'Detection',
+//             immediate: true,
+//             hide: true,
+//         },
+//         useNvrImages: {
+//             title: 'Use NVR images',
+//             description: 'If enabled, the NVR images coming from NVR will be used, otherwise the one defined in the plugin',
+//             type: 'boolean',
+//             subgroup: 'Detection',
+//             defaultValue: true,
+//             immediate: true,
+//             hide: true,
+//         },
+//         // NOTIFIER
+//         triggerAlwaysNotification: {
+//             title: 'Always enabled',
+//             description: 'Enable to always check this entity for notifications, regardles of it\'s activation',
+//             subgroup: 'Notifier',
+//             type: 'boolean',
+//             defaultValue: false,
+//         },
+//         haActions: {
+//             title: 'HA actions',
+//             description: 'Actions to show on the notification, i.e. {"action":"open_door","title":"Open door","icon":"sfsymbols:door"}',
+//             subgroup: 'Notifier',
+//             type: 'string',
+//             multiple: true
+//         },
+//         disabledNotifiers: {
+//             subgroup: 'Notifier',
+//             title: 'Disabled notifiers',
+//             type: 'device',
+//             multiple: true,
+//             combobox: true,
+//             deviceFilter: `(type === '${ScryptedDeviceType.Notifier}')`,
+//         },
+//     };
+
+//     return settings;
+// }

@@ -60,7 +60,8 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
 
         const funct = async () => {
-            const useNvrDetections = this.storageSettings.values.useNvrDetections;
+            // const useNvrDetections = this.storageSettings.values.useNvrDetections;
+            const useNvrDetections = false;
             const { isActiveForMqttReporting, isActiveForNotifications, isPluginEnabled } = await isDeviceEnabled(this.name);
 
             const triggerAlwaysNotification = this.storageSettings.values.triggerAlwaysNotification;
@@ -181,17 +182,19 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
 
         const mqttClient = await this.plugin.getMqttClient();
-        const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase;
 
-        try {
-            await mqttClient.publishDeviceState({
-                device,
-                triggered,
-                console: logger,
-                resettAllClasses: false,
-            }).finally(() => this.mqttReportInProgress = false);
-        } catch (e) {
-            logger.log(`Error in reportDetectionsToMqtt`, e);
+        if(mqttClient) {
+            try {
+                const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase;
+                await mqttClient.publishDeviceState({
+                    device,
+                    triggered,
+                    console: logger,
+                    resettAllClasses: false,
+                }).finally(() => this.mqttReportInProgress = false);
+            } catch (e) {
+                logger.log(`Error in reportDetectionsToMqtt`, e);
+            }
         }
     }
 
