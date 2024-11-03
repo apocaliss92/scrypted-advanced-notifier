@@ -1,25 +1,26 @@
-import sdk, { Camera, MediaObject, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDeviceBase, Settings } from "@scrypted/sdk"
-import { sortBy, uniq } from "lodash";
+import sdk, { Camera, MediaObject, NotifierOptions, ObjectDetectionResult, ScryptedDeviceBase, ScryptedDeviceType, Setting, Settings } from "@scrypted/sdk"
+import { StorageSettingsDict } from "@scrypted/sdk/storage-settings";
+import { keyBy, sortBy, uniq, uniqBy } from "lodash";
 const { endpointManager } = sdk;
+import { scrypted } from '../package.json';
+import { DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detecionClasses";
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Settings;
 
-export const defaultDetectionClasses = [
-    'motion',
-    'person',
-    'vehicle',
-    'animal',
-    'package',
-    'face',
-    'plate'
-]
+export enum EventType {
+    ObjectDetection = 'ObjectDetection',
+    Doorbell = 'Doorbell',
+    Contact = 'Contact',
+}
 
-export const detectionClassesToPublish = [
-    'motion',
-    'person',
-    'vehicle',
-    'animal',
-]
+export const getDefaultEntityId = (name: string) => {
+    const convertedName = name?.replace(/\W+/g, " ")
+        .split(/ |\B(?=[A-Z])/)
+        .map(word => word.toLowerCase())
+        .join('_') ?? 'not_set';
+
+    return `binary_sensor.${convertedName}_triggered`;
+}
 
 export const getWebookSpecs = async () => {
     const lastSnapshot = 'last';
@@ -39,8 +40,8 @@ export const getWebookUrls = async (cameraDevice: string, console: Console) => {
         const cloudEndpoint = await endpointManager.getPublicCloudEndpoint();
         const localEndpoint = await endpointManager.getPublicLocalEndpoint();
 
-        lastSnapshotCloudUrl = `${localEndpoint}snapshots/${cameraDevice}/${lastSnapshot}`;
-        lastSnapshotLocalUrl = `${cloudEndpoint}snapshots/${cameraDevice}/${lastSnapshot}`;
+        lastSnapshotCloudUrl = `${cloudEndpoint}snapshots/${cameraDevice}/${lastSnapshot}`;
+        lastSnapshotLocalUrl = `${localEndpoint}snapshots/${cameraDevice}/${lastSnapshot}`;
     } catch (e) {
         console.log('Error fetching webhookUrls', e);
     }
@@ -54,7 +55,7 @@ export const getWebookUrls = async (cameraDevice: string, console: Console) => {
 export const parseNotificationMessage = async (cameraDevice: DeviceInterface, deviceSensors: string[], options?: NotifierOptions, console?: Console) => {
     try {
         let triggerDevice: DeviceInterface;
-        let messageKey: string;
+        let textKey: string;
         let detection: ObjectDetectionResult;
         const subtitle = options?.subtitle;
 
@@ -65,10 +66,10 @@ export const parseNotificationMessage = async (cameraDevice: DeviceInterface, de
         let isDetection = false;
 
         if (subtitle === 'Offline') {
-            messageKey = 'offlinelText';
+            textKey = 'offlinelText';
             isOffline = true;
         } else if (subtitle === 'Online') {
-            messageKey = 'onlinelText';
+            textKey = 'onlinelText';
             isOnline = true;
         }
 
@@ -78,34 +79,34 @@ export const parseNotificationMessage = async (cameraDevice: DeviceInterface, de
 
         if (!isOffline && !isOnline) {
             if (subtitle.includes('Maybe: Vehicle')) {
-                messageKey = 'plateDetectedText';
+                textKey = 'plateDetectedText';
                 detection = allDetections.find(det => det.className === 'plate');
                 isDetection = true;
             } else if (subtitle.includes('Person')) {
-                messageKey = 'personDetectedText';
+                textKey = 'personDetectedText';
                 detection = allDetections.find(det => det.className === 'person');
                 isDetection = true;
             } else if (subtitle.includes('Vehicle')) {
                 detection = allDetections.find(det => det.className === 'vehicle');
                 isDetection = true;
-                messageKey = 'vehicleDetectedText';
+                textKey = 'vehicleDetectedText';
             } else if (subtitle.includes('Animal')) {
                 detection = allDetections.find(det => det.className === 'animal');
                 isDetection = true;
-                messageKey = 'animalDetectedText';
+                textKey = 'animalDetectedText';
             } else if (subtitle.includes('Maybe: ')) {
-                messageKey = 'familiarDetectedText';
+                textKey = 'familiarDetectedText';
                 detection = allDetections.find(det => det.className === 'face');
                 isDetection = true;
             } else if (subtitle.includes('Motion')) {
-                messageKey = 'motionDetectedText';
+                textKey = 'motionDetectedText';
                 detection = allDetections.find(det => det.className === 'motion');
                 isDetection = true;
             } else if (subtitle.includes('Door/Window Open')) {
-                messageKey = 'doorWindowText';
+                textKey = 'doorWindowText';
                 isBoolean = true;
             } else if (subtitle.includes('Doorbell Ringing')) {
-                messageKey = 'doorbellText';
+                textKey = 'doorbellText';
                 isDoorbell = true;
             }
         }
@@ -131,7 +132,7 @@ export const parseNotificationMessage = async (cameraDevice: DeviceInterface, de
         return {
             triggerDevice,
             cameraDevice,
-            messageKey,
+            textKey,
             detection,
             allDetections,
             isOnline,
@@ -153,14 +154,17 @@ export enum NotificationSource {
 }
 
 export interface NotifyCameraProps {
-    device: DeviceInterface,
+    cameraDevice?: DeviceInterface,
+    triggerDevice: DeviceInterface,
     notifierId: string,
     time: number,
     image?: MediaObject,
     detection?: ObjectDetectionResult
-    forceMessageKey?: string,
+    textKey: string,
     source?: NotificationSource,
     keepImage?: boolean,
+    notifierSettings: Setting[],
+    logger: Console,
 }
 
 export interface GetNotificationTextProps {
@@ -169,7 +173,8 @@ export interface GetNotificationTextProps {
     detection?: ObjectDetectionResult,
     notifierId: string,
     externalUrl: string,
-    forceKey?: string,
+    textKey: string,
+    notifierSettings: Setting[],
 }
 
 export interface ExecuteReportProps {
@@ -177,7 +182,8 @@ export interface ExecuteReportProps {
     deviceName: string,
     detections: ObjectDetectionResult[],
     device: DeviceInterface
-    b64Image?: string
+    b64Image?: string,
+    logger: Console
 }
 
 const classnamePrio = {
@@ -190,9 +196,26 @@ const classnamePrio = {
     motion: 7,
 }
 
-export const sortDetectionsByPriority = (detections: ObjectDetectionResult[]) => {
-    return sortBy(detections, (detection) => detection?.className ? classnamePrio[detection.className] : 100);
+export const filterAndSortValidDetections = (detections: ObjectDetectionResult[], logger: Console) => {
+    const sortedByPriorityAndScore = sortBy(detections,
+        (detection) => [detection?.className ? classnamePrio[detection.className] : 100,
+        1 - (detection.score ?? 0)]
+    );
+    const uniqueByClassName = uniqBy(sortedByPriorityAndScore, det => det.className);
+    const filteredByValidity = uniqueByClassName.filter(det => {
+        const { className, label, movement } = det;
+        if (isLabelDetection(className) && !label) {
+            logger.debug(`Label ${label} not valid`);
+            return false;
+        } else if (movement && !movement.moving) {
+            logger.debug(`Movement data ${movement} not valid`);
+            return false;
+        }
 
+        return true;
+    });
+
+    return filteredByValidity;
 }
 
 export const getIsDetectionValid = async (device: DeviceInterface, notifier: DeviceInterface, console?: Console) => {
@@ -264,10 +287,24 @@ export const getIsDetectionValid = async (device: DeviceInterface, notifier: Dev
     }
 }
 
+export type TextSettingKey =
+    | 'detectionTimeText'
+    | 'motionDetectedText'
+    | 'personDetectedText'
+    | 'familiarDetectedText'
+    | 'plateDetectedText'
+    | 'animalDetectedText'
+    | 'vehicleDetectedText'
+    | 'doorWindowText'
+    | 'doorbellText'
+    | 'packageText'
+    | 'onlineText'
+    | 'offlineText';
+
 export const getTextSettings = (forMixin: boolean) => {
     const groupKey = forMixin ? 'subgroup' : 'group';
 
-    return {
+    const settings: StorageSettingsDict<TextSettingKey> = {
         detectionTimeText: {
             [groupKey]: 'Texts',
             title: 'Detection time',
@@ -340,6 +377,14 @@ export const getTextSettings = (forMixin: boolean) => {
             defaultValue: !forMixin ? 'Door/window opened in ${room}' : undefined,
             placeholder: !forMixin ? 'Door/window opened in ${room}' : undefined
         },
+        packageText: {
+            [groupKey]: 'Texts',
+            title: 'Package text',
+            type: 'string',
+            description: 'Expression used to render the text when a package is detected. Available arguments ${room} $[time} ${nvrLink}',
+            defaultValue: !forMixin ? 'Package detected in ${room}' : undefined,
+            placeholder: !forMixin ? 'Package detected in ${room}' : undefined
+        },
         onlineText: {
             [groupKey]: 'Texts',
             title: 'Online device text',
@@ -357,4 +402,134 @@ export const getTextSettings = (forMixin: boolean) => {
             placeholder: !forMixin ? 'Went offline at ${time}' : undefined
         }
     }
+
+    return settings;
 }
+
+export type MixinBaseSettingKey =
+    | 'debug'
+    | 'room'
+    | 'entityId'
+    | 'haDeviceClass'
+    | 'useNvrDetections'
+    | 'useNvrImages'
+    | 'triggerAlwaysNotification'
+    | 'haActions'
+    | 'disabledNotifiers'
+
+export const getMixinBaseSettings = (name: string, type: ScryptedDeviceType) => {
+    const settings: StorageSettingsDict<MixinBaseSettingKey> = {
+        debug: {
+            title: 'Log debug messages',
+            type: 'boolean',
+            defaultValue: false,
+            immediate: true,
+        },
+        room: {
+            title: 'Room',
+            type: 'string',
+        },
+        entityId: {
+            title: 'EntityID',
+            type: 'string',
+            defaultValue: getDefaultEntityId(name)
+        },
+        haDeviceClass: {
+            title: 'Device class',
+            type: 'string'
+        },
+        // DETECTION
+        useNvrDetections: {
+            title: 'Use NVR detections',
+            description: 'If enabled, the NVR notifications will be used. Make sure to extend the notifiers with this extension',
+            type: 'boolean',
+            subgroup: 'Detection',
+            immediate: true,
+            hide: true,
+        },
+        useNvrImages: {
+            title: 'Use NVR images',
+            description: 'If enabled, the NVR images coming from NVR will be used, otherwise the one defined in the plugin',
+            type: 'boolean',
+            subgroup: 'Detection',
+            defaultValue: true,
+            immediate: true,
+            hide: true,
+        },
+        // NOTIFIER
+        triggerAlwaysNotification: {
+            title: 'Always enabled',
+            description: 'Enable to always check this entity for notifications, regardles of it\'s activation',
+            subgroup: 'Notifier',
+            type: 'boolean',
+            defaultValue: false,
+        },
+        haActions: {
+            title: 'HA actions',
+            description: 'Actions to show on the notification, i.e. {"action":"open_door","title":"Open door","icon":"sfsymbols:door"}',
+            subgroup: 'Notifier',
+            type: 'string',
+            multiple: true
+        },
+        disabledNotifiers: {
+            subgroup: 'Notifier',
+            title: 'Disabled notifiers',
+            type: 'device',
+            multiple: true,
+            combobox: true,
+            deviceFilter: `(type === '${ScryptedDeviceType.Notifier}')`,
+        },
+    };
+
+    return settings;
+}
+
+export const mainPluginName = scrypted.name;
+
+export const isDeviceEnabled = async (deviceName: string) => {
+    const mainPluginDevice = sdk.systemManager.getDeviceByName(mainPluginName) as unknown as Settings;
+    const mainSettings = await mainPluginDevice.getSettings();
+    const mainSettingsDic = keyBy(mainSettings, 'key');
+
+    const isPluginEnabled = mainSettingsDic['pluginEnabled'].value as boolean;
+    const isActiveForNotifications = (mainSettingsDic['activeDevicesForNotifications'].value as string || []).includes(deviceName);
+    const isActiveForMqttReporting = (mainSettingsDic['activeDevicesForReporting'].value as string || []).includes(deviceName);
+
+    return {
+        isPluginEnabled,
+        isActiveForNotifications,
+        isActiveForMqttReporting,
+    }
+}
+
+const textKeyClassnameMap: Record<DetectionClass, TextSettingKey> = {
+    [DetectionClass.Person]: 'personDetectedText',
+    [DetectionClass.Face]: 'familiarDetectedText',
+    [DetectionClass.Plate]: 'plateDetectedText',
+    [DetectionClass.Vehicle]: 'vehicleDetectedText',
+    [DetectionClass.Animal]: 'animalDetectedText',
+    [DetectionClass.Motion]: 'motionDetectedText',
+    [DetectionClass.Package]: 'motionDetectedText',
+}
+
+export const getTextKey = (props: { classname?: string, eventType: EventType }) => {
+    const { classname, eventType } = props;
+
+    let key: TextSettingKey;
+
+    switch (eventType) {
+        case EventType.Contact:
+            key = 'doorWindowText';
+            break;
+        case EventType.Doorbell:
+            key = 'doorbellText';
+            break;
+        case EventType.ObjectDetection: {
+            key = textKeyClassnameMap[detectionClassesDefaultMap[classname]];
+        }
+    }
+
+    return key;
+}
+
+export const firstUpperCase = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);

@@ -1,21 +1,43 @@
 import { connect, Client } from 'mqtt';
-import sdk, { MediaObject, ObjectDetectionResult, ScryptedDeviceBase, Setting } from '@scrypted/sdk';
+import { ObjectDetectionResult, ScryptedDeviceBase } from '@scrypted/sdk';
+import { defaultDetectionClasses, detectionClassesDefaultMap, isLabelDetection } from './detecionClasses';
+import { firstUpperCase } from './utils';
+import { groupBy } from 'lodash';
 
 interface MqttEntity {
-    entity: 'triggered' | 'lastImage' | 'lastClassname' | 'lastZones' | 'lastLabel' | 'lastTrigger';
+    entity: 'triggered' | 'lastImage' | 'lastClassname' | 'lastZones' | 'lastLabel' | string;
     domain: 'sensor' | 'binary_sensor' | 'camera';
-    isMainEntity?: boolean;
-    deviceClass?: string;
+    name: string;
+    className?: string,
+    key?: string,
 }
 
+const idPrefix = 'scrypted-advanced-notifier';
+const namePrefix = 'Scrypted advanced notifier';
+
 const mqttEntities: MqttEntity[] = [
-    { entity: 'triggered', domain: 'binary_sensor', isMainEntity: true },
-    { entity: 'lastImage', domain: 'camera' },
-    { entity: 'lastClassname', domain: 'sensor' },
-    { entity: 'lastZones', domain: 'sensor' },
-    { entity: 'lastLabel', domain: 'sensor' },
-    { entity: 'lastTrigger', domain: 'sensor', deviceClass: 'timestamp' },
+    { entity: 'triggered', name: 'Notification triggered', domain: 'binary_sensor' },
+    { entity: 'lastImage', name: 'Last image detected', domain: 'camera' },
+    { entity: 'lastClassname', name: 'Last classname detected', domain: 'sensor' },
+    { entity: 'lastZones', name: 'Last zones detected', domain: 'sensor' },
+    { entity: 'lastLabel', name: 'Last label detected', domain: 'sensor' },
 ];
+
+const deviceClassMqttEntities: MqttEntity[] = defaultDetectionClasses.flatMap(className => {
+    const parsedClassName = firstUpperCase(className);
+    const entries: MqttEntity[] = [
+        { entity: `${className}Detected`, name: `Detected ${parsedClassName}`, domain: 'binary_sensor', className, },
+        { entity: `${className}LastImage`, name: `Last image ${parsedClassName}`, domain: 'camera', className },
+    ];
+
+    if (isLabelDetection(className)) {
+        entries.push({ entity: `${className}LastLabel`, name: `Last label ${parsedClassName}`, domain: 'sensor', className });
+    }
+
+    return entries;
+});
+
+const deviceClassMqttEntitiesGrouped = groupBy(deviceClassMqttEntities, entry => entry.className);
 
 export default class MqttClient {
     mqttClient: Client;
@@ -96,17 +118,22 @@ export default class MqttClient {
     }
 
     async publish(console: Console, topic: string, value: any, retain = true) {
-        if (typeof value === 'object')
-            value = JSON.stringify(value);
-        if (value.constructor.name !== Buffer.name)
-            value = value.toString();
+        try {
+            if (typeof value === 'object')
+                value = JSON.stringify(value);
+            if (value.constructor.name !== Buffer.name)
+                value = value.toString();
+        } catch (e) {
+            console.log(`Error parsing publish values: ${JSON.stringify({ topic, value })}`);
+            return;
+        }
 
-        // console.debug(`Publishing ${JSON.stringify({ topic, value })}`);
+        console.debug(`Publishing ${JSON.stringify({ topic, value })}`);
         const client = await this.getMqttClient(console);
         try {
             client.publish(topic, value, { retain });
         } catch (e) {
-            console.log('Error publishing to MQTT. Reconnecting', e);
+            console.log(`Error publishing to MQTT. Reconnecting. ${JSON.stringify({ topic, value })}`, e);
             await this.getMqttClient(console, true);
             client.publish(topic, value, { retain });
         }
@@ -115,9 +142,9 @@ export default class MqttClient {
     private getMqttTopicTopics(device: ScryptedDeviceBase) {
         const deviceId = device.id;
 
-        const getEntityTopic = (entity: string) => `scrypted/homeassistantUtilities/${deviceId}/${entity}`;
+        const getEntityTopic = (entity: string) => `scrypted/advancedNotifier/${deviceId}/${entity}`;
         const getInfoTopic = (entity: string) => `${getEntityTopic(entity)}/info`;
-        const getDiscoveryTopic = (domain: MqttEntity['domain'], entity: string) => `homeassistant/${domain}/scrypted-homeassistant-utilities-${deviceId}/${entity}/config`;
+        const getDiscoveryTopic = (domain: MqttEntity['domain'], entity: string) => `homeassistant/${domain}/${idPrefix}-${deviceId}/${entity}/config`;
 
         return {
             getEntityTopic,
@@ -126,50 +153,36 @@ export default class MqttClient {
         }
     }
 
-    // private async findDeviceStreams(deviceSettings: Setting[], localIp: string) {
-    //     const streams = deviceSettings.filter(setting => setting.key === 'prebuffer:rtspRebroadcastUrl');
-
-    //     return streams.map(stream => ({ name: stream.subgroup.split(': ')[1], url: (stream.value as string)?.replace('localhost', localIp) }))
-    // }
-
-    private getLastDetectionTopics(detectionClass: string) {
-        const sanitizedDetectionClass = detectionClass.charAt(0).toUpperCase() + detectionClass.slice(1);
-        const timeEntity = `LastDetection${sanitizedDetectionClass}`;
-        const imageEntity = `LastImage${sanitizedDetectionClass}`;
-
-        return { timeEntity, imageEntity }
-    }
-
     async setupDeviceAutodiscovery(props: {
         device: ScryptedDeviceBase,
-        deviceSettings: Setting[],
-        detectionClasses: string[],
         console: Console,
-        localIp: string,
-        withImage: boolean,
+        localIp?: string,
+        withDetections?: boolean,
+        deviceClass: string,
     }) {
-        const { detectionClasses, device, deviceSettings, console, withImage } = props;
+        const { device, console, withDetections, deviceClass } = props;
         const { name, id } = device;
 
-        const haDeviceClass = deviceSettings.find(setting => setting.key === 'homeassistantMetadata:haDeviceClass')?.value as string;
         const mqttdevice = {
-            ids: `scrypted-ha-utilities-${id}`,
-            name: `Scrypted HA utilities ${name}`
+            ids: `${idPrefix}-${id}`,
+            name: `${namePrefix} ${name}`
         };
 
-        const { getDiscoveryTopic, getEntityTopic, getInfoTopic } = this.getMqttTopicTopics(device);
+        const { getDiscoveryTopic, getEntityTopic } = this.getMqttTopicTopics(device);
+        const allEntities = [...mqttEntities, ...deviceClassMqttEntities];
+        const entitiesToRun = withDetections ?
+            allEntities :
+            allEntities.filter(entity => entity.entity === 'triggered');
 
-        for (const mqttEntity of mqttEntities) {
-            const { domain, entity, isMainEntity: mainEntity, deviceClass } = mqttEntity;
+        for (const mqttEntity of entitiesToRun) {
+            const { domain, entity, name } = mqttEntity;
 
             const config: any = {
-                json_attributes_topic: mainEntity ? getInfoTopic(entity) : undefined,
-                json_attributes_template: mainEntity ? '{{ value_json | tojson }}' : undefined,
                 dev: mqttdevice,
-                unique_id: `scrypted-ha-utilities-${id}-${entity}`,
-                name: entity.charAt(0).toUpperCase() + entity.slice(1),
-                object_id: `${name}_${entity}`,
-                device_class: mainEntity ? haDeviceClass : deviceClass
+                unique_id: `${idPrefix}-${id}-${entity}`,
+                name,
+                object_id: `${device.name}_${entity}`,
+                device_class: entity === 'triggered' || entity.includes('Detected') ? deviceClass : undefined
             };
             const topic = getEntityTopic(entity);
 
@@ -188,88 +201,40 @@ export default class MqttClient {
 
             await this.publish(console, getDiscoveryTopic(domain, entity), JSON.stringify(config));
         }
-
-        // if (localIp) {
-        //     const deviceStreams = await this.findDeviceStreams(deviceSettings, localIp);
-        //     console.debug(`Streams found: ${JSON.stringify(deviceStreams)}`);
-
-        //     deviceStreams.map(stream => {
-        //         const entity = stream.name.replace(/ /g, '');
-        //         const config: any = {
-        //             dev: mqttdevice,
-        //             unique_id: `scrypted-ha-utilities-${id}-${entity}`,
-        //             name: entity.charAt(0).toUpperCase() + entity.slice(1),
-        //             object_id: `${name}_${entity}`,
-        //             state_topic: getEntityTopic(entity)
-        //         };
-
-        //         this.publish(console, getDiscoveryTopic('sensor', entity), JSON.stringify(config));
-        //         this.publish(console, getEntityTopic(entity), stream.url);
-        //     })
-        // }
-
-        for (const detectionClass of detectionClasses) {
-            const { imageEntity, timeEntity } = this.getLastDetectionTopics(detectionClass);
-
-            const timeConfig: any = {
-                dev: mqttdevice,
-                unique_id: `scrypted-ha-utilities-${id}-${timeEntity}`,
-                name: timeEntity.charAt(0).toUpperCase() + timeEntity.slice(1),
-                object_id: `${name}_${timeEntity}`,
-                device_class: 'timestamp',
-                state_topic: getEntityTopic(timeEntity)
-            };
-            await this.publish(console, getDiscoveryTopic('sensor', timeEntity), JSON.stringify(timeConfig));
-
-            if (withImage) {
-                const imageConfig: any = {
-                    dev: mqttdevice,
-                    unique_id: `scrypted-ha-utilities-${id}-${imageEntity}`,
-                    name: imageEntity.charAt(0).toUpperCase() + imageEntity.slice(1),
-                    object_id: `${name}_${imageEntity}`,
-                    topic: getEntityTopic(imageEntity),
-                    image_encoding: 'b64',
-                };
-                await this.publish(console, getDiscoveryTopic('camera', imageEntity), JSON.stringify(imageConfig));
-            }
-        }
     }
 
     async publishDeviceState(props: {
         device: ScryptedDeviceBase,
         console: Console,
         triggered: boolean,
-        info?: {
-            scryptedUrl: string,
-            detection: ObjectDetectionResult,
-            triggerTime: number,
-            b64Image: string
-        }
+        b64Image?: string,
+        detection?: ObjectDetectionResult,
+        resettAllClasses?: boolean,
     }) {
-        const { device, triggered, info, console } = props;
+        const { device, triggered, console, detection, b64Image, resettAllClasses } = props;
         try {
-            const entitiesToRun = triggered ? mqttEntities : mqttEntities.filter(entity => entity.entity === 'triggered');
-            console.debug(`publishDeviceState: Entities to publish: ${JSON.stringify(entitiesToRun)}`)
+            const detectionClass = detection?.className ? detectionClassesDefaultMap[detection.className] : undefined;
+            const entitiesToRun = detection ?
+                mqttEntities :
+                mqttEntities.filter(entity => entity.entity === 'triggered');
+            console.debug(`Trigger entities to publish: ${JSON.stringify(entitiesToRun)}`)
+            const { getEntityTopic } = this.getMqttTopicTopics(device);
+
             for (const mqttEntity of entitiesToRun) {
-                const { getEntityTopic, getInfoTopic } = this.getMqttTopicTopics(device);
-                const { entity, isMainEntity: mainEntity } = mqttEntity;
+                const { entity } = mqttEntity;
 
                 let value: any = triggered;
                 switch (entity) {
                     case 'lastImage': {
-                        value = info.b64Image || null;
-                        break;
-                    }
-                    case 'lastTrigger': {
-                        value = new Date(info?.triggerTime).toISOString();
+                        value = b64Image || null;
                         break;
                     }
                     case 'lastClassname': {
-                        value = info?.detection?.className || null;
+                        value = detectionClass || null;
                         break;
                     }
                     case 'lastLabel': {
-                        value = info?.detection?.label || null;
+                        value = detection?.label || null;
                         break;
                     }
                     case 'triggered': {
@@ -277,26 +242,41 @@ export default class MqttClient {
                         break;
                     }
                     case 'lastZones': {
-                        value = (info?.detection?.zones || []);
-                        if (!value.length) value = ['none'];
-                        value = value.toString();
+                        value = detection?.zones?.length ? detection.zones.toString() : null;
                         break;
                     }
                 }
 
                 if (value !== null) {
-                    // this.publish(console, getEntityTopic(entity), value, entity !== 'lastImage');
                     await this.publish(console, getEntityTopic(entity), value);
-                    mainEntity && triggered && info && this.publish(console, getInfoTopic(entity), info);
+                }
+            }
 
+            if (detection) {
+                const classEntries = deviceClassMqttEntitiesGrouped[detectionClass] ?? [];
+                for (const entry of classEntries) {
+                    const { entity } = entry;
+                    let value;
 
-                    // if (entity === 'lastClassname' && info.b64Image) {
-                    //     const { imageEntity } = this.getLastDetectionTopics(value);
-                    //     this.publish(console, getEntityTopic(imageEntity), info.b64Image);
+                    if (entity.includes('Detected')) {
+                        value = true;
+                    } else if (entity.includes('LastImage')) {
+                        value = b64Image || null;
+                    } else if (entity.includes('LastLabel')) {
+                        value = detection?.label || null;
+                    }
 
-                    //     const { imageEntity: motionImageEntity } = this.getLastDetectionTopics('motion');
-                    //     this.publish(console, getEntityTopic(motionImageEntity), info.b64Image);
-                    // }
+                    await this.publish(console, getEntityTopic(entity), value);
+                }
+            }
+
+            if (resettAllClasses) {
+                for (const entry of deviceClassMqttEntities) {
+                    const { entity, className } = entry;
+
+                    if (entity.includes('Detected')) {
+                        await this.publish(console, getEntityTopic(entity), false);
+                    }
                 }
             }
         } catch (e) {
@@ -311,29 +291,41 @@ export default class MqttClient {
         triggerTime: number,
         b64Image?: string,
     }) {
-
         const { device, detections, triggerTime, console, b64Image } = props;
         try {
-            console.debug(`publishRelevantDetections: Detections to publish: ${JSON.stringify(detections)}`)
             for (const detection of detections) {
-                const detectionClass = detection.className;
-                const { timeEntity, imageEntity } = this.getLastDetectionTopics(detectionClass);
-                const { getEntityTopic, getInfoTopic } = this.getMqttTopicTopics(device);
+                const detectionClass = detectionClassesDefaultMap[detection.className];
+                if (detectionClass) {
+                    const entitiesToPublish = deviceClassMqttEntitiesGrouped[detectionClass];
+                    console.debug(`Relevant detections to publish: ${JSON.stringify({ detections, entitiesToPublish })}`);
 
-                console.debug(`Reporting ${timeEntity}: ${JSON.stringify({
-                    timeEntity,
-                    imageEntity,
-                    triggerTime,
-                })}`)
+                    const { getEntityTopic } = this.getMqttTopicTopics(device);
 
-                await this.publish(console, getEntityTopic(timeEntity), new Date(triggerTime).toISOString(), false);
+                    for (const entry of entitiesToPublish) {
+                        const { entity } = entry;
+                        let value: any;
 
-                if (b64Image) {
-                    await this.publish(console, getEntityTopic(imageEntity), b64Image, false);
+                        if (entity.includes('Detected')) {
+                            value = true;
+                        } else if (entity.includes('LastLabel')) {
+                            value = detection?.label || null;
+                        } else if (entity.includes('LastImage') && b64Image) {
+                            value = b64Image || null;
+                        }
+
+                        if (value) {
+                            await this.publish(console, getEntityTopic(entity), value);
+                        }
+                    }
+                } else {
+                    console.log(`${detectionClass} not found`);
                 }
             }
         } catch (e) {
-            console.log(`Error publishing`, e);
+            console.log(`Error publishing ${JSON.stringify({
+                detections,
+                triggerTime,
+            })}`, e);
         }
     }
 

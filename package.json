@@ -5,7 +5,7 @@
       "type": "git",
       "url": "https://github.com/apocaliss92/scrypted-homeassistant-utilities"
    },
-   "version": "0.3.1",
+   "version": "0.4.0",
    "scripts": {
       "scrypted-setup-project": "scrypted-setup-project",
       "prescrypted-setup-project": "scrypted-package-json",
@@ -23,11 +23,14 @@
       "scrypted",
       "plugin",
       "homeassistant",
+      "mqtt",
       "metadata",
+      "notifier",
+      "filter",
       "track"
    ],
    "scrypted": {
-      "name": "Homeassistant utilities",
+      "name": "Advanced notifier",
       "type": "API",
       "interfaces": [
          "Settings",

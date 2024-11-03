@@ -1,11 +1,12 @@
-import { Notifier, ScryptedDeviceType, NotifierOptions, MediaObject, ScryptedInterface, Setting, Settings } from "@scrypted/sdk";
+import { Notifier, ScryptedDeviceType, NotifierOptions, MediaObject, Setting, Settings } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { defaultDetectionClasses, getTextSettings } from "./utils";
+import { getTextSettings } from "./utils";
+import { defaultDetectionClasses } from "./detecionClasses";
 
 export type SendNotificationToPluginFn = (notifierId: string, title: string, options?: NotifierOptions, media?: MediaObject, icon?: MediaObject | string) => Promise<void>
 
-export class HomeAssistantUtilitiesNotifierMixin extends SettingsMixinDeviceBase<any> implements Settings, Notifier {
+export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> implements Settings, Notifier {
     storageSettings = new StorageSettings(this, {
         snapshotWidth: {
             subgroup: 'Notifier',
@@ -26,6 +27,7 @@ export class HomeAssistantUtilitiesNotifierMixin extends SettingsMixinDeviceBase
             combobox: true,
             subgroup: 'Notifier',
             choices: defaultDetectionClasses,
+            defaultValue: [],
         },
         ...getTextSettings(true) as any
     });
