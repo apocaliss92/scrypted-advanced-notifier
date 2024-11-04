@@ -202,3 +202,8 @@ export const detectionClassesDefaultMap: Record<string, DetectionClass> = {
     ...faceClasses.reduce((tot, curr) => ({ ...tot, [curr]: DetectionClass.Face }), {}),
     ...licensePlateClasses.reduce((tot, curr) => ({ ...tot, [curr]: DetectionClass.Plate }), {}),
 }
+
+export const parentDetectionClassMap: Partial<Record<DetectionClass, DetectionClass>> = {
+    [DetectionClass.Face]: DetectionClass.Person,
+    [DetectionClass.Plate]: DetectionClass.Vehicle,
+}

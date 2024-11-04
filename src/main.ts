@@ -3,12 +3,12 @@ import axios from "axios";
 import { isEqual, keyBy, sortBy } from 'lodash';
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import MqttClient from './mqtt-client';
-import { DeviceInterface, ExecuteReportProps, GetNotificationTextProps, NotifyCameraProps, NotificationSource, getWebookSpecs, getTextSettings, getTextKey, EventType } from "./utils";
-import sharp from 'sharp';
+import { DeviceInterface, ExecuteReportProps, GetNotificationTextProps, NotifyCameraProps, NotificationSource, getWebookSpecs, getTextSettings, getTextKey, EventType, DetectionRuleActivation, getDetectionRuleKeys } from "./utils";
+import sharp, { bool } from 'sharp';
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
-import { detectionClassesDefaultMap } from "./detecionClasses";
+import { defaultDetectionClasses, detectionClassesDefaultMap } from "./detecionClasses";
 
 const { systemManager } = sdk;
 
@@ -22,6 +22,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
     private firstCheckAlwaysActiveDevices = false;
     private mainLogger: Console;
     public currentMixinsMap: Record<string, AdvancedNotifierCameraMixin | AdvancedNotifierSensorMixin> = {};
+    elegibleDevices: string[] = [];
 
     storageSettings = new StorageSettings(this, {
         pluginEnabled: {
@@ -214,18 +215,24 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
                 await this.executeNotificationTest();
             },
         },
+        detectionRules: {
+            title: 'Rules',
+            group: 'Detection rules',
+            type: 'string',
+            multiple: true,
+            combobox: true,
+            choices: [],
+            defaultValue: [],
+        }
     });
 
 
     constructor(nativeId: string) {
         super(nativeId);
 
-        this.storageSettings.settings.mqttEnabled.onPut = async () => await this.setupMqttClient();
-        this.storageSettings.settings.useMqttPluginCredentials.onPut = async () => await this.setupMqttClient();
-        this.storageSettings.settings.mqttHost.onPut = async () => await this.setupMqttClient();
-        this.storageSettings.settings.mqttUsename.onPut = async () => await this.setupMqttClient();
-        this.storageSettings.settings.mqttPassword.onPut = async () => await this.setupMqttClient();
-        this.storageSettings.settings.mqttActiveEntitiesTopic.onPut = async () => await this.setupMqttClient();
+        this.storageSettings.settings.activeDevicesForNotifications.onGet = async () => ({ choices: this.elegibleDevices });
+        this.storageSettings.settings.activeDevicesForReporting.onGet = async () => ({ choices: this.elegibleDevices });
+        this.storageSettings.settings.testDevice.onGet = async () => ({ choices: this.elegibleDevices });
 
         this.initFlow().then().catch(this.getLogger().log);
     }
@@ -299,7 +306,8 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
     }
 
     private async setupMqttClient() {
-        if (this.storageSettings.values.mqttEnabled) {
+        const { mqttEnabled, useMqttPluginCredentials } = this.storageSettings.values;
+        if (mqttEnabled) {
             let mqttHost: string;
             let mqttUsename: string;
             let mqttPassword: string;
@@ -311,7 +319,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
                 this.mqttClient = undefined;
             }
 
-            if (this.storageSettings.getItem('useMqttPluginCredentials')) {
+            if (useMqttPluginCredentials) {
                 logger.log(`Using MQTT plugin credentials.`);
                 const mqttDevice = systemManager.getDeviceByName('MQTT') as unknown as Settings;
                 const mqttSettings = await mqttDevice.getSettings();
@@ -475,10 +483,8 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             this.getLogger().log(`Following binary sensors are not mapped to any camera yet: ${sensorsNotMapped}`);
         }
 
-        this.storageSettings.settings.activeDevicesForNotifications.choices = devices;
-        this.storageSettings.settings.activeDevicesForReporting.choices = devices;
-        this.storageSettings.settings.testDevice.choices = devices;
         this.deviceHaEntityMap = deviceHaEntityMap;
+        this.elegibleDevices = devices;
         this.haEntityDeviceMap = haEntityDeviceMap;
         this.deviceVideocameraMap = deviceVideocameraMap;
         this.deviceRoomMap = deviceRoomMap;
@@ -522,10 +528,88 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
 
         const settings: Setting[] = await this.storageSettings.getSettings();
 
+        const currentDetectionRules = this.storageSettings.getItem('detectionRules');
+        const detectionRulesGroup = 'Detection rules';
+
+        for (const detectionRuleName of currentDetectionRules) {
+            const {
+                enabledKey,
+                activationKey,
+                detecionClassesKey,
+                notifiersKey,
+                scoreThresholdKey,
+                devicesKey
+            } = getDetectionRuleKeys(detectionRuleName);
+
+            settings.push(
+                {
+                    key: enabledKey,
+                    title: 'Enabled',
+                    type: 'boolean',
+                    group: detectionRulesGroup,
+                    subgroup: detectionRuleName,
+                    value: this.storageSettings.getItem(enabledKey) as boolean ?? true
+                },
+                {
+                    key: activationKey,
+                    title: 'Activation',
+                    group: detectionRulesGroup,
+                    subgroup: detectionRuleName,
+                    combobox: true,
+                    choices: [DetectionRuleActivation.Always, DetectionRuleActivation.OnActive],
+                    value: this.storageSettings.getItem(activationKey) as string
+                },
+                {
+                    key: detecionClassesKey,
+                    title: 'Detection classes',
+                    group: detectionRulesGroup,
+                    subgroup: detectionRuleName,
+                    multiple: true,
+                    combobox: true,
+                    choices: defaultDetectionClasses,
+                    value: JSON.parse(this.storageSettings.getItem(detecionClassesKey) as string ?? '[]')
+                },
+                {
+                    key: scoreThresholdKey,
+                    title: 'Score threshold',
+                    group: detectionRulesGroup,
+                    subgroup: detectionRuleName,
+                    type: 'number',
+                    placeholder: '0.7',
+                    value: this.storageSettings.getItem(scoreThresholdKey) as string
+                },
+                {
+                    key: notifiersKey,
+                    title: 'Notifiers',
+                    group: detectionRulesGroup,
+                    subgroup: detectionRuleName,
+                    type: 'device',
+                    multiple: true,
+                    combobox: true,
+                    deviceFilter: `(type === '${ScryptedDeviceType.Notifier}')`,
+                    value: JSON.parse(this.storageSettings.getItem(notifiersKey) as string ?? '[]')
+                },
+                {
+                    key: devicesKey,
+                    title: 'Devices',
+                    description: 'Leave empty to affect all devices',
+                    group: detectionRulesGroup,
+                    subgroup: detectionRuleName,
+                    type: 'string',
+                    multiple: true,
+                    combobox: true,
+                    choices: this.elegibleDevices,
+                    value: JSON.parse(this.storageSettings.getItem(devicesKey) as string ?? '[]')
+                }
+            )
+        };
+
         return settings;
+
     }
 
     putSetting(key: string, value: SettingValue): Promise<void> {
+        this.console.log(key, value);
         return this.storageSettings.putSetting(key, value);
     }
 

@@ -1,8 +1,8 @@
-import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase } from "@scrypted/sdk";
+import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ScryptedDeviceType } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { EventType, filterAndSortValidDetections, getMixinBaseSettings, getWebookUrls, isDeviceEnabled } from "./utils";
-import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detecionClasses";
+import { DetectionRuleActivation, EventType, filterAndSortValidDetections, getDetectionRuleKeys, getMixinBaseSettings, getWebookUrls, isDeviceEnabled } from "./utils";
+import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 
 const { systemManager } = sdk;
@@ -115,6 +115,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
             }
         },
+        detectionRules: {
+            title: 'Rules',
+            group: 'Advanced notifier detection rules',
+            type: 'string',
+            multiple: true,
+            combobox: true,
+            defaultValue: [],
+            choices: [],
+        }
     });
 
     detectionListener: EventListenerRegister;
@@ -132,6 +141,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     killed: boolean;
     nvrEnabled: boolean = true;
     nvrMixinId: string;
+    observeZones: string[];
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -156,26 +166,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         this.nvrMixinId = systemManager.getDeviceByName('Scrypted NVR Object Detection')?.id;
 
-        const getZones = async () => {
-            const settings = await this.mixinDevice.getSettings();
-            const zonesSetting = settings.find((setting: { key: string; }) => new RegExp('objectdetectionplugin:.*:zones').test(setting.key))?.value ?? [];
-
-            const filteredZones = zonesSetting.filter(zone => {
-                const zoneFilterMode = settings.find((setting: { key: string; }) => new RegExp(`objectdetectionplugin:.*:zoneinfo-filterMode-${zone}`).test(setting.key))?.value;
-
-                return zoneFilterMode === 'observe';
-
-            });
-
-            return {
-                choices: filteredZones
-            }
-        }
-        this.storageSettings.settings.whitelistedZones.onGet = async () => await getZones();
-        this.storageSettings.settings.blacklistedZones.onGet = async () => await getZones();
-        this.storageSettings.settings.alwaysZones.onGet = async () => await getZones();
+        this.storageSettings.settings.whitelistedZones.onGet = async () => ({ choices: this.observeZones });
+        this.storageSettings.settings.blacklistedZones.onGet = async () => ({ choices: this.observeZones });
+        this.storageSettings.settings.alwaysZones.onGet = async () => ({ choices: this.observeZones });
         this.storageSettings.settings.detectionClasses.onGet = async () => {
-            const settings = await this.mixinDevice.getSettings();
+            // const settings = await this.mixinDevice.getSettings();
             // const detectionClasses = settings.find((setting: { key: string; }) => new RegExp('objectdetectionplugin:.*:allowList').test(setting.key))?.value ?? [];
             // const deviceObjectTypes = this.mixinDevice.getObjectTypes ? (await this.mixinDevice.getObjectTypes())?.classes || [] : [];
             // const choices = uniq([...deviceObjectTypes, ...detectionClasses, ...defaultDetectionClasses])
@@ -184,8 +179,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 choices: defaultDetectionClasses,
             }
         };
-
-        // this.storageSettings.settings.skipDoorbellNotifications.hide = this.type !== ScryptedDeviceType.Doorbell;
 
         this.initValues().then().catch(this.console.log);
         this.startCheckInterval().then().catch(this.console.log);
@@ -281,6 +274,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { lastSnapshotCloudUrl, lastSnapshotLocalUrl } = await getWebookUrls(this.name, console);
         this.storageSettings.putSetting('lastSnapshotWebhookCloudUrl', lastSnapshotCloudUrl);
         this.storageSettings.putSetting('lastSnapshotWebhookLocalUrl', lastSnapshotLocalUrl);
+
+        const settings = await this.mixinDevice.getSettings();
+        const zonesSetting = settings.find((setting: { key: string; }) => new RegExp('objectdetectionplugin:.*:zones').test(setting.key))?.value ?? [];
+
+        const filteredZones = zonesSetting.filter(zone => {
+            const zoneFilterMode = settings.find((setting: { key: string; }) => new RegExp(`objectdetectionplugin:.*:zoneinfo-filterMode-${zone}`).test(setting.key))?.value;
+
+            return zoneFilterMode === 'observe';
+
+        });
+        this.observeZones = filteredZones;
     }
 
     async getMixinSettings(): Promise<Setting[]> {
@@ -308,21 +312,80 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }
         }
 
-        // const mainPluginDevice = systemManager.getDeviceByName(mainPluginName) as unknown as Settings;
-        // const mainPluginSetttings = await mainPluginDevice.getSettings() as Setting[];
-        // const activeNotifiers = (mainPluginSetttings.find(setting => setting.key === 'notifiers')?.value || []) as string[];
+        const currentDetectionRules = this.storageSettings.getItem('detectionRules');
+        const detectionRulesGroup = 'Advanced notifier detection rules';
 
-        // activeNotifiers.forEach(notifierId => {
-        //     const notifierDevice = systemManager.getDeviceById(notifierId);
-        //     const key = `notifier-${notifierId}:disabled`;
-        //     settings.push({
-        //         key,
-        //         title: `Disable notifier ${notifierDevice.name}`,
-        //         subgroup: 'Notifier',
-        //         type: 'boolean',
-        //         value: JSON.parse(this.storageSettings.getItem(key as any) ?? 'false'),
-        //     });
-        // })
+        for (const detectionRuleName of currentDetectionRules) {
+            const {
+                enabledKey,
+                activationKey,
+                detecionClassesKey,
+                notifiersKey,
+                scoreThresholdKey,
+                zonesKey
+            } = getDetectionRuleKeys(detectionRuleName);
+
+            settings.push(
+                {
+                    key: enabledKey,
+                    title: 'Enabled',
+                    type: 'boolean',
+                    group: detectionRulesGroup,
+                    subgroup: detectionRuleName,
+                    value: this.storageSettings.getItem(enabledKey) as boolean ?? true
+                },
+                {
+                    key: activationKey,
+                    title: 'Activation',
+                    group: detectionRulesGroup,
+                    subgroup: detectionRuleName,
+                    combobox: true,
+                    choices: [DetectionRuleActivation.Always, DetectionRuleActivation.OnActive],
+                    value: this.storageSettings.getItem(activationKey) as string
+                },
+                {
+                    key: detecionClassesKey,
+                    title: 'Detection classes',
+                    group: detectionRulesGroup,
+                    subgroup: detectionRuleName,
+                    multiple: true,
+                    combobox: true,
+                    choices: defaultDetectionClasses,
+                    value: JSON.parse(this.storageSettings.getItem(detecionClassesKey) as string ?? '[]')
+                },
+                {
+                    key: scoreThresholdKey,
+                    title: 'Score threshold',
+                    group: detectionRulesGroup,
+                    subgroup: detectionRuleName,
+                    type: 'number',
+                    placeholder: '0.7',
+                    value: this.storageSettings.getItem(scoreThresholdKey) as string
+                },
+                {
+                    key: zonesKey,
+                    title: 'Zones',
+                    group: detectionRulesGroup,
+                    subgroup: detectionRuleName,
+                    multiple: true,
+                    combobox: true,
+                    choices: this.observeZones,
+                    value: JSON.parse(this.storageSettings.getItem(zonesKey) as string ?? '[]')
+                },
+                {
+                    key: notifiersKey,
+                    title: 'Notifiers',
+                    group: detectionRulesGroup,
+                    subgroup: detectionRuleName,
+                    type: 'device',
+                    multiple: true,
+                    combobox: true,
+                    deviceFilter: `(type === '${ScryptedDeviceType.Notifier}')`,
+                    value: JSON.parse(this.storageSettings.getItem(notifiersKey) as string ?? '[]')
+                }
+            )
+        };
+
 
         return settings;
     }
@@ -378,39 +441,39 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    async reportTriggerToMqtt(props: { detection?: ObjectDetectionResult, b64Image?: string, triggered: boolean }) {
+    async triggerMotion(props: { detection?: ObjectDetectionResult, image?: MediaObject }) {
+        const { detection, image } = props;
         const logger = this.getLogger();
-        const mqttClient = await this.plugin.getMqttClient();
 
-        if (mqttClient) {
-            try {
-                const { detection, b64Image, triggered } = props;
-                const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase;
-                await mqttClient.publishDeviceState({
-                    device,
-                    triggered,
-                    console: logger,
-                    b64Image,
-                    detection,
-                    resettAllClasses: !triggered
-                }).finally(() => this.mqttReportInProgress = false);
-            } catch (e) {
-                logger.log(`Error in reportDetectionsToMqtt`, e);
-            }
-        }
-    }
+        const b64Image = image ? (await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg'))?.toString('base64') : undefined;
 
-    async triggerMotion(detection?: ObjectDetectionResult, image?: MediaObject) {
         const report = async (triggered: boolean) => {
             this.resetTimeouts();
-            this.isActiveForMqttReporting && await this.reportTriggerToMqtt({ detection, b64Image, triggered });
+            if (this.isActiveForMqttReporting) {
+                const mqttClient = await this.plugin.getMqttClient();
+
+                if (mqttClient) {
+                    try {
+                        const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase;
+                        await mqttClient.publishDeviceState({
+                            device,
+                            triggered,
+                            console: logger,
+                            b64Image,
+                            detection,
+                            resettAllClasses: !triggered,
+                            ignoreMainEntity: !detection
+                        }).finally(() => this.mqttReportInProgress = false);
+                    } catch (e) {
+                        logger.log(`Error in reportDetectionsToMqtt`, e);
+                    }
+                }
+            }
             this.motionInProgress = triggered;
         }
 
-        const b64Image = image ? (await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg'))?.toString('base64') : undefined;
         await report(true);
 
-        const logger = this.getLogger();
         const minDelayTime = this.storageSettings.values.minDelayTime;
 
         this.motionListener = systemManager.listenDevice(this.id, {
@@ -565,7 +628,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 // if (useDetectorImage) {
                 //     image = await objectDetector.getDetectionInput(detection.detectionId, details.eventId);
                 // } else {
-                const image = await objectDetector.takePicture({
+                image = await objectDetector.takePicture({
                     reason: 'event',
                     picture: {
                         height: snapshotHeight,
@@ -588,7 +651,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
             }
 
-            this.triggerMotion(match, image);
+            this.triggerMotion({ detection: match, image });
 
             this.plugin.matchDetectionFound({
                 triggerDeviceId: this.id,

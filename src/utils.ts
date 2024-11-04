@@ -3,7 +3,7 @@ import { StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { keyBy, sortBy, uniq, uniqBy } from "lodash";
 const { endpointManager } = sdk;
 import { scrypted } from '../package.json';
-import { DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detecionClasses";
+import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detecionClasses";
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Settings;
 
@@ -526,80 +526,28 @@ export const getTextKey = (props: { classname?: string, eventType: EventType }) 
 
 export const firstUpperCase = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
-// export type DetectionRulesSettings =
-//     | 'debug'
-//     | 'room'
-//     | 'entityId'
-//     | 'haDeviceClass'
-//     | 'useNvrDetections'
-//     | 'useNvrImages'
-//     | 'triggerAlwaysNotification'
-//     | 'haActions'
-//     | 'disabledNotifiers'
+export enum DetectionRuleActivation {
+    Always = 'Always',
+    OnActive = 'OnActive',
+    Schedule = 'Schedule',
+}
 
-// export const getDetectionRulesSettings = () => {
-//     const settings: StorageSettingsDict<DetectionRulesSettings> = {
-//         debug: {
-//             title: 'Log debug messages',
-//             type: 'boolean',
-//             defaultValue: false,
-//             immediate: true,
-//         },
-//         room: {
-//             title: 'Room',
-//             type: 'string',
-//         },
-//         entityId: {
-//             title: 'EntityID',
-//             type: 'string',
-//             defaultValue: getDefaultEntityId(name)
-//         },
-//         haDeviceClass: {
-//             title: 'Device class',
-//             type: 'string'
-//         },
-//         // DETECTION
-//         useNvrDetections: {
-//             title: 'Use NVR detections',
-//             description: 'If enabled, the NVR notifications will be used. Make sure to extend the notifiers with this extension',
-//             type: 'boolean',
-//             subgroup: 'Detection',
-//             immediate: true,
-//             hide: true,
-//         },
-//         useNvrImages: {
-//             title: 'Use NVR images',
-//             description: 'If enabled, the NVR images coming from NVR will be used, otherwise the one defined in the plugin',
-//             type: 'boolean',
-//             subgroup: 'Detection',
-//             defaultValue: true,
-//             immediate: true,
-//             hide: true,
-//         },
-//         // NOTIFIER
-//         triggerAlwaysNotification: {
-//             title: 'Always enabled',
-//             description: 'Enable to always check this entity for notifications, regardles of it\'s activation',
-//             subgroup: 'Notifier',
-//             type: 'boolean',
-//             defaultValue: false,
-//         },
-//         haActions: {
-//             title: 'HA actions',
-//             description: 'Actions to show on the notification, i.e. {"action":"open_door","title":"Open door","icon":"sfsymbols:door"}',
-//             subgroup: 'Notifier',
-//             type: 'string',
-//             multiple: true
-//         },
-//         disabledNotifiers: {
-//             subgroup: 'Notifier',
-//             title: 'Disabled notifiers',
-//             type: 'device',
-//             multiple: true,
-//             combobox: true,
-//             deviceFilter: `(type === '${ScryptedDeviceType.Notifier}')`,
-//         },
-//     };
+export const getDetectionRuleKeys = (detectionRuleName: string) => {
+    const enabledKey = `rule:${detectionRuleName}:enabled`;
+    const activationKey = `rule:${detectionRuleName}:activation`;
+    const detecionClassesKey = `rule:${detectionRuleName}:detecionClasses`;
+    const scoreThresholdKey = `rule:${detectionRuleName}:scoreThreshold`;
+    const zonesKey = `rule:${detectionRuleName}:zones`;
+    const devicesKey = `rule:${detectionRuleName}:devices`;
+    const notifiersKey = `rule:${detectionRuleName}:notifiers`;
 
-//     return settings;
-// }
+    return {
+        enabledKey,
+        activationKey,
+        detecionClassesKey,
+        scoreThresholdKey,
+        zonesKey,
+        devicesKey,
+        notifiersKey,
+    }
+}

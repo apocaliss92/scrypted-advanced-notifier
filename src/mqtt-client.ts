@@ -1,6 +1,6 @@
 import { connect, Client } from 'mqtt';
 import { ObjectDetectionResult, ScryptedDeviceBase } from '@scrypted/sdk';
-import { defaultDetectionClasses, detectionClassesDefaultMap, isLabelDetection } from './detecionClasses';
+import { defaultDetectionClasses, detectionClassesDefaultMap, isLabelDetection, parentDetectionClassMap } from './detecionClasses';
 import { firstUpperCase } from './utils';
 import { groupBy } from 'lodash';
 
@@ -46,6 +46,7 @@ export default class MqttClient {
     username: string;
     password: string;
     console: Console;
+    topicLastValue: Record<string, any> = {};
 
     constructor(host: string, username: string, password: string) {
         this.host = host;
@@ -117,14 +118,21 @@ export default class MqttClient {
         })
     }
 
-    async publish(console: Console, topic: string, value: any, retain = true) {
+    async publish(console: Console, topic: string, inputValue: any, retain = true) {
+        let value;
         try {
-            if (typeof value === 'object')
-                value = JSON.stringify(value);
-            if (value.constructor.name !== Buffer.name)
-                value = value.toString();
+            if (typeof inputValue === 'object')
+                value = JSON.stringify(inputValue);
+            if (inputValue.constructor.name !== Buffer.name)
+                value = inputValue.toString();
         } catch (e) {
-            console.log(`Error parsing publish values: ${JSON.stringify({ topic, value })}`);
+            console.log(`Error parsing publish values: ${JSON.stringify({ topic, value })}`, e);
+            return;
+        }
+
+        if (retain && this.topicLastValue[topic] === value) {
+            console.debug(`Skipping publish, same as previous value: ${JSON.stringify({ topic, value, previousValue: this.topicLastValue[topic] })}`);
+
             return;
         }
 
@@ -136,6 +144,10 @@ export default class MqttClient {
             console.log(`Error publishing to MQTT. Reconnecting. ${JSON.stringify({ topic, value })}`, e);
             await this.getMqttClient(console, true);
             client.publish(topic, value, { retain });
+        } finally {
+            if (retain) {
+                this.topicLastValue[topic] = value;
+            }
         }
     }
 
@@ -210,74 +222,90 @@ export default class MqttClient {
         b64Image?: string,
         detection?: ObjectDetectionResult,
         resettAllClasses?: boolean,
+        ignoreMainEntity?: boolean,
     }) {
-        const { device, triggered, console, detection, b64Image, resettAllClasses } = props;
+        const { device, triggered, console, detection, b64Image, resettAllClasses, ignoreMainEntity } = props;
         try {
             const detectionClass = detection?.className ? detectionClassesDefaultMap[detection.className] : undefined;
+            const triggeredEntity = mqttEntities.filter(entity => entity.entity === 'triggered');
             const entitiesToRun = detection ?
                 mqttEntities :
-                mqttEntities.filter(entity => entity.entity === 'triggered');
+                triggeredEntity;
             console.debug(`Trigger entities to publish: ${JSON.stringify(entitiesToRun)}`)
             const { getEntityTopic } = this.getMqttTopicTopics(device);
 
-            for (const mqttEntity of entitiesToRun) {
-                const { entity } = mqttEntity;
+            if (!ignoreMainEntity) {
+                for (const mqttEntity of entitiesToRun) {
+                    const { entity } = mqttEntity;
 
-                let value: any = triggered;
-                switch (entity) {
-                    case 'lastImage': {
-                        value = b64Image || null;
-                        break;
+                    let value: any = triggered;
+                    let retain = true;
+                    switch (entity) {
+                        case 'lastImage': {
+                            value = b64Image || null;
+                            retain = false;
+                            break;
+                        }
+                        case 'lastClassname': {
+                            value = detectionClass || null;
+                            break;
+                        }
+                        case 'lastLabel': {
+                            value = detection?.label || null;
+                            break;
+                        }
+                        case 'triggered': {
+                            value = triggered;
+                            break;
+                        }
+                        case 'lastZones': {
+                            value = detection?.zones?.length ? detection.zones.toString() : null;
+                            break;
+                        }
                     }
-                    case 'lastClassname': {
-                        value = detectionClass || null;
-                        break;
-                    }
-                    case 'lastLabel': {
-                        value = detection?.label || null;
-                        break;
-                    }
-                    case 'triggered': {
-                        value = triggered;
-                        break;
-                    }
-                    case 'lastZones': {
-                        value = detection?.zones?.length ? detection.zones.toString() : null;
-                        break;
-                    }
-                }
 
-                if (value !== null) {
-                    await this.publish(console, getEntityTopic(entity), value);
+                    if (value !== null) {
+                        await this.publish(console, getEntityTopic(entity), value, retain);
+                    }
                 }
             }
 
             if (detection) {
-                const classEntries = deviceClassMqttEntitiesGrouped[detectionClass] ?? [];
+                const parentClass = parentDetectionClassMap[detectionClass];
+                const specificClassEntries = deviceClassMqttEntitiesGrouped[detectionClass] ?? [];
+                const parentClassEntries = parentClass ? deviceClassMqttEntitiesGrouped[parentClass] ?? [] : [];
+
+                const classEntries = [...specificClassEntries, ...parentClassEntries];
+                console.debug(`Updating following entities related to ${detectionClass}. ${JSON.stringify({ classEntries, b64Image: !!b64Image })}`);
                 for (const entry of classEntries) {
                     const { entity } = entry;
                     let value;
+                    let retain = true;
 
                     if (entity.includes('Detected')) {
                         value = true;
                     } else if (entity.includes('LastImage')) {
                         value = b64Image || null;
+                        retain = false;
                     } else if (entity.includes('LastLabel')) {
                         value = detection?.label || null;
                     }
 
-                    await this.publish(console, getEntityTopic(entity), value);
+                    if (value !== null) {
+                        await this.publish(console, getEntityTopic(entity), value, retain);
+                    }
                 }
             }
 
             if (resettAllClasses) {
                 for (const entry of deviceClassMqttEntities) {
-                    const { entity, className } = entry;
+                    const { entity } = entry;
 
                     if (entity.includes('Detected')) {
                         await this.publish(console, getEntityTopic(entity), false);
                     }
                 }
+                await this.publish(console, getEntityTopic(triggeredEntity[0].entity), false);
             }
         } catch (e) {
             console.log(`Error publishing`, e);
@@ -304,6 +332,7 @@ export default class MqttClient {
                     for (const entry of entitiesToPublish) {
                         const { entity } = entry;
                         let value: any;
+                        let retain: true;
 
                         if (entity.includes('Detected')) {
                             value = true;
@@ -311,10 +340,11 @@ export default class MqttClient {
                             value = detection?.label || null;
                         } else if (entity.includes('LastImage') && b64Image) {
                             value = b64Image || null;
+                            retain = true;
                         }
 
                         if (value) {
-                            await this.publish(console, getEntityTopic(entity), value);
+                            await this.publish(console, getEntityTopic(entity), value, retain);
                         }
                     }
                 } else {

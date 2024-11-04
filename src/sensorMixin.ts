@@ -177,27 +177,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         return this.logger;
     }
 
-    async reportTriggerToMqtt(props: { triggered: boolean }) {
-        const { triggered } = props;
-        const logger = this.getLogger();
-
-        const mqttClient = await this.plugin.getMqttClient();
-
-        if(mqttClient) {
-            try {
-                const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase;
-                await mqttClient.publishDeviceState({
-                    device,
-                    triggered,
-                    console: logger,
-                    resettAllClasses: false,
-                }).finally(() => this.mqttReportInProgress = false);
-            } catch (e) {
-                logger.log(`Error in reportDetectionsToMqtt`, e);
-            }
-        }
-    }
-
     async startListeners() {
         const logger = this.getLogger();
 
@@ -215,7 +194,21 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 // this.lastDetection = now;
                 logger.log(`Sensor triggered: ${triggered}`);
 
-                this.reportTriggerToMqtt({ triggered })
+                const mqttClient = await this.plugin.getMqttClient();
+
+                if (mqttClient) {
+                    try {
+                        const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase;
+                        await mqttClient.publishDeviceState({
+                            device,
+                            triggered,
+                            console: logger,
+                            resettAllClasses: false,
+                        }).finally(() => this.mqttReportInProgress = false);
+                    } catch (e) {
+                        logger.log(`Error in reportDetectionsToMqtt`, e);
+                    }
+                }
 
                 if (triggered) {
                     const { isDoorbell } = await this.plugin.getLinkedCamera(this.name);
