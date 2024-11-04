@@ -1,9 +1,9 @@
 {
-   "name": "@apocaliss92/scrypted-homeassistant-utilities",
-   "description": "Homeassistant utilities created for Scrypted",
+   "name": "@apocaliss92/scrypted-advanced-notifier",
+   "description": "Advanced notifier rule based with connections to MQTT and Homeassistant",
    "repository": {
       "type": "git",
-      "url": "https://github.com/apocaliss92/scrypted-homeassistant-utilities"
+      "url": "https://github.com/apocaliss92/scrypted-advanced-notifier"
    },
    "version": "1.0.0-beta.2",
    "scripts": {

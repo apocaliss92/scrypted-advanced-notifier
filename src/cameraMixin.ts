@@ -481,13 +481,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             watch: true,
         }, async (_, __, data) => {
             if (!data) {
-                logger.log(`Motion end triggered by the device.`);
+                if (detection) {
+                    logger.log(`Motion end triggered by the device.`);
+                }
                 await report(false);
             }
         });
 
         this.motionTimeout = setTimeout(async () => {
-            logger.log(`Motion end triggered automatically after ${minDelayTime}s.`);
+            if (detection) {
+                logger.log(`Motion end triggered automatically after ${minDelayTime}s.`);
+            }
             await report(false);
         }, minDelayTime * 1000);
     }
@@ -646,7 +650,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 if (image) {
                     const imageUrl = await sdk.mediaManager.convertMediaObjectToLocalUrl(image, 'image/jpg');
-                    logger.log(`Updating webook last image URL: ${imageUrl}`);
+                    logger.debug(`Updating webook last image URL: ${imageUrl}`);
                     this.storageSettings.putSetting('lastSnapshotImageUrl', imageUrl);
                 }
             }

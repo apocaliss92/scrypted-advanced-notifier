@@ -894,7 +894,8 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             match,
             image,
             shouldNotify,
-            disabledNotifiers = []
+            disabledNotifiers = [],
+            candidates,
         } = props;
         const triggerDevice = systemManager.getDeviceById(triggerDeviceId) as unknown as DeviceInterface;
         const cameraDevice = await this.getCameraDevice(triggerDevice);
@@ -955,7 +956,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         }
 
         if (match) {
-            logger.log(`${notifiersPassed.length} notified: ${JSON.stringify({ notifiersPassed, match })}`);
+            logger.log(`${notifiersPassed.length} notifiers notified: ${JSON.stringify({ notifiersPassed, match, candidates })}`);
         }
     };
 
