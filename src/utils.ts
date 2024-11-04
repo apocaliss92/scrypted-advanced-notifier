@@ -419,11 +419,13 @@ export const getMixinBaseSettings = (name: string, type: ScryptedDeviceType) => 
         room: {
             title: 'Room',
             type: 'string',
+            immediate: true,
         },
         entityId: {
             title: 'EntityID',
             type: 'string',
-            defaultValue: getDefaultEntityId(name)
+            defaultValue: getDefaultEntityId(name),
+            immediate: true,
         },
         haDeviceClass: {
             title: 'Device class',
