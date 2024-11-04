@@ -609,7 +609,6 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
     }
 
     putSetting(key: string, value: SettingValue): Promise<void> {
-        this.console.log(key, value);
         return this.storageSettings.putSetting(key, value);
     }
 
