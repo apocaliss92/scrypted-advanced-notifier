@@ -1,9 +1,11 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ScryptedDeviceBase, ScryptedDeviceType } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { EventType, getMixinBaseSettings, getWebookUrls, isDeviceEnabled } from "./utils";
+import { DetectionRule, DetectionRuleActivation, detectionRulesKey, EventType, getDetectionRuleKeys, getDetectionRulesSettings, getDeviceRules, getMixinBaseSettings, getWebookUrls, isDeviceEnabled } from "./utils";
 import { defaultDetectionClasses } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
+import { keyBy } from "lodash";
+import { getDetectionRuleId } from "./mqtt-client";
 
 const { systemManager } = sdk;
 
@@ -24,11 +26,11 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
     isActiveForNotifications: boolean;
     isActiveForMqttReporting: boolean;
     mqttReportInProgress: boolean;
-    // lastDetection: number;
-    // disabledNotifiers: string[] = [];
     logger: Console;
     mqttAutodiscoverySent: boolean;
     killed: boolean;
+    detectionRules: DetectionRule[];
+    rulesDiscovered: string[] = [];
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -60,37 +62,37 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
 
         const funct = async () => {
-            // const useNvrDetections = this.storageSettings.values.useNvrDetections;
-            const useNvrDetections = false;
-            const { isActiveForMqttReporting, isActiveForNotifications, isPluginEnabled } = await isDeviceEnabled(this.name);
+            const deviceSettings = await this.getMixinSettings();
+            const { isActiveForMqttReporting, isPluginEnabled, detectionRules, skippedRules, isActiveForNotifications } = await isDeviceEnabled(this.id, deviceSettings);
 
-            const triggerAlwaysNotification = this.storageSettings.values.triggerAlwaysNotification;
+            logger.debug(`Detected rules: ${JSON.stringify({ detectionRules, skippedRules })}`);
+            this.detectionRules = detectionRules;
 
-            const newIsCameraActiveForNotifications = !useNvrDetections && (isActiveForNotifications || triggerAlwaysNotification);
-            const newIsCameraActiveForMqttReporting = !useNvrDetections && isActiveForMqttReporting;
-
-            if (!isPluginEnabled && (newIsCameraActiveForNotifications || newIsCameraActiveForMqttReporting)) {
-                logger.log('Plugin is not enabled.');
-            }
-
-            this.isActiveForNotifications = isPluginEnabled && newIsCameraActiveForNotifications;
-            this.isActiveForMqttReporting = isPluginEnabled && newIsCameraActiveForMqttReporting;
+            this.isActiveForNotifications = isActiveForNotifications;
+            this.isActiveForMqttReporting = isActiveForMqttReporting;
 
             const isCurrentlyRunning = !!this.detectionListener;
             const shouldRun = this.isActiveForMqttReporting || this.isActiveForNotifications;
 
-            if (newIsCameraActiveForMqttReporting && !this.mqttAutodiscoverySent) {
-                const mqttClient = await this.plugin.getMqttClient()
+            if (isActiveForMqttReporting) {
+                const mqttClient = await this.plugin.getMqttClient();
                 if (mqttClient) {
                     const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase & Settings;
-                    await mqttClient.setupDeviceAutodiscovery({
-                        device,
-                        console: logger,
-                        withDetections: false,
-                        deviceClass: this.storageSettings.getItem('haDeviceClass') || 'window'
-                    });
+                    if (!this.mqttAutodiscoverySent) {
+                        await mqttClient.setupDeviceAutodiscovery({
+                            device,
+                            console: logger,
+                            withDetections: true,
+                            deviceClass: this.storageSettings.values.haDeviceClass || 'window'
+                        });
+                        this.mqttAutodiscoverySent = true;
+                    }
 
-                    this.mqttAutodiscoverySent = true;
+                    const missingRules = detectionRules.filter(rule => !this.rulesDiscovered.includes(getDetectionRuleId(rule)));
+                    if (missingRules.length) {
+                        await mqttClient.discoverDetectionRules({ console: logger, device, rules: missingRules });
+                        this.rulesDiscovered.push(...missingRules.map(rule => getDetectionRuleId(rule)))
+                    }
                 }
             }
 
@@ -99,18 +101,11 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 this.resetListeners();
             } else if (!isCurrentlyRunning && shouldRun) {
                 logger.log(`Starting ${ScryptedInterface.BinarySensor} listeners: ${JSON.stringify({
-                    notificationsActive: newIsCameraActiveForNotifications,
-                    mqttReportsActive: newIsCameraActiveForMqttReporting,
-                    useNvrDetections,
+                    notificationsActive: isActiveForNotifications,
+                    mqttReportsActive: isActiveForMqttReporting,
                     isPluginEnabled,
-                    isCurrentlyRunning,
-                    shouldRun,
                 })}`);
-                try {
-                    await this.startListeners();
-                } catch (e) {
-                    logger.log('error in main loop', e);
-                }
+                await this.startListeners();
             }
         };
 
@@ -144,6 +139,14 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
     async getMixinSettings(): Promise<Setting[]> {
         const settings: Setting[] = await this.storageSettings.getSettings();
+
+
+        const detectionRulesSettings = await getDetectionRulesSettings({
+            storage: this.storageSettings,
+            groupName: 'Advanced notifier detection rules',
+        });
+        settings.push(...detectionRulesSettings);
+
         return settings;
     }
 
@@ -204,6 +207,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                             triggered,
                             console: logger,
                             resettAllClasses: false,
+                            allRuleIds: []
                         }).finally(() => this.mqttReportInProgress = false);
                     } catch (e) {
                         logger.log(`Error in reportDetectionsToMqtt`, e);
@@ -211,16 +215,17 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 }
 
                 if (triggered) {
-                    const { isDoorbell } = await this.plugin.getLinkedCamera(this.name);
+                    const { isDoorbell } = await this.plugin.getLinkedCamera(this.id);
 
-                    this.plugin.matchDetectionFound({
-                        triggerDeviceId: this.id,
-                        logger,
-                        eventType: isDoorbell ? EventType.Doorbell : EventType.Contact,
-                        triggerTime: now,
-                        shouldNotify: this.isActiveForNotifications,
-                        disabledNotifiers: this.storageSettings.values.disabledNotifiers,
-                    });
+                    for (const rule of this.detectionRules) {
+                        this.plugin.matchDetectionFound({
+                            triggerDeviceId: this.id,
+                            logger,
+                            eventType: isDoorbell ? EventType.Doorbell : EventType.Contact,
+                            triggerTime: now,
+                            rule,
+                        });
+                    }
                 }
 
             } catch (e) {

@@ -1,9 +1,10 @@
 import sdk, { Camera, MediaObject, NotifierOptions, ObjectDetectionResult, ScryptedDeviceBase, ScryptedDeviceType, Setting, Settings } from "@scrypted/sdk"
-import { StorageSettingsDict } from "@scrypted/sdk/storage-settings";
+import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { keyBy, sortBy, uniq, uniqBy } from "lodash";
 const { endpointManager } = sdk;
 import { scrypted } from '../package.json';
 import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detecionClasses";
+import HomeAssistantUtilitiesProvider from "./main";
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Settings;
 
@@ -217,7 +218,6 @@ export const getIsDetectionValid = async (device: DeviceInterface, notifier: Dev
     const whitelistedZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:whitelistedZones')?.value ?? []) as string[];
     const blacklistedZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:blacklistedZones')?.value ?? []) as string[];
     const scoreThreshold = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:scoreThreshold')?.value as number) || 0.7;
-    const alwaysZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:alwaysZones')?.value ?? []) as string[];
     const notifierAlwaysClassnames = (notifierSettings?.find(setting => setting.key === 'homeassistantNotifierMetadata:alwaysClassnames')?.value ?? []) as string[];
 
     return (detection: ObjectDetectionResult) => {
@@ -226,18 +226,13 @@ export const getIsDetectionValid = async (device: DeviceInterface, notifier: Dev
         }
         const { className, label, zones = [], score } = detection;
 
-        const scoreToUse = deviceSettings.find(setting => setting.key === `homeassistantMetadata:${detection.className}:scoreThreshold`)?.value as number
-            || scoreThreshold;
-
-
-        const isAlwaysIncluded = alwaysZones.length ? zones.some(zone => alwaysZones.includes(zone)) : false;
         const isIncluded = whitelistedZones.length ? zones.some(zone => whitelistedZones.includes(zone)) : true;
         const isExcluded = blacklistedZones.length ? zones.some(zone => blacklistedZones.includes(zone)) : false;
 
-        const zonesOk = isAlwaysIncluded || (isIncluded && !isExcluded);
+        const zonesOk = (isIncluded && !isExcluded);
         const faceOk = className === 'face' ? !!label : true;
         const motionOk = detectionClasses.length === 1 && detectionClasses[0] === 'motion' ? className === 'motion' : true;
-        const scoreOk = score >= scoreToUse;
+        const scoreOk = score >= scoreThreshold;
         const classNameOk = detectionClasses.includes(className);
 
         let isValid = false;
@@ -260,13 +255,12 @@ export const getIsDetectionValid = async (device: DeviceInterface, notifier: Dev
             zones,
             whitelistedZones,
             blacklistedZones,
-            alwaysZones,
-            isAlwaysIncluded,
             isIncluded,
             isExcluded,
             zonesOk,
 
             score,
+            scoreThreshold,
             scoreOk,
         }
 
@@ -404,9 +398,8 @@ export type MixinBaseSettingKey =
     | 'haDeviceClass'
     | 'useNvrDetections'
     | 'useNvrImages'
-    | 'triggerAlwaysNotification'
     | 'haActions'
-    | 'disabledNotifiers'
+    | typeof detectionRulesKey
 
 export const getMixinBaseSettings = (name: string, type: ScryptedDeviceType) => {
     const settings: StorageSettingsDict<MixinBaseSettingKey> = {
@@ -450,13 +443,6 @@ export const getMixinBaseSettings = (name: string, type: ScryptedDeviceType) => 
             hide: true,
         },
         // NOTIFIER
-        triggerAlwaysNotification: {
-            title: 'Always enabled',
-            description: 'Enable to always check this entity for notifications, regardles of it\'s activation',
-            subgroup: 'Notifier',
-            type: 'boolean',
-            defaultValue: false,
-        },
         haActions: {
             title: 'HA actions',
             description: 'Actions to show on the notification, i.e. {"action":"open_door","title":"Open door","icon":"sfsymbols:door"}',
@@ -464,14 +450,15 @@ export const getMixinBaseSettings = (name: string, type: ScryptedDeviceType) => 
             type: 'string',
             multiple: true
         },
-        disabledNotifiers: {
-            subgroup: 'Notifier',
-            title: 'Disabled notifiers',
-            type: 'device',
+        [detectionRulesKey]: {
+            title: 'Rules',
+            group: 'Advanced notifier detection rules',
+            type: 'string',
             multiple: true,
             combobox: true,
-            deviceFilter: `(type === '${ScryptedDeviceType.Notifier}')`,
-        },
+            defaultValue: [],
+            choices: [],
+        }
     };
 
     return settings;
@@ -479,20 +466,26 @@ export const getMixinBaseSettings = (name: string, type: ScryptedDeviceType) => 
 
 export const mainPluginName = scrypted.name;
 
-export const isDeviceEnabled = async (deviceName: string) => {
+export const isDeviceEnabled = async (deviceId: string, deviceSettings: Setting[]) => {
     const mainPluginDevice = sdk.systemManager.getDeviceByName(mainPluginName) as unknown as Settings;
     const mainSettings = await mainPluginDevice.getSettings();
-    const mainSettingsDic = keyBy(mainSettings, 'key');
+    const mainSettingsByKey = keyBy(mainSettings, 'key');
 
-    const isPluginEnabled = mainSettingsDic.pluginEnabled.value as boolean;
-    const isMqttActive = mainSettingsDic.mqttEnabled.value as boolean;
-    const isActiveForNotifications = (mainSettingsDic.activeDevicesForNotifications?.value as string || []).includes(deviceName);
-    const isActiveForMqttReporting = isMqttActive && (mainSettingsDic.activeDevicesForReporting?.value as string || []).includes(deviceName);
+
+    const deviceSettingsByKey = keyBy(deviceSettings, 'key');
+    const { detectionRules, skippedRules } = getDeviceRules(deviceId, deviceSettingsByKey, mainSettingsByKey);
+
+    const isPluginEnabled = mainSettingsByKey.pluginEnabled.value as boolean;
+    const isMqttActive = mainSettingsByKey.mqttEnabled.value as boolean;
+    const isActiveForNotifications = isPluginEnabled && !!detectionRules.length;
+    const isActiveForMqttReporting = isPluginEnabled && isMqttActive && (mainSettingsByKey.activeDevicesForReporting?.value as string || []).includes(deviceId);
 
     return {
         isPluginEnabled,
         isActiveForNotifications,
         isActiveForMqttReporting,
+        detectionRules,
+        skippedRules,
     }
 }
 
@@ -534,12 +527,14 @@ export enum DetectionRuleActivation {
     Schedule = 'Schedule',
 }
 
+export const detectionRulesKey = 'detectionRules';
 export const getDetectionRuleKeys = (detectionRuleName: string) => {
     const enabledKey = `rule:${detectionRuleName}:enabled`;
     const activationKey = `rule:${detectionRuleName}:activation`;
     const detecionClassesKey = `rule:${detectionRuleName}:detecionClasses`;
     const scoreThresholdKey = `rule:${detectionRuleName}:scoreThreshold`;
-    const zonesKey = `rule:${detectionRuleName}:zones`;
+    const whitelistedZonesKey = `rule:${detectionRuleName}:whitelistedZones`;
+    const blacklistedZonesKey = `rule:${detectionRuleName}:blacklistedZones`;
     const devicesKey = `rule:${detectionRuleName}:devices`;
     const notifiersKey = `rule:${detectionRuleName}:notifiers`;
 
@@ -548,8 +543,299 @@ export const getDetectionRuleKeys = (detectionRuleName: string) => {
         activationKey,
         detecionClassesKey,
         scoreThresholdKey,
-        zonesKey,
+        whitelistedZonesKey,
+        blacklistedZonesKey,
         devicesKey,
         notifiersKey,
     }
 }
+
+export const deviceFilter = `(type === '${ScryptedDeviceType.Camera}' || type === '${ScryptedDeviceType.Doorbell}' || type === '${ScryptedDeviceType.Sensor}')`;
+export const notifierFilter = `(type === '${ScryptedDeviceType.Notifier}')`;
+
+export const getDetectionRulesSettings = async (props: {
+    groupName: string,
+    storage: StorageSettings<any>,
+    zones?: string[],
+    withDevices?: boolean;
+    withDetection?: boolean;
+}) => {
+    const { storage, zones, groupName, withDevices, withDetection } = props;
+    const settings: Setting[] = [];
+
+    const currentDetectionRules = storage.getItem(detectionRulesKey);
+
+    for (const detectionRuleName of currentDetectionRules) {
+        const {
+            enabledKey,
+            activationKey,
+            notifiersKey,
+            detecionClassesKey,
+            scoreThresholdKey,
+            whitelistedZonesKey,
+            blacklistedZonesKey,
+            devicesKey,
+        } = getDetectionRuleKeys(detectionRuleName);
+
+        const currentActivation = storage.getItem(activationKey as any) as DetectionRuleActivation;
+
+        settings.push(
+            {
+                key: enabledKey,
+                title: 'Enabled',
+                type: 'boolean',
+                group: groupName,
+                subgroup: detectionRuleName,
+                value: storage.getItem(enabledKey as any) as boolean ?? true,
+                immediate: true
+            },
+            {
+                key: activationKey,
+                title: 'Activation',
+                group: groupName,
+                subgroup: detectionRuleName,
+                combobox: true,
+                choices: [DetectionRuleActivation.Always, DetectionRuleActivation.OnActive],
+                value: currentActivation,
+                immediate: true
+            },
+            {
+                key: detecionClassesKey,
+                title: 'Detection classes',
+                group: groupName,
+                subgroup: detectionRuleName,
+                multiple: true,
+                combobox: true,
+                choices: defaultDetectionClasses,
+                value: JSON.parse(storage.getItem(detecionClassesKey as any) as string ?? '[]')
+            },
+            {
+                key: notifiersKey,
+                title: 'Notifiers',
+                group: groupName,
+                subgroup: detectionRuleName,
+                type: 'device',
+                multiple: true,
+                combobox: true,
+                deviceFilter: notifierFilter,
+                value: JSON.parse(storage.getItem(notifiersKey as any) as string ?? '[]')
+            }
+        );
+
+        if (withDetection) {
+            settings.push(
+                {
+                    key: scoreThresholdKey,
+                    title: 'Score threshold',
+                    group: groupName,
+                    subgroup: detectionRuleName,
+                    type: 'number',
+                    placeholder: '0.7',
+                    value: storage.getItem(scoreThresholdKey as any) as string
+                }
+            );
+        }
+
+        if (zones) {
+            settings.push(
+                {
+                    key: whitelistedZonesKey,
+                    title: 'Whitelisted zones',
+                    group: groupName,
+                    subgroup: detectionRuleName,
+                    multiple: true,
+                    combobox: true,
+                    choices: zones,
+                    value: JSON.parse(storage.getItem(whitelistedZonesKey as any) as string ?? '[]'),
+                    readonly: !zones.length
+                },
+                {
+                    key: blacklistedZonesKey,
+                    title: 'Blacklisted zones',
+                    group: groupName,
+                    subgroup: detectionRuleName,
+                    multiple: true,
+                    combobox: true,
+                    choices: zones,
+                    value: JSON.parse(storage.getItem(blacklistedZonesKey as any) as string ?? '[]'),
+                    readonly: !zones.length
+                },
+            )
+        }
+
+        if (withDevices && currentActivation !== DetectionRuleActivation.OnActive) {
+            settings.push({
+                key: devicesKey,
+                title: 'Devices',
+                description: 'Leave empty to affect all devices',
+                group: groupName,
+                subgroup: detectionRuleName,
+                type: 'device',
+                multiple: true,
+                combobox: true,
+                deviceFilter: deviceFilter,
+                value: JSON.parse(storage.getItem(devicesKey) as string ?? '[]')
+            })
+        }
+    };
+
+    return settings;
+}
+
+export enum DetectionRuleSource {
+    Plugin = 'Plugin',
+    Device = 'Device',
+}
+
+export interface DetectionRule {
+    name: string
+    activationType: DetectionRuleActivation;
+    notifiers: string[];
+    devices: string[];
+    detectionClasses?: DetectionClass[];
+    scoreThreshold?: number;
+    whitelistedZones?: string[];
+    blacklistedZones?: string[];
+    source: DetectionRuleSource;
+}
+
+export const getDeviceRules = (
+    deviceId: string,
+    deviceStorage: Record<string, StorageSetting>,
+    mainPluginStorage: Record<string, StorageSetting>,
+) => {
+    const detectionRules: DetectionRule[] = [];
+    const skippedRules: DetectionRule[] = [];
+
+    const allDeviceIds = mainPluginStorage['activeDevicesForNotifications']?.value as string[] ?? [];
+    const activeNotifiers = mainPluginStorage['notifiers']?.value as string[] ?? [];
+    const onActiveDevices = mainPluginStorage['activeDevicesForNotifications']?.value as string[] ?? [];
+
+    const processRules = (storage: Record<string, StorageSetting>, source: DetectionRuleSource) => {
+        const detectionRuleNames = storage[detectionRulesKey]?.value as string[] ?? [];
+        for (const detectionRuleName of detectionRuleNames) {
+            const {
+                enabledKey,
+                activationKey,
+                notifiersKey,
+                detecionClassesKey,
+                scoreThresholdKey,
+                whitelistedZonesKey,
+                blacklistedZonesKey,
+                devicesKey,
+            } = getDetectionRuleKeys(detectionRuleName);
+
+            const isEnabled = storage[enabledKey]?.value as boolean;
+
+            const notifiers = storage[notifiersKey]?.value as string[] ?? [];
+            const notifiersTouse = notifiers.filter(notifierId => activeNotifiers.includes(notifierId));
+
+
+            const activationType = storage[activationKey]?.value as DetectionRuleActivation;
+            const mainDevices = storage[devicesKey]?.value as string[] ?? [];
+            const devices = source === DetectionRuleSource.Device ? [deviceId] : mainDevices.length ? mainDevices : allDeviceIds;
+            const devicesToUse = activationType === DetectionRuleActivation.OnActive ? onActiveDevices : devices;
+
+            const detectionClasses = storage[detecionClassesKey]?.value as DetectionClass[] ?? [];
+            const scoreThreshold = storage[scoreThresholdKey]?.value as number ?? 0.7;
+
+            const detectionRule: DetectionRule = {
+                source,
+                name: detectionRuleName,
+                activationType,
+                notifiers: notifiersTouse,
+                scoreThreshold,
+                detectionClasses,
+                devices: devicesToUse,
+            }
+
+            if (source === DetectionRuleSource.Device) {
+                const whitelistedZones = storage[whitelistedZonesKey]?.value as string[] ?? [];
+                const blacklistedZones = storage[blacklistedZonesKey]?.value as string[] ?? [];
+
+                detectionRule.whitelistedZones = whitelistedZones;
+                detectionRule.blacklistedZones = blacklistedZones;
+            }
+
+            const ruleAllowed = isEnabled && !!devicesToUse.length && devicesToUse.includes(deviceId) && !!notifiersTouse.length;
+
+            if (!ruleAllowed) {
+                skippedRules.push(detectionRule);
+            } else {
+                detectionRules.push(detectionRule)
+            }
+
+        }
+    };
+
+    processRules(mainPluginStorage, DetectionRuleSource.Plugin);
+    processRules(deviceStorage, DetectionRuleSource.Device);
+
+    return { detectionRules, skippedRules };
+}
+
+// export const periodicDeviceCheckFn = async (props: {
+//     logger: Console,
+//     id: string,
+//     deviceSettings: Setting[];
+//     plugin: HomeAssistantUtilitiesProvider,
+//     isCurrentlyRunning: boolean
+// }) => {
+//     const { deviceSettings, id, logger, plugin, isCurrentlyRunning } = props;
+//     const useNvrDetections = false;
+//     const { isActiveForMqttReporting: currentIsActiveForMqttReporting, isPluginEnabled } = await isDeviceEnabled(id);
+
+//     const deviceSettingsByKey = keyBy(deviceSettings, 'key');
+
+//     const mainSettings = await plugin.getSettings();
+//     const mainSettingsByKey = keyBy(mainSettings, 'key');
+//     const { detectionRules, skippedRules } = getDeviceRules(id, deviceSettingsByKey, mainSettingsByKey);
+//     logger.debug(`Detected rules: ${JSON.stringify({ detectionRules, skippedRules })}`);
+
+//     const newIsCameraActiveForNotifications = !useNvrDetections && (!!detectionRules.length);
+//     const newIsCameraActiveForMqttReporting = !useNvrDetections && currentIsActiveForMqttReporting;
+
+//     if (!isPluginEnabled && (newIsCameraActiveForNotifications || newIsCameraActiveForMqttReporting)) {
+//         logger.log('Plugin is not enabled.');
+//     }
+
+//     const isActiveForNotifications = isPluginEnabled && newIsCameraActiveForNotifications;
+//     const isActiveForMqttReporting = isPluginEnabled && newIsCameraActiveForMqttReporting;
+
+//     const shouldRun = isActiveForMqttReporting || isActiveForNotifications;
+
+//     if (newIsCameraActiveForMqttReporting) {
+//         const mqttClient = await plugin.getMqttClient();
+//         if (mqttClient) {
+//             const device = sdk.systemManager.getDeviceById(id) as unknown as ScryptedDeviceBase & Settings;
+//             if (!this.mqttAutodiscoverySent) {
+//                 await mqttClient.setupDeviceAutodiscovery({
+//                     device,
+//                     console: logger,
+//                     withDetections: true,
+//                     deviceClass: 'motion'
+//                 });
+//                 this.mqttAutodiscoverySent = true;
+//             }
+
+//             const missingRules = detectionRules.filter(rule => !this.rulesDiscovered.includes(getDetectionRuleId(rule)));
+//             if (missingRules.length) {
+//                 await mqttClient.discoverDetectionRules({ console: logger, device, rules: missingRules });
+//                 this.rulesDiscovered.push(...missingRules.map(rule => getDetectionRuleId(rule)))
+//             }
+//         }
+//     }
+
+//     if (isCurrentlyRunning && !shouldRun) {
+//         logger.log('Stopping and cleaning listeners.');
+//         this.resetListeners();
+//     } else if (!isCurrentlyRunning && shouldRun) {
+//         logger.log(`Starting  ${ScryptedInterface.ObjectDetector} listeners: ${JSON.stringify({
+//             notificationsActive: newIsCameraActiveForNotifications,
+//             mqttReportsActive: newIsCameraActiveForMqttReporting,
+//             useNvrDetections,
+//             isPluginEnabled,
+//         })}`);
+//         await this.startListeners();
+//     }
+// };

@@ -1,7 +1,7 @@
 import { connect, Client } from 'mqtt';
 import { ObjectDetectionResult, ScryptedDeviceBase } from '@scrypted/sdk';
 import { defaultDetectionClasses, detectionClassesDefaultMap, isLabelDetection, parentDetectionClassMap } from './detecionClasses';
-import { firstUpperCase } from './utils';
+import { DetectionRule, firstUpperCase } from './utils';
 import { groupBy } from 'lodash';
 
 interface MqttEntity {
@@ -38,6 +38,8 @@ const deviceClassMqttEntities: MqttEntity[] = defaultDetectionClasses.flatMap(cl
 });
 
 const deviceClassMqttEntitiesGrouped = groupBy(deviceClassMqttEntities, entry => entry.className);
+
+export const getDetectionRuleId = (rule: DetectionRule) => `${rule.source}_${rule.name.replace(/\s/g, '')}`;
 
 export default class MqttClient {
     mqttClient: Client;
@@ -215,6 +217,40 @@ export default class MqttClient {
         }
     }
 
+    async discoverDetectionRules(props: {
+        device: ScryptedDeviceBase,
+        console: Console,
+        rules?: DetectionRule[],
+    }) {
+        const { device, console, rules } = props;
+        const { name, id } = device;
+
+        const mqttdevice = {
+            ids: `${idPrefix}-${id}`,
+            name: `${namePrefix} ${name}`
+        };
+
+        const { getDiscoveryTopic, getEntityTopic } = this.getMqttTopicTopics(device);
+
+        for (const rule of rules) {
+            const entity = getDetectionRuleId(rule);
+            const topic = getEntityTopic(entity);
+
+            const config: any = {
+                dev: mqttdevice,
+                unique_id: `${idPrefix}-${id}-${entity}`,
+                name: `${rule.source} - ${rule.name} Triggered`,
+                object_id: `${device.name}_${entity}`,
+                device_class: 'motion',
+                payload_on: 'true',
+                payload_off: 'false',
+                state_topic: topic,
+            };
+
+            await this.publish(console, getDiscoveryTopic('binary_sensor', entity), JSON.stringify(config));
+        }
+    }
+
     async publishDeviceState(props: {
         device: ScryptedDeviceBase,
         console: Console,
@@ -223,8 +259,10 @@ export default class MqttClient {
         detection?: ObjectDetectionResult,
         resettAllClasses?: boolean,
         ignoreMainEntity?: boolean,
+        rule?: DetectionRule,
+        allRuleIds: string[]
     }) {
-        const { device, triggered, console, detection, b64Image, resettAllClasses, ignoreMainEntity } = props;
+        const { device, triggered, console, detection, b64Image, resettAllClasses, ignoreMainEntity, rule, allRuleIds } = props;
         try {
             const detectionClass = detection?.className ? detectionClassesDefaultMap[detection.className] : undefined;
             const triggeredEntity = mqttEntities.filter(entity => entity.entity === 'triggered');
@@ -268,6 +306,10 @@ export default class MqttClient {
                         await this.publish(console, getEntityTopic(entity), value, retain);
                     }
                 }
+
+                if (rule) {
+                    await this.publish(console, getEntityTopic(getDetectionRuleId(rule)), true, true);
+                }
             }
 
             if (detection) {
@@ -298,6 +340,7 @@ export default class MqttClient {
             }
 
             if (resettAllClasses) {
+                // Resetting all detection classes
                 for (const entry of deviceClassMqttEntities) {
                     const { entity } = entry;
 
@@ -305,6 +348,13 @@ export default class MqttClient {
                         await this.publish(console, getEntityTopic(entity), false);
                     }
                 }
+
+                // Resetting all the rule triggers
+                for (const ruleId of allRuleIds) {
+                    await this.publish(console, getEntityTopic(ruleId), false);
+                }
+
+                // Resetting main trigger
                 await this.publish(console, getEntityTopic(triggeredEntity[0].entity), false);
             }
         } catch (e) {

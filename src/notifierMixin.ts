@@ -20,15 +20,6 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
             type: 'number',
             defaultValue: 720,
         },
-        alwaysClassnames: {
-            title: 'Always enabled classnames',
-            description: 'Detection classes that will always trigger a notification, regardless of the device is active or not in the main selector',
-            multiple: true,
-            combobox: true,
-            subgroup: 'Notifier',
-            choices: defaultDetectionClasses,
-            defaultValue: [],
-        },
         ...getTextSettings(true) as any
     });
 
