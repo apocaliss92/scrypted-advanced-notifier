@@ -519,7 +519,8 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         const detectionRulesSettings = await getDetectionRulesSettings({
             storage: this.storageSettings,
             groupName: 'Detection rules',
-            withDevices: true
+            withDevices: true,
+            withDetection: true,
         });
         settings.push(...detectionRulesSettings);
 

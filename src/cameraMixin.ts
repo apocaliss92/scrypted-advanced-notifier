@@ -425,7 +425,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         const isIncluded = whitelistedZones.length ? !!matchingZone : true;
                         const isExcluded = blacklistedZones.length ? zones.some(zone => blacklistedZones.includes(zone)) : false;
 
-                        zonesOk = (isIncluded && !isExcluded);
+                        zonesOk = isIncluded && !isExcluded;
 
                         dataToReport = {
                             ...dataToReport,

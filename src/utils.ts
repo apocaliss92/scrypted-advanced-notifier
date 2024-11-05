@@ -608,17 +608,6 @@ export const getDetectionRulesSettings = async (props: {
                 combobox: true,
                 choices: defaultDetectionClasses,
                 value: JSON.parse(storage.getItem(detecionClassesKey as any) as string ?? '[]')
-            },
-            {
-                key: notifiersKey,
-                title: 'Notifiers',
-                group: groupName,
-                subgroup: detectionRuleName,
-                type: 'device',
-                multiple: true,
-                combobox: true,
-                deviceFilter: notifierFilter,
-                value: JSON.parse(storage.getItem(notifiersKey as any) as string ?? '[]')
             }
         );
 
@@ -635,6 +624,19 @@ export const getDetectionRulesSettings = async (props: {
                 }
             );
         }
+
+        settings.push(
+            {
+                key: notifiersKey,
+                title: 'Notifiers',
+                group: groupName,
+                subgroup: detectionRuleName,
+                type: 'device',
+                multiple: true,
+                combobox: true,
+                deviceFilter: notifierFilter,
+                value: JSON.parse(storage.getItem(notifiersKey as any) as string ?? '[]')
+            });
 
         if (zones) {
             settings.push(
