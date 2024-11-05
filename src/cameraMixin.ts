@@ -11,7 +11,7 @@ const { systemManager } = sdk;
 const snapshotWidth = 1280;
 const snapshotHeight = 720;
 
-interface MatchRule { match: ObjectDetectionResult, rule: DetectionRule, dataToReport: any, matchingZone?: string }
+interface MatchRule { match: ObjectDetectionResult, rule: DetectionRule, dataToReport: any }
 
 export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> implements Settings {
     storageSettings = new StorageSettings(this, {
@@ -69,7 +69,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     killed: boolean;
     nvrEnabled: boolean = true;
     nvrMixinId: string;
-    observeZones: string[];
     detectionRules: DetectionRule[];
     rulesDiscovered: string[] = [];
     detectionClassListeners: Record<string, {
@@ -205,17 +204,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { lastSnapshotCloudUrl, lastSnapshotLocalUrl } = await getWebookUrls(this.name, console);
         this.storageSettings.putSetting('lastSnapshotWebhookCloudUrl', lastSnapshotCloudUrl);
         this.storageSettings.putSetting('lastSnapshotWebhookLocalUrl', lastSnapshotLocalUrl);
+    }
 
+    async getObserveZones() {
         const settings = await this.mixinDevice.getSettings();
         const zonesSetting = settings.find((setting: { key: string; }) => new RegExp('objectdetectionplugin:.*:zones').test(setting.key))?.value ?? [];
 
-        const filteredZones = zonesSetting.filter(zone => {
+        return zonesSetting.filter(zone => {
             const zoneFilterMode = settings.find((setting: { key: string; }) => new RegExp(`objectdetectionplugin:.*:zoneinfo-filterMode-${zone}`).test(setting.key))?.value;
 
             return zoneFilterMode === 'observe';
 
         });
-        this.observeZones = filteredZones;
     }
 
     async getMixinSettings(): Promise<Setting[]> {
@@ -233,7 +233,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const detectionRulesSettings = await getDetectionRulesSettings({
             storage: this.storageSettings,
-            zones: this.observeZones,
+            zones: await this.getObserveZones(),
             groupName: 'Advanced notifier detection rules',
             withDetection: true,
         });
@@ -403,7 +403,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             minDelayTime,
             ignoreCameraDetections,
         } = this.storageSettings.values;
-        
+
         const candidates = filterAndSortValidDetections(detections ?? [], logger);
 
         if (this.isActiveForMqttReporting) {
@@ -420,7 +420,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             for (const rule of this.detectionRules) {
                 const { detectionClasses, scoreThreshold, whitelistedZones, blacklistedZones } = rule;
 
-                let matchingZone;
                 const match = candidates.find(d => {
                     if (ignoreCameraDetections && !d.boundingBox) {
                         return false;
@@ -460,8 +459,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                     let zonesOk = true;
                     if (rule.source === DetectionRuleSource.Device) {
-                        matchingZone = zones.find(zone => whitelistedZones.includes(zone));
-                        const isIncluded = whitelistedZones.length ? !!matchingZone : true;
+                        const isIncluded = whitelistedZones.length ? zones.some(zone => whitelistedZones.includes(zone)) : true;
                         const isExcluded = blacklistedZones.length ? zones.some(zone => blacklistedZones.includes(zone)) : false;
 
                         zonesOk = isIncluded && !isExcluded;
@@ -483,13 +481,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 });
 
                 if (match) {
-                    matchRules.push({ match, rule, dataToReport, matchingZone })
+                    matchRules.push({ match, rule, dataToReport })
                 }
             }
 
             for (const matchRule of matchRules) {
                 try {
-                    const { match, rule, matchingZone } = matchRule;
+                    const { match, rule } = matchRule;
                     const lastDetectionkey = this.getLastDetectionkey(match);
                     const lastDetection = this.lastDetectionMap[lastDetectionkey];
                     if (lastDetection && (now - lastDetection) < 1000 * minDelayTime) {
@@ -528,7 +526,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         rule,
                         eventType: EventType.ObjectDetection,
                         triggerTime,
-                        zone: matchingZone
                     })})}`);
                     this.plugin.matchDetectionFound({
                         triggerDeviceId: this.id,
@@ -538,7 +535,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         logger,
                         eventType: EventType.ObjectDetection,
                         triggerTime,
-                        zone: matchingZone
                     });
 
                 } catch (e) {

@@ -167,25 +167,6 @@ export enum NotificationSource {
     DETECTION = 'DETECTION'
 }
 
-export interface GetNotificationTextProps {
-    device: DeviceInterface,
-    detectionTime: number,
-    detection?: ObjectDetectionResult,
-    notifierId: string,
-    externalUrl: string,
-    textKey: string,
-    notifierSettings: Setting[],
-}
-
-export interface ExecuteReportProps {
-    currentTime: number,
-    deviceName: string,
-    detections: ObjectDetectionResult[],
-    device: DeviceInterface
-    b64Image?: string,
-    logger: Console
-}
-
 const classnamePrio = {
     face: 1,
     plate: 2,
@@ -229,6 +210,9 @@ export type TextSettingKey =
     | 'doorWindowText'
     | 'doorbellText'
     | 'packageText'
+    | 'personText'
+    | 'vehicleText'
+    | 'animalText'
     | 'onlineText'
     | 'offlineText';
 
@@ -322,7 +306,8 @@ export const getTextSettings = (forMixin: boolean) => {
             type: 'string',
             description: 'Expression used to render the text when a device comes back onlin. Available arguments $[time}',
             defaultValue: !forMixin ? 'Back online at ${time}' : undefined,
-            placeholder: !forMixin ? 'Back online at ${time}' : undefined
+            placeholder: !forMixin ? 'Back online at ${time}' : undefined,
+            hide: true
         },
         offlineText: {
             [groupKey]: 'Texts',
@@ -330,7 +315,35 @@ export const getTextSettings = (forMixin: boolean) => {
             type: 'string',
             description: 'Expression used to render the text when a device goes onlin. Available arguments $[time}',
             defaultValue: !forMixin ? 'Went offline at ${time}' : undefined,
-            placeholder: !forMixin ? 'Went offline at ${time}' : undefined
+            placeholder: !forMixin ? 'Went offline at ${time}' : undefined,
+            hide: true
+        },
+        personText: {
+            group: 'Texts',
+            subgroup: 'Detection classes',
+            title: 'Person text',
+            type: 'string',
+            defaultValue: 'Person',
+            placeholder: 'Person',
+            hide: forMixin
+        },
+        animalText: {
+            group: 'Texts',
+            subgroup: 'Detection classes',
+            title: 'Animal text',
+            type: 'string',
+            defaultValue: 'Animal',
+            placeholder: 'Animal',
+            hide: forMixin
+        },
+        vehicleText: {
+            group: 'Texts',
+            subgroup: 'Detection classes',
+            title: 'Vehicle text',
+            type: 'string',
+            defaultValue: 'Vehicle',
+            placeholder: 'Vehicle',
+            hide: forMixin
         }
     }
 
@@ -477,6 +490,7 @@ export const detectionRulesKey = 'detectionRules';
 export const getDetectionRuleKeys = (detectionRuleName: string) => {
     const enabledKey = `rule:${detectionRuleName}:enabled`;
     const activationKey = `rule:${detectionRuleName}:activation`;
+    const textKey = `rule:${detectionRuleName}:text`;
     const detecionClassesKey = `rule:${detectionRuleName}:detecionClasses`;
     const scoreThresholdKey = `rule:${detectionRuleName}:scoreThreshold`;
     const whitelistedZonesKey = `rule:${detectionRuleName}:whitelistedZones`;
@@ -490,6 +504,7 @@ export const getDetectionRuleKeys = (detectionRuleName: string) => {
     return {
         enabledKey,
         activationKey,
+        textKey,
         detecionClassesKey,
         scoreThresholdKey,
         whitelistedZonesKey,
@@ -522,6 +537,7 @@ export const getDetectionRulesSettings = async (props: {
         const {
             enabledKey,
             activationKey,
+            textKey,
             notifiersKey,
             detecionClassesKey,
             scoreThresholdKey,
@@ -554,6 +570,15 @@ export const getDetectionRulesSettings = async (props: {
                 choices: [DetectionRuleActivation.Always, DetectionRuleActivation.OnActive, DetectionRuleActivation.Schedule],
                 value: currentActivation,
                 immediate: true
+            },
+            {
+                key: textKey,
+                title: 'Custom text',
+                description: 'Available arguments ${room} $[time} ${nvrLink} ${zone} ${class} ${label}',
+                group: groupName,
+                subgroup: detectionRuleName,
+                value: storage.getItem(textKey),
+                type: 'string',
             },
             {
                 key: detecionClassesKey,
@@ -590,6 +615,7 @@ export const getDetectionRulesSettings = async (props: {
                 type: 'device',
                 multiple: true,
                 combobox: true,
+                deviceFilter: notifierFilter,
                 value: JSON.parse(storage.getItem(notifiersKey as any) as string ?? '[]')
             });
 
@@ -688,6 +714,7 @@ export interface DetectionRule {
     whitelistedZones?: string[];
     blacklistedZones?: string[];
     source: DetectionRuleSource;
+    customText?: string;
 }
 
 export const getDeviceRules = (
@@ -717,6 +744,7 @@ export const getDeviceRules = (
                 dayKey,
                 endTimeKey,
                 startTimeKey,
+                textKey,
             } = getDetectionRuleKeys(detectionRuleName);
 
             const isEnabled = storage[enabledKey]?.value as boolean;
@@ -725,6 +753,7 @@ export const getDeviceRules = (
             const notifiersTouse = notifiers.filter(notifierId => activeNotifiers.includes(notifierId));
 
             const activationType = storage[activationKey]?.value as DetectionRuleActivation;
+            const customText = storage[textKey]?.value as string || undefined;
             const mainDevices = storage[devicesKey]?.value as string[] ?? [];
             const devices = source === DetectionRuleSource.Device ? [deviceId] : mainDevices.length ? mainDevices : allDeviceIds;
             const devicesToUse = activationType === DetectionRuleActivation.OnActive ? onActiveDevices : devices;
@@ -740,6 +769,7 @@ export const getDeviceRules = (
                 scoreThreshold,
                 detectionClasses,
                 devices: devicesToUse,
+                customText,
             }
 
             if (source === DetectionRuleSource.Device) {

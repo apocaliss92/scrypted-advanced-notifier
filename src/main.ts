@@ -3,10 +3,11 @@ import axios from "axios";
 import { isEqual, keyBy, sortBy } from 'lodash';
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import MqttClient from './mqtt-client';
-import { DeviceInterface, ExecuteReportProps, GetNotificationTextProps, NotificationSource, getWebookSpecs, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE } from "./utils";
+import { DeviceInterface, NotificationSource, getWebookSpecs, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE } from "./utils";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
+import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 
 const { systemManager } = sdk;
 
@@ -787,7 +788,6 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         eventType: EventType,
         triggerDeviceId: string,
         triggerTime: number,
-        zone?: string
     }) => {
         const {
             eventType,
@@ -797,7 +797,6 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             match,
             image,
             rule,
-            zone,
         } = props;
         const triggerDevice = systemManager.getDeviceById(triggerDeviceId) as unknown as DeviceInterface;
         const cameraDevice = await this.getCameraDevice(triggerDevice);
@@ -823,7 +822,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
                     keepImage: !!image,
                     logger,
                     notifierSettings,
-                    zone
+                    customText: rule.customText
                 });
 
                 notifiersPassed.push(notifier.name);
@@ -891,27 +890,47 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
     }
 
     private async getNotificationText(
-        props: GetNotificationTextProps
+        props: {
+            device: DeviceInterface,
+            detectionTime: number,
+            detection?: ObjectDetectionResult,
+            notifierId: string,
+            externalUrl: string,
+            textKey: string,
+            customText?: string,
+            notifierSettings: Setting[],
+        }
     ) {
-        const { detection, detectionTime, notifierId, device, externalUrl, textKey, notifierSettings } = props;
-        const detectionLabel = detection?.label;
+        const { detection, detectionTime, notifierId, device, externalUrl, textKey, notifierSettings, customText } = props;
+        const { label, className, zones } = detection ?? {};
 
         const roomName = this.deviceRoomMap[device.id];
 
-        const notifierSettingsByKey = keyBy(notifierSettings, 'key');
+        let textToUse;
+        if (customText) {
+            textToUse = customText
+        } else {
+            const notifierSettingsByKey = keyBy(notifierSettings, 'key');
+            textToUse = notifierSettingsByKey[`homeassistantMetadata:${textKey}`]?.value || this.storageSettings.getItem(textKey as any);
+        }
 
-        const textToUse = notifierSettingsByKey[`homeassistantMetadata:${textKey}`]?.value || this.storageSettings.getItem(textKey as any);
-
-
+        const classNameParsed = detectionClassesDefaultMap[className];
         const detectionTimeText = this.storageSettings.getItem(`notifier:${notifierId}:detectionTimeText` as any) || this.storageSettings.getItem('detectionTimeText');
+        const detectionClassText = classNameParsed === DetectionClass.Person ? this.storageSettings.getItem('personText') :
+            className === DetectionClass.Animal ? this.storageSettings.getItem('animalText') :
+                className === DetectionClass.Vehicle ? this.storageSettings.getItem('vehicleText') :
+                    className
         const time = eval(detectionTimeText.replace('${time}', detectionTime));
 
         return textToUse.toString()
             .replace('${time}', time)
             .replace('${nvrLink}', externalUrl)
-            .replace('${person}', detectionLabel)
-            .replace('${plate}', detectionLabel)
-            .replace('${room}', roomName);
+            .replace('${person}', label ?? '')
+            .replace('${plate}', label ?? '')
+            .replace('${label}', label ?? '')
+            .replace('${class}', detectionClassText)
+            .replace('${zone}', zones?.[0] ?? '')
+            .replace('${room}', roomName ?? '');
     }
 
     async notifyCamera(props: {
@@ -922,11 +941,11 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         image?: MediaObject,
         detection?: ObjectDetectionResult
         textKey: string,
+        customText?: string,
         source?: NotificationSource,
         keepImage?: boolean,
         notifierSettings: Setting[],
         logger: Console,
-        zone?: string
     }) {
         const {
             triggerDevice,
@@ -940,7 +959,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             keepImage,
             logger,
             notifierSettings,
-            zone,
+            customText,
         } = props;
 
         const device = cameraDevice ?? await this.getCameraDevice(triggerDevice);
@@ -962,7 +981,8 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             notifierId,
             textKey,
             device: triggerDevice,
-            notifierSettings
+            notifierSettings,
+            customText
         });
 
         const notifierSnapshotWidth = this.storageSettings.getItem(`notifier:${notifierId}:snapshotWidth` as any);
@@ -981,7 +1001,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         const notifierOptions: NotifierOptions = {
             body: message,
             data: {
-                letGo: true,
+                // letGo: true,
                 ha: {
                     url: haUrl,
                     clickAction: haUrl,
@@ -991,8 +1011,10 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         }
 
         let title = (triggerDevice ?? device).name;
-        if(zone) {
-            title += ` (${zone})`;
+
+        // TODO: Add configurations to this or not?
+        if (detection.zones[0]) {
+            title += ` (${detection.zones[0]})`;
         }
 
         logger.log(`Finally sending notification ${time} to ${notifier.name}. ${JSON.stringify({
@@ -1045,17 +1067,24 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         return systemManager.getDeviceById(linkedCameraId) as unknown as DeviceInterface;
     }
 
-    async executeReport(props: ExecuteReportProps) {
-        const { currentTime, detections, device, b64Image, logger } = props;
+    // async executeReport(props: {
+    //     currentTime: number,
+    //     deviceName: string,
+    //     detections: ObjectDetectionResult[],
+    //     device: DeviceInterface
+    //     b64Image?: string,
+    //     logger: Console
+    // }) {
+    //     const { currentTime, detections, device, b64Image, logger } = props;
 
-        await this.mqttClient.publishRelevantDetections({
-            detections,
-            device,
-            triggerTime: currentTime,
-            console: logger,
-            b64Image,
-        })
-    }
+    //     await this.mqttClient.publishRelevantDetections({
+    //         detections,
+    //         device,
+    //         triggerTime: currentTime,
+    //         console: logger,
+    //         b64Image,
+    //     })
+    // }
 
     // private async addBoundingToImage(boundingBox: number[], imageBuffer: Buffer, console: Console) {
     //     console.log(`Trying to add boundingBox ${boundingBox}`);
