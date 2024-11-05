@@ -1,12 +1,12 @@
-import { Notifier, ScryptedDeviceType, NotifierOptions, MediaObject, Setting, Settings } from "@scrypted/sdk";
+import { NotifierOptions, MediaObject, Setting, Settings } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import { getTextSettings } from "./utils";
-import { defaultDetectionClasses } from "./detecionClasses";
+import HomeAssistantUtilitiesProvider from "./main";
 
 export type SendNotificationToPluginFn = (notifierId: string, title: string, options?: NotifierOptions, media?: MediaObject, icon?: MediaObject | string) => Promise<void>
 
-export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> implements Settings, Notifier {
+export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> implements Settings {
     storageSettings = new StorageSettings(this, {
         snapshotWidth: {
             subgroup: 'Notifier',
@@ -25,7 +25,7 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
-        private sendNotificationToPlugin: SendNotificationToPluginFn
+        public plugin: HomeAssistantUtilitiesProvider
     ) {
         super(options);
     }
@@ -40,12 +40,12 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
         this.storage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
     }
 
-    async sendNotification(title: string, options?: NotifierOptions, media?: MediaObject, icon?: MediaObject | string): Promise<void> {
-        if (options?.data?.letGo) {
-            this.mixinDevice.sendNotification(title, options, media, icon);
-            return;
-        }
+    // async sendNotification(title: string, options?: NotifierOptions, media?: MediaObject, icon?: MediaObject | string): Promise<void> {
+    //     if (options?.data?.letGo) {
+    //         this.mixinDevice.sendNotification(title, options, media, icon);
+    //         return;
+    //     }
 
-        this.sendNotificationToPlugin(this.id, title, options, media, icon);
-    }
+    //     this.sendNotificationToPlugin(this.id, title, options, media, icon);
+    // }
 }

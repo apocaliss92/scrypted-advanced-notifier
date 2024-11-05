@@ -877,9 +877,10 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
                 this
             );
         } else if (mixinDeviceInterfaces.includes(ScryptedInterface.Notifier)) {
-            return new AdvancedNotifierNotifierMixin({
-                ...props,
-            }, this.sendNotificationToPlugin.bind(this));
+            return new AdvancedNotifierNotifierMixin(
+                props,
+                this
+            );
         }
     }
 
