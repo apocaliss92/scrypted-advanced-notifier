@@ -1,7 +1,7 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ScryptedDeviceBase, ScryptedDeviceType } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled } from "./utils";
 import HomeAssistantUtilitiesProvider from "./main";
 import { getDetectionRuleId } from "./mqtt-client";
 
@@ -35,6 +35,8 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         public plugin: HomeAssistantUtilitiesProvider
     ) {
         super(options);
+
+        setTimeout(() => !this.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE) && this.interfaces.push(ADVANCED_NOTIFIER_INTERFACE), 0);
 
         this.storageSettings.settings.room.onGet = async () => {
             const rooms = this.plugin.storageSettings.getItem('fetchedRooms');
@@ -216,6 +218,11 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                     const { isDoorbell } = await this.plugin.getLinkedCamera(this.id);
 
                     for (const rule of this.detectionRules) {
+                        logger.log(`Starting notifiers: ${JSON.stringify({
+                            eventType: isDoorbell ? EventType.Doorbell : EventType.Contact,
+                            triggerTime: now,
+                            rule,
+                        })})}`);
                         this.plugin.matchDetectionFound({
                             triggerDeviceId: this.id,
                             logger,

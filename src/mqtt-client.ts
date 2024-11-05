@@ -256,7 +256,7 @@ export default class MqttClient {
         resettAllClasses?: boolean,
         ignoreMainEntity?: boolean,
         rule?: DetectionRule,
-        allRuleIds: string[]
+        allRuleIds?: string[]
     }) {
         const { device, triggered, console, detection, b64Image, resettAllClasses, ignoreMainEntity, rule, allRuleIds } = props;
         try {
@@ -346,8 +346,10 @@ export default class MqttClient {
                 }
 
                 // Resetting all the rule triggers
-                for (const ruleId of allRuleIds) {
-                    await this.publish(console, getEntityTopic(ruleId), false);
+                if (allRuleIds) {
+                    for (const ruleId of allRuleIds) {
+                        await this.publish(console, getEntityTopic(ruleId), false);
+                    }
                 }
 
                 // Resetting main trigger
@@ -361,40 +363,53 @@ export default class MqttClient {
     async publishRelevantDetections(props: {
         device: ScryptedDeviceBase,
         console: Console,
-        detections: ObjectDetectionResult[],
+        detections?: ObjectDetectionResult[],
         triggerTime: number,
         b64Image?: string,
+        reset?: boolean
     }) {
-        const { device, detections, triggerTime, console, b64Image } = props;
+        const { device, detections, triggerTime, console, b64Image, reset } = props;
         try {
-            for (const detection of detections) {
-                const detectionClass = detectionClassesDefaultMap[detection.className];
-                if (detectionClass) {
-                    const entitiesToPublish = deviceClassMqttEntitiesGrouped[detectionClass];
-                    console.debug(`Relevant detections to publish: ${JSON.stringify({ detections, entitiesToPublish })}`);
+            const { getEntityTopic } = this.getMqttTopicTopics(device);
 
-                    const { getEntityTopic } = this.getMqttTopicTopics(device);
+            if (detections) {
+                for (const detection of detections) {
+                    const detectionClass = detectionClassesDefaultMap[detection.className];
+                    if (detectionClass) {
+                        const entitiesToPublish = deviceClassMqttEntitiesGrouped[detectionClass];
+                        console.debug(`Relevant detections to publish: ${JSON.stringify({ detections, entitiesToPublish })}`);
 
-                    for (const entry of entitiesToPublish) {
-                        const { entity } = entry;
-                        let value: any;
-                        let retain: true;
+                        for (const entry of entitiesToPublish) {
+                            const { entity } = entry;
+                            let value: any;
+                            let retain: true;
 
-                        if (entity.includes('Detected')) {
-                            value = true;
-                        } else if (entity.includes('LastLabel')) {
-                            value = detection?.label || null;
-                        } else if (entity.includes('LastImage') && b64Image) {
-                            value = b64Image || null;
-                            retain = true;
+                            if (entity.includes('Detected')) {
+                                value = true;
+                            } else if (entity.includes('LastLabel')) {
+                                value = detection?.label || null;
+                            } else if (entity.includes('LastImage') && b64Image) {
+                                value = b64Image || null;
+                                retain = true;
+                            }
+
+                            if (value) {
+                                await this.publish(console, getEntityTopic(entity), value, retain);
+                            }
                         }
-
-                        if (value) {
-                            await this.publish(console, getEntityTopic(entity), value, retain);
-                        }
+                    } else {
+                        console.log(`${detectionClass} not found`);
                     }
-                } else {
-                    console.log(`${detectionClass} not found`);
+                }
+            }
+
+            if (reset) {
+                for (const entry of deviceClassMqttEntities) {
+                    const { entity } = entry;
+
+                    if (entity.includes('Detected')) {
+                        await this.publish(console, getEntityTopic(entity), false);
+                    }
                 }
             }
         } catch (e) {

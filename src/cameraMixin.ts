@@ -1,7 +1,7 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DetectionRule, DetectionRuleSource, EventType, filterAndSortValidDetections, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, DetectionRule, DetectionRuleSource, EventType, filterAndSortValidDetections, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled } from "./utils";
 import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { getDetectionRuleId } from "./mqtt-client";
@@ -58,8 +58,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     });
 
     detectionListener: EventListenerRegister;
-    motionListener: EventListenerRegister;
-    motionTimeout: NodeJS.Timeout;
+    mqttDetectionMotionTimeout: NodeJS.Timeout;
     mainLoopListener: NodeJS.Timeout;
     isActiveForNotifications: boolean;
     isActiveForMqttReporting: boolean;
@@ -73,12 +72,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     observeZones: string[];
     detectionRules: DetectionRule[];
     rulesDiscovered: string[] = [];
+    detectionClassListeners: Record<string, {
+        motionTimeout: NodeJS.Timeout;
+        motionListener: EventListenerRegister
+    }> = {};
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
         public plugin: HomeAssistantUtilitiesProvider
     ) {
         super(options);
+
+        setTimeout(() => !this.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE) && this.interfaces.push(ADVANCED_NOTIFIER_INTERFACE), 0);
 
         this.storageSettings.settings.room.onGet = async () => {
             const rooms = this.plugin.storageSettings.getItem('fetchedRooms');
@@ -167,11 +172,23 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }, 5000);
     }
 
-    resetTimeouts() {
-        this.motionTimeout && clearTimeout(this.motionTimeout);
-        this.motionTimeout = undefined;
-        this.motionListener?.removeListener && this.motionListener.removeListener();
-        this.motionListener = undefined;
+    resetTimeouts(detectionClass?: string) {
+        if (detectionClass) {
+            const { motionListener, motionTimeout } = this.detectionClassListeners[detectionClass] ?? {};
+
+            motionTimeout && clearTimeout(motionTimeout);
+            motionListener?.removeListener && motionListener.removeListener();
+
+            this.detectionClassListeners[detectionClass] = { motionListener: undefined, motionTimeout: undefined };
+        } else {
+            Object.keys(this.detectionClassListeners).forEach(detectionClass => {
+                const { motionListener, motionTimeout } = this.detectionClassListeners[detectionClass] ?? {};
+                motionTimeout && clearTimeout(motionTimeout);
+                motionListener?.removeListener && motionListener.removeListener();
+
+                this.detectionClassListeners[detectionClass] = { motionListener: undefined, motionTimeout: undefined };
+            });
+        }
     }
 
     resetListeners() {
@@ -255,14 +272,24 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         return this.logger;
     }
 
-    async reportDetectionsToMqtt(detections: ObjectDetectionResult[], triggerTime: number, logger: Console) {
+    async reportDetectionsToMqtt(props: {
+        detections: ObjectDetectionResult[],
+        triggerTime: number,
+        logger: Console,
+        device: ScryptedDeviceBase,
+    }) {
+        const { detections, device, logger, triggerTime } = props;
         if (!this.mqttReportInProgress) {
+
+            this.mqttDetectionMotionTimeout && clearTimeout(this.mqttDetectionMotionTimeout);
+
             this.mqttReportInProgress = true;
             const mqttClient = await this.plugin.getMqttClient();
 
             if (mqttClient) {
+                const minDelayTime = this.storageSettings.values.minDelayTime;
+
                 try {
-                    const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase;
                     await mqttClient.publishRelevantDetections({
                         console: logger,
                         detections,
@@ -272,26 +299,34 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 } catch (e) {
                     logger.log(`Error in reportDetectionsToMqtt`, e);
                 }
+
+                this.mqttDetectionMotionTimeout = setTimeout(async () => {
+                    await mqttClient.publishRelevantDetections({
+                        console: logger,
+                        device,
+                        triggerTime,
+                        reset: true
+                    });
+                }, minDelayTime * 1000);
             }
         }
     }
 
-    async triggerMotion(props: { matchRule: MatchRule, image?: MediaObject }) {
+    async triggerMotion(props: { matchRule: MatchRule, image?: MediaObject, device: ScryptedDeviceBase }) {
         const logger = this.getLogger();
         try {
-            const { matchRule, image } = props;
+            const { matchRule, image, device } = props;
+            const { match: { className } } = matchRule;
 
             const b64Image = image ? (await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg'))?.toString('base64') : undefined;
 
             const report = async (triggered: boolean) => {
                 logger.log(`Stopping listeners.`);
-                this.resetTimeouts();
+                this.resetTimeouts(className);
                 const mqttClient = await this.plugin.getMqttClient();
 
                 if (mqttClient) {
                     try {
-                        const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase;
-                        // for (const { match, rule } of matchRules) {
                         const { match, rule } = matchRule;
                         await mqttClient.publishDeviceState({
                             device,
@@ -300,11 +335,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             b64Image,
                             detection: match,
                             resettAllClasses: !triggered,
-                            // ignoreMainEntity: noMatches,
                             rule,
                             allRuleIds: this.rulesDiscovered,
                         });
-                        // }
                         this.mqttReportInProgress = false
                     } catch (e) {
                         logger.log(`Error in reportDetectionsToMqtt`, e);
@@ -317,7 +350,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const minDelayTime = this.storageSettings.values.minDelayTime;
 
             logger.log(`Starting listeners.`);
-            this.motionListener = systemManager.listenDevice(this.id, {
+            const motionListener = systemManager.listenDevice(this.id, {
                 event: ScryptedInterface.MotionSensor,
                 watch: true,
             }, async (_, __, data) => {
@@ -327,10 +360,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
             });
 
-            this.motionTimeout = setTimeout(async () => {
+            const motionTimeout = setTimeout(async () => {
                 logger.log(`Motion end triggered automatically after ${minDelayTime}s.`);
                 await report(false);
             }, minDelayTime * 1000);
+
+            this.detectionClassListeners[className] = {
+                motionListener,
+                motionTimeout
+            }
         } catch (e) {
             logger.log('error in trigger', e);
         }
@@ -351,6 +389,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     public async processDetections(props: { detections: ObjectDetectionResult[], triggerTime: number }) {
+        const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase;
         const { detections, triggerTime } = props;
         const logger = this.getLogger();
 
@@ -364,11 +403,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             minDelayTime,
             ignoreCameraDetections,
         } = this.storageSettings.values;
-
+        
         const candidates = filterAndSortValidDetections(detections ?? [], logger);
 
         if (this.isActiveForMqttReporting) {
-            this.reportDetectionsToMqtt(candidates, triggerTime, logger);
+            this.reportDetectionsToMqtt({ detections: candidates, triggerTime, logger, device });
         }
 
         let dataToReport = {};
@@ -475,14 +514,22 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
 
                     if (this.isActiveForMqttReporting) {
-                        this.triggerMotion({ matchRule, image });
+                        this.triggerMotion({ matchRule, image, device });
                     }
 
 
                     logger.log(`Matching detections found: ${JSON.stringify({
                         matchRulesMap: matchRules,
+                        candidates,
                     })}`);
 
+                    logger.log(`Starting notifiers: ${JSON.stringify({
+                        match,
+                        rule,
+                        eventType: EventType.ObjectDetection,
+                        triggerTime,
+                        zone: matchingZone
+                    })})}`);
                     this.plugin.matchDetectionFound({
                         triggerDeviceId: this.id,
                         match,

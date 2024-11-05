@@ -1,14 +1,12 @@
-import sdk, { HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, Setting, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import axios from "axios";
-import { isEqual, keyBy, mixin, sortBy } from 'lodash';
+import { isEqual, keyBy, sortBy } from 'lodash';
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import MqttClient from './mqtt-client';
-import { DeviceInterface, ExecuteReportProps, GetNotificationTextProps, NotifyCameraProps, NotificationSource, getWebookSpecs, getTextSettings, getTextKey, EventType, DetectionRuleActivation, getDetectionRuleKeys, detectionRulesKey, getDetectionRulesSettings, deviceFilter, notifierFilter, DetectionRule } from "./utils";
-import sharp, { bool } from 'sharp';
+import { DeviceInterface, ExecuteReportProps, GetNotificationTextProps, NotifyCameraProps, NotificationSource, getWebookSpecs, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE } from "./utils";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
-import { defaultDetectionClasses, detectionClassesDefaultMap } from "./detecionClasses";
 
 const { systemManager } = sdk;
 
@@ -237,7 +235,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             await this.refreshDevicesLinks();
             await this.setupMqttClient();
 
-            setInterval(this.refreshDevicesLinks, 5000);
+            setInterval(async () => await this.refreshDevicesLinks(), 5000);
         } catch (e) {
             this.getLogger().log(`Error in initFLow`, e);
         }
@@ -400,8 +398,6 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         const localIp = (await sdk.endpointManager.getLocalAddresses())[0];
         this.storageSettings.putSetting('localIp', localIp);
         this.getLogger().log(`Local IP found: ${localIp}`);
-
-        this.storageSettings.settings.testMessage.choices = Object.keys(getTextSettings(false)).map(key => key);
     }
 
     private async refreshDevicesLinks() {
@@ -412,14 +408,9 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         const deviceVideocameraMap: Record<string, string> = {};
         const deviceRoomMap: Record<string, string> = {};
 
-        const allDevices = Object.entries(systemManager.getSystemState()).filter(([deviceId]) => {
-            const { mixins, type } = systemManager.getDeviceById(deviceId) as unknown as (DeviceInterface);
-
-            return mixins?.includes(this.id) && type !== ScryptedDeviceType.Notifier;
-        }).map(([deviceId]) => systemManager.getDeviceById(deviceId) as unknown as (DeviceInterface))
-
-
+        const allDevices = getElegibleDevices().devices;
         for (const device of allDevices) {
+            // this.console.log(JSON.stringify(device.interfaces).includes(ADVANCED_NOTIFIER_INTERFACE));
             const deviceId = device.id;
             const deviceType = device.type;
             const settings = await device.getSettings();
@@ -434,27 +425,11 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
                 deviceHaEntityMap[deviceId] = haEntityId;
                 haEntityDeviceMap[haEntityId] = deviceId;
 
-                // if (deviceType === ScryptedDeviceType.Camera || deviceType === ScryptedDeviceType.Doorbell) {
-                // const nearbySensors = settings.find(setting => setting.key === 'recording:nearbySensors')?.value as string[] ?? [];
-                // const nearbyLocks = settings.find(setting => setting.key === 'recording:nearbyLocks')?.value as string[] ?? [];
-
-                // const deviceLinkedSensors = [...nearbySensors, ...nearbyLocks];
-
-                //     if (deviceLinkedSensors.length) {
-                //         for (const sensorId of deviceLinkedSensors) {
-                //             const sensorDevice = systemManager.getDeviceById(sensorId);
-                //             deviceVideocameraMap[sensorDevice.id] = deviceId;
-                //         }
-                //     }
-                // }
-
                 if (deviceType === ScryptedDeviceType.Doorbell) {
                     const doorbellButtonId = settings.find(setting => setting.key === 'replaceBinarySensor:replaceBinarySensor')?.value as string;
                     if (doorbellButtonId) {
-                        const sensorDevice = systemManager.getDeviceById(doorbellButtonId);
-                        const sensorId = sensorDevice.name;
-                        doorbellDevices.push(sensorId);
-                        deviceVideocameraMap[sensorId] = deviceId;
+                        doorbellDevices.push(doorbellButtonId);
+                        deviceVideocameraMap[doorbellButtonId] = deviceId;
                     }
                 }
 
@@ -513,6 +488,16 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             this.storageSettings.settings.mqttActiveEntitiesTopic.hide = false;
             this.storageSettings.settings.useMqttPluginCredentials.hide = false;
         }
+
+        const { devices, notifiers } = getElegibleDevices();
+        const deviceIds = devices.map(device => device.id);
+        const notifierIds = notifiers.map(device => device.id);
+        // this.storageSettings.settings.activeDevicesForReporting.choices = deviceIds;
+        // this.storageSettings.settings.notifiers.choices = notifierIds;
+        // this.storageSettings.settings.testDevice.choices = deviceIds;
+        // this.storageSettings.settings.activeDevicesForNotifications.choices = deviceIds;
+
+        this.storageSettings.settings.testMessage.choices = Object.keys(getTextSettings(false)).map(key => key);
 
         const settings: Setting[] = await this.storageSettings.getSettings();
 

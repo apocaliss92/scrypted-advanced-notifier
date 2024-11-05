@@ -2,11 +2,33 @@ import sdk, { Camera, MediaObject, NotifierOptions, ObjectDetectionResult, Scryp
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { keyBy, sortBy, uniq, uniqBy } from "lodash";
 const { endpointManager } = sdk;
-import { scrypted } from '../package.json';
+import { scrypted, name } from '../package.json';
 import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detecionClasses";
-import HomeAssistantUtilitiesProvider from "./main";
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Settings;
+export const ADVANCED_NOTIFIER_INTERFACE = name;
+
+export const getElegibleDevices = () => {
+    const pluginDevice = sdk.systemManager.getDeviceByName(scrypted.name);
+
+    const notifiers: DeviceInterface[] = [];
+    const devices: DeviceInterface[] = [];
+
+    Object.entries(sdk.systemManager.getSystemState()).filter(([deviceId]) => {
+        const { mixins, type } = sdk.systemManager.getDeviceById(deviceId) as unknown as (DeviceInterface);
+
+        return mixins?.includes(pluginDevice.id);
+    }).map(([deviceId]) => sdk.systemManager.getDeviceById(deviceId) as unknown as (DeviceInterface))
+        .forEach(device => {
+            if (device.type == ScryptedDeviceType.Notifier) {
+                notifiers.push(device);
+            } else {
+                devices.push(device);
+            }
+        });
+
+    return { notifiers, devices };
+}
 
 export enum EventType {
     ObjectDetection = 'ObjectDetection',
@@ -208,68 +230,6 @@ export const filterAndSortValidDetections = (detections: ObjectDetectionResult[]
     });
 
     return filteredByValidity;
-}
-
-export const getIsDetectionValid = async (device: DeviceInterface, notifier: DeviceInterface, console?: Console) => {
-    const deviceSettings = await device.getSettings();
-    const notifierSettings = await notifier?.getSettings();
-
-    const detectionClasses = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:detectionClasses')?.value ?? []) as string[];
-    const whitelistedZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:whitelistedZones')?.value ?? []) as string[];
-    const blacklistedZones = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:blacklistedZones')?.value ?? []) as string[];
-    const scoreThreshold = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:scoreThreshold')?.value as number) || 0.7;
-    const notifierAlwaysClassnames = (notifierSettings?.find(setting => setting.key === 'homeassistantNotifierMetadata:alwaysClassnames')?.value ?? []) as string[];
-
-    return (detection: ObjectDetectionResult) => {
-        if (!detection) {
-            return {};
-        }
-        const { className, label, zones = [], score } = detection;
-
-        const isIncluded = whitelistedZones.length ? zones.some(zone => whitelistedZones.includes(zone)) : true;
-        const isExcluded = blacklistedZones.length ? zones.some(zone => blacklistedZones.includes(zone)) : false;
-
-        const zonesOk = (isIncluded && !isExcluded);
-        const faceOk = className === 'face' ? !!label : true;
-        const motionOk = detectionClasses.length === 1 && detectionClasses[0] === 'motion' ? className === 'motion' : true;
-        const scoreOk = score >= scoreThreshold;
-        const classNameOk = detectionClasses.includes(className);
-
-        let isValid = false;
-        if (notifierAlwaysClassnames?.length && notifierAlwaysClassnames.includes(className)) {
-            isValid = faceOk && scoreOk && classNameOk;
-        } else {
-            isValid = zonesOk && faceOk && motionOk && scoreOk && classNameOk;
-        }
-
-        const data: any = {
-            detectionClasses,
-            className,
-            classNameOk,
-            notifierAlwaysClassnames,
-
-            label,
-            faceOk,
-            motionOk,
-
-            zones,
-            whitelistedZones,
-            blacklistedZones,
-            isIncluded,
-            isExcluded,
-            zonesOk,
-
-            score,
-            scoreThreshold,
-            scoreOk,
-        }
-
-        if (isValid && console) {
-            console.log(`Valid detection found: ${JSON.stringify(data)}`)
-        }
-
-        return { isValid, data };
-    }
 }
 
 export type TextSettingKey =
@@ -537,6 +497,9 @@ export const getDetectionRuleKeys = (detectionRuleName: string) => {
     const blacklistedZonesKey = `rule:${detectionRuleName}:blacklistedZones`;
     const devicesKey = `rule:${detectionRuleName}:devices`;
     const notifiersKey = `rule:${detectionRuleName}:notifiers`;
+    const dayKey = `rule:${detectionRuleName}:day`;
+    const startTimeKey = `rule:${detectionRuleName}:startTime`;
+    const endTimeKey = `rule:${detectionRuleName}:endTime`;
 
     return {
         enabledKey,
@@ -547,9 +510,14 @@ export const getDetectionRuleKeys = (detectionRuleName: string) => {
         blacklistedZonesKey,
         devicesKey,
         notifiersKey,
+        dayKey,
+        startTimeKey,
+        endTimeKey,
     }
 }
 
+// export const deviceFilter = `(interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && (type === '${ScryptedDeviceType.Camera}' || type === '${ScryptedDeviceType.Doorbell}' || type === '${ScryptedDeviceType.Sensor}'))`;
+// export const notifierFilter = `(type === '${ScryptedDeviceType.Notifier}' && interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}'))`;
 export const deviceFilter = `(type === '${ScryptedDeviceType.Camera}' || type === '${ScryptedDeviceType.Doorbell}' || type === '${ScryptedDeviceType.Sensor}')`;
 export const notifierFilter = `(type === '${ScryptedDeviceType.Notifier}')`;
 
@@ -564,7 +532,6 @@ export const getDetectionRulesSettings = async (props: {
     const settings: Setting[] = [];
 
     const currentDetectionRules = storage.getItem(detectionRulesKey);
-
     for (const detectionRuleName of currentDetectionRules) {
         const {
             enabledKey,
@@ -575,6 +542,9 @@ export const getDetectionRulesSettings = async (props: {
             whitelistedZonesKey,
             blacklistedZonesKey,
             devicesKey,
+            dayKey,
+            endTimeKey,
+            startTimeKey
         } = getDetectionRuleKeys(detectionRuleName);
 
         const currentActivation = storage.getItem(activationKey as any) as DetectionRuleActivation;
@@ -595,7 +565,7 @@ export const getDetectionRulesSettings = async (props: {
                 group: groupName,
                 subgroup: detectionRuleName,
                 combobox: true,
-                choices: [DetectionRuleActivation.Always, DetectionRuleActivation.OnActive],
+                choices: [DetectionRuleActivation.Always, DetectionRuleActivation.OnActive, DetectionRuleActivation.Schedule],
                 value: currentActivation,
                 immediate: true
             },
@@ -634,7 +604,6 @@ export const getDetectionRulesSettings = async (props: {
                 type: 'device',
                 multiple: true,
                 combobox: true,
-                deviceFilter: notifierFilter,
                 value: JSON.parse(storage.getItem(notifiersKey as any) as string ?? '[]')
             });
 
@@ -666,6 +635,8 @@ export const getDetectionRulesSettings = async (props: {
         }
 
         if (withDevices && currentActivation !== DetectionRuleActivation.OnActive) {
+            // const elegibleDevice = getElegibleDevices();
+
             settings.push({
                 key: devicesKey,
                 title: 'Devices',
@@ -675,9 +646,41 @@ export const getDetectionRulesSettings = async (props: {
                 type: 'device',
                 multiple: true,
                 combobox: true,
-                deviceFilter: deviceFilter,
-                value: JSON.parse(storage.getItem(devicesKey) as string ?? '[]')
-            })
+                value: JSON.parse(storage.getItem(devicesKey) as string ?? '[]'),
+                deviceFilter
+                // choices: elegibleDevice.devices.map(device => device.id)
+            });
+        }
+
+        if (currentActivation === DetectionRuleActivation.Schedule) {
+            settings.push({
+                key: dayKey,
+                title: 'Day',
+                description: 'Leave empty to affect all days',
+                group: groupName,
+                subgroup: detectionRuleName,
+                type: 'day',
+                multiple: true,
+                value: JSON.parse(storage.getItem(dayKey as any) as string ?? '[]'),
+            });
+            settings.push({
+                key: startTimeKey,
+                title: 'Start time',
+                group: groupName,
+                subgroup: detectionRuleName,
+                type: 'time',
+                multiple: true,
+                value: storage.getItem(startTimeKey),
+            });
+            settings.push({
+                key: endTimeKey,
+                title: 'End time',
+                group: groupName,
+                subgroup: detectionRuleName,
+                type: 'time',
+                multiple: true,
+                value: storage.getItem(endTimeKey),
+            });
         }
     };
 
@@ -725,6 +728,9 @@ export const getDeviceRules = (
                 whitelistedZonesKey,
                 blacklistedZonesKey,
                 devicesKey,
+                dayKey,
+                endTimeKey,
+                startTimeKey,
             } = getDetectionRuleKeys(detectionRuleName);
 
             const isEnabled = storage[enabledKey]?.value as boolean;
@@ -732,14 +738,13 @@ export const getDeviceRules = (
             const notifiers = storage[notifiersKey]?.value as string[] ?? [];
             const notifiersTouse = notifiers.filter(notifierId => activeNotifiers.includes(notifierId));
 
-
             const activationType = storage[activationKey]?.value as DetectionRuleActivation;
             const mainDevices = storage[devicesKey]?.value as string[] ?? [];
             const devices = source === DetectionRuleSource.Device ? [deviceId] : mainDevices.length ? mainDevices : allDeviceIds;
             const devicesToUse = activationType === DetectionRuleActivation.OnActive ? onActiveDevices : devices;
 
             const detectionClasses = storage[detecionClassesKey]?.value as DetectionClass[] ?? [];
-            const scoreThreshold = storage[scoreThresholdKey]?.value as number ?? 0.7;
+            const scoreThreshold = Number(storage[scoreThresholdKey]?.value || 0.7);
 
             const detectionRule: DetectionRule = {
                 source,
@@ -759,7 +764,45 @@ export const getDeviceRules = (
                 detectionRule.blacklistedZones = blacklistedZones;
             }
 
-            const ruleAllowed = isEnabled && !!devicesToUse.length && devicesToUse.includes(deviceId) && !!notifiersTouse.length;
+            let timeAllowed = true;
+
+            if (activationType === DetectionRuleActivation.Schedule) {
+                const days = storage[dayKey]?.value as number[] ?? [];
+                const startTime = Number(storage[startTimeKey]?.value);
+                const endTime = Number(storage[endTimeKey]?.value);
+
+                const currentDate = new Date();
+                const currentDay = currentDate.getDay();
+
+                const dayOk = !days.length || days.includes(currentDay);
+                if (!dayOk) {
+                    timeAllowed = false;
+                } else {
+                    const parseDate = (time: number) => {
+                        const timeDate = new Date(time);
+
+                        const newTimeDate = new Date();
+                        newTimeDate.setHours(timeDate.getHours());
+                        newTimeDate.setMinutes(timeDate.getMinutes());
+                        newTimeDate.setSeconds(0);
+                        newTimeDate.setMilliseconds(0);
+
+                        return {
+                            newDate: newTimeDate,
+                            newTimeDate: newTimeDate.getTime()
+                        }
+                    }
+
+                    const { newTimeDate: startTimeParsed, newDate: a1 } = parseDate(startTime);
+                    const { newTimeDate: endTimeParsed, newDate: a2 } = parseDate(endTime);
+
+                    const currentTime = currentDate.getTime();
+                    timeAllowed = currentTime > startTimeParsed && currentTime < endTimeParsed;
+                }
+
+            }
+
+            const ruleAllowed = isEnabled && !!devicesToUse.length && devicesToUse.includes(deviceId) && !!notifiersTouse.length && timeAllowed;
 
             if (!ruleAllowed) {
                 skippedRules.push(detectionRule);

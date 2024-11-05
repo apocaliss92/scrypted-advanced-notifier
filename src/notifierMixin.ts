@@ -1,7 +1,7 @@
 import { NotifierOptions, MediaObject, Setting, Settings } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { getTextSettings } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, getTextSettings } from "./utils";
 import HomeAssistantUtilitiesProvider from "./main";
 
 export type SendNotificationToPluginFn = (notifierId: string, title: string, options?: NotifierOptions, media?: MediaObject, icon?: MediaObject | string) => Promise<void>
@@ -28,6 +28,9 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
         public plugin: HomeAssistantUtilitiesProvider
     ) {
         super(options);
+
+        setTimeout(() => !this.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE) && this.interfaces.push(ADVANCED_NOTIFIER_INTERFACE), 0);
+
     }
 
     async getMixinSettings(): Promise<Setting[]> {
