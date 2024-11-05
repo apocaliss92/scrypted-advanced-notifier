@@ -3,7 +3,7 @@ import axios from "axios";
 import { isEqual, keyBy, sortBy } from 'lodash';
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import MqttClient from './mqtt-client';
-import { DeviceInterface, ExecuteReportProps, GetNotificationTextProps, NotifyCameraProps, NotificationSource, getWebookSpecs, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE } from "./utils";
+import { DeviceInterface, ExecuteReportProps, GetNotificationTextProps, NotificationSource, getWebookSpecs, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE } from "./utils";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
@@ -797,10 +797,10 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             match,
             image,
             rule,
+            zone,
         } = props;
         const triggerDevice = systemManager.getDeviceById(triggerDeviceId) as unknown as DeviceInterface;
         const cameraDevice = await this.getCameraDevice(triggerDevice);
-        // const notifiers = this.storageSettings.getItem('notifiers') as string[];
 
         const textKey = getTextKey({ eventType, classname: match?.className });
 
@@ -823,6 +823,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
                     keepImage: !!image,
                     logger,
                     notifierSettings,
+                    zone
                 });
 
                 notifiersPassed.push(notifier.name);
@@ -913,7 +914,20 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             .replace('${room}', roomName);
     }
 
-    async notifyCamera(props: NotifyCameraProps) {
+    async notifyCamera(props: {
+        cameraDevice?: DeviceInterface,
+        triggerDevice: DeviceInterface,
+        notifierId: string,
+        time: number,
+        image?: MediaObject,
+        detection?: ObjectDetectionResult
+        textKey: string,
+        source?: NotificationSource,
+        keepImage?: boolean,
+        notifierSettings: Setting[],
+        logger: Console,
+        zone?: string
+    }) {
         const {
             triggerDevice,
             cameraDevice,
@@ -925,7 +939,8 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             source,
             keepImage,
             logger,
-            notifierSettings
+            notifierSettings,
+            zone,
         } = props;
 
         const device = cameraDevice ?? await this.getCameraDevice(triggerDevice);
@@ -975,7 +990,10 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             },
         }
 
-        const title = (triggerDevice ?? device).name;
+        let title = (triggerDevice ?? device).name;
+        if(zone) {
+            title += ` (${zone})`;
+        }
 
         logger.log(`Finally sending notification ${time} to ${notifier.name}. ${JSON.stringify({
             source,

@@ -167,20 +167,6 @@ export enum NotificationSource {
     DETECTION = 'DETECTION'
 }
 
-export interface NotifyCameraProps {
-    cameraDevice?: DeviceInterface,
-    triggerDevice: DeviceInterface,
-    notifierId: string,
-    time: number,
-    image?: MediaObject,
-    detection?: ObjectDetectionResult
-    textKey: string,
-    source?: NotificationSource,
-    keepImage?: boolean,
-    notifierSettings: Setting[],
-    logger: Console,
-}
-
 export interface GetNotificationTextProps {
     device: DeviceInterface,
     detectionTime: number,
