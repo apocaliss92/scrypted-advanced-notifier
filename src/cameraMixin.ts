@@ -1,10 +1,9 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DetectionRule, DetectionRuleSource, EventType, filterAndSortValidDetections, getDetectionRulesSettings, getDeviceRules, getMixinBaseSettings, getWebookUrls, isDeviceEnabled } from "./utils";
+import { DetectionRule, DetectionRuleSource, EventType, filterAndSortValidDetections, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled } from "./utils";
 import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
-import { keyBy } from "lodash";
 import { getDetectionRuleId } from "./mqtt-client";
 
 const { systemManager } = sdk;
