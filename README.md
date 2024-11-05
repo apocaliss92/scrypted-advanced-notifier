@@ -3,8 +3,9 @@
 https://github.com/apocaliss92/scrypted-advanced-notifier - For requests and bugs
 
 TODOs
-- Add detected zone somewhere In the texts
-- Implement schedule activation
+- People tracking
+- Battery reporting
+- HA actions rule based
 - Add activation conditions for a rule
 - Snooze notifier-camera-class
 - Tester of detections
