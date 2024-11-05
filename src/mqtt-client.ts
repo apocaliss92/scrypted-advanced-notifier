@@ -57,17 +57,13 @@ export default class MqttClient {
     }
 
     async disconnect() {
-        return new Promise((r, f) => {
-            if (this.mqttClient) {
-                try {
-                    this.mqttClient.end(false, undefined, () => r(true))
-                } catch (e) {
-                    f(e);
-                }
-            } else {
-                r(true);
+        if (this.mqttClient) {
+            try {
+                this.mqttClient.end(true);
+            } catch (e) {
+                this.console.log('Error closing MQTT connection', e);
             }
-        });
+        }
     }
 
     async getMqttClient(console: Console, forceReconnect?: boolean): Promise<Client> {

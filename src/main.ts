@@ -125,6 +125,9 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             title: 'Active entities topic',
             group: 'MQTT',
             description: 'Topic containing the active entities, will trigger the related devices activation for notifications',
+            onPut: async () => {
+                await this.setupMqttClient();
+            },
         },
         activeDevicesForReporting: {
             group: 'MQTT',
@@ -308,7 +311,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             const logger = this.getLogger();
 
             if (this.mqttClient) {
-                await this.mqttClient.disconnect();
+                this.mqttClient.disconnect();
                 this.mqttClient = undefined;
             }
 
@@ -345,6 +348,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
                 await this.mqttClient.getMqttClient(logger, true);
 
                 if (mqttActiveEntitiesTopic) {
+                    this.getLogger().log(`Subscribing to ${mqttActiveEntitiesTopic}`);
                     await this.mqttClient.subscribeToHaTopics(mqttActiveEntitiesTopic, this.getLogger(), async (topic, message) => {
                         if (topic === mqttActiveEntitiesTopic) {
                             this.getLogger().log(`Received update for ${topic} topic: ${JSON.stringify(message)}`);
