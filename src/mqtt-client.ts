@@ -12,8 +12,8 @@ interface MqttEntity {
     key?: string,
 }
 
-const idPrefix = 'scrypted-advanced-notifier';
-const namePrefix = 'Scrypted advanced notifier';
+const idPrefix = 'scrypted-an';
+const namePrefix = 'Scrypted AN';
 
 const mqttEntities: MqttEntity[] = [
     { entity: 'triggered', name: 'Notification triggered', domain: 'binary_sensor' },

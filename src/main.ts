@@ -1013,7 +1013,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         let title = (triggerDevice ?? device).name;
 
         // TODO: Add configurations to this or not?
-        if (detection.zones[0]) {
+        if (detection?.zones?.[0]) {
             title += ` (${detection.zones[0]})`;
         }
 

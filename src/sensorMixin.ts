@@ -10,6 +10,13 @@ const { systemManager } = sdk;
 export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> implements Settings {
     storageSettings = new StorageSettings(this, {
         ...getMixinBaseSettings(this.name, this.type),
+        minDelayTime: {
+            subgroup: 'Notifier',
+            title: 'Minimum notification delay',
+            description: 'Minimum amount of seconds to wait until a notification is sent. Set 0 to disable',
+            type: 'number',
+            defaultValue: 0,
+        },
         linkedCamera: {
             title: 'Linked camera',
             type: 'device',
@@ -29,6 +36,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
     killed: boolean;
     detectionRules: DetectionRule[];
     rulesDiscovered: string[] = [];
+    lastDetection: number;
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -184,17 +192,20 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
 
         this.detectionListener = systemManager.listenDevice(this.id, ScryptedInterface.BinarySensor, async (_, __, triggered) => {
-            // const { minDelayTime } = this.storageSettings.values;
+            const { minDelayTime } = this.storageSettings.values;
 
             const now = new Date().getTime();
 
             try {
-                // if (this.lastDetection && (now - this.lastDetection) < 1000 * minDelayTime) {
-                //     logger.debug(`Waiting for delay: ${(now - this.lastDetection) / 1000}s`);
-                //     return;
-                // }
+                if (minDelayTime) {
+                    if (this.lastDetection && (now - this.lastDetection) < 1000 * minDelayTime) {
+                        logger.debug(`Waiting for delay: ${(now - this.lastDetection) / 1000}s`);
+                        return;
+                    }
 
-                // this.lastDetection = now;
+                    this.lastDetection = now;
+                }
+
                 logger.log(`Sensor triggered: ${triggered}`);
 
                 const mqttClient = await this.plugin.getMqttClient();

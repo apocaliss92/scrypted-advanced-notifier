@@ -19,7 +19,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         minDelayTime: {
             subgroup: 'Notifier',
             title: 'Minimum notification delay',
-            description: 'Minimum amount of sedonds to wait until a notification is sent for the same detection type',
+            description: 'Minimum amount of seconds to wait until a notification is sent for the same detection type',
             type: 'number',
             defaultValue: 15,
         },
