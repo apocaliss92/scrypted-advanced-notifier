@@ -127,9 +127,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const shouldRun = this.isActiveForMqttReporting || this.isActiveForNotifications;
 
             if (isActiveForMqttReporting) {
+                const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase & Settings;
                 const mqttClient = await this.plugin.getMqttClient();
                 if (mqttClient) {
-                    const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase & Settings;
                     if (!this.mqttAutodiscoverySent) {
                         await mqttClient.setupDeviceAutodiscovery({
                             device,
@@ -146,6 +146,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         this.rulesDiscovered.push(...missingRules.map(rule => getDetectionRuleId(rule)))
                     }
                 }
+
+                mqttClient.reportDeviceValues(device, logger);
             }
 
             if (isCurrentlyRunning && !shouldRun) {
@@ -425,11 +427,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         if (this.isActiveForMqttReporting) {
             if (!this.lastPictureTaken || (now - this.lastPictureTaken) >= 1000 * secondsPerPicture) {
+                this.lastPictureTaken = now;
                 logger.log('Refreshing the image');
                 const { b64Image: b64ImageNew, image: imageNew } = await this.getImage();
                 image = imageNew;
                 b64Image = b64ImageNew;
-                this.lastPictureTaken = now;
             }
             
             this.reportDetectionsToMqtt({ detections: candidates, triggerTime, logger, device, b64Image });

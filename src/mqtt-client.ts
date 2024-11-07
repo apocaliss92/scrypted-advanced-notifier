@@ -1,8 +1,8 @@
 import { connect, Client } from 'mqtt';
-import { ObjectDetectionResult, ScryptedDeviceBase } from '@scrypted/sdk';
+import { ObjectDetectionResult, ScryptedDeviceBase, ScryptedInterface } from '@scrypted/sdk';
 import { defaultDetectionClasses, detectionClassesDefaultMap, isLabelDetection, parentDetectionClassMap } from './detecionClasses';
 import { DetectionRule, firstUpperCase } from './utils';
-import { groupBy } from 'lodash';
+import { cloneDeep, groupBy } from 'lodash';
 
 interface MqttEntity {
     entity: 'triggered' | 'lastImage' | 'lastClassname' | 'lastZones' | 'lastLabel' | string;
@@ -10,6 +10,7 @@ interface MqttEntity {
     name: string;
     className?: string,
     key?: string,
+    deviceClass?: string,
 }
 
 const idPrefix = 'scrypted-an';
@@ -22,6 +23,12 @@ const mqttEntities: MqttEntity[] = [
     { entity: 'lastZones', name: 'Last zones detected', domain: 'sensor' },
     { entity: 'lastLabel', name: 'Last label detected', domain: 'sensor' },
 ];
+
+const batteryEntity: MqttEntity = {
+    domain: 'sensor',
+    entity: 'battery',
+    name: 'Battery'
+};
 
 const deviceClassMqttEntities: MqttEntity[] = defaultDetectionClasses.flatMap(className => {
     const parsedClassName = firstUpperCase(className);
@@ -184,16 +191,24 @@ export default class MqttClient {
             allEntities :
             allEntities.filter(entity => entity.entity === 'triggered');
 
+        if (device.interfaces.includes(ScryptedInterface.Battery)) {
+            entitiesToRun.push(cloneDeep(batteryEntity));
+        }
+
+        const getConfig = (entity: string, name: string) => ({
+            dev: mqttdevice,
+            unique_id: `${idPrefix}-${id}-${entity}`,
+            name,
+            object_id: `${device.name}_${entity}`,
+            device_class: entity === 'triggered' || entity.includes('Detected') ? deviceClass :
+                entity === 'battery' ? 'battery' :
+                    undefined
+        } as any);
+
         for (const mqttEntity of entitiesToRun) {
             const { domain, entity, name } = mqttEntity;
 
-            const config: any = {
-                dev: mqttdevice,
-                unique_id: `${idPrefix}-${id}-${entity}`,
-                name,
-                object_id: `${device.name}_${entity}`,
-                device_class: entity === 'triggered' || entity.includes('Detected') ? deviceClass : undefined
-            };
+            const config = getConfig(entity, name);
             const topic = getEntityTopic(entity);
 
             if (domain === 'binary_sensor') {
@@ -431,5 +446,13 @@ export default class MqttClient {
                 cb(messageTopic, messageString !== 'null' ? JSON.parse(messageString) : [])
             }
         })
+    }
+
+    async reportDeviceValues(device: ScryptedDeviceBase, console: Console) {
+        const { getEntityTopic } = this.getMqttTopicTopics(device);
+
+        if(device.interfaces.includes(ScryptedInterface.Battery)) {
+            await this.publish(console, getEntityTopic(batteryEntity.entity), device.batteryLevel, true);
+        }
     }
 }
