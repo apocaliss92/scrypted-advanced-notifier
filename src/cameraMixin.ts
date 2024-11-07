@@ -10,6 +10,8 @@ const { systemManager } = sdk;
 
 const snapshotWidth = 1280;
 const snapshotHeight = 720;
+const secondsPerPicture = 10;
+const motionDuration = 10;
 
 interface MatchRule { match: ObjectDetectionResult, rule: DetectionRule, dataToReport: any }
 
@@ -75,6 +77,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         motionTimeout: NodeJS.Timeout;
         motionListener: EventListenerRegister
     }> = {};
+    lastPictureTaken: number;
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -277,8 +280,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         triggerTime: number,
         logger: Console,
         device: ScryptedDeviceBase,
+        b64Image?: string
     }) {
-        const { detections, device, logger, triggerTime } = props;
+        const { detections, device, logger, triggerTime, b64Image } = props;
         if (!this.mqttReportInProgress) {
 
             this.mqttDetectionMotionTimeout && clearTimeout(this.mqttDetectionMotionTimeout);
@@ -287,14 +291,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const mqttClient = await this.plugin.getMqttClient();
 
             if (mqttClient) {
-                const minDelayTime = this.storageSettings.values.minDelayTime;
-
                 try {
                     await mqttClient.publishRelevantDetections({
                         console: logger,
                         detections,
                         device,
                         triggerTime,
+                        b64Image,
                     }).finally(() => this.mqttReportInProgress = false);
                 } catch (e) {
                     logger.log(`Error in reportDetectionsToMqtt`, e);
@@ -307,18 +310,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         triggerTime,
                         reset: true
                     });
-                }, minDelayTime * 1000);
+                }, motionDuration * 1000);
             }
         }
     }
 
-    async triggerMotion(props: { matchRule: MatchRule, image?: MediaObject, device: ScryptedDeviceBase }) {
+    async triggerMotion(props: { matchRule: MatchRule, device: ScryptedDeviceBase, b64Image?: string }) {
         const logger = this.getLogger();
         try {
-            const { matchRule, image, device } = props;
+            const { matchRule, b64Image, device } = props;
             const { match: { className } } = matchRule;
-
-            const b64Image = image ? (await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg'))?.toString('base64') : undefined;
 
             const report = async (triggered: boolean) => {
                 logger.log(`Stopping listeners.`);
@@ -347,8 +348,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             await report(true);
 
-            const minDelayTime = this.storageSettings.values.minDelayTime;
-
             logger.log(`Starting listeners.`);
             const motionListener = systemManager.listenDevice(this.id, {
                 event: ScryptedInterface.MotionSensor,
@@ -361,9 +360,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             });
 
             const motionTimeout = setTimeout(async () => {
-                logger.log(`Motion end triggered automatically after ${minDelayTime}s.`);
+                logger.log(`Motion end triggered automatically after ${motionDuration}s.`);
                 await report(false);
-            }, minDelayTime * 1000);
+            }, motionDuration * 1000);
 
             this.detectionClassListeners[className] = {
                 motionListener,
@@ -388,6 +387,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         return key;
     }
 
+    private async getImage() {
+        const objectDetector = this.getObjectDetector();
+        const image = await objectDetector.takePicture({
+            reason: 'event',
+            picture: {
+                height: snapshotHeight,
+                width: snapshotWidth,
+            },
+        });
+        const b64Image = (await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg'))?.toString('base64');
+
+        return { image, b64Image };
+    }
+
     public async processDetections(props: { detections: ObjectDetectionResult[], triggerTime: number }) {
         const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase;
         const { detections, triggerTime } = props;
@@ -396,6 +409,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         if (!detections?.length) {
             return;
         }
+        const now = new Date().getTime();
 
         const objectDetector = this.getObjectDetector();
 
@@ -406,13 +420,23 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const candidates = filterAndSortValidDetections(detections ?? [], logger);
 
+        let image: MediaObject;
+        let b64Image: string;
+
         if (this.isActiveForMqttReporting) {
-            this.reportDetectionsToMqtt({ detections: candidates, triggerTime, logger, device });
+            if (!this.lastPictureTaken || (now - this.lastPictureTaken) >= 1000 * secondsPerPicture) {
+                logger.log('Refreshing the image');
+                const { b64Image: b64ImageNew, image: imageNew } = await this.getImage();
+                image = imageNew;
+                b64Image = b64ImageNew;
+                this.lastPictureTaken = now;
+            }
+            
+            this.reportDetectionsToMqtt({ detections: candidates, triggerTime, logger, device, b64Image });
         }
 
         let dataToReport = {};
         try {
-            const now = new Date().getTime();
             logger.debug(`Detections incoming ${JSON.stringify(candidates)}`);
 
             const matchRules: MatchRule[] = [];
@@ -496,23 +520,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
                     this.lastDetectionMap[this.getLastDetectionkey(match)] = now;
 
+                    if (!image) {
+                        const { b64Image: b64ImageNew, image: imageNew } = await this.getImage();
+                        image = imageNew;
+                        b64Image = b64ImageNew;
 
-                    const image = await objectDetector.takePicture({
-                        reason: 'event',
-                        picture: {
-                            height: snapshotHeight,
-                            width: snapshotWidth,
-                        },
-                    });
-
-                    if (image) {
                         const imageUrl = await sdk.mediaManager.convertMediaObjectToLocalUrl(image, 'image/jpg');
                         logger.debug(`Updating webook last image URL: ${imageUrl}`);
                         this.storageSettings.putSetting('lastSnapshotImageUrl', imageUrl);
                     }
 
                     if (this.isActiveForMqttReporting) {
-                        this.triggerMotion({ matchRule, image, device });
+                        this.triggerMotion({ matchRule, b64Image, device });
                     }
 
 
