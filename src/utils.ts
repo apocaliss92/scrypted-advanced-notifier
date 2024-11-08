@@ -747,7 +747,7 @@ export const getDeviceRules = (
                 textKey,
             } = getDetectionRuleKeys(detectionRuleName);
 
-            const isEnabled = storage[enabledKey]?.value as boolean;
+            const isEnabled = JSON.parse(storage[enabledKey]?.value as string ?? 'false');
 
             const notifiers = storage[notifiersKey]?.value as string[] ?? [];
             const notifiersTouse = notifiers.filter(notifierId => activeNotifiers.includes(notifierId));
