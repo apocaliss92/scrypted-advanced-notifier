@@ -1,7 +1,7 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ScryptedDeviceBase, ScryptedDeviceType } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { ADVANCED_NOTIFIER_INTERFACE, DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled, snapshotHeight, snapshotWidth } from "./utils";
 import HomeAssistantUtilitiesProvider from "./main";
 import { getDetectionRuleId } from "./mqtt-client";
 
@@ -213,7 +213,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 if (mqttClient) {
                     try {
                         const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase;
-                        await mqttClient.publishDeviceState({
+                        mqttClient.publishDeviceState({
                             device,
                             triggered,
                             console: logger,
@@ -226,7 +226,15 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 }
 
                 if (triggered) {
-                    const { isDoorbell } = await this.plugin.getLinkedCamera(this.id);
+                    const { isDoorbell, device } = await this.plugin.getLinkedCamera(this.id);
+
+                    const image = await device.takePicture({
+                        reason: 'event',
+                        picture: {
+                            height: snapshotHeight,
+                            width: snapshotWidth,
+                        },
+                    });
 
                     for (const rule of this.detectionRules) {
                         logger.log(`Starting notifiers: ${JSON.stringify({
@@ -240,6 +248,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                             eventType: isDoorbell ? EventType.Doorbell : EventType.Contact,
                             triggerTime: now,
                             rule,
+                            image,
                         });
                     }
                 }

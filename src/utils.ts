@@ -7,6 +7,8 @@ import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, is
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Settings;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
+export const snapshotWidth = 1280;
+export const snapshotHeight = 720;
 
 export const getElegibleDevices = () => {
     const pluginDevice = sdk.systemManager.getDeviceByName(scrypted.name);

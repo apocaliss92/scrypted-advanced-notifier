@@ -27,7 +27,14 @@ const mqttEntities: MqttEntity[] = [
 const batteryEntity: MqttEntity = {
     domain: 'sensor',
     entity: 'battery',
-    name: 'Battery'
+    name: 'Battery',
+    deviceClass: 'battery'
+};
+const onlineEntity: MqttEntity = {
+    domain: 'binary_sensor',
+    entity: 'online',
+    name: 'Online',
+    deviceClass: 'power'
 };
 
 const deviceClassMqttEntities: MqttEntity[] = defaultDetectionClasses.flatMap(className => {
@@ -194,21 +201,22 @@ export default class MqttClient {
         if (device.interfaces.includes(ScryptedInterface.Battery)) {
             entitiesToRun.push(cloneDeep(batteryEntity));
         }
+        if (device.interfaces.includes(ScryptedInterface.Online)) {
+            entitiesToRun.push(cloneDeep(onlineEntity));
+        }
 
-        const getConfig = (entity: string, name: string) => ({
+        const getConfig = (entity: string, name: string, deviceClassParent?: string) => ({
             dev: mqttdevice,
             unique_id: `${idPrefix}-${id}-${entity}`,
             name,
             object_id: `${device.name}_${entity}`,
-            device_class: entity === 'triggered' || entity.includes('Detected') ? deviceClass :
-                entity === 'battery' ? 'battery' :
-                    undefined
+            device_class: deviceClassParent ?? (entity === 'triggered' || entity.includes('Detected') ? deviceClass : undefined)
         } as any);
 
         for (const mqttEntity of entitiesToRun) {
-            const { domain, entity, name } = mqttEntity;
+            const { domain, entity, name, deviceClass: deviceClassParent } = mqttEntity;
 
-            const config = getConfig(entity, name);
+            const config = getConfig(entity, name, deviceClassParent);
             const topic = getEntityTopic(entity);
 
             if (domain === 'binary_sensor') {
@@ -451,8 +459,11 @@ export default class MqttClient {
     async reportDeviceValues(device: ScryptedDeviceBase, console: Console) {
         const { getEntityTopic } = this.getMqttTopicTopics(device);
 
-        if(device.interfaces.includes(ScryptedInterface.Battery)) {
+        if (device.interfaces.includes(ScryptedInterface.Battery)) {
             await this.publish(console, getEntityTopic(batteryEntity.entity), device.batteryLevel, true);
+        }
+        if (device.interfaces.includes(ScryptedInterface.Online)) {
+            await this.publish(console, getEntityTopic(onlineEntity.entity), device.online, true);
         }
     }
 }

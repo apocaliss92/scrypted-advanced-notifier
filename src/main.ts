@@ -810,7 +810,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             const notifierSettings = await notifier.getSettings();
 
             try {
-                await this.notifyCamera({
+                this.notifyCamera({
                     triggerDevice,
                     cameraDevice,
                     notifierId,
@@ -822,7 +822,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
                     keepImage: !!image,
                     logger,
                     notifierSettings,
-                    customText: rule.customText
+                    rule,
                 });
 
                 notifiersPassed.push(notifier.name);
@@ -897,18 +897,18 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             notifierId: string,
             externalUrl: string,
             textKey: string,
-            customText?: string,
+            rule?: DetectionRule,
             notifierSettings: Setting[],
         }
     ) {
-        const { detection, detectionTime, notifierId, device, externalUrl, textKey, notifierSettings, customText } = props;
+        const { detection, detectionTime, notifierId, device, externalUrl, textKey, notifierSettings, rule } = props;
         const { label, className, zones } = detection ?? {};
 
         const roomName = this.deviceRoomMap[device.id];
 
         let textToUse;
-        if (customText) {
-            textToUse = customText
+        if (rule?.customText) {
+            textToUse = rule?.customText
         } else {
             const notifierSettingsByKey = keyBy(notifierSettings, 'key');
             textToUse = notifierSettingsByKey[`homeassistantMetadata:${textKey}`]?.value || this.storageSettings.getItem(textKey as any);
@@ -922,6 +922,13 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
                     className
         const time = eval(detectionTimeText.replace('${time}', detectionTime));
 
+        let zone: string;
+        if (rule?.whitelistedZones) {
+            zone = detection?.zones?.find(zoneInner => rule.whitelistedZones.includes(zoneInner));
+        } else {
+            zone = zones?.[0];
+        }
+
         return textToUse.toString()
             .replace('${time}', time)
             .replace('${nvrLink}', externalUrl)
@@ -929,7 +936,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             .replace('${plate}', label ?? '')
             .replace('${label}', label ?? '')
             .replace('${class}', detectionClassText)
-            .replace('${zone}', zones?.[0] ?? '')
+            .replace('${zone}', zone ?? '')
             .replace('${room}', roomName ?? '');
     }
 
@@ -941,7 +948,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         image?: MediaObject,
         detection?: ObjectDetectionResult
         textKey: string,
-        customText?: string,
+        rule?: DetectionRule,
         source?: NotificationSource,
         keepImage?: boolean,
         notifierSettings: Setting[],
@@ -959,7 +966,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             keepImage,
             logger,
             notifierSettings,
-            customText,
+            rule,
         } = props;
 
         const device = cameraDevice ?? await this.getCameraDevice(triggerDevice);
@@ -982,7 +989,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             textKey,
             device: triggerDevice,
             notifierSettings,
-            customText
+            rule,
         });
 
         const notifierSnapshotWidth = this.storageSettings.getItem(`notifier:${notifierId}:snapshotWidth` as any);

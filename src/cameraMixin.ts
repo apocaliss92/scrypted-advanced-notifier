@@ -1,15 +1,12 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { ADVANCED_NOTIFIER_INTERFACE, DetectionRule, DetectionRuleSource, EventType, filterAndSortValidDetections, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, DetectionRule, DetectionRuleSource, EventType, filterAndSortValidDetections, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled, snapshotHeight, snapshotWidth } from "./utils";
 import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { getDetectionRuleId } from "./mqtt-client";
 
 const { systemManager } = sdk;
-
-const snapshotWidth = 1280;
-const snapshotHeight = 720;
 const secondsPerPicture = 10;
 const motionDuration = 10;
 
@@ -413,8 +410,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
         const now = new Date().getTime();
 
-        const objectDetector = this.getObjectDetector();
-
         const {
             minDelayTime,
             ignoreCameraDetections,
@@ -428,12 +423,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         if (this.isActiveForMqttReporting) {
             if (!this.lastPictureTaken || (now - this.lastPictureTaken) >= 1000 * secondsPerPicture) {
                 this.lastPictureTaken = now;
-                logger.log('Refreshing the image');
+                logger.debug('Refreshing the image');
                 const { b64Image: b64ImageNew, image: imageNew } = await this.getImage();
                 image = imageNew;
                 b64Image = b64ImageNew;
             }
-            
+
             this.reportDetectionsToMqtt({ detections: candidates, triggerTime, logger, device, b64Image });
         }
 
@@ -511,6 +506,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
             }
 
+            if (!!matchRules.length) {
+                if (!image) {
+                    const { b64Image: b64ImageNew, image: imageNew } = await this.getImage();
+                    image = imageNew;
+                    b64Image = b64ImageNew;
+                }
+
+                const imageUrl = await sdk.mediaManager.convertMediaObjectToLocalUrl(image, 'image/jpg');
+                logger.debug(`Updating webook last image URL: ${imageUrl}`);
+                this.storageSettings.putSetting('lastSnapshotImageUrl', imageUrl);
+            }
+
             for (const matchRule of matchRules) {
                 try {
                     const { match, rule } = matchRule;
@@ -521,16 +528,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         return false;
                     }
                     this.lastDetectionMap[this.getLastDetectionkey(match)] = now;
-
-                    if (!image) {
-                        const { b64Image: b64ImageNew, image: imageNew } = await this.getImage();
-                        image = imageNew;
-                        b64Image = b64ImageNew;
-
-                        const imageUrl = await sdk.mediaManager.convertMediaObjectToLocalUrl(image, 'image/jpg');
-                        logger.debug(`Updating webook last image URL: ${imageUrl}`);
-                        this.storageSettings.putSetting('lastSnapshotImageUrl', imageUrl);
-                    }
 
                     if (this.isActiveForMqttReporting) {
                         this.triggerMotion({ matchRule, b64Image, device });
@@ -548,6 +545,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         eventType: EventType.ObjectDetection,
                         triggerTime,
                     })})}`);
+
                     this.plugin.matchDetectionFound({
                         triggerDeviceId: this.id,
                         match,
