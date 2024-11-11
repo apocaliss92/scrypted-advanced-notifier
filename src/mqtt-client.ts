@@ -459,7 +459,7 @@ export default class MqttClient {
     async reportDeviceValues(device: ScryptedDeviceBase, console: Console) {
         const { getEntityTopic } = this.getMqttTopicTopics(device);
 
-        if (device.interfaces.includes(ScryptedInterface.Battery)) {
+        if (device.interfaces.includes(ScryptedInterface.Battery) && device.batteryLevel) {
             await this.publish(console, getEntityTopic(batteryEntity.entity), device.batteryLevel, true);
         }
         if (device.interfaces.includes(ScryptedInterface.Online)) {
