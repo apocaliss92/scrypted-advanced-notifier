@@ -497,6 +497,8 @@ export const getDetectionRuleKeys = (detectionRuleName: string) => {
     const scoreThresholdKey = `rule:${detectionRuleName}:scoreThreshold`;
     const whitelistedZonesKey = `rule:${detectionRuleName}:whitelistedZones`;
     const blacklistedZonesKey = `rule:${detectionRuleName}:blacklistedZones`;
+    const enabledSensorsKey = `rule:${detectionRuleName}:enabledSensors`;
+    const disabledSensorsKey = `rule:${detectionRuleName}:disabledSensors`;
     const devicesKey = `rule:${detectionRuleName}:devices`;
     const notifiersKey = `rule:${detectionRuleName}:notifiers`;
     const dayKey = `rule:${detectionRuleName}:day`;
@@ -511,6 +513,8 @@ export const getDetectionRuleKeys = (detectionRuleName: string) => {
         scoreThresholdKey,
         whitelistedZonesKey,
         blacklistedZonesKey,
+        enabledSensorsKey,
+        disabledSensorsKey,
         devicesKey,
         notifiersKey,
         dayKey,
@@ -548,7 +552,9 @@ export const getDetectionRulesSettings = async (props: {
             devicesKey,
             dayKey,
             endTimeKey,
-            startTimeKey
+            startTimeKey,
+            enabledSensorsKey,
+            disabledSensorsKey,
         } = getDetectionRuleKeys(detectionRuleName);
 
         const currentActivation = storage.getItem(activationKey as any) as DetectionRuleActivation;
@@ -647,6 +653,32 @@ export const getDetectionRulesSettings = async (props: {
                 },
             )
         }
+        settings.push(
+            {
+                key: enabledSensorsKey,
+                title: 'Open sensors',
+                description: 'Sensors that must be enabled to trigger this rule',
+                group: groupName,
+                subgroup: detectionRuleName,
+                multiple: true,
+                combobox: true,
+                type: 'device',
+                deviceFilter: `(type === '${ScryptedDeviceType.Sensor}')`,
+                value: JSON.parse(storage.getItem(enabledSensorsKey as any) as string ?? '[]'),
+            },
+            {
+                key: disabledSensorsKey,
+                title: 'Closed sensors',
+                description: 'Sensors that must be disabled to trigger this rule',
+                group: groupName,
+                subgroup: detectionRuleName,
+                multiple: true,
+                combobox: true,
+                type: 'device',
+                deviceFilter: `(type === '${ScryptedDeviceType.Sensor}')`,
+                value: JSON.parse(storage.getItem(disabledSensorsKey as any) as string ?? '[]'),
+            },
+        );
 
         if (withDevices && currentActivation !== DetectionRuleActivation.OnActive) {
             // const elegibleDevice = getElegibleDevices();
@@ -747,6 +779,8 @@ export const getDeviceRules = (
                 endTimeKey,
                 startTimeKey,
                 textKey,
+                enabledSensorsKey,
+                disabledSensorsKey,
             } = getDetectionRuleKeys(detectionRuleName);
 
             const isEnabled = JSON.parse(storage[enabledKey]?.value as string ?? 'false');
@@ -817,10 +851,29 @@ export const getDeviceRules = (
                     const currentTime = currentDate.getTime();
                     timeAllowed = currentTime > startTimeParsed && currentTime < endTimeParsed;
                 }
-
             }
 
-            const ruleAllowed = isEnabled && !!devicesToUse.length && devicesToUse.includes(deviceId) && !!notifiersTouse.length && timeAllowed;
+            let sensorsOk = true;
+            const enabledSensors = storage[enabledSensorsKey]?.value as string[] ?? [];
+            const disabledSensors = storage[enabledSensorsKey]?.value as string[] ?? [];
+
+            if (!!enabledSensors.length || !!disabledSensors.length) {
+                const systemState = sdk.systemManager.getSystemState();
+                if (!!enabledSensors.length) {
+                    sensorsOk = enabledSensors.every(sensorId => systemState[sensorId]?.binarySensor?.value === true);
+                }
+                if(!!disabledSensors.length && sensorsOk) {
+                    sensorsOk = disabledSensors.every(sensorId => systemState[sensorId]?.binarySensor?.value === false);
+                }
+            }
+
+            const ruleAllowed =
+                isEnabled &&
+                !!devicesToUse.length &&
+                devicesToUse.includes(deviceId) &&
+                !!notifiersTouse.length &&
+                timeAllowed &&
+                sensorsOk;
 
             if (!ruleAllowed) {
                 skippedRules.push(detectionRule);
@@ -836,69 +889,3 @@ export const getDeviceRules = (
 
     return { detectionRules, skippedRules };
 }
-
-// export const periodicDeviceCheckFn = async (props: {
-//     logger: Console,
-//     id: string,
-//     deviceSettings: Setting[];
-//     plugin: HomeAssistantUtilitiesProvider,
-//     isCurrentlyRunning: boolean
-// }) => {
-//     const { deviceSettings, id, logger, plugin, isCurrentlyRunning } = props;
-//     const useNvrDetections = false;
-//     const { isActiveForMqttReporting: currentIsActiveForMqttReporting, isPluginEnabled } = await isDeviceEnabled(id);
-
-//     const deviceSettingsByKey = keyBy(deviceSettings, 'key');
-
-//     const mainSettings = await plugin.getSettings();
-//     const mainSettingsByKey = keyBy(mainSettings, 'key');
-//     const { detectionRules, skippedRules } = getDeviceRules(id, deviceSettingsByKey, mainSettingsByKey);
-//     logger.debug(`Detected rules: ${JSON.stringify({ detectionRules, skippedRules })}`);
-
-//     const newIsCameraActiveForNotifications = !useNvrDetections && (!!detectionRules.length);
-//     const newIsCameraActiveForMqttReporting = !useNvrDetections && currentIsActiveForMqttReporting;
-
-//     if (!isPluginEnabled && (newIsCameraActiveForNotifications || newIsCameraActiveForMqttReporting)) {
-//         logger.log('Plugin is not enabled.');
-//     }
-
-//     const isActiveForNotifications = isPluginEnabled && newIsCameraActiveForNotifications;
-//     const isActiveForMqttReporting = isPluginEnabled && newIsCameraActiveForMqttReporting;
-
-//     const shouldRun = isActiveForMqttReporting || isActiveForNotifications;
-
-//     if (newIsCameraActiveForMqttReporting) {
-//         const mqttClient = await plugin.getMqttClient();
-//         if (mqttClient) {
-//             const device = sdk.systemManager.getDeviceById(id) as unknown as ScryptedDeviceBase & Settings;
-//             if (!this.mqttAutodiscoverySent) {
-//                 await mqttClient.setupDeviceAutodiscovery({
-//                     device,
-//                     console: logger,
-//                     withDetections: true,
-//                     deviceClass: 'motion'
-//                 });
-//                 this.mqttAutodiscoverySent = true;
-//             }
-
-//             const missingRules = detectionRules.filter(rule => !this.rulesDiscovered.includes(getDetectionRuleId(rule)));
-//             if (missingRules.length) {
-//                 await mqttClient.discoverDetectionRules({ console: logger, device, rules: missingRules });
-//                 this.rulesDiscovered.push(...missingRules.map(rule => getDetectionRuleId(rule)))
-//             }
-//         }
-//     }
-
-//     if (isCurrentlyRunning && !shouldRun) {
-//         logger.log('Stopping and cleaning listeners.');
-//         this.resetListeners();
-//     } else if (!isCurrentlyRunning && shouldRun) {
-//         logger.log(`Starting  ${ScryptedInterface.ObjectDetector} listeners: ${JSON.stringify({
-//             notificationsActive: newIsCameraActiveForNotifications,
-//             mqttReportsActive: newIsCameraActiveForMqttReporting,
-//             useNvrDetections,
-//             isPluginEnabled,
-//         })}`);
-//         await this.startListeners();
-//     }
-// };

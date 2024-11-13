@@ -8,6 +8,7 @@ import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
+import cron from 'node-cron';
 
 const { systemManager } = sdk;
 
@@ -60,6 +61,21 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         scryptedToken: {
             title: 'Scrypted token',
             type: 'string',
+        },
+        nvrUrl: {
+            title: 'NVR url',
+            description: 'Url pointing to the NVR instance, useful to generate direct links to timeline',
+            type: 'string',
+            defaultValue: 'https://nvr.scrypted.app/',
+            placeholder: 'https://nvr.scrypted.app/',
+        },
+        cronRestartString: {
+            title: 'Restart scheduler',
+            description: 'Cron string to restart the plugin',
+            type: 'string',
+            defaultValue: '0 */6 * * *',
+            placeholder: '0 */6 * * *',
+            onPut: async () => sdk.deviceManager.requestRestart()
         },
         useHaPluginCredentials: {
             group: 'Homeassistant',
@@ -160,13 +176,6 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             type: 'number',
             defaultValue: 720,
         },
-        nvrUrl: {
-            title: 'NVR url',
-            description: 'Url pointing to the NVR instance, useful to generate direct links to timeline',
-            type: 'string',
-            defaultValue: 'https://nvr.scrypted.app/',
-            placeholder: 'https://nvr.scrypted.app/',
-        },
         notifiers: {
             group: 'Notifier',
             title: 'Active notifiers',
@@ -235,6 +244,16 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             await this.initPluginSettings();
             await this.refreshDevicesLinks();
             await this.setupMqttClient();
+
+            const { cronRestartString } = this.storageSettings.values;
+            if (cronRestartString) {
+                const logger = this.getLogger();
+                logger.log('The server will restart with the following schedule: ', cronRestartString);
+                cron.schedule(cronRestartString, () => {
+                    logger.log('Restarting plugin');
+                    sdk.deviceManager.requestRestart();
+                });
+            }
 
             setInterval(async () => await this.refreshDevicesLinks(), 5000);
         } catch (e) {
