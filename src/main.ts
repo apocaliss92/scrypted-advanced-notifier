@@ -428,6 +428,8 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         const deviceVideocameraMap: Record<string, string> = {};
         const deviceRoomMap: Record<string, string> = {};
 
+        const logger = this.getLogger();
+
         const allDevices = getElegibleDevices().devices;
         for (const device of allDevices) {
             // this.console.log(JSON.stringify(device.interfaces).includes(ADVANCED_NOTIFIER_INTERFACE));
@@ -455,7 +457,11 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
 
                 if (linkedCamera) {
                     const cameraDevice = systemManager.getDeviceById(linkedCamera);
-                    deviceVideocameraMap[deviceId] = cameraDevice.id;
+                    if (cameraDevice) {
+                        deviceVideocameraMap[deviceId] = cameraDevice.id;
+                    } else {
+                        logger.log(`Device ${device.name} is linked to the cameraId ${linkedCamera}, not available anymore`);
+                    }
                 }
             }
         }
@@ -464,7 +470,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             .map(sensor => sensor.name);
 
         if (sensorsNotMapped.length && !this.firstCheckAlwaysActiveDevices) {
-            this.getLogger().log(`Following binary sensors are not mapped to any camera yet: ${sensorsNotMapped}`);
+            logger.log(`Following binary sensors are not mapped to any camera yet: ${sensorsNotMapped}`);
         }
 
         this.deviceHaEntityMap = deviceHaEntityMap;
@@ -795,6 +801,10 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
     public getLinkedCamera = async (deviceId: string) => {
         const device = systemManager.getDeviceById(deviceId) as unknown as DeviceInterface;
         const cameraDevice = await this.getCameraDevice(device);
+
+        if (!device || !cameraDevice) {
+            this.getLogger().log(`Camera device for ID ${deviceId} not found. Device found: ${!!device} and camera was found: ${!!cameraDevice}`);
+        }
 
         return { device: cameraDevice, isDoorbell: this.doorbellDevices.includes(deviceId) };
     }
