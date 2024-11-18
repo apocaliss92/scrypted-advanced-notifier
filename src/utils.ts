@@ -830,10 +830,13 @@ export const getDeviceRules = (
                 if (!dayOk) {
                     timeAllowed = false;
                 } else {
-                    const parseDate = (time: number) => {
+                    const parseDate = (time: number, add1Day?: boolean) => {
                         const timeDate = new Date(time);
 
                         const newTimeDate = new Date();
+                        if (add1Day) {
+                            newTimeDate.setDate(newTimeDate.getDate() + 1);
+                        }
                         newTimeDate.setHours(timeDate.getHours());
                         newTimeDate.setMinutes(timeDate.getMinutes());
                         newTimeDate.setSeconds(0);
@@ -846,7 +849,7 @@ export const getDeviceRules = (
                     }
 
                     const { newTimeDate: startTimeParsed, newDate: a1 } = parseDate(startTime);
-                    const { newTimeDate: endTimeParsed, newDate: a2 } = parseDate(endTime);
+                    const { newTimeDate: endTimeParsed, newDate: a2 } = parseDate(endTime, endTime < startTime);
 
                     const currentTime = currentDate.getTime();
                     timeAllowed = currentTime > startTimeParsed && currentTime < endTimeParsed;
@@ -855,14 +858,14 @@ export const getDeviceRules = (
 
             let sensorsOk = true;
             const enabledSensors = storage[enabledSensorsKey]?.value as string[] ?? [];
-            const disabledSensors = storage[enabledSensorsKey]?.value as string[] ?? [];
+            const disabledSensors = storage[disabledSensorsKey]?.value as string[] ?? [];
 
             if (!!enabledSensors.length || !!disabledSensors.length) {
                 const systemState = sdk.systemManager.getSystemState();
                 if (!!enabledSensors.length) {
                     sensorsOk = enabledSensors.every(sensorId => systemState[sensorId]?.binarySensor?.value === true);
                 }
-                if(!!disabledSensors.length && sensorsOk) {
+                if (!!disabledSensors.length && sensorsOk) {
                     sensorsOk = disabledSensors.every(sensorId => systemState[sensorId]?.binarySensor?.value === false);
                 }
             }
