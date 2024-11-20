@@ -421,64 +421,66 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
     }
 
     private async refreshDevicesLinks() {
-        const doorbellDevices: string[] = [];
-        const haEntities: string[] = [];
-        const deviceHaEntityMap: Record<string, string> = {};
-        const haEntityDeviceMap: Record<string, string> = {};
-        const deviceVideocameraMap: Record<string, string> = {};
-        const deviceRoomMap: Record<string, string> = {};
-
         const logger = this.getLogger();
+        try {
+            const doorbellDevices: string[] = [];
+            const haEntities: string[] = [];
+            const deviceHaEntityMap: Record<string, string> = {};
+            const haEntityDeviceMap: Record<string, string> = {};
+            const deviceVideocameraMap: Record<string, string> = {};
+            const deviceRoomMap: Record<string, string> = {};
 
-        const allDevices = getElegibleDevices().devices;
-        for (const device of allDevices) {
-            // this.console.log(JSON.stringify(device.interfaces).includes(ADVANCED_NOTIFIER_INTERFACE));
-            const deviceId = device.id;
-            const deviceType = device.type;
-            const settings = await device.getSettings();
-            const haEntityId = settings.find(setting => setting.key === 'homeassistantMetadata:entityId')?.value as string;
-            const room = settings.find(setting => setting.key === 'homeassistantMetadata:room')?.value as string;
-            const linkedCamera = settings.find(setting => setting.key === 'homeassistantMetadata:linkedCamera')?.value as string;
+            const allDevices = getElegibleDevices().devices;
+            for (const device of allDevices) {
+                const deviceId = device.id;
+                const deviceType = device.type;
+                const settings = await device.getSettings();
+                const haEntityId = settings.find(setting => setting.key === 'homeassistantMetadata:entityId')?.value as string;
+                const room = settings.find(setting => setting.key === 'homeassistantMetadata:room')?.value as string;
+                const linkedCamera = settings.find(setting => setting.key === 'homeassistantMetadata:linkedCamera')?.value as string;
 
-            deviceRoomMap[deviceId] = room;
-            if (haEntityId) {
-                haEntities.push(haEntityId);
+                deviceRoomMap[deviceId] = room;
+                if (haEntityId) {
+                    haEntities.push(haEntityId);
 
-                deviceHaEntityMap[deviceId] = haEntityId;
-                haEntityDeviceMap[haEntityId] = deviceId;
+                    deviceHaEntityMap[deviceId] = haEntityId;
+                    haEntityDeviceMap[haEntityId] = deviceId;
 
-                if (deviceType === ScryptedDeviceType.Doorbell) {
-                    const doorbellButtonId = settings.find(setting => setting.key === 'replaceBinarySensor:replaceBinarySensor')?.value as string;
-                    if (doorbellButtonId) {
-                        doorbellDevices.push(doorbellButtonId);
-                        deviceVideocameraMap[doorbellButtonId] = deviceId;
+                    if (deviceType === ScryptedDeviceType.Doorbell) {
+                        const doorbellButtonId = settings.find(setting => setting.key === 'replaceBinarySensor:replaceBinarySensor')?.value as string;
+                        if (doorbellButtonId) {
+                            doorbellDevices.push(doorbellButtonId);
+                            deviceVideocameraMap[doorbellButtonId] = deviceId;
+                        }
                     }
-                }
 
-                if (linkedCamera) {
-                    const cameraDevice = systemManager.getDeviceById(linkedCamera);
-                    if (cameraDevice) {
-                        deviceVideocameraMap[deviceId] = cameraDevice.id;
-                    } else {
-                        logger.log(`Device ${device.name} is linked to the cameraId ${linkedCamera}, not available anymore`);
+                    if (linkedCamera) {
+                        const cameraDevice = systemManager.getDeviceById(linkedCamera);
+                        if (cameraDevice) {
+                            deviceVideocameraMap[deviceId] = cameraDevice.id;
+                        } else {
+                            logger.log(`Device ${device.name} is linked to the cameraId ${linkedCamera}, not available anymore`);
+                        }
                     }
                 }
             }
+
+            const sensorsNotMapped = allDevices.filter(device => device.type === ScryptedDeviceType.Sensor && !deviceVideocameraMap[device.id])
+                .map(sensor => sensor.name);
+
+            if (sensorsNotMapped.length && !this.firstCheckAlwaysActiveDevices) {
+                logger.log(`Following binary sensors are not mapped to any camera yet: ${sensorsNotMapped}`);
+            }
+
+            this.deviceHaEntityMap = deviceHaEntityMap;
+            this.haEntityDeviceMap = haEntityDeviceMap;
+            this.deviceVideocameraMap = deviceVideocameraMap;
+            this.deviceRoomMap = deviceRoomMap;
+            this.doorbellDevices = doorbellDevices;
+            this.firstCheckAlwaysActiveDevices = true;
+        } catch (e) {
+            logger.log('Error in refreshDevicesLinks', e);
         }
-
-        const sensorsNotMapped = allDevices.filter(device => device.type === ScryptedDeviceType.Sensor && !deviceVideocameraMap[device.id])
-            .map(sensor => sensor.name);
-
-        if (sensorsNotMapped.length && !this.firstCheckAlwaysActiveDevices) {
-            logger.log(`Following binary sensors are not mapped to any camera yet: ${sensorsNotMapped}`);
-        }
-
-        this.deviceHaEntityMap = deviceHaEntityMap;
-        this.haEntityDeviceMap = haEntityDeviceMap;
-        this.deviceVideocameraMap = deviceVideocameraMap;
-        this.deviceRoomMap = deviceRoomMap;
-        this.doorbellDevices = doorbellDevices;
-        this.firstCheckAlwaysActiveDevices = true;
     }
 
     async getSettings() {
@@ -1021,13 +1023,14 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             rule,
         });
 
-        const notifierSnapshotWidth = this.storageSettings.getItem(`notifier:${notifierId}:snapshotWidth` as any);
-        const notifiernapshotHeight = this.storageSettings.getItem(`notifier:${notifierId}:snapshotHeight` as any);
+        const notifierSnapshotScale = this.storageSettings.getItem(`notifier:${notifierId}:snapshotScale` as any) ?? 1;
+        const cameraSnapshotHeight = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:snapshotHeight')?.value as number) ?? 720;
+        const cameraSnapshotWidth = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:snapshotWidth')?.value as number) ?? 1280;
 
         const { image } = await this.getCameraSnapshot({
             cameraDevice: device,
-            snapshotHeight: notifiernapshotHeight,
-            snapshotWidth: notifierSnapshotWidth,
+            snapshotHeight: cameraSnapshotHeight * notifierSnapshotScale,
+            snapshotWidth: cameraSnapshotWidth * notifierSnapshotScale,
             image: imageParent,
             keepImage,
         });
@@ -1037,7 +1040,6 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         const notifierOptions: NotifierOptions = {
             body: message,
             data: {
-                // letGo: true,
                 ha: {
                     url: haUrl,
                     clickAction: haUrl,
@@ -1064,14 +1066,14 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
     }
 
     async executeNotificationTest() {
-        const testDeviceName = this.storageSettings.getItem('testDevice') as string;
-        const testNotifier = this.storageSettings.getItem('testNotifier') as ScryptedDevice & Settings;
+        const testDevice = this.storageSettings.getItem('testDevice') as DeviceInterface;
+        const testNotifier = this.storageSettings.getItem('testNotifier') as DeviceInterface;
         const textKey = this.storageSettings.getItem('testMessage') as string;
 
-        if (testDeviceName && textKey && testNotifier) {
+        if (testDevice && textKey && testNotifier) {
             const currentTime = new Date().getTime();
-            const testDevice = systemManager.getDeviceByName(testDeviceName) as unknown as DeviceInterface;
-            const notifierId = testNotifier.id;
+            const testDeviceId = testDevice.id
+            const testNotifierId = testNotifier.id
             const notifierSettings = await testNotifier.getSettings();
 
             const logger = this.getLogger();
@@ -1079,7 +1081,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
 
             this.notifyCamera({
                 triggerDevice: testDevice,
-                notifierId,
+                notifierId: testNotifierId,
                 time: currentTime,
                 textKey,
                 detection: { label: 'Familiar' } as ObjectDetectionResult,

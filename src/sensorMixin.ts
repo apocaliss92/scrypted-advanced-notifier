@@ -1,7 +1,7 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ScryptedDeviceBase, ScryptedDeviceType } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { ADVANCED_NOTIFIER_INTERFACE, DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled, snapshotHeight, snapshotWidth } from "./utils";
+import { DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled } from "./utils";
 import HomeAssistantUtilitiesProvider from "./main";
 import { getDetectionRuleId } from "./mqtt-client";
 
@@ -43,8 +43,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         public plugin: HomeAssistantUtilitiesProvider
     ) {
         super(options);
-
-        setTimeout(() => !this.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE) && this.interfaces.push(ADVANCED_NOTIFIER_INTERFACE), 0);
 
         this.storageSettings.settings.room.onGet = async () => {
             const rooms = this.plugin.storageSettings.getItem('fetchedRooms');
@@ -227,12 +225,15 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
                 if (triggered) {
                     const { isDoorbell, device } = await this.plugin.getLinkedCamera(this.id);
+                    const deviceSettings = await device.getSettings();
+                    const cameraSnapshotHeight = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:snapshotHeight')?.value as number) ?? 720;
+                    const cameraSnapshotWidth = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:snapshotWidth')?.value as number) ?? 1280;
 
                     const image = await device.takePicture({
                         reason: 'event',
                         picture: {
-                            height: snapshotHeight,
-                            width: snapshotWidth,
+                            height: cameraSnapshotHeight,
+                            width: cameraSnapshotWidth,
                         },
                     });
 

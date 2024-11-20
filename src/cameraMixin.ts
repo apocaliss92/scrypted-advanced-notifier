@@ -1,7 +1,7 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { ADVANCED_NOTIFIER_INTERFACE, DetectionRule, DetectionRuleSource, EventType, filterAndSortValidDetections, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled, snapshotHeight, snapshotWidth } from "./utils";
+import { DetectionRule, DetectionRuleSource, EventType, filterAndSortValidDetections, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled } from "./utils";
 import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { getDetectionRuleId } from "./mqtt-client";
@@ -21,6 +21,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             description: 'Minimum amount of seconds to wait until a notification is sent for the same detection type',
             type: 'number',
             defaultValue: 15,
+        },
+        snapshotWidth: {
+            subgroup: 'Notifier',
+            title: 'Snapshot width',
+            type: 'number',
+            defaultValue: 1280,
+            placeholder: '1280',
+        },
+        snapshotHeight: {
+            subgroup: 'Notifier',
+            title: 'Snapshot height',
+            type: 'number',
+            defaultValue: 720,
+            placeholder: '720',
         },
         ignoreCameraDetections: {
             title: 'Ignore camera detections',
@@ -82,18 +96,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     ) {
         super(options);
 
-        setTimeout(() => !this.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE) && this.interfaces.push(ADVANCED_NOTIFIER_INTERFACE), 0);
-
         this.storageSettings.settings.room.onGet = async () => {
             const rooms = this.plugin.storageSettings.getItem('fetchedRooms');
-            // const rooms = (await mainPluginDevice.getSettings()).find(setting => setting.key === 'fetchedRooms')?.value as string[];
             return {
                 choices: rooms ?? []
             }
         }
         this.storageSettings.settings.entityId.onGet = async () => {
             const entities = this.plugin.storageSettings.getItem('fetchedEntities');
-            // const entities = (await mainPluginDevice.getSettings()).find(setting => setting.key === 'fetchedEntities')?.value as string[];
             return {
                 choices: entities ?? []
             }
@@ -111,52 +121,56 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
 
         const funct = async () => {
-            const deviceSettings = await this.getMixinSettings();
-            const { isActiveForMqttReporting, isPluginEnabled, detectionRules, skippedRules, isActiveForNotifications } = await isDeviceEnabled(this.id, deviceSettings);
+            try {
+                const deviceSettings = await this.getMixinSettings();
+                const { isActiveForMqttReporting, isPluginEnabled, detectionRules, skippedRules, isActiveForNotifications } = await isDeviceEnabled(this.id, deviceSettings);
 
-            logger.debug(`Detected rules: ${JSON.stringify({ detectionRules, skippedRules })}`);
-            this.detectionRules = detectionRules;
+                logger.debug(`Detected rules: ${JSON.stringify({ detectionRules, skippedRules })}`);
+                this.detectionRules = detectionRules;
 
-            this.isActiveForNotifications = isActiveForNotifications;
-            this.isActiveForMqttReporting = isActiveForMqttReporting;
+                this.isActiveForNotifications = isActiveForNotifications;
+                this.isActiveForMqttReporting = isActiveForMqttReporting;
 
-            const isCurrentlyRunning = !!this.detectionListener;
-            const shouldRun = this.isActiveForMqttReporting || this.isActiveForNotifications;
+                const isCurrentlyRunning = !!this.detectionListener;
+                const shouldRun = this.isActiveForMqttReporting || this.isActiveForNotifications;
 
-            if (isActiveForMqttReporting) {
-                const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase & Settings;
-                const mqttClient = await this.plugin.getMqttClient();
-                if (mqttClient) {
-                    if (!this.mqttAutodiscoverySent) {
-                        await mqttClient.setupDeviceAutodiscovery({
-                            device,
-                            console: logger,
-                            withDetections: true,
-                            deviceClass: 'motion'
-                        });
-                        this.mqttAutodiscoverySent = true;
+                if (isActiveForMqttReporting) {
+                    const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase & Settings;
+                    const mqttClient = await this.plugin.getMqttClient();
+                    if (mqttClient) {
+                        if (!this.mqttAutodiscoverySent) {
+                            await mqttClient.setupDeviceAutodiscovery({
+                                device,
+                                console: logger,
+                                withDetections: true,
+                                deviceClass: 'motion'
+                            });
+                            this.mqttAutodiscoverySent = true;
+                        }
+
+                        const missingRules = detectionRules.filter(rule => !this.rulesDiscovered.includes(getDetectionRuleId(rule)));
+                        if (missingRules.length) {
+                            await mqttClient.discoverDetectionRules({ console: logger, device, rules: missingRules });
+                            this.rulesDiscovered.push(...missingRules.map(rule => getDetectionRuleId(rule)))
+                        }
                     }
 
-                    const missingRules = detectionRules.filter(rule => !this.rulesDiscovered.includes(getDetectionRuleId(rule)));
-                    if (missingRules.length) {
-                        await mqttClient.discoverDetectionRules({ console: logger, device, rules: missingRules });
-                        this.rulesDiscovered.push(...missingRules.map(rule => getDetectionRuleId(rule)))
-                    }
+                    mqttClient.reportDeviceValues(device, logger);
                 }
 
-                mqttClient.reportDeviceValues(device, logger);
-            }
-
-            if (isCurrentlyRunning && !shouldRun) {
-                logger.log('Stopping and cleaning listeners.');
-                this.resetListeners();
-            } else if (!isCurrentlyRunning && shouldRun) {
-                logger.log(`Starting ${ScryptedInterface.ObjectDetector} listeners: ${JSON.stringify({
-                    notificationsActive: isActiveForNotifications,
-                    mqttReportsActive: isActiveForMqttReporting,
-                    isPluginEnabled,
-                })}`);
-                await this.startListeners();
+                if (isCurrentlyRunning && !shouldRun) {
+                    logger.log('Stopping and cleaning listeners.');
+                    this.resetListeners();
+                } else if (!isCurrentlyRunning && shouldRun) {
+                    logger.log(`Starting ${ScryptedInterface.ObjectDetector} listeners: ${JSON.stringify({
+                        notificationsActive: isActiveForNotifications,
+                        mqttReportsActive: isActiveForMqttReporting,
+                        isPluginEnabled,
+                    })}`);
+                    await this.startListeners();
+                }
+            } catch (e) {
+                logger.log('Error in startCheckInterval funct', e);
             }
         };
 
@@ -391,8 +405,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const image = await objectDetector.takePicture({
             reason: 'event',
             picture: {
-                height: snapshotHeight,
-                width: snapshotWidth,
+                height: this.storageSettings.values.snapshotHeight,
+                width: this.storageSettings.values.snapshotWidth,
             },
         });
         const b64Image = (await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg'))?.toString('base64');
@@ -566,12 +580,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async startListeners() {
-        this.detectionListener = systemManager.listenDevice(this.id, ScryptedInterface.ObjectDetector, async (_, __, data) => {
-            const detection: ObjectsDetected = data;
+        try {
+            this.detectionListener = systemManager.listenDevice(this.id, ScryptedInterface.ObjectDetector, async (_, __, data) => {
+                const detection: ObjectsDetected = data;
 
-            const { timestamp } = detection;
+                const { timestamp } = detection;
 
-            this.processDetections({ detections: detection.detections, triggerTime: timestamp })
-        });
+                this.processDetections({ detections: detection.detections, triggerTime: timestamp })
+            });
+        } catch (e) {
+            this.getLogger().log('Error in startListeners', e);
+        }
     }
 }

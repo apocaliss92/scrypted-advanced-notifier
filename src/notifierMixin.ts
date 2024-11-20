@@ -8,17 +8,11 @@ export type SendNotificationToPluginFn = (notifierId: string, title: string, opt
 
 export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> implements Settings {
     storageSettings = new StorageSettings(this, {
-        snapshotWidth: {
+        snapshotScale: {
             subgroup: 'Notifier',
-            title: 'Snapshot width',
+            title: 'Snapshot scale',
             type: 'number',
-            defaultValue: 1280,
-        },
-        snapshotHeight: {
-            subgroup: 'Notifier',
-            title: 'Snapshot height',
-            type: 'number',
-            defaultValue: 720,
+            defaultValue: 1,
         },
         ...getTextSettings(true) as any
     });
