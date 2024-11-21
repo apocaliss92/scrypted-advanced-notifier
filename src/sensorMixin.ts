@@ -229,13 +229,19 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                     const cameraSnapshotHeight = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:snapshotHeight')?.value as number) ?? 720;
                     const cameraSnapshotWidth = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:snapshotWidth')?.value as number) ?? 1280;
 
-                    const image = await device.takePicture({
-                        reason: 'event',
-                        picture: {
-                            height: cameraSnapshotHeight,
-                            width: cameraSnapshotWidth,
-                        },
-                    });
+                    let image;
+
+                    try {
+                        image = await device.takePicture({
+                            reason: 'event',
+                            picture: {
+                                height: cameraSnapshotHeight,
+                                width: cameraSnapshotWidth,
+                            },
+                        });
+                    } catch (e) {
+                        logger.log('Error taking a picture', e);
+                    }
 
                     for (const rule of this.detectionRules) {
                         logger.log(`Starting notifiers: ${JSON.stringify({

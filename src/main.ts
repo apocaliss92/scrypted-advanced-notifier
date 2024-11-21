@@ -1176,13 +1176,17 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         let image = imageParent;
 
         if (!keepImage && (!image || snapshotHeight !== snapshotHeightParent || snapshotWidth !== snapshotWidthParent)) {
-            image = await cameraDevice.takePicture({
-                reason: 'event',
-                picture: {
-                    height: snapshotHeightParent,
-                    width: snapshotWidthParent,
-                },
-            });
+            try {
+                image = await cameraDevice.takePicture({
+                    reason: 'event',
+                    picture: {
+                        height: snapshotHeightParent,
+                        width: snapshotWidthParent,
+                    },
+                });
+            } catch (e) {
+                this.getLogger().log('Error taking a picture', e);
+            }
         }
 
         let imageBuffer = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg');

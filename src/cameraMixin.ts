@@ -402,16 +402,21 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     private async getImage() {
         const objectDetector = this.getObjectDetector();
-        const image = await objectDetector.takePicture({
-            reason: 'event',
-            picture: {
-                height: this.storageSettings.values.snapshotHeight,
-                width: this.storageSettings.values.snapshotWidth,
-            },
-        });
-        const b64Image = (await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg'))?.toString('base64');
+        try {
+            const image = await objectDetector.takePicture({
+                reason: 'event',
+                picture: {
+                    height: this.storageSettings.values.snapshotHeight,
+                    width: this.storageSettings.values.snapshotWidth,
+                },
+            });
+            const b64Image = (await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg'))?.toString('base64');
 
-        return { image, b64Image };
+            return { image, b64Image };
+        } catch (e) {
+            this.getLogger().log('Error taking a picture', e);
+            return {};
+        }
     }
 
     public async processDetections(props: { detections: ObjectDetectionResult[], triggerTime: number }) {
