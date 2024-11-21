@@ -164,18 +164,6 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             subgroup: 'Rooms',
             multiple: true,
         },
-        snapshotWidth: {
-            group: 'Notifier',
-            title: 'Snapshot width',
-            type: 'number',
-            defaultValue: 1280,
-        },
-        snapshotHeight: {
-            group: 'Notifier',
-            title: 'Snapshot height',
-            type: 'number',
-            defaultValue: 720,
-        },
         notifiers: {
             group: 'Notifier',
             title: 'Active notifiers',
@@ -185,6 +173,23 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             deviceFilter: notifierFilter,
         },
         ...getTextSettings(false) as any,
+        [detectionRulesKey]: {
+            title: 'Rules',
+            group: 'Detection rules',
+            type: 'string',
+            multiple: true,
+            combobox: true,
+            choices: [],
+            defaultValue: [],
+        },
+        activeDevicesForNotifications: {
+            title: '"OnActive" devices',
+            group: 'Detection rules',
+            type: 'device',
+            multiple: true,
+            combobox: true,
+            deviceFilter: deviceFilter,
+        },
         testDevice: {
             title: 'Device',
             group: 'Test',
@@ -212,23 +217,6 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             onPut: async () => {
                 await this.executeNotificationTest();
             },
-        },
-        [detectionRulesKey]: {
-            title: 'Rules',
-            group: 'Detection rules',
-            type: 'string',
-            multiple: true,
-            combobox: true,
-            choices: [],
-            defaultValue: [],
-        },
-        activeDevicesForNotifications: {
-            title: '"OnActive" devices',
-            group: 'Detection rules',
-            type: 'device',
-            multiple: true,
-            combobox: true,
-            deviceFilter: deviceFilter,
         },
     });
 
@@ -850,7 +838,6 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
                     detection: match,
                     source: NotificationSource.DETECTION,
                     textKey,
-                    keepImage: !!image,
                     logger,
                     notifierSettings,
                     rule,
@@ -981,7 +968,6 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         textKey: string,
         rule?: DetectionRule,
         source?: NotificationSource,
-        keepImage?: boolean,
         notifierSettings: Setting[],
         logger: Console,
     }) {
@@ -994,7 +980,6 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             detection,
             textKey,
             source,
-            keepImage,
             logger,
             notifierSettings,
             rule,
@@ -1031,8 +1016,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             cameraDevice: device,
             snapshotHeight: cameraSnapshotHeight * notifierSnapshotScale,
             snapshotWidth: cameraSnapshotWidth * notifierSnapshotScale,
-            image: imageParent,
-            keepImage,
+            image: notifierSnapshotScale === 1 ? imageParent : undefined,
         });
 
         const haActions = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:haActions')?.value as string[]) ?? [];
@@ -1167,21 +1151,18 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         snapshotWidth: number,
         snapshotHeight: number,
         image?: MediaObject,
-        keepImage?: boolean,
     }) {
-        const { cameraDevice, snapshotWidth: snapshotWidthParent, snapshotHeight: snapshotHeightParent, image: imageParent, keepImage } = props;
-        const snapshotWidth = this.storageSettings.getItem('snapshotWidth') as number;
-        const snapshotHeight = this.storageSettings.getItem('snapshotHeight') as number;
+        const { cameraDevice, snapshotWidth, snapshotHeight, image: imageParent } = props;
 
         let image = imageParent;
 
-        if (!keepImage && (!image || snapshotHeight !== snapshotHeightParent || snapshotWidth !== snapshotWidthParent)) {
+        if (!image) {
             try {
                 image = await cameraDevice.takePicture({
                     reason: 'event',
                     picture: {
-                        height: snapshotHeightParent,
-                        width: snapshotWidthParent,
+                        height: snapshotHeight,
+                        width: snapshotWidth,
                     },
                 });
             } catch (e) {
