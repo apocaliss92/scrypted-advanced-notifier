@@ -1028,6 +1028,10 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
                     url: haUrl,
                     clickAction: haUrl,
                     actions: haActions.length ? haActions.map(action => JSON.parse(action)) : undefined,
+                },
+                pushover: {
+                    timestamp: time,
+                    url: externalUrl,
                 }
             },
         }
