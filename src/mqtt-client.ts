@@ -1,6 +1,6 @@
-import { connect, Client } from 'mqtt';
+import { connectAsync, MqttClient as Client } from 'mqtt';
 import { ObjectDetectionResult, ScryptedDeviceBase, ScryptedInterface } from '@scrypted/sdk';
-import { defaultDetectionClasses, detectionClassesDefaultMap, isLabelDetection, parentDetectionClassMap } from './detecionClasses';
+import { defaultDetectionClasses, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, parentDetectionClassMap } from './detecionClasses';
 import { DetectionRule, firstUpperCase } from './utils';
 import { cloneDeep, groupBy } from 'lodash';
 
@@ -15,6 +15,7 @@ interface MqttEntity {
 
 const idPrefix = 'scrypted-an';
 const namePrefix = 'Scrypted AN';
+const peopleTrackerId = 'people-tracker';
 
 const mqttEntities: MqttEntity[] = [
     { entity: 'triggered', name: 'Notification triggered', domain: 'binary_sensor' },
@@ -73,7 +74,7 @@ export default class MqttClient {
     async disconnect() {
         if (this.mqttClient) {
             try {
-                this.mqttClient.end(true);
+                await this.mqttClient.endAsync(true);
             } catch (e) {
                 this.console.log('Error closing MQTT connection', e);
             }
@@ -81,53 +82,53 @@ export default class MqttClient {
     }
 
     async getMqttClient(console: Console, forceReconnect?: boolean): Promise<Client> {
-        return new Promise((res, rej) => {
-            const _connect = async () => {
-                const client = connect(this.mqttPathmame, {
-                    rejectUnauthorized: false,
-                    username: this.username,
-                    password: this.password,
-                });
-                client.setMaxListeners(Infinity);
+        const _connect = async () => {
+            const client = await connectAsync(this.mqttPathmame, {
+                rejectUnauthorized: false,
+                username: this.username,
+                password: this.password,
+            });
+            client.setMaxListeners(Infinity);
 
-                client.on('connect', data => {
-                    console.log('Connected to mqtt', JSON.stringify(data));
-                    this.mqttClient = client;
-                    res(client);
-                });
+            client.on('connect', data => {
+                this.mqttClient = client;
+            });
 
-                client.on('error', data => {
-                    console.log('Error connecting to mqtt', data);
-                    this.mqttClient = undefined;
-                    rej();
-                });
+            client.on('error', data => {
+                console.log('Error connecting to mqtt', data);
+                this.mqttClient = undefined;
+            });
+
+            console.log('Connected to mqtt');
+            this.mqttClient = client;
+        }
+
+        if (!this.mqttClient || forceReconnect) {
+            if (forceReconnect && this.mqttClient) {
+                try {
+                    await this.mqttClient.endAsync();
+                } catch (e) { }
             }
+            const url = this.host;
+            const urlWithoutPath = new URL(url);
+            urlWithoutPath.pathname = '';
 
-            if (!this.mqttClient || forceReconnect) {
-                if (this.mqttClient) {
-                    try {
-                        this.mqttClient.end();
-                    } catch (e) { }
-                }
-                const url = this.host;
-                const urlWithoutPath = new URL(url);
-                urlWithoutPath.pathname = '';
-
-                this.mqttPathmame = urlWithoutPath.toString();
-                if (!this.mqttPathmame.endsWith('/')) {
-                    this.mqttPathmame = `${this.mqttPathmame}/`;
-                }
-                console.log('Starting MQTT connection', this.host, this.username, this.mqttPathmame);
-
-                _connect();
-            } else if (!this.mqttClient.connected) {
-                console.log('MQTT disconnected. Reconnecting', this.host, this.username, this.mqttPathmame);
-
-                _connect();
-            } else {
-                res(this.mqttClient);
+            this.mqttPathmame = urlWithoutPath.toString();
+            if (!this.mqttPathmame.endsWith('/')) {
+                this.mqttPathmame = `${this.mqttPathmame}/`;
             }
-        })
+            console.log('Starting MQTT connection', this.host, this.username, this.mqttPathmame);
+
+            await _connect();
+            return this.mqttClient;
+        } else if (!this.mqttClient.connected) {
+            console.log('MQTT disconnected. Reconnecting', this.host, this.username, this.mqttPathmame);
+
+            await _connect();
+            return this.mqttClient;
+        } else {
+            return this.mqttClient;
+        }
     }
 
     async publish(console: Console, topic: string, inputValue: any, retain = true) {
@@ -163,9 +164,7 @@ export default class MqttClient {
         }
     }
 
-    private getMqttTopicTopics(device: ScryptedDeviceBase) {
-        const deviceId = device.id;
-
+    private getMqttTopicTopics(deviceId: string) {
         const getEntityTopic = (entity: string) => `scrypted/advancedNotifier/${deviceId}/${entity}`;
         const getInfoTopic = (entity: string) => `${getEntityTopic(entity)}/info`;
         const getDiscoveryTopic = (domain: MqttEntity['domain'], entity: string) => `homeassistant/${domain}/${idPrefix}-${deviceId}/${entity}/config`;
@@ -192,7 +191,7 @@ export default class MqttClient {
             name: `${namePrefix} ${name}`
         };
 
-        const { getDiscoveryTopic, getEntityTopic } = this.getMqttTopicTopics(device);
+        const { getDiscoveryTopic, getEntityTopic } = this.getMqttTopicTopics(device.id);
         const allEntities = [...mqttEntities, ...deviceClassMqttEntities];
         const entitiesToRun = withDetections ?
             allEntities :
@@ -236,6 +235,47 @@ export default class MqttClient {
         }
     }
 
+    getPersonStrings(person: string) {
+        const personId = person.replace(' ', '_');
+
+        return {
+            personId,
+            personName: person,
+        }
+    }
+
+    async setupPluginAutodiscovery(props: {
+        people: string[],
+        console: Console,
+    }) {
+        const { console, people } = props;
+
+        const mqttdevice = {
+            ids: `${idPrefix}-${peopleTrackerId}`,
+            name: `${namePrefix} people tracker`
+        };
+
+        const { getDiscoveryTopic, getEntityTopic } = this.getMqttTopicTopics(peopleTrackerId);
+
+        const getConfig = (personId: string, personName: string) => {
+            return {
+                dev: mqttdevice,
+                unique_id: `${idPrefix}-${peopleTrackerId}-${personId}`,
+                name: personName,
+                object_id: `${idPrefix}-${peopleTrackerId}-${personId}`,
+            } as any
+        };
+
+        for (const person of people) {
+            const { personId, personName } = this.getPersonStrings(person);
+            const config = getConfig(personId, personName);
+            const topic = getEntityTopic(personId);
+            config.state_topic = topic;
+
+            await this.publish(console, getDiscoveryTopic('sensor', personId), JSON.stringify(config));
+        }
+    }
+
     async discoverDetectionRules(props: {
         device: ScryptedDeviceBase,
         console: Console,
@@ -249,7 +289,7 @@ export default class MqttClient {
             name: `${namePrefix} ${name}`
         };
 
-        const { getDiscoveryTopic, getEntityTopic } = this.getMqttTopicTopics(device);
+        const { getDiscoveryTopic, getEntityTopic } = this.getMqttTopicTopics(device.id);
 
         for (const rule of rules) {
             const entity = getDetectionRuleId(rule);
@@ -279,7 +319,7 @@ export default class MqttClient {
         resettAllClasses?: boolean,
         ignoreMainEntity?: boolean,
         rule?: DetectionRule,
-        allRuleIds?: string[]
+        allRuleIds?: string[],
     }) {
         const { device, triggered, console, detection, b64Image, resettAllClasses, ignoreMainEntity, rule, allRuleIds } = props;
         try {
@@ -289,7 +329,7 @@ export default class MqttClient {
                 mqttEntities :
                 triggeredEntity;
             console.debug(`Trigger entities to publish: ${JSON.stringify(entitiesToRun)}`)
-            const { getEntityTopic } = this.getMqttTopicTopics(device);
+            const { getEntityTopic } = this.getMqttTopicTopics(device.id);
 
             if (!ignoreMainEntity) {
                 for (const mqttEntity of entitiesToRun) {
@@ -389,40 +429,47 @@ export default class MqttClient {
         detections?: ObjectDetectionResult[],
         triggerTime: number,
         b64Image?: string,
-        reset?: boolean
+        reset?: boolean,
+        room?: string,
     }) {
-        const { device, detections, triggerTime, console, b64Image, reset } = props;
+        const { device, detections = [], triggerTime, console, b64Image, reset, room } = props;
         try {
-            const { getEntityTopic } = this.getMqttTopicTopics(device);
+            const { getEntityTopic } = this.getMqttTopicTopics(device.id);
 
-            if (detections) {
-                for (const detection of detections) {
-                    const detectionClass = detectionClassesDefaultMap[detection.className];
-                    if (detectionClass) {
-                        const entitiesToPublish = deviceClassMqttEntitiesGrouped[detectionClass];
-                        console.debug(`Relevant detections to publish: ${JSON.stringify({ detections, entitiesToPublish })}`);
+            for (const detection of detections) {
+                const detectionClass = detectionClassesDefaultMap[detection.className];
+                if (detectionClass) {
+                    const entitiesToPublish = deviceClassMqttEntitiesGrouped[detectionClass];
+                    console.debug(`Relevant detections to publish: ${JSON.stringify({ detections, entitiesToPublish })}`);
 
-                        for (const entry of entitiesToPublish) {
-                            const { entity } = entry;
-                            let value: any;
-                            let retain: true;
+                    for (const entry of entitiesToPublish) {
+                        const { entity } = entry;
+                        let value: any;
+                        let retain: true;
 
-                            if (entity.includes('Detected')) {
-                                value = true;
-                            } else if (entity.includes('LastLabel')) {
-                                value = detection?.label || null;
-                            } else if (entity.includes('LastImage') && b64Image) {
-                                value = b64Image || null;
-                                retain = true;
-                            }
-
-                            if (value) {
-                                await this.publish(console, getEntityTopic(entity), value, retain);
-                            }
+                        if (entity.includes('Detected')) {
+                            value = true;
+                        } else if (entity.includes('LastLabel')) {
+                            value = detection?.label || null;
+                        } else if (entity.includes('LastImage') && b64Image) {
+                            value = b64Image || null;
+                            retain = true;
                         }
-                    } else {
-                        console.log(`${detectionClass} not found`);
+
+                        if (value) {
+                            await this.publish(console, getEntityTopic(entity), value, retain);
+                        }
                     }
+
+                    const person = detection.label;
+                    if (isFaceClassname(detection.className) && person && room) {
+                        console.debug(`Person ${person} detected in room ${room}`);
+                        const { personId } = this.getPersonStrings(person);
+                        const { getEntityTopic } = this.getMqttTopicTopics(peopleTrackerId);
+                        await this.publish(console, getEntityTopic(personId), room, true);
+                    }
+                } else {
+                    console.log(`${detectionClass} not found`);
                 }
             }
 
@@ -457,7 +504,7 @@ export default class MqttClient {
     }
 
     async reportDeviceValues(device: ScryptedDeviceBase, console: Console) {
-        const { getEntityTopic } = this.getMqttTopicTopics(device);
+        const { getEntityTopic } = this.getMqttTopicTopics(device.id);
 
         if (device.interfaces.includes(ScryptedInterface.Battery) && device.batteryLevel) {
             await this.publish(console, getEntityTopic(batteryEntity.entity), device.batteryLevel, true);

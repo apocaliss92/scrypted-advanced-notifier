@@ -3,7 +3,7 @@ import axios from "axios";
 import { isEqual, keyBy, sortBy } from 'lodash';
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import MqttClient from './mqtt-client';
-import { DeviceInterface, NotificationSource, getWebookSpecs, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE } from "./utils";
+import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, getWebookUrls, NotificationPriority } from "./utils";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
@@ -16,12 +16,14 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
     private deviceHaEntityMap: Record<string, string> = {};
     private haEntityDeviceMap: Record<string, string> = {};
     private deviceVideocameraMap: Record<string, string> = {};
-    private deviceRoomMap: Record<string, string> = {}
+    public deviceRoomMap: Record<string, string> = {}
     public mqttClient: MqttClient;
     private doorbellDevices: string[] = [];
     private firstCheckAlwaysActiveDevices = false;
     private mainLogger: Console;
     public currentMixinsMap: Record<string, AdvancedNotifierCameraMixin | AdvancedNotifierSensorMixin> = {};
+    private haProviderId: string;
+    private pushoverProviderId: string;
 
     storageSettings = new StorageSettings(this, {
         pluginEnabled: {
@@ -210,6 +212,14 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             type: 'string',
             immediate: true,
         },
+        testPriority: {
+            group: 'Test',
+            title: 'Priority',
+            type: 'string',
+            immediate: true,
+            choices: [NotificationPriority.Low, NotificationPriority.Normal, NotificationPriority.High],
+            defaultValue: NotificationPriority.Normal
+        },
         testButton: {
             group: 'Test',
             title: 'Send notification',
@@ -251,44 +261,56 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
 
     async onRequest(request: HttpRequest, response: HttpResponse): Promise<void> {
         const decodedUrl = decodeURIComponent(request.url);
-        const [_, __, ___, ____, _____, webhook, deviceName, spec] = decodedUrl.split('/');
-        const device = sdk.systemManager.getDeviceByName(deviceName) as unknown as (ScryptedDeviceBase & Settings);
-        const deviceSettings = await device?.getSettings();
-        const deviceSettingsByKey = keyBy(deviceSettings, setting => setting.key);
+        const [_, __, ___, ____, _____, webhook, deviceNameOrAction] = decodedUrl.split('/');
         try {
-            if (deviceSettings) {
-                if (webhook === 'snapshots') {
-                    const { lastSnapshot } = await getWebookSpecs();
-                    const isWebhookEnabled = deviceSettingsByKey['homeassistantMetadata:lastSnapshotWebhook']?.value as boolean;
+            const { lastSnapshot, haAction } = await getWebooks();
 
-                    if (spec === lastSnapshot) {
-                        if (isWebhookEnabled) {
-                            // response.send(`${JSON.stringify(this.storageSettings.getItem('deviceLastSnapshotMap'))}`, {
-                            //     code: 404,
-                            // });
-                            // return;
-                            const imageUrl = deviceSettingsByKey['homeassistantMetadata:lastSnapshotImageUrl']?.value as string;
+            if (webhook === haAction) {
+                const { url, accessToken } = await this.getHaApiUrl();
 
-                            if (imageUrl) {
-                                const mo = await sdk.mediaManager.createFFmpegMediaObject({
-                                    inputArguments: [
-                                        '-i', imageUrl,
-                                    ]
-                                });
-                                const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
-                                response.send(jpeg, {
-                                    headers: {
-                                        'Content-Type': 'image/jpeg',
-                                    }
-                                });
-                                return;
-                            } else {
-                                response.send(`Last snapshot not found for device ${deviceName} and spec ${spec}`, {
-                                    code: 404,
-                                });
-                                return;
-                            }
+                await axios.post(`${url}/api/events/mobile_app_notification_action`,
+                    { "action": deviceNameOrAction },
+                    {
+                        headers: {
+                            'Authorization': 'Bearer ' + accessToken,
                         }
+                    });
+
+                response.send(`Action ${deviceNameOrAction} executed`, {
+                    code: 200,
+                });
+                return;
+            } else if (webhook === lastSnapshot) {
+                const device = sdk.systemManager.getDeviceByName(deviceNameOrAction) as unknown as (ScryptedDeviceBase & Settings);
+                const deviceSettings = await device?.getSettings();
+                const deviceSettingsByKey = keyBy(deviceSettings, setting => setting.key);
+                const isWebhookEnabled = deviceSettingsByKey['homeassistantMetadata:lastSnapshotWebhook']?.value as boolean;
+
+                if (isWebhookEnabled) {
+                    // response.send(`${JSON.stringify(this.storageSettings.getItem('deviceLastSnapshotMap'))}`, {
+                    //     code: 404,
+                    // });
+                    // return;
+                    const imageUrl = deviceSettingsByKey['homeassistantMetadata:lastSnapshotImageUrl']?.value as string;
+
+                    if (imageUrl) {
+                        const mo = await sdk.mediaManager.createFFmpegMediaObject({
+                            inputArguments: [
+                                '-i', imageUrl,
+                            ]
+                        });
+                        const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
+                        response.send(jpeg, {
+                            headers: {
+                                'Content-Type': 'image/jpeg',
+                            }
+                        });
+                        return;
+                    } else {
+                        response.send(`Last snapshot not found for device ${deviceNameOrAction}`, {
+                            code: 404,
+                        });
+                        return;
                     }
                 }
             }
@@ -317,7 +339,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             const logger = this.getLogger();
 
             if (this.mqttClient) {
-                this.mqttClient.disconnect();
+                await this.mqttClient.disconnect();
                 this.mqttClient = undefined;
             }
 
@@ -352,6 +374,14 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             try {
                 this.mqttClient = new MqttClient(mqttHost, mqttUsename, mqttPassword);
                 await this.mqttClient.getMqttClient(logger, true);
+
+                const objDetectionPlugin = systemManager.getDeviceByName('Scrypted NVR Object Detection') as unknown as Settings;
+                const settings = await objDetectionPlugin.getSettings();
+                const knownPeople = settings?.find(setting => setting.key === 'knownPeople')?.choices
+                    ?.filter(choice => !!choice)
+                    .map(person => person.trim());
+
+                await this.mqttClient.setupPluginAutodiscovery({ people: knownPeople, console: logger });
 
                 if (mqttActiveEntitiesTopic) {
                     this.getLogger().log(`Subscribing to ${mqttActiveEntitiesTopic}`);
@@ -396,16 +426,24 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
     }
 
     private async initPluginSettings() {
+        const logger = this.getLogger();
         const cloudPlugin = systemManager.getDeviceByName('Scrypted Cloud') as unknown as Settings;
         const oauthUrl = await (cloudPlugin as any).getOauthUrl();
         const url = new URL(oauthUrl);
         const serverId = url.searchParams.get('server_id');
         this.storageSettings.putSetting('serverId', serverId);
-        this.getLogger().log(`Server id found: ${serverId}`);
+        logger.log(`Server id found: ${serverId}`);
 
         const localIp = (await sdk.endpointManager.getLocalAddresses())[0];
         this.storageSettings.putSetting('localIp', localIp);
-        this.getLogger().log(`Local IP found: ${localIp}`);
+        logger.log(`Local IP found: ${localIp}`);
+
+        const pushoverPlugin = systemManager.getDeviceByName('Pushover Plugin') as unknown as ScryptedDeviceBase;
+        const haPlugin = systemManager.getDeviceByName('Home Assistant') as unknown as ScryptedDeviceBase;
+
+        this.haProviderId = haPlugin?.id
+        this.pushoverProviderId = pushoverPlugin?.id
+        logger.log(`HA providerId: ${this.haProviderId} and Pushover providerId: ${this.pushoverProviderId}`);
     }
 
     private async refreshDevicesLinks() {
@@ -418,7 +456,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             const deviceVideocameraMap: Record<string, string> = {};
             const deviceRoomMap: Record<string, string> = {};
 
-            const allDevices = getElegibleDevices().devices;
+            const allDevices = getElegibleDevices();
             for (const device of allDevices) {
                 const deviceId = device.id;
                 const deviceType = device.type;
@@ -505,14 +543,6 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             this.storageSettings.settings.useMqttPluginCredentials.hide = false;
         }
 
-        const { devices, notifiers } = getElegibleDevices();
-        const deviceIds = devices.map(device => device.id);
-        const notifierIds = notifiers.map(device => device.id);
-        // this.storageSettings.settings.activeDevicesForReporting.choices = deviceIds;
-        // this.storageSettings.settings.notifiers.choices = notifierIds;
-        // this.storageSettings.settings.testDevice.choices = deviceIds;
-        // this.storageSettings.settings.activeDevicesForNotifications.choices = deviceIds;
-
         this.storageSettings.settings.testMessage.choices = Object.keys(getTextSettings(false)).map(key => key);
 
         const settings: Setting[] = await this.storageSettings.getSettings();
@@ -533,7 +563,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         return this.storageSettings.putSetting(key, value);
     }
 
-    fetchHomeassistantData = async () => {
+    getHaApiUrl = async () => {
         let accessToken = this.storageSettings.getItem('accessToken');
         let address = this.storageSettings.getItem('address');
         let protocol = this.storageSettings.getItem('protocol');
@@ -547,11 +577,21 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             protocol = haSettings.find(setting => setting.key === 'protocol')?.value;
         }
 
+        const url = `${protocol}://${address}`;
+
+        return {
+            accessToken,
+            address,
+            protocol,
+            url,
+        }
+    }
+
+    fetchHomeassistantData = async () => {
+        const { accessToken, address, protocol, url } = await this.getHaApiUrl();
         if (!accessToken || !address || !protocol) {
             throw new Error(`HA access params not set correctly: AccessToken: ${accessToken}, Address: ${address}, Protocol: ${protocol}`);
         }
-
-        const url = `${protocol}://${address}`
 
         const domains = this.storageSettings.getItem('domains') as string[];
 
@@ -620,14 +660,10 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
                 ScryptedInterface.VideoCamera,
                 ScryptedInterface.BinarySensor,
                 ScryptedInterface.Lock,
+                ScryptedInterface.Notifier,
             ].some(int => interfaces.includes(int))
         ) {
-            return [ScryptedInterface.Settings]
-        }
-
-        if (interfaces.includes(ScryptedInterface.Notifier)) {
-            return [ScryptedInterface.Settings]
-            // return [ScryptedInterface.Notifier, ScryptedInterface.Settings]
+            return [ScryptedInterface.Settings, ADVANCED_NOTIFIER_INTERFACE]
         }
 
         return undefined;
@@ -997,7 +1033,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
 
         const { haUrl, externalUrl } = this.getUrls(device.id, time);
 
-        const message = await this.getNotificationText({
+        let message = await this.getNotificationText({
             detection,
             externalUrl,
             detectionTime: time,
@@ -1018,22 +1054,39 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             snapshotWidth: cameraSnapshotWidth * notifierSnapshotScale,
             image: notifierSnapshotScale === 1 ? imageParent : undefined,
         });
+        const { priority, actions } = rule;
 
         const haActions = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:haActions')?.value as string[]) ?? [];
+        if (actions) {
+            haActions.push(...actions);
+        }
+        let data: any = {};
 
+        if (notifier.providerId === this.pushoverProviderId) {
+            message += '      ';
+            for (const stringifiedAction of haActions) {
+                const { action, title } = JSON.parse(stringifiedAction);
+                const { haActionUrl } = await getWebookUrls(action, logger);
+                message += `<a href="${haActionUrl}">${title}</a></br>      `
+            }
+
+            data.pushover = {
+                timestamp: time,
+                url: externalUrl,
+                html: 1,
+                priority: priority === NotificationPriority.High ? 1 : priority === NotificationPriority.Normal ? 0 : -1
+            };
+        } else if (notifier.providerId === this.haProviderId) {
+            data.ha = {
+                url: haUrl,
+                clickAction: haUrl,
+                actions: haActions.length ? haActions.map(action => JSON.parse(action)) : undefined
+            }
+
+        }
         const notifierOptions: NotifierOptions = {
             body: message,
-            data: {
-                ha: {
-                    url: haUrl,
-                    clickAction: haUrl,
-                    actions: haActions.length ? haActions.map(action => JSON.parse(action)) : undefined,
-                },
-                pushover: {
-                    timestamp: time,
-                    url: externalUrl,
-                }
-            },
+            data,
         }
 
         let title = (triggerDevice ?? device).name;
@@ -1057,10 +1110,10 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         const testDevice = this.storageSettings.getItem('testDevice') as DeviceInterface;
         const testNotifier = this.storageSettings.getItem('testNotifier') as DeviceInterface;
         const textKey = this.storageSettings.getItem('testMessage') as string;
+        const testPriority = this.storageSettings.getItem('testPriority') as NotificationPriority;
 
         if (testDevice && textKey && testNotifier) {
             const currentTime = new Date().getTime();
-            const testDeviceId = testDevice.id
             const testNotifierId = testNotifier.id
             const notifierSettings = await testNotifier.getSettings();
 
@@ -1076,6 +1129,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
                 source: NotificationSource.TEST,
                 logger,
                 notifierSettings,
+                rule: { priority: testPriority } as DetectionRule
             })
         }
     }
@@ -1219,5 +1273,16 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             notifiers
         }
     }
+
+    // updateDevice(providerNativeId: string,nativeId: string, name: string, interfaces: string[], type: ScryptedDeviceType) {
+    //     return sdk.deviceManager.onDeviceDiscovered({
+    //         nativeId,
+    //         providerNativeId,
+    //         name,
+    //         interfaces,
+    //         type,
+    //         info: sdk.deviceManager.getNativeIds().includes(nativeId) ? sdk.deviceManager.getDeviceState(nativeId)?.info : undefined,
+    //     });
+    // }
 }
 

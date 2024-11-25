@@ -9,25 +9,16 @@ export type DeviceInterface = Camera & ScryptedDeviceBase & Settings;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
 
 export const getElegibleDevices = () => {
-    const pluginDevice = sdk.systemManager.getDeviceByName(scrypted.name);
+    const allDevices = Object.keys(sdk.systemManager.getSystemState()).map(deviceId => sdk.systemManager.getDeviceById(deviceId) as unknown as DeviceInterface);
 
-    const notifiers: DeviceInterface[] = [];
-    const devices: DeviceInterface[] = [];
+    return allDevices.filter(device => {
+        return eval(
+            `(function() { var interfaces = ${JSON.stringify(
+                device.interfaces
+            )}; var type='${device.type}'; var id = '${device.id}'; return ${deviceFilter} })`
+        )()
+    })
 
-    Object.entries(sdk.systemManager.getSystemState()).filter(([deviceId]) => {
-        const { mixins, type } = sdk.systemManager.getDeviceById(deviceId) as unknown as (DeviceInterface);
-
-        return mixins?.includes(pluginDevice.id);
-    }).map(([deviceId]) => sdk.systemManager.getDeviceById(deviceId) as unknown as (DeviceInterface))
-        .forEach(device => {
-            if (device.type == ScryptedDeviceType.Notifier) {
-                notifiers.push(device);
-            } else {
-                devices.push(device);
-            }
-        });
-
-    return { notifiers, devices };
 }
 
 export enum EventType {
@@ -47,26 +38,30 @@ export const getDefaultEntityId = (name: string) => {
     return `binary_sensor.${convertedName}_triggered`;
 }
 
-export const getWebookSpecs = async () => {
-    const lastSnapshot = 'last';
+export const getWebooks = async () => {
+    const lastSnapshot = 'lastSnapshot';
+    const haAction = 'haAction';
 
     return {
         lastSnapshot,
+        haAction,
     }
 }
 
-export const getWebookUrls = async (cameraDevice: string, console: Console) => {
+export const getWebookUrls = async (cameraDeviceOrAction: string | undefined, console: Console) => {
     let lastSnapshotCloudUrl: string;
     let lastSnapshotLocalUrl: string;
+    let haActionUrl: string;
 
-    const { lastSnapshot } = await getWebookSpecs();
+    const { lastSnapshot, haAction } = await getWebooks();
 
     try {
         const cloudEndpoint = await endpointManager.getPublicCloudEndpoint();
         const localEndpoint = await endpointManager.getPublicLocalEndpoint();
 
-        lastSnapshotCloudUrl = `${cloudEndpoint}snapshots/${cameraDevice}/${lastSnapshot}`;
-        lastSnapshotLocalUrl = `${localEndpoint}snapshots/${cameraDevice}/${lastSnapshot}`;
+        lastSnapshotCloudUrl = `${cloudEndpoint}${lastSnapshot}/${cameraDeviceOrAction}`;
+        lastSnapshotLocalUrl = `${localEndpoint}${lastSnapshot}/${cameraDeviceOrAction}`;
+        haActionUrl = `${cloudEndpoint}${haAction}/${cameraDeviceOrAction}`;
     } catch (e) {
         console.log('Error fetching webhookUrls', e);
     }
@@ -74,6 +69,7 @@ export const getWebookUrls = async (cameraDevice: string, console: Console) => {
     return {
         lastSnapshotCloudUrl,
         lastSnapshotLocalUrl,
+        haActionUrl,
     }
 }
 
@@ -360,6 +356,12 @@ export type MixinBaseSettingKey =
     | 'haActions'
     | typeof detectionRulesKey
 
+export enum NotificationPriority {
+    Low = "Low",
+    Normal = "Normal",
+    High = "High"
+}
+
 export const getMixinBaseSettings = (name: string, type: ScryptedDeviceType) => {
     const settings: StorageSettingsDict<MixinBaseSettingKey> = {
         debug: {
@@ -403,7 +405,7 @@ export const getMixinBaseSettings = (name: string, type: ScryptedDeviceType) => 
         },
         // NOTIFIER
         haActions: {
-            title: 'HA actions',
+            title: 'Actions',
             description: 'Actions to show on the notification, i.e. {"action":"open_door","title":"Open door","icon":"sfsymbols:door"}',
             subgroup: 'Notifier',
             type: 'string',
@@ -487,10 +489,12 @@ export enum DetectionRuleActivation {
 }
 
 export const detectionRulesKey = 'detectionRules';
+
 export const getDetectionRuleKeys = (detectionRuleName: string) => {
     const enabledKey = `rule:${detectionRuleName}:enabled`;
     const activationKey = `rule:${detectionRuleName}:activation`;
     const textKey = `rule:${detectionRuleName}:text`;
+    const priorityKey = `rule:${detectionRuleName}:priority`;
     const detecionClassesKey = `rule:${detectionRuleName}:detecionClasses`;
     const scoreThresholdKey = `rule:${detectionRuleName}:scoreThreshold`;
     const whitelistedZonesKey = `rule:${detectionRuleName}:whitelistedZones`;
@@ -502,6 +506,7 @@ export const getDetectionRuleKeys = (detectionRuleName: string) => {
     const dayKey = `rule:${detectionRuleName}:day`;
     const startTimeKey = `rule:${detectionRuleName}:startTime`;
     const endTimeKey = `rule:${detectionRuleName}:endTime`;
+    const actionsKey = `rule:${detectionRuleName}:actions`;
 
     return {
         enabledKey,
@@ -518,13 +523,13 @@ export const getDetectionRuleKeys = (detectionRuleName: string) => {
         dayKey,
         startTimeKey,
         endTimeKey,
+        priorityKey,
+        actionsKey,
     }
 }
 
-// export const deviceFilter = `(interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && (type === '${ScryptedDeviceType.Camera}' || type === '${ScryptedDeviceType.Doorbell}' || type === '${ScryptedDeviceType.Sensor}'))`;
-// export const notifierFilter = `(type === '${ScryptedDeviceType.Notifier}' && interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}'))`;
-export const deviceFilter = `(type === '${ScryptedDeviceType.Camera}' || type === '${ScryptedDeviceType.Doorbell}' || type === '${ScryptedDeviceType.Sensor}')`;
-export const notifierFilter = `(type === '${ScryptedDeviceType.Notifier}')`;
+export const deviceFilter = `(interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && (type === '${ScryptedDeviceType.Camera}' || type === '${ScryptedDeviceType.Doorbell}' || type === '${ScryptedDeviceType.Sensor}'))`;
+export const notifierFilter = `(type === '${ScryptedDeviceType.Notifier}' && interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}'))`;
 
 export const getDetectionRulesSettings = async (props: {
     groupName: string,
@@ -553,6 +558,8 @@ export const getDetectionRulesSettings = async (props: {
             startTimeKey,
             enabledSensorsKey,
             disabledSensorsKey,
+            priorityKey,
+            actionsKey,
         } = getDetectionRuleKeys(detectionRuleName);
 
         const currentActivation = storage.getItem(activationKey as any) as DetectionRuleActivation;
@@ -572,11 +579,23 @@ export const getDetectionRulesSettings = async (props: {
                 title: 'Activation',
                 group: groupName,
                 subgroup: detectionRuleName,
-                combobox: true,
                 choices: [DetectionRuleActivation.Always, DetectionRuleActivation.OnActive, DetectionRuleActivation.Schedule],
                 value: currentActivation,
-                immediate: true
+                immediate: true,
+                combobox: true
             },
+            {
+                key: priorityKey,
+                type: 'string',
+                title: 'Priority',
+                group: groupName,
+                subgroup: detectionRuleName,
+                choices: [NotificationPriority.Low, NotificationPriority.Normal, NotificationPriority.High],
+                value: storage.getItem(priorityKey as any) as DetectionRuleActivation ?? NotificationPriority.Normal,
+                immediate: true,
+                combobox: true
+            },
+
             {
                 key: textKey,
                 title: 'Custom text',
@@ -676,11 +695,19 @@ export const getDetectionRulesSettings = async (props: {
                 deviceFilter: `(type === '${ScryptedDeviceType.Sensor}')`,
                 value: JSON.parse(storage.getItem(disabledSensorsKey as any) as string ?? '[]'),
             },
+            {
+                key: actionsKey,
+                title: 'Actions',
+                description: 'Actions to show on the notification, i.e. {"action":"open_door","title":"Open door","icon":"sfsymbols:door"}',
+                type: 'string',
+                multiple: true,
+                group: groupName,
+                subgroup: detectionRuleName,
+                value: JSON.parse(storage.getItem(actionsKey as any) as string ?? '[]'),
+            },
         );
 
         if (withDevices && currentActivation !== DetectionRuleActivation.OnActive) {
-            // const elegibleDevice = getElegibleDevices();
-
             settings.push({
                 key: devicesKey,
                 title: 'Devices',
@@ -692,7 +719,6 @@ export const getDetectionRulesSettings = async (props: {
                 combobox: true,
                 value: JSON.parse(storage.getItem(devicesKey) as string ?? '[]'),
                 deviceFilter
-                // choices: elegibleDevice.devices.map(device => device.id)
             });
         }
 
@@ -736,6 +762,12 @@ export enum DetectionRuleSource {
     Device = 'Device',
 }
 
+export interface Action {
+    aciton: string;
+    title: string;
+    icon: string;
+}
+
 export interface DetectionRule {
     name: string
     activationType: DetectionRuleActivation;
@@ -747,6 +779,8 @@ export interface DetectionRule {
     blacklistedZones?: string[];
     source: DetectionRuleSource;
     customText?: string;
+    priority: NotificationPriority;
+    actions?: string[];
 }
 
 export const getDeviceRules = (
@@ -779,6 +813,8 @@ export const getDeviceRules = (
                 textKey,
                 enabledSensorsKey,
                 disabledSensorsKey,
+                priorityKey,
+                actionsKey,
             } = getDetectionRuleKeys(detectionRuleName);
 
             const isEnabled = JSON.parse(storage[enabledKey]?.value as string ?? 'false');
@@ -787,6 +823,8 @@ export const getDeviceRules = (
             const notifiersTouse = notifiers.filter(notifierId => activeNotifiers.includes(notifierId));
 
             const activationType = storage[activationKey]?.value as DetectionRuleActivation;
+            const priority = storage[priorityKey]?.value as NotificationPriority;
+            const actions = storage[actionsKey]?.value as string[];
             const customText = storage[textKey]?.value as string || undefined;
             const mainDevices = storage[devicesKey]?.value as string[] ?? [];
             const devices = source === DetectionRuleSource.Device ? [deviceId] : mainDevices.length ? mainDevices : allDeviceIds;
@@ -804,6 +842,8 @@ export const getDeviceRules = (
                 detectionClasses,
                 devices: devicesToUse,
                 customText,
+                priority,
+                actions
             }
 
             if (source === DetectionRuleSource.Device) {

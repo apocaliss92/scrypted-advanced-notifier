@@ -1,7 +1,7 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DetectionRule, DetectionRuleSource, EventType, filterAndSortValidDetections, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, DetectionRule, DetectionRuleSource, EventType, filterAndSortValidDetections, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled } from "./utils";
 import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { getDetectionRuleId } from "./mqtt-client";
@@ -311,6 +311,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         device,
                         triggerTime,
                         b64Image,
+                        room: this.storageSettings.values.room
                     }).finally(() => this.mqttReportInProgress = false);
                 } catch (e) {
                     logger.log(`Error in reportDetectionsToMqtt`, e);
@@ -321,7 +322,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         console: logger,
                         device,
                         triggerTime,
-                        reset: true
+                        reset: true,
                     });
                 }, motionDuration * 1000);
             }
