@@ -1,7 +1,7 @@
 import { connectAsync, MqttClient as Client } from 'mqtt';
-import { ObjectDetectionResult, ScryptedDeviceBase, ScryptedInterface } from '@scrypted/sdk';
+import sdk, { MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ScryptedInterface } from '@scrypted/sdk';
 import { defaultDetectionClasses, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, parentDetectionClassMap } from './detecionClasses';
-import { DetectionRule, firstUpperCase } from './utils';
+import { addBoundingToImage, DetectionRule, firstUpperCase } from './utils';
 import { cloneDeep, groupBy } from 'lodash';
 
 interface MqttEntity {
@@ -429,10 +429,11 @@ export default class MqttClient {
         detections?: ObjectDetectionResult[],
         triggerTime: number,
         b64Image?: string,
+        image?: MediaObject,
         reset?: boolean,
         room?: string,
     }) {
-        const { device, detections = [], triggerTime, console, b64Image, reset, room } = props;
+        const { device, detections = [], triggerTime, console, b64Image, reset, room, image } = props;
         try {
             const { getEntityTopic } = this.getMqttTopicTopics(device.id);
 
@@ -452,6 +453,13 @@ export default class MqttClient {
                         } else if (entity.includes('LastLabel')) {
                             value = detection?.label || null;
                         } else if (entity.includes('LastImage') && b64Image) {
+                            // if (isFaceClassname(detectionClass)) {
+                            // const { b64Image: newB64Image } = await addBoundingToImage(detection.boundingBox,
+                            //     await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg'),
+                            //     console,
+                            //     detectionClass);
+                            // console.log(newB64Image);
+                            // }
                             value = b64Image || null;
                             retain = true;
                         }
@@ -463,13 +471,13 @@ export default class MqttClient {
 
                     const person = detection.label;
                     if (isFaceClassname(detection.className) && person && room) {
-                        console.debug(`Person ${person} detected in room ${room}`);
                         const { personId } = this.getPersonStrings(person);
                         const { getEntityTopic } = this.getMqttTopicTopics(peopleTrackerId);
+                        console.log(`Person ${person} (${personId}) detected in room ${room}. Publishing topic ${getEntityTopic(personId)} with room ${room}`);
                         await this.publish(console, getEntityTopic(personId), room, true);
                     }
                 } else {
-                    console.log(`${detectionClass} not found`);
+                    console.log(`${detection.className} not found`);
                 }
             }
 

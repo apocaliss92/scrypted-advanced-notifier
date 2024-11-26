@@ -1063,11 +1063,11 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         let data: any = {};
 
         if (notifier.providerId === this.pushoverProviderId) {
-            message += '      ';
+            message += '\n';
             for (const stringifiedAction of haActions) {
                 const { action, title } = JSON.parse(stringifiedAction);
                 const { haActionUrl } = await getWebookUrls(action, logger);
-                message += `<a href="${haActionUrl}">${title}</a></br>      `
+                message += `<a href="${haActionUrl}">${title}</a>\n`;
             }
 
             data.pushover = {
@@ -1146,63 +1146,6 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         const linkedCameraId = this.deviceVideocameraMap[deviceId];
         return systemManager.getDeviceById(linkedCameraId) as unknown as DeviceInterface;
     }
-
-    // async executeReport(props: {
-    //     currentTime: number,
-    //     deviceName: string,
-    //     detections: ObjectDetectionResult[],
-    //     device: DeviceInterface
-    //     b64Image?: string,
-    //     logger: Console
-    // }) {
-    //     const { currentTime, detections, device, b64Image, logger } = props;
-
-    //     await this.mqttClient.publishRelevantDetections({
-    //         detections,
-    //         device,
-    //         triggerTime: currentTime,
-    //         console: logger,
-    //         b64Image,
-    //     })
-    // }
-
-    // private async addBoundingToImage(boundingBox: number[], imageBuffer: Buffer, console: Console) {
-    //     console.log(`Trying to add boundingBox ${boundingBox}`);
-
-    //     try {
-    //         const [x, y, width, height] = boundingBox;
-    //         const metadata = await sharp(imageBuffer).metadata();
-    //         const svg = `
-    //                 <svg width="${metadata.width}" height="${metadata.height}">
-    //                     <rect
-    //                     x="${x}"
-    //                     y="${y}"
-    //                     width="${width}"
-    //                     height="${height}"
-    //                     fill="none"
-    //                     stroke="#FF0000"
-    //                     stroke-width="3"
-    //                     />
-    //                 </svg>
-    //                 `;
-
-    //         const newImageBuffer = await sharp(imageBuffer)
-    //             .composite([
-    //                 {
-    //                     input: Buffer.from(svg),
-    //                     top: 0,
-    //                     left: 0,
-    //                 },
-    //             ]).toBuffer();
-    //         const newImage = await sdk.mediaManager.createMediaObject(imageBuffer, ScryptedMimeTypes.Image);
-    //         console.log(`Bounding box added ${boundingBox}`);
-
-    //         return { newImageBuffer, newImage };
-    //     } catch (e) {
-    //         console.log('Error adding bounding box', e);
-    //         return {}
-    //     }
-    // }
 
     private async getCameraSnapshot(props: {
         cameraDevice: DeviceInterface,

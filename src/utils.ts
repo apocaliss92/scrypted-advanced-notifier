@@ -1,9 +1,10 @@
-import sdk, { Camera, NotifierOptions, ObjectDetectionResult, ScryptedDeviceBase, ScryptedDeviceType, Setting, Settings } from "@scrypted/sdk"
+import sdk, { Camera, NotifierOptions, ObjectDetectionResult, ScryptedDeviceBase, ScryptedDeviceType, ScryptedMimeTypes, Setting, Settings } from "@scrypted/sdk"
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { keyBy, sortBy, uniq, uniqBy } from "lodash";
 const { endpointManager } = sdk;
 import { scrypted, name } from '../package.json';
 import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detecionClasses";
+import sharp from "sharp";
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Settings;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
@@ -929,4 +930,62 @@ export const getDeviceRules = (
     processRules(deviceStorage, DetectionRuleSource.Device);
 
     return { detectionRules, skippedRules };
+}
+
+export const addBoundingToImage = async (boundingBox: number[], imageBuffer: Buffer, console: Console, label: string) => {
+    const [x, y, width, height] = boundingBox;
+    console.log(`Trying to add boundingBox ${boundingBox}`);
+    const borderWidth = 5;
+    try {
+        const createRectangle = async () => {
+            // Buffer per il rettangolo pieno
+            const fullRect = await sharp({
+                create: {
+                    width,
+                    height,
+                    channels: 4,
+                    background: { r: 255, g: 255, b: 255, alpha: 1 }, // Bianco
+                },
+            })
+                .png()
+                .toBuffer();
+
+            // Crea il rettangolo vuoto
+            const hollowRect = await sharp(fullRect)
+                .extract({ // Rimuovi la parte interna
+                    left: borderWidth,
+                    top: borderWidth,
+                    width: width - borderWidth * 2,
+                    height: height - borderWidth * 2,
+                })
+                .toBuffer();
+
+            return sharp(fullRect)
+                .composite([{
+                    input: hollowRect,
+                    blend: 'dest-out' // Rende l'interno trasparente
+                }])
+                .toBuffer();
+        };
+
+        const rectangle = await createRectangle();
+
+        const newImageBuffer = await sharp(imageBuffer)
+            .composite([{
+                input: rectangle,
+                top: y,
+                left: x,
+            }])
+            .png()
+            .toBuffer();
+
+        const b64Image = newImageBuffer.toString('base64');
+        const newImage = await sdk.mediaManager.createMediaObject(imageBuffer, ScryptedMimeTypes.Image);
+        console.log(`Bounding box added ${boundingBox}: ${b64Image}`);
+
+        return { newImageBuffer, newImage, b64Image };
+    } catch (e) {
+        console.log('Error adding bounding box', e);
+        return {}
+    }
 }

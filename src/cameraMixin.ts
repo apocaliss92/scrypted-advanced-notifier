@@ -294,8 +294,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         logger: Console,
         device: ScryptedDeviceBase,
         b64Image?: string
+        image?: MediaObject
     }) {
-        const { detections, device, logger, triggerTime, b64Image } = props;
+        const { detections, device, logger, triggerTime, b64Image, image } = props;
         if (!this.mqttReportInProgress) {
 
             this.mqttDetectionMotionTimeout && clearTimeout(this.mqttDetectionMotionTimeout);
@@ -311,6 +312,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         device,
                         triggerTime,
                         b64Image,
+                        image,
                         room: this.storageSettings.values.room
                     }).finally(() => this.mqttReportInProgress = false);
                 } catch (e) {
@@ -449,7 +451,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 b64Image = b64ImageNew;
             }
 
-            this.reportDetectionsToMqtt({ detections: candidates, triggerTime, logger, device, b64Image });
+            this.reportDetectionsToMqtt({ detections: candidates, triggerTime, logger, device, b64Image, image });
         }
 
         let dataToReport = {};
@@ -470,7 +472,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     const className = detectionClassesDefaultMap[classnameRaw];
 
                     if (!className) {
-                        logger.log(`Classname ${className} not mapped`);
+                        logger.log(`Classname ${classnameRaw} not mapped`);
 
                         return;
                     }
