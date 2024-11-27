@@ -358,6 +358,7 @@ export type MixinBaseSettingKey =
     | typeof detectionRulesKey
 
 export enum NotificationPriority {
+    VeryLow = "VeryLow",
     Low = "Low",
     Normal = "Normal",
     High = "High"
@@ -406,7 +407,7 @@ export const getMixinBaseSettings = (name: string, type: ScryptedDeviceType) => 
         },
         // NOTIFIER
         haActions: {
-            title: 'Actions',
+            title: 'Homeassistant Actions',
             description: 'Actions to show on the notification, i.e. {"action":"open_door","title":"Open door","icon":"sfsymbols:door"}',
             subgroup: 'Notifier',
             type: 'string',
@@ -586,18 +587,6 @@ export const getDetectionRulesSettings = async (props: {
                 combobox: true
             },
             {
-                key: priorityKey,
-                type: 'string',
-                title: 'Priority',
-                group: groupName,
-                subgroup: detectionRuleName,
-                choices: [NotificationPriority.Low, NotificationPriority.Normal, NotificationPriority.High],
-                value: storage.getItem(priorityKey as any) as DetectionRuleActivation ?? NotificationPriority.Normal,
-                immediate: true,
-                combobox: true
-            },
-
-            {
                 key: textKey,
                 title: 'Custom text',
                 description: 'Available arguments ${room} $[time} ${nvrLink} ${zone} ${class} ${label}',
@@ -697,8 +686,19 @@ export const getDetectionRulesSettings = async (props: {
                 value: JSON.parse(storage.getItem(disabledSensorsKey as any) as string ?? '[]'),
             },
             {
+                key: priorityKey,
+                type: 'string',
+                title: 'Pushover priority',
+                group: groupName,
+                subgroup: detectionRuleName,
+                choices: [NotificationPriority.VeryLow, NotificationPriority.Low, NotificationPriority.Normal, NotificationPriority.High],
+                value: storage.getItem(priorityKey as any) as DetectionRuleActivation ?? NotificationPriority.Normal,
+                immediate: true,
+                combobox: true
+            },
+            {
                 key: actionsKey,
-                title: 'Actions',
+                title: 'Homeassistant Actions',
                 description: 'Actions to show on the notification, i.e. {"action":"open_door","title":"Open door","icon":"sfsymbols:door"}',
                 type: 'string',
                 multiple: true,

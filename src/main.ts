@@ -214,10 +214,10 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         },
         testPriority: {
             group: 'Test',
-            title: 'Priority',
+            title: 'Pushover priority',
             type: 'string',
             immediate: true,
-            choices: [NotificationPriority.Low, NotificationPriority.Normal, NotificationPriority.High],
+            choices: [NotificationPriority.VeryLow, NotificationPriority.Low, NotificationPriority.Normal, NotificationPriority.High],
             defaultValue: NotificationPriority.Normal
         },
         testButton: {
@@ -439,7 +439,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         logger.log(`Local IP found: ${localIp}`);
 
         const pushoverPlugin = systemManager.getDeviceByName('Pushover Plugin') as unknown as ScryptedDeviceBase;
-        const haPlugin = systemManager.getDeviceByName('Home Assistant') as unknown as ScryptedDeviceBase;
+        const haPlugin = systemManager.getDeviceByName('Notify Service') as unknown as ScryptedDeviceBase;
 
         this.haProviderId = haPlugin?.id
         this.pushoverProviderId = pushoverPlugin?.id
@@ -1063,18 +1063,21 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         let data: any = {};
 
         if (notifier.providerId === this.pushoverProviderId) {
-            message += '\n';
-            for (const stringifiedAction of haActions) {
-                const { action, title } = JSON.parse(stringifiedAction);
-                const { haActionUrl } = await getWebookUrls(action, logger);
-                message += `<a href="${haActionUrl}">${title}</a>\n`;
-            }
+            // message += '\n';
+            // for (const stringifiedAction of haActions) {
+            //     const { action, title } = JSON.parse(stringifiedAction);
+            //     const { haActionUrl } = await getWebookUrls(action, logger);
+            //     message += `<a href="${haActionUrl}">${title}</a>\n`;
+            // }
 
             data.pushover = {
                 timestamp: time,
                 url: externalUrl,
                 html: 1,
-                priority: priority === NotificationPriority.High ? 1 : priority === NotificationPriority.Normal ? 0 : -1
+                priority: priority === NotificationPriority.High ? 1 :
+                    priority === NotificationPriority.Normal ? 0 :
+                        priority === NotificationPriority.VeryLow ? -1 :
+                            -2
             };
         } else if (notifier.providerId === this.haProviderId) {
             data.ha = {
