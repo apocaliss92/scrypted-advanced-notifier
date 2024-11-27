@@ -1076,7 +1076,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
                 html: 1,
                 priority: priority === NotificationPriority.High ? 1 :
                     priority === NotificationPriority.Normal ? 0 :
-                        priority === NotificationPriority.VeryLow ? -1 :
+                        priority === NotificationPriority.Low ? -1 :
                             -2
             };
         } else if (notifier.providerId === this.haProviderId) {
