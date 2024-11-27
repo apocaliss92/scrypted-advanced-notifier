@@ -236,7 +236,7 @@ export default class MqttClient {
     }
 
     getPersonStrings(person: string) {
-        const personId = person.replace(' ', '_');
+        const personId = person.trim().replace(' ', '_');
 
         return {
             personId,
@@ -473,7 +473,7 @@ export default class MqttClient {
                     if (isFaceClassname(detection.className) && person && room) {
                         const { personId } = this.getPersonStrings(person);
                         const { getEntityTopic } = this.getMqttTopicTopics(peopleTrackerId);
-                        console.log(`Person ${person} (${personId}) detected in room ${room}. Publishing topic ${getEntityTopic(personId)} with room ${room}`);
+                        console.debug(`Person ${person} (${personId}) detected in room ${room}. Publishing topic ${getEntityTopic(personId)} with room ${room}`);
                         await this.publish(console, getEntityTopic(personId), room, true);
                     }
                 } else {
