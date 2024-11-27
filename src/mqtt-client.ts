@@ -87,8 +87,8 @@ export default class MqttClient {
                 rejectUnauthorized: false,
                 username: this.username,
                 password: this.password,
+                reschedulePings: true
             });
-            client.setMaxListeners(Infinity);
 
             client.on('connect', data => {
                 this.mqttClient = client;
@@ -98,6 +98,8 @@ export default class MqttClient {
                 console.log('Error connecting to mqtt', data);
                 this.mqttClient = undefined;
             });
+
+            client.setMaxListeners(Infinity);
 
             console.log('Connected to mqtt');
             this.mqttClient = client;
@@ -120,6 +122,13 @@ export default class MqttClient {
             console.log('Starting MQTT connection', this.host, this.username, this.mqttPathmame);
 
             await _connect();
+
+            if (this.mqttClient) {
+                this.mqttClient.onKeepaliveTimeout = async () => {
+                    console.log('keepalive timeout. Reconnecting');
+                    this.mqttClient.reconnect();
+                }
+            }
             return this.mqttClient;
         } else if (!this.mqttClient.connected) {
             console.log('MQTT disconnected. Reconnecting', this.host, this.username, this.mqttPathmame);
