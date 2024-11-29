@@ -77,7 +77,6 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             type: 'string',
             defaultValue: '0 */6 * * *',
             placeholder: '0 */6 * * *',
-            onPut: async () => sdk.deviceManager.requestRestart()
         },
         useHaPluginCredentials: {
             group: 'Homeassistant',
@@ -857,8 +856,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         const cameraDevice = await this.getCameraDevice(triggerDevice);
 
         const textKey = getTextKey({ eventType, classname: match?.className });
-
-        const notifiersPassed: string[] = [];
+        logger.log(`${rule.notifiers.length} notifiers will be notified: ${JSON.stringify({ match, rule })}`);
 
         for (const notifierId of rule.notifiers) {
             const notifier = systemManager.getDeviceById(notifierId) as unknown as Settings & ScryptedDeviceBase;
@@ -879,13 +877,10 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
                     rule,
                 });
 
-                notifiersPassed.push(notifier.name);
             } catch (e) {
                 logger.log(`Error on notifier ${notifier.name}`, e);
             }
         }
-
-        logger.log(`${notifiersPassed.length} notifiers notified: ${JSON.stringify({ notifiersPassed, match, rule })}`);
     };
 
     async getMqttClient() {
@@ -943,6 +938,18 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         return { externalUrl: externalUrl, haUrl: `/scrypted_${scryptedToken}?url=${encodeURIComponent(haUrl)}` }
     }
 
+    private getTriggerZone = (detection: ObjectDetectionResult, rule: DetectionRule) => {
+        const { zones } = detection;
+        let zone: string;
+        if (rule?.whitelistedZones) {
+            zone = detection?.zones?.find(zoneInner => rule.whitelistedZones.includes(zoneInner));
+        } else {
+            zone = zones?.[0];
+        }
+
+        return zone;
+    }
+
     private async getNotificationText(
         props: {
             device: DeviceInterface,
@@ -976,12 +983,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
                     className
         const time = eval(detectionTimeText.replace('${time}', detectionTime));
 
-        let zone: string;
-        if (rule?.whitelistedZones) {
-            zone = detection?.zones?.find(zoneInner => rule.whitelistedZones.includes(zoneInner));
-        } else {
-            zone = zones?.[0];
-        }
+        const zone = this.getTriggerZone(detection, rule);
 
         return textToUse.toString()
             .replace('${time}', time)
@@ -1095,14 +1097,17 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         let title = (triggerDevice ?? device).name;
 
         // TODO: Add configurations to this or not?
-        if (detection?.zones?.[0]) {
-            title += ` (${detection.zones[0]})`;
+        const zone = this.getTriggerZone(detection, rule);
+        if (zone) {
+            title += ` (${zone})`;
         }
 
         logger.log(`Finally sending notification ${time} to ${notifier.name}. ${JSON.stringify({
             source,
             title,
             message,
+            rule,
+            detection,
         })}`);
         logger.debug(`${JSON.stringify(notifierOptions)}`);
 

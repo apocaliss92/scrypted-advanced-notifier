@@ -161,11 +161,11 @@ export default class MqttClient {
         console.debug(`Publishing ${JSON.stringify({ topic, value })}`);
         const client = await this.getMqttClient(console);
         try {
-            client.publish(topic, value, { retain });
+            await client.publishAsync(topic, value, { retain });
         } catch (e) {
             console.log(`Error publishing to MQTT. Reconnecting. ${JSON.stringify({ topic, value })}`, e);
             await this.getMqttClient(console, true);
-            client.publish(topic, value, { retain });
+            await client.publishAsync(topic, value, { retain });
         } finally {
             if (retain) {
                 this.topicLastValue[topic] = value;
