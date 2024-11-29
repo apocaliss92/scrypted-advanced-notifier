@@ -939,7 +939,7 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
     }
 
     private getTriggerZone = (detection: ObjectDetectionResult, rule: DetectionRule) => {
-        const { zones } = detection;
+        const { zones } = detection ?? {};
         let zone: string;
         if (rule?.whitelistedZones) {
             zone = detection?.zones?.find(zoneInner => rule.whitelistedZones.includes(zoneInner));
