@@ -8,7 +8,6 @@ import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
-import cron from 'node-cron';
 
 const { systemManager } = sdk;
 
@@ -70,13 +69,6 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             type: 'string',
             defaultValue: 'https://nvr.scrypted.app/',
             placeholder: 'https://nvr.scrypted.app/',
-        },
-        cronRestartString: {
-            title: 'Restart scheduler',
-            description: 'Cron string to restart the plugin',
-            type: 'string',
-            defaultValue: '0 */6 * * *',
-            placeholder: '0 */6 * * *',
         },
         useHaPluginCredentials: {
             group: 'Homeassistant',
@@ -241,16 +233,6 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             await this.initPluginSettings();
             await this.refreshDevicesLinks();
             await this.setupMqttClient();
-
-            const { cronRestartString } = this.storageSettings.values;
-            if (cronRestartString) {
-                const logger = this.getLogger();
-                logger.log('The server will restart with the following schedule: ', cronRestartString);
-                cron.schedule(cronRestartString, () => {
-                    logger.log('Restarting plugin');
-                    sdk.deviceManager.requestRestart();
-                });
-            }
 
             setInterval(async () => await this.refreshDevicesLinks(), 5000);
         } catch (e) {
@@ -862,24 +844,19 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             const notifier = systemManager.getDeviceById(notifierId) as unknown as Settings & ScryptedDeviceBase;
             const notifierSettings = await notifier.getSettings();
 
-            try {
-                this.notifyCamera({
-                    triggerDevice,
-                    cameraDevice,
-                    notifierId,
-                    time: triggerTime,
-                    image,
-                    detection: match,
-                    source: NotificationSource.DETECTION,
-                    textKey,
-                    logger,
-                    notifierSettings,
-                    rule,
-                });
-
-            } catch (e) {
-                logger.log(`Error on notifier ${notifier.name}`, e);
-            }
+            this.notifyCamera({
+                triggerDevice,
+                cameraDevice,
+                notifierId,
+                time: triggerTime,
+                image,
+                detection: match,
+                source: NotificationSource.DETECTION,
+                textKey,
+                logger,
+                notifierSettings,
+                rule,
+            }).catch(e => logger.log(`Error on notifier ${notifier.name}`, e));
         }
     };
 
@@ -1096,20 +1073,19 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
 
         let title = (triggerDevice ?? device).name;
 
-        // TODO: Add configurations to this or not?
         const zone = this.getTriggerZone(detection, rule);
         if (zone) {
             title += ` (${zone})`;
         }
 
         logger.log(`Finally sending notification ${time} to ${notifier.name}. ${JSON.stringify({
+            notifierOptions,
             source,
             title,
             message,
             rule,
             detection,
         })}`);
-        logger.debug(`${JSON.stringify(notifierOptions)}`);
 
         await notifier.sendNotification(title, notifierOptions, image, undefined);
     }

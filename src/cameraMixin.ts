@@ -338,7 +338,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const { match: { className } } = matchRule;
 
             const report = async (triggered: boolean) => {
-                logger.log(`Stopping listeners.`);
+                logger.debug(`Stopping listeners.`);
                 this.resetTimeouts(className);
                 const mqttClient = await this.plugin.getMqttClient();
 
@@ -364,19 +364,19 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             await report(true);
 
-            logger.log(`Starting listeners.`);
+            logger.debug(`Starting motion OFF listeners.`);
             const motionListener = systemManager.listenDevice(this.id, {
                 event: ScryptedInterface.MotionSensor,
                 watch: true,
             }, async (_, __, data) => {
                 if (!data) {
-                    logger.log(`Motion end triggered by the device.`);
+                    logger.debug(`Motion end triggered by the device.`);
                     await report(false);
                 }
             });
 
             const motionTimeout = setTimeout(async () => {
-                logger.log(`Motion end triggered automatically after ${motionDuration}s.`);
+                logger.debug(`Motion end triggered automatically after ${motionDuration}s.`);
                 await report(false);
             }, motionDuration * 1000);
 
