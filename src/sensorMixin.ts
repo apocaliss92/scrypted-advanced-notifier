@@ -1,9 +1,9 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ScryptedDeviceBase, ScryptedDeviceType } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { ADVANCED_NOTIFIER_INTERFACE, DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled } from "./utils";
+import { DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, isDeviceEnabled } from "./utils";
 import HomeAssistantUtilitiesProvider from "./main";
-import { getDetectionRuleId } from "./mqtt-client";
+import { discoverDetectionRules, getDetectionRuleId, publishDeviceState, setupDeviceAutodiscovery } from "./mqtt-utils";
 
 const { systemManager } = sdk;
 
@@ -59,9 +59,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             }
         }
 
-        this.initValues().then(() =>
-            this.startCheckInterval().then().catch(this.console.log)
-        ).catch(this.console.log);
+        this.startCheckInterval().then().catch(this.console.log)
     }
 
     async startCheckInterval() {
@@ -85,7 +83,8 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 if (mqttClient) {
                     const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase & Settings;
                     if (!this.mqttAutodiscoverySent) {
-                        await mqttClient.setupDeviceAutodiscovery({
+                        await setupDeviceAutodiscovery({
+                            mqttClient,
                             device,
                             console: logger,
                             withDetections: true,
@@ -96,7 +95,12 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
                     const missingRules = detectionRules.filter(rule => !this.rulesDiscovered.includes(getDetectionRuleId(rule)));
                     if (missingRules.length) {
-                        await mqttClient.discoverDetectionRules({ console: logger, device, rules: missingRules });
+                        await discoverDetectionRules({
+                            mqttClient,
+                            console: logger,
+                            device,
+                            rules: missingRules
+                        });
                         this.rulesDiscovered.push(...missingRules.map(rule => getDetectionRuleId(rule)))
                     }
                 }
@@ -135,12 +139,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
         this.detectionListener && this.detectionListener.removeListener();
         this.detectionListener = undefined;
-    }
-
-    async initValues() {
-        const { lastSnapshotCloudUrl, lastSnapshotLocalUrl } = await getWebookUrls(this.name, console);
-        this.storageSettings.putSetting('lastSnapshotWebhookCloudUrl', lastSnapshotCloudUrl);
-        this.storageSettings.putSetting('lastSnapshotWebhookLocalUrl', lastSnapshotLocalUrl);
     }
 
     async getMixinSettings(): Promise<Setting[]> {
@@ -211,7 +209,8 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 if (mqttClient) {
                     try {
                         const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase;
-                        mqttClient.publishDeviceState({
+                        publishDeviceState({
+                            mqttClient,
                             device,
                             triggered,
                             console: logger,

@@ -5,7 +5,7 @@
       "type": "git",
       "url": "https://github.com/apocaliss92/scrypted-advanced-notifier"
    },
-   "version": "1.1.6",
+   "version": "1.1.7",
    "scripts": {
       "scrypted-setup-project": "scrypted-setup-project",
       "prescrypted-setup-project": "scrypted-package-json",
@@ -44,7 +44,6 @@
       "@scrypted/sdk": "^0.3.65",
       "axios": "^0.23.0",
       "lodash": "^4.17.21",
-      "mqtt": "5.10.2",
       "sharp": "^0.33.5"
    },
    "devDependencies": {

@@ -2,29 +2,32 @@ import sdk, { HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinP
 import axios from "axios";
 import { isEqual, keyBy, sortBy } from 'lodash';
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import MqttClient from './mqtt-client';
-import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, getWebookUrls, NotificationPriority } from "./utils";
+import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, getWebookUrls, NotificationPriority, getFolderPaths } from "./utils";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
+import { BasePlugin, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { setupPluginAutodiscovery, subscribeToHaTopics } from "./mqtt-utils";
+import path from 'path';
 
 const { systemManager } = sdk;
 
-export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implements MixinProvider, HttpRequestHandler {
+export default class AdvancedNotifierPlugin extends BasePlugin implements MixinProvider, HttpRequestHandler {
     private deviceHaEntityMap: Record<string, string> = {};
     private haEntityDeviceMap: Record<string, string> = {};
     private deviceVideocameraMap: Record<string, string> = {};
     public deviceRoomMap: Record<string, string> = {}
-    public mqttClient: MqttClient;
     private doorbellDevices: string[] = [];
     private firstCheckAlwaysActiveDevices = false;
-    private mainLogger: Console;
     public currentMixinsMap: Record<string, AdvancedNotifierCameraMixin | AdvancedNotifierSensorMixin> = {};
     private haProviderId: string;
     private pushoverProviderId: string;
 
     storageSettings = new StorageSettings(this, {
+        ...getBaseSettings({
+            onPluginSwitch: (_, enabled) => this.startStop(enabled),
+        }),
         pluginEnabled: {
             title: 'Plugin enabled',
             type: 'boolean',
@@ -106,35 +109,12 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             type: 'button',
             onPut: async () => await this.fetchHomeassistantData()
         },
-        useMqttPluginCredentials: {
-            title: 'Use MQTT plugin credentials',
-            group: 'MQTT',
-            type: 'boolean',
-            immediate: true,
-        },
-        mqttHost: {
-            title: 'Host',
-            group: 'MQTT',
-            description: 'Specify the mqtt address.',
-            placeholder: 'mqtt://192.168.1.100',
-        },
-        mqttUsename: {
-            title: 'Username',
-            group: 'MQTT',
-            description: 'Specify the mqtt username.',
-        },
-        mqttPassword: {
-            title: 'Password',
-            group: 'MQTT',
-            description: 'Specify the mqtt password.',
-            type: 'password',
-        },
         mqttActiveEntitiesTopic: {
             title: 'Active entities topic',
             group: 'MQTT',
             description: 'Topic containing the active entities, will trigger the related devices activation for notifications',
             onPut: async () => {
-                await this.setupMqttClient();
+                await this.setupMqttEntities();
             },
         },
         activeDevicesForReporting: {
@@ -223,16 +203,26 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
 
 
     constructor(nativeId: string) {
-        super(nativeId);
+        super(nativeId, {
+            pluginFriendlyName: 'Advanced notifier'
+        });
 
-        this.initFlow().then().catch(this.getLogger().log);
+        this.start().then().catch(this.getLogger().log);
     }
 
-    async initFlow() {
+    async startStop(enabled: boolean) {
+        if (enabled) {
+            await this.start();
+        } else {
+            // await this.stop(true);
+        }
+    }
+
+    async start() {
         try {
             await this.initPluginSettings();
             await this.refreshDevicesLinks();
-            await this.setupMqttClient();
+            await this.setupMqttEntities();
 
             setInterval(async () => await this.refreshDevicesLinks(), 5000);
         } catch (e) {
@@ -262,22 +252,22 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
                 });
                 return;
             } else if (webhook === lastSnapshot) {
-                const device = sdk.systemManager.getDeviceByName(deviceNameOrAction) as unknown as (ScryptedDeviceBase & Settings);
-                const deviceSettings = await device?.getSettings();
-                const deviceSettingsByKey = keyBy(deviceSettings, setting => setting.key);
-                const isWebhookEnabled = deviceSettingsByKey['homeassistantMetadata:lastSnapshotWebhook']?.value as boolean;
+                const device = this.currentMixinsMap[deviceNameOrAction] as AdvancedNotifierCameraMixin;
+                const isWebhookEnabled = device?.storageSettings.getItem('lastSnapshotWebhook');
 
                 if (isWebhookEnabled) {
                     // response.send(`${JSON.stringify(this.storageSettings.getItem('deviceLastSnapshotMap'))}`, {
                     //     code: 404,
                     // });
                     // return;
-                    const imageUrl = deviceSettingsByKey['homeassistantMetadata:lastSnapshotImageUrl']?.value as string;
+                    const { snapshotsFolder } = await getFolderPaths(device.id);
 
-                    if (imageUrl) {
+                    const lastSnapshotFilePath = path.join(snapshotsFolder, `${webhook}.jpg`);
+
+                    if (lastSnapshotFilePath) {
                         const mo = await sdk.mediaManager.createFFmpegMediaObject({
                             inputArguments: [
-                                '-i', imageUrl,
+                                '-i', lastSnapshotFilePath,
                             ]
                         });
                         const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
@@ -310,66 +300,30 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         return;
     }
 
-    private async setupMqttClient() {
-        const { mqttEnabled, useMqttPluginCredentials } = this.storageSettings.values;
+    private async setupMqttEntities() {
+        const { mqttEnabled, mqttActiveEntitiesTopic } = this.storageSettings.values;
         if (mqttEnabled) {
-            let mqttHost: string;
-            let mqttUsename: string;
-            let mqttPassword: string;
-
-            const logger = this.getLogger();
-
-            if (this.mqttClient) {
-                await this.mqttClient.disconnect();
-                this.mqttClient = undefined;
-            }
-
-            if (useMqttPluginCredentials) {
-                logger.log(`Using MQTT plugin credentials.`);
-                const mqttDevice = systemManager.getDeviceByName('MQTT') as unknown as Settings;
-                const mqttSettings = await mqttDevice.getSettings();
-
-                const isInternalBroker = (JSON.parse(mqttSettings.find(setting => setting.key === 'enableBroker')?.value as string || 'false')) as boolean;
-
-                if (isInternalBroker) {
-                    logger.log(`Internal MQTT broker not supported yet. Please disable useMqttPluginCredentials.`);
-                } else {
-                    mqttHost = mqttSettings.find(setting => setting.key === 'externalBroker')?.value as string;
-                    mqttUsename = mqttSettings.find(setting => setting.key === 'username')?.value as string;
-                    mqttPassword = mqttSettings.find(setting => setting.key === 'password')?.value as string;
-                }
-            } else {
-                logger.log(`Using provided credentials.`);
-
-                mqttHost = this.storageSettings.getItem('mqttHost');
-                mqttUsename = this.storageSettings.getItem('mqttUsename');
-                mqttPassword = this.storageSettings.getItem('mqttPassword');
-            }
-
-            const mqttActiveEntitiesTopic = this.storageSettings.getItem('mqttActiveEntitiesTopic');
-
-            if (!mqttHost || !mqttUsename || !mqttPassword) {
-                logger.log('MQTT params not provided');
-            }
-
             try {
-                this.mqttClient = new MqttClient(mqttHost, mqttUsename, mqttPassword);
-                await this.mqttClient.getMqttClient(logger, true);
-
+                const mqttClient = await this.getMqttClient();
+                const logger = this.getLogger();
                 const objDetectionPlugin = systemManager.getDeviceByName('Scrypted NVR Object Detection') as unknown as Settings;
                 const settings = await objDetectionPlugin.getSettings();
                 const knownPeople = settings?.find(setting => setting.key === 'knownPeople')?.choices
                     ?.filter(choice => !!choice)
                     .map(person => person.trim());
 
-                await this.mqttClient.setupPluginAutodiscovery({ people: knownPeople, console: logger });
+                await setupPluginAutodiscovery({ mqttClient, people: knownPeople, console: logger });
 
                 if (mqttActiveEntitiesTopic) {
                     this.getLogger().log(`Subscribing to ${mqttActiveEntitiesTopic}`);
-                    await this.mqttClient.subscribeToHaTopics(mqttActiveEntitiesTopic, this.getLogger(), async (topic, message) => {
-                        if (topic === mqttActiveEntitiesTopic) {
-                            this.getLogger().log(`Received update for ${topic} topic: ${JSON.stringify(message)}`);
-                            await this.syncHaEntityIds(message);
+                    await subscribeToHaTopics({
+                        entitiesActiveTopic: mqttActiveEntitiesTopic,
+                        mqttClient,
+                        cb: async (topic, message) => {
+                            if (topic === mqttActiveEntitiesTopic) {
+                                this.getLogger().log(`Received update for ${topic} topic: ${JSON.stringify(message)}`);
+                                await this.syncHaEntityIds(message);
+                            }
                         }
                     });
                 }
@@ -506,22 +460,6 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
             this.storageSettings.settings.domains.hide = false;
             this.storageSettings.settings.fetchHaEntities.hide = false;
             this.storageSettings.settings.useHaPluginCredentials.hide = false;
-        }
-
-        if (!mqttEnabled) {
-            this.storageSettings.settings.mqttHost.hide = true;
-            this.storageSettings.settings.mqttUsename.hide = true;
-            this.storageSettings.settings.mqttPassword.hide = true;
-            this.storageSettings.settings.activeDevicesForReporting.hide = true;
-            this.storageSettings.settings.mqttActiveEntitiesTopic.hide = true;
-            this.storageSettings.settings.useMqttPluginCredentials.hide = true;
-        } else {
-            this.storageSettings.settings.mqttHost.hide = useMqttPluginCredentials;
-            this.storageSettings.settings.mqttUsename.hide = useMqttPluginCredentials;
-            this.storageSettings.settings.mqttPassword.hide = useMqttPluginCredentials;
-            this.storageSettings.settings.activeDevicesForReporting.hide = false;
-            this.storageSettings.settings.mqttActiveEntitiesTopic.hide = false;
-            this.storageSettings.settings.useMqttPluginCredentials.hide = false;
         }
 
         this.storageSettings.settings.testMessage.choices = Object.keys(getTextSettings(false)).map(key => key);
@@ -860,14 +798,6 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         }
     };
 
-    async getMqttClient() {
-        if (!this.mqttClient) {
-            await this.setupMqttClient();
-        }
-
-        return this.mqttClient;
-    }
-
     async getMixin(mixinDevice: any, mixinDeviceInterfaces: ScryptedInterface[], mixinDeviceState: WritableDeviceState): Promise<any> {
         const props = {
             mixinDevice,
@@ -1160,24 +1090,6 @@ export default class AdvancedNotifierPlugin extends ScryptedDeviceBase implement
         const b64Image = imageBuffer.toString('base64');
 
         return { image, b64Image };
-    }
-
-    private getLogger(): Console {
-        if (!this.mainLogger) {
-            const log = (debug: boolean, message?: any, ...optionalParams: any[]) => {
-                const now = new Date().toLocaleString();
-                if (!debug || this.storageSettings.getItem('debug')) {
-                    this.console.log(`[Advanced notifier] ${now} - `, message, ...optionalParams);
-                }
-            };
-
-            this.mainLogger = {
-                log: (message?: any, ...optionalParams: any[]) => log(false, message, ...optionalParams),
-                debug: (message?: any, ...optionalParams: any[]) => log(true, message, ...optionalParams),
-            } as Console
-        }
-
-        return this.mainLogger
     }
 
     async getAllActiveDevices() {

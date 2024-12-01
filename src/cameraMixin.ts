@@ -1,10 +1,10 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { ADVANCED_NOTIFIER_INTERFACE, DetectionRule, DetectionRuleSource, EventType, filterAndSortValidDetections, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled } from "./utils";
-import { detectionClassesDefaultMap } from "./detecionClasses";
+import { DetectionRule, DetectionRuleSource, EventType, filterAndSortValidDetections, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled } from "./utils";
+import { detectionClassesDefaultMap, isFaceClassname } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
-import { getDetectionRuleId } from "./mqtt-client";
+import { discoverDetectionRules, getDetectionRuleId, publishDeviceState, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery } from "./mqtt-utils";
 
 const { systemManager } = sdk;
 const secondsPerPicture = 10;
@@ -54,18 +54,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             type: 'string',
             title: 'Cloud URL',
             readonly: true,
-            // TODO: export on common fn
         },
         lastSnapshotWebhookLocalUrl: {
             subgroup: 'Webhooks',
             type: 'string',
             title: 'Local URL',
-            readonly: true,
-        },
-        lastSnapshotImageUrl: {
-            subgroup: 'Webhooks',
-            type: 'string',
-            title: 'Last image URL',
             readonly: true,
         }
     });
@@ -139,7 +132,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     const mqttClient = await this.plugin.getMqttClient();
                     if (mqttClient) {
                         if (!this.mqttAutodiscoverySent) {
-                            await mqttClient.setupDeviceAutodiscovery({
+                            await setupDeviceAutodiscovery({
+                                mqttClient,
                                 device,
                                 console: logger,
                                 withDetections: true,
@@ -150,12 +144,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                         const missingRules = detectionRules.filter(rule => !this.rulesDiscovered.includes(getDetectionRuleId(rule)));
                         if (missingRules.length) {
-                            await mqttClient.discoverDetectionRules({ console: logger, device, rules: missingRules });
+                            await discoverDetectionRules({ mqttClient, console: logger, device, rules: missingRules });
                             this.rulesDiscovered.push(...missingRules.map(rule => getDetectionRuleId(rule)))
                         }
                     }
 
-                    mqttClient.reportDeviceValues(device, logger);
+                    reportDeviceValues({ console: logger, device, mqttClient });
                 }
 
                 if (isCurrentlyRunning && !shouldRun) {
@@ -243,7 +237,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const lastSnapshotWebhook = this.storageSettings.values.lastSnapshotWebhook;
         this.storageSettings.settings.lastSnapshotWebhookCloudUrl.hide = !lastSnapshotWebhook;
         this.storageSettings.settings.lastSnapshotWebhookLocalUrl.hide = !lastSnapshotWebhook;
-        this.storageSettings.settings.lastSnapshotImageUrl.hide = !lastSnapshotWebhook;
 
         const settings: Setting[] = await this.storageSettings.getSettings();
 
@@ -306,7 +299,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             if (mqttClient) {
                 try {
-                    await mqttClient.publishRelevantDetections({
+                    await publishRelevantDetections({
+                        mqttClient,
                         console: logger,
                         detections,
                         device,
@@ -320,7 +314,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
 
                 this.mqttDetectionMotionTimeout = setTimeout(async () => {
-                    await mqttClient.publishRelevantDetections({
+                    await publishRelevantDetections({
+                        mqttClient,
                         console: logger,
                         device,
                         triggerTime,
@@ -345,7 +340,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 if (mqttClient) {
                     try {
                         const { match, rule } = matchRule;
-                        await mqttClient.publishDeviceState({
+                        await publishDeviceState({
+                            mqttClient,
                             device,
                             triggered,
                             console: logger,
@@ -437,13 +433,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             ignoreCameraDetections,
         } = this.storageSettings.values;
 
-        const candidates = filterAndSortValidDetections(detections ?? [], logger);
+        const { candidates, hasLabel } = filterAndSortValidDetections(detections ?? [], logger);
 
         let image: MediaObject;
         let b64Image: string;
 
         if (this.isActiveForMqttReporting) {
-            if (!this.lastPictureTaken || (now - this.lastPictureTaken) >= 1000 * secondsPerPicture) {
+            if (hasLabel ||
+                !this.lastPictureTaken ||
+                (now - this.lastPictureTaken) >= 1000 * secondsPerPicture
+            ) {
                 this.lastPictureTaken = now;
                 logger.debug('Refreshing the image');
                 const { b64Image: b64ImageNew, image: imageNew } = await this.getImage();

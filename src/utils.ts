@@ -1,10 +1,12 @@
-import sdk, { Camera, NotifierOptions, ObjectDetectionResult, ScryptedDeviceBase, ScryptedDeviceType, ScryptedMimeTypes, Setting, Settings } from "@scrypted/sdk"
+import sdk, { Camera, MediaObject, NotifierOptions, ObjectDetectionResult, ScryptedDeviceBase, ScryptedDeviceType, ScryptedMimeTypes, Setting, Settings } from "@scrypted/sdk"
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { keyBy, sortBy, uniq, uniqBy } from "lodash";
 const { endpointManager } = sdk;
 import { scrypted, name } from '../package.json';
 import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detecionClasses";
-import sharp from "sharp";
+import sharp from 'sharp';
+import path from 'path';
+import fs from 'fs';
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Settings;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
@@ -47,6 +49,31 @@ export const getWebooks = async () => {
         lastSnapshot,
         haAction,
     }
+}
+
+export const getFolderPaths = async (deviceId: string) => {
+    const basePath = process.env.SCRYPTED_PLUGIN_VOLUME;
+    const snapshotsFolder = path.join(basePath, 'snapshots', deviceId);
+
+    if (!fs.existsSync(snapshotsFolder)) {
+        fs.mkdirSync(snapshotsFolder, { recursive: true });
+    }
+
+    return { snapshotsFolder };
+}
+
+export const storeWebhookImage = async (props: {
+    deviceId: string,
+    image: MediaObject,
+    logger: Console,
+    webhook: string,
+}) => {
+    const { deviceId, image, logger, webhook } = props;
+    const { snapshotsFolder } = await getFolderPaths(deviceId);
+    const lastSnapshotFilePath = path.join(snapshotsFolder, `${webhook}.jpg`);
+    const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpg');
+    logger.debug(`Storing image, size is ${jpeg.byteLength}`);
+    await fs.promises.writeFile(lastSnapshotFilePath, jpeg).catch(e => logger.log(`Error saving webhook ${webhook} image`, e));
 }
 
 export const getWebookUrls = async (cameraDeviceOrAction: string | undefined, console: Console) => {
@@ -179,21 +206,26 @@ export const filterAndSortValidDetections = (detections: ObjectDetectionResult[]
         (detection) => [detection?.className ? classnamePrio[detection.className] : 100,
         1 - (detection.score ?? 0)]
     );
+    let hasLabel = false;
     const uniqueByClassName = uniqBy(sortedByPriorityAndScore, det => det.className);
-    const filteredByValidity = uniqueByClassName.filter(det => {
+    const candidates = uniqueByClassName.filter(det => {
         const { className, label, movement } = det;
-        if (isLabelDetection(className) && !label) {
+        const isLabel = isLabelDetection(className);
+        if (isLabel && !label) {
             logger.debug(`Label ${label} not valid`);
             return false;
         } else if (movement && !movement.moving) {
             logger.debug(`Movement data ${movement} not valid`);
             return false;
         }
+        if (hasLabel) {
+            hasLabel = isLabel;
+        }
 
         return true;
     });
 
-    return filteredByValidity;
+    return { candidates, hasLabel };
 }
 
 export type TextSettingKey =

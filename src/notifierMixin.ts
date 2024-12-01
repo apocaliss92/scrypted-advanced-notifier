@@ -1,7 +1,7 @@
-import sdk, { NotifierOptions, MediaObject, Setting, Settings } from "@scrypted/sdk";
+import { NotifierOptions, MediaObject, Setting, Settings } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { ADVANCED_NOTIFIER_INTERFACE, getTextSettings } from "./utils";
+import { getTextSettings } from "./utils";
 import HomeAssistantUtilitiesProvider from "./main";
 
 export type SendNotificationToPluginFn = (notifierId: string, title: string, options?: NotifierOptions, media?: MediaObject, icon?: MediaObject | string) => Promise<void>
