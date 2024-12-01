@@ -356,7 +356,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if (isEqual(sortBy(deviceIds), sortBy(this.storageSettings.values.activeDevicesForNotifications ?? []))) {
             this.getLogger().log('Devices did not change');
         } else {
-            this.storageSettings.putSetting('activeDevicesForNotifications', deviceIds);
+            super.putSetting('activeDevicesForNotifications', deviceIds);
         }
     }
 
@@ -366,11 +366,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const oauthUrl = await (cloudPlugin as any).getOauthUrl();
         const url = new URL(oauthUrl);
         const serverId = url.searchParams.get('server_id');
-        this.storageSettings.putSetting('serverId', serverId);
+        super.putSetting('serverId', serverId);
         logger.log(`Server id found: ${serverId}`);
 
         const localIp = (await sdk.endpointManager.getLocalAddresses())[0];
-        this.storageSettings.putSetting('localIp', localIp);
+        super.putSetting('localIp', localIp);
         logger.log(`Local IP found: ${localIp}`);
 
         const pushoverPlugin = systemManager.getDeviceByName('Pushover Plugin') as unknown as ScryptedDeviceBase;
@@ -445,7 +445,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     async getSettings() {
-        const { haEnabled, useHaPluginCredentials, mqttEnabled, useMqttPluginCredentials } = this.storageSettings.values;
+        const { haEnabled, useHaPluginCredentials } = this.storageSettings.values;
         if (!haEnabled) {
             this.storageSettings.settings.accessToken.hide = true;
             this.storageSettings.settings.address.hide = true;
@@ -464,7 +464,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         this.storageSettings.settings.testMessage.choices = Object.keys(getTextSettings(false)).map(key => key);
 
-        const settings: Setting[] = await this.storageSettings.getSettings();
+        const settings: Setting[] = await super.getSettings();
 
         const detectionRulesSettings = await getDetectionRulesSettings({
             storage: this.storageSettings,
@@ -567,8 +567,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         } finally {
             this.getLogger().log(`Entities found: ${JSON.stringify(entityIds)}`);
             this.getLogger().log(`Rooms found: ${JSON.stringify(rooms)}`);
-            await this.storageSettings.putSetting('fetchedEntities', entityIds);
-            await this.storageSettings.putSetting('fetchedRooms', rooms);
+            await super.putSetting('fetchedEntities', entityIds);
+            await super.putSetting('fetchedRooms', rooms);
         }
     }
 
