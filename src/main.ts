@@ -478,10 +478,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     }
 
-    putSetting(key: string, value: SettingValue): Promise<void> {
-        return this.storageSettings.putSetting(key, value);
-    }
-
     getHaApiUrl = async () => {
         let accessToken = this.storageSettings.getItem('accessToken');
         let address = this.storageSettings.getItem('address');
