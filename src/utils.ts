@@ -7,6 +7,7 @@ import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, is
 import sharp from 'sharp';
 import path from 'path';
 import fs from 'fs';
+import AdvancedNotifierPlugin from "./main";
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Settings;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
@@ -461,9 +462,8 @@ export const getMixinBaseSettings = (name: string, type: ScryptedDeviceType) => 
 
 export const mainPluginName = scrypted.name;
 
-export const isDeviceEnabled = async (deviceId: string, deviceSettings: Setting[]) => {
-    const mainPluginDevice = sdk.systemManager.getDeviceByName(mainPluginName) as unknown as Settings;
-    const mainSettings = await mainPluginDevice.getSettings();
+export const isDeviceEnabled = async (deviceId: string, deviceSettings: Setting[], plugin: AdvancedNotifierPlugin) => {
+    const mainSettings = await plugin.getSettings();
     const mainSettingsByKey = keyBy(mainSettings, 'key');
 
 

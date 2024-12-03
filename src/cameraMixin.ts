@@ -116,7 +116,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const funct = async () => {
             try {
                 const deviceSettings = await this.getMixinSettings();
-                const { isActiveForMqttReporting, isPluginEnabled, detectionRules, skippedRules, isActiveForNotifications } = await isDeviceEnabled(this.id, deviceSettings);
+                const {
+                    isActiveForMqttReporting,
+                    isPluginEnabled,
+                    detectionRules,
+                    skippedRules,
+                    isActiveForNotifications
+                } = await isDeviceEnabled(this.id, deviceSettings, this.plugin);
 
                 logger.debug(`Detected rules: ${JSON.stringify({ detectionRules, skippedRules })}`);
                 this.detectionRules = detectionRules;

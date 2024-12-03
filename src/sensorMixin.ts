@@ -46,14 +46,12 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
         this.storageSettings.settings.room.onGet = async () => {
             const rooms = this.plugin.storageSettings.getItem('fetchedRooms');
-            // const rooms = (await mainPluginDevice.getSettings()).find(setting => setting.key === 'fetchedRooms')?.value as string[];
             return {
                 choices: rooms ?? []
             }
         }
         this.storageSettings.settings.entityId.onGet = async () => {
             const entities = this.plugin.storageSettings.getItem('fetchedEntities');
-            // const entities = (await mainPluginDevice.getSettings()).find(setting => setting.key === 'fetchedEntities')?.value as string[];
             return {
                 choices: entities ?? []
             }
@@ -67,7 +65,13 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
         const funct = async () => {
             const deviceSettings = await this.getMixinSettings();
-            const { isActiveForMqttReporting, isPluginEnabled, detectionRules, skippedRules, isActiveForNotifications } = await isDeviceEnabled(this.id, deviceSettings);
+            const {
+                isActiveForMqttReporting,
+                isPluginEnabled,
+                detectionRules,
+                skippedRules,
+                isActiveForNotifications
+            } = await isDeviceEnabled(this.id, deviceSettings, this.plugin);
 
             logger.debug(`Detected rules: ${JSON.stringify({ detectionRules, skippedRules })}`);
             this.detectionRules = detectionRules;

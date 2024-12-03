@@ -23,10 +23,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     public currentMixinsMap: Record<string, AdvancedNotifierCameraMixin | AdvancedNotifierSensorMixin> = {};
     private haProviderId: string;
     private pushoverProviderId: string;
+    private refreshDeviceLinksInterval: NodeJS.Timeout;
 
     storageSettings = new StorageSettings(this, {
         ...getBaseSettings({
             onPluginSwitch: (_, enabled) => this.startStop(enabled),
+            hideHa: false,
         }),
         pluginEnabled: {
             title: 'Plugin enabled',
@@ -187,8 +189,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if (enabled) {
             await this.start();
         } else {
-            // await this.stop(true);
+            await this.stop();
         }
+    }
+
+    async stop() {
+        this.refreshDeviceLinksInterval && clearInterval(this.refreshDeviceLinksInterval);
+        await this.mqttClient?.disconnect();
     }
 
     async start() {
@@ -197,7 +204,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             await this.refreshDevicesLinks();
             await this.setupMqttEntities();
 
-            setInterval(async () => await this.refreshDevicesLinks(), 5000);
+            this.refreshDeviceLinksInterval = setInterval(async () => await this.refreshDevicesLinks(), 5000);
         } catch (e) {
             this.getLogger().log(`Error in initFLow`, e);
         }
