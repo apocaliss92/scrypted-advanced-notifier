@@ -34,12 +34,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             defaultValue: true,
             immediate: true,
         },
-        haEnabled: {
-            title: 'Homeassistent enabled',
-            type: 'boolean',
-            defaultValue: false,
-            immediate: true,
-        },
         mqttEnabled: {
             title: 'MQTT enabled',
             type: 'boolean',
@@ -73,38 +67,17 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             defaultValue: 'https://nvr.scrypted.app/',
             placeholder: 'https://nvr.scrypted.app/',
         },
-        useHaPluginCredentials: {
-            group: 'Homeassistant',
-            title: 'Use HA plugin credentials',
-            type: 'boolean',
-            immediate: true,
-        },
-        accessToken: {
-            group: 'Homeassistant',
-            title: 'HAPersonal access token',
-            type: 'string',
-        },
-        address: {
-            group: 'Homeassistant',
-            title: 'Address',
-            type: 'string',
-        },
-        protocol: {
-            group: 'Homeassistant',
-            title: 'Protocol',
-            type: 'string',
-            choices: ['http', 'https'],
-            defaultValue: ['http'],
-        },
         domains: {
-            group: 'Homeassistant',
+            group: 'Base',
+            subgroup: 'Homeassistant',
             title: 'Entity regex patterns',
             description: 'Regex to filter out entities fetched',
             type: 'string',
             multiple: true,
         },
         fetchHaEntities: {
-            group: 'Homeassistant',
+            group: 'Base',
+            subgroup: 'Homeassistant',
             title: 'Fetch entities from HA',
             type: 'button',
             onPut: async () => await this.fetchHomeassistantData()
@@ -145,7 +118,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             combobox: true,
             deviceFilter: notifierFilter,
         },
-        ...getTextSettings(false) as any,
+        ...getTextSettings(false),
         [detectionRulesKey]: {
             title: 'Rules',
             group: 'Detection rules',
@@ -445,22 +418,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     async getSettings() {
-        const { haEnabled, useHaPluginCredentials } = this.storageSettings.values;
-        if (!haEnabled) {
-            this.storageSettings.settings.accessToken.hide = true;
-            this.storageSettings.settings.address.hide = true;
-            this.storageSettings.settings.protocol.hide = true;
-            this.storageSettings.settings.domains.hide = true;
-            this.storageSettings.settings.fetchHaEntities.hide = true;
-            this.storageSettings.settings.useHaPluginCredentials.hide = true;
-        } else {
-            this.storageSettings.settings.accessToken.hide = useHaPluginCredentials;
-            this.storageSettings.settings.address.hide = useHaPluginCredentials;
-            this.storageSettings.settings.protocol.hide = useHaPluginCredentials;
-            this.storageSettings.settings.domains.hide = false;
-            this.storageSettings.settings.fetchHaEntities.hide = false;
-            this.storageSettings.settings.useHaPluginCredentials.hide = false;
-        }
+        const { haEnabled } = this.storageSettings.values;
+        this.storageSettings.settings.domains.hide = !haEnabled;
+        this.storageSettings.settings.fetchHaEntities.hide = !haEnabled;
 
         this.storageSettings.settings.testMessage.choices = Object.keys(getTextSettings(false)).map(key => key);
 
@@ -475,77 +435,23 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         settings.push(...detectionRulesSettings);
 
         return settings;
-
-    }
-
-    getHaApiUrl = async () => {
-        let accessToken = this.storageSettings.getItem('accessToken');
-        let address = this.storageSettings.getItem('address');
-        let protocol = this.storageSettings.getItem('protocol');
-
-        if (this.storageSettings.getItem('useHaPluginCredentials')) {
-            const haDevice = systemManager.getDeviceByName('Home Assistant') as unknown as Settings;
-            const haSettings = await haDevice.getSettings();
-
-            accessToken = haSettings.find(setting => setting.key === 'personalAccessToken')?.value;
-            address = haSettings.find(setting => setting.key === 'address')?.value;
-            protocol = haSettings.find(setting => setting.key === 'protocol')?.value;
-        }
-
-        const url = `${protocol}://${address}`;
-
-        return {
-            accessToken,
-            address,
-            protocol,
-            url,
-        }
     }
 
     fetchHomeassistantData = async () => {
-        const { accessToken, address, protocol, url } = await this.getHaApiUrl();
-        if (!accessToken || !address || !protocol) {
-            throw new Error(`HA access params not set correctly: AccessToken: ${accessToken}, Address: ${address}, Protocol: ${protocol}`);
-        }
-
-        const domains = this.storageSettings.getItem('domains') as string[];
-
-        this.getLogger().log(`Start data fetching from HA: ${JSON.stringify({
-            accessToken,
-            address,
-            protocol,
-            url,
-            domains
-        })}`);
+        const { domains } = this.storageSettings.values;
 
         let rooms: string[] = [];
         let entityIds: string[] = [];
 
         try {
-            const roomsResponse = await axios.post<string>(`${url}/api/template`,
-                { "template": "{{ areas() }}" },
-                {
-                    headers: {
-                        'Authorization': 'Bearer ' + accessToken,
-                    }
-                });
+            const haApi = await this.getHaApi();
+            const roomsResponse = await haApi.getTemplateData("{{ areas() }}");
 
             const getRoomName = async (areaId: string) => {
-                return await axios.post<string>(`${url}/api/template`,
-                    { "template": `{{ area_name('${areaId}') }}` },
-                    {
-                        headers: {
-                            'Authorization': 'Bearer ' + accessToken,
-                        }
-                    });
+                return await haApi.getTemplateData(`{{ area_name('${areaId}') }}`);
             }
 
-            const entitiesResponse = await axios.get<{ entity_id: string, state: string }[]>(`${url}/api/states`,
-                {
-                    headers: {
-                        'Authorization': 'Bearer ' + accessToken,
-                    }
-                });
+            const entitiesResponse = await haApi.getStatesDate();
             const roomIds = sortBy(JSON.parse(roomsResponse.data.replace(new RegExp('\'', 'g'), '"')), elem => elem);
 
             for (const roomId of roomIds) {
