@@ -214,6 +214,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.resetTimeouts();
         this.detectionListener?.removeListener && this.detectionListener.removeListener();
         this.detectionListener = undefined;
+        delete this.plugin.currentMixinsMap[this.name];
     }
 
     async initValues() {
@@ -223,38 +224,48 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async getObserveZones() {
-        const settings = await this.mixinDevice.getSettings();
-        const zonesSetting = settings.find((setting: { key: string; }) => new RegExp('objectdetectionplugin:.*:zones').test(setting.key))?.value ?? [];
+        try {
+            const settings = await this.mixinDevice.getSettings();
+            const zonesSetting = settings.find((setting: { key: string; }) => new RegExp('objectdetectionplugin:.*:zones').test(setting.key))?.value ?? [];
 
-        return zonesSetting.filter(zone => {
-            const zoneFilterMode = settings.find((setting: { key: string; }) => new RegExp(`objectdetectionplugin:.*:zoneinfo-filterMode-${zone}`).test(setting.key))?.value;
+            return zonesSetting.filter(zone => {
+                const zoneFilterMode = settings.find((setting: { key: string; }) => new RegExp(`objectdetectionplugin:.*:zoneinfo-filterMode-${zone}`).test(setting.key))?.value;
 
-            return zoneFilterMode === 'observe';
+                return zoneFilterMode === 'observe';
 
-        });
+            });
+        } catch (e) {
+            this.getLogger().log('Error in getObserveZones', e);
+            return [];
+        }
     }
 
     async getMixinSettings(): Promise<Setting[]> {
-        const canUseNvr = this.nvrMixinId && this.mixins.includes(this.nvrMixinId);
+        try {
+            const canUseNvr = this.nvrMixinId && this.mixins.includes(this.nvrMixinId);
 
-        this.nvrEnabled = canUseNvr;
-        this.storageSettings.settings.ignoreCameraDetections.hide = !canUseNvr;
+            this.nvrEnabled = canUseNvr;
+            this.storageSettings.settings.ignoreCameraDetections.hide = !canUseNvr;
 
-        const lastSnapshotWebhook = this.storageSettings.values.lastSnapshotWebhook;
-        this.storageSettings.settings.lastSnapshotWebhookCloudUrl.hide = !lastSnapshotWebhook;
-        this.storageSettings.settings.lastSnapshotWebhookLocalUrl.hide = !lastSnapshotWebhook;
+            const lastSnapshotWebhook = this.storageSettings.values.lastSnapshotWebhook;
+            this.storageSettings.settings.lastSnapshotWebhookCloudUrl.hide = !lastSnapshotWebhook;
+            this.storageSettings.settings.lastSnapshotWebhookLocalUrl.hide = !lastSnapshotWebhook;
 
-        const settings: Setting[] = await this.storageSettings.getSettings();
+            const settings: Setting[] = await this.storageSettings.getSettings();
 
-        const detectionRulesSettings = await getDetectionRulesSettings({
-            storage: this.storageSettings,
-            zones: await this.getObserveZones(),
-            groupName: 'Advanced notifier detection rules',
-            withDetection: true,
-        });
-        settings.push(...detectionRulesSettings);
+            const detectionRulesSettings = await getDetectionRulesSettings({
+                storage: this.storageSettings,
+                zones: await this.getObserveZones(),
+                groupName: 'Advanced notifier detection rules',
+                withDetection: true,
+            });
+            settings.push(...detectionRulesSettings);
 
-        return settings;
+            return settings;
+        } catch (e) {
+            this.getLogger().log('Error in getMixinSettings', e);
+            return [];
+        }
     }
 
     async putMixinSetting(key: string, value: string) {

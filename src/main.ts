@@ -375,34 +375,38 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             for (const device of allDevices) {
                 const deviceId = device.id;
                 const deviceType = device.type;
-                const settings = await device.getSettings();
-                const haEntityId = settings.find(setting => setting.key === 'homeassistantMetadata:entityId')?.value as string;
-                const room = settings.find(setting => setting.key === 'homeassistantMetadata:room')?.value as string;
-                const linkedCamera = settings.find(setting => setting.key === 'homeassistantMetadata:linkedCamera')?.value as string;
+                try {
+                    const settings = await device.getSettings();
+                    const haEntityId = settings.find(setting => setting.key === 'homeassistantMetadata:entityId')?.value as string;
+                    const room = settings.find(setting => setting.key === 'homeassistantMetadata:room')?.value as string;
+                    const linkedCamera = settings.find(setting => setting.key === 'homeassistantMetadata:linkedCamera')?.value as string;
 
-                deviceRoomMap[deviceId] = room;
-                if (haEntityId) {
-                    haEntities.push(haEntityId);
+                    deviceRoomMap[deviceId] = room;
+                    if (haEntityId) {
+                        haEntities.push(haEntityId);
 
-                    deviceHaEntityMap[deviceId] = haEntityId;
-                    haEntityDeviceMap[haEntityId] = deviceId;
+                        deviceHaEntityMap[deviceId] = haEntityId;
+                        haEntityDeviceMap[haEntityId] = deviceId;
 
-                    if (deviceType === ScryptedDeviceType.Doorbell) {
-                        const doorbellButtonId = settings.find(setting => setting.key === 'replaceBinarySensor:replaceBinarySensor')?.value as string;
-                        if (doorbellButtonId) {
-                            doorbellDevices.push(doorbellButtonId);
-                            deviceVideocameraMap[doorbellButtonId] = deviceId;
+                        if (deviceType === ScryptedDeviceType.Doorbell) {
+                            const doorbellButtonId = settings.find(setting => setting.key === 'replaceBinarySensor:replaceBinarySensor')?.value as string;
+                            if (doorbellButtonId) {
+                                doorbellDevices.push(doorbellButtonId);
+                                deviceVideocameraMap[doorbellButtonId] = deviceId;
+                            }
+                        }
+
+                        if (linkedCamera) {
+                            const cameraDevice = systemManager.getDeviceById(linkedCamera);
+                            if (cameraDevice) {
+                                deviceVideocameraMap[deviceId] = cameraDevice.id;
+                            } else {
+                                logger.log(`Device ${device.name} is linked to the cameraId ${linkedCamera}, not available anymore`);
+                            }
                         }
                     }
-
-                    if (linkedCamera) {
-                        const cameraDevice = systemManager.getDeviceById(linkedCamera);
-                        if (cameraDevice) {
-                            deviceVideocameraMap[deviceId] = cameraDevice.id;
-                        } else {
-                            logger.log(`Device ${device.name} is linked to the cameraId ${linkedCamera}, not available anymore`);
-                        }
-                    }
+                } catch (e) {
+                    logger.log(`Error in refreshDevicesLinks-${device}`, e);
                 }
             }
 
@@ -425,23 +429,28 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     async getSettings() {
-        const { haEnabled } = this.storageSettings.values;
-        this.storageSettings.settings.domains.hide = !haEnabled;
-        this.storageSettings.settings.fetchHaEntities.hide = !haEnabled;
+        try {
+            const { haEnabled } = this.storageSettings.values;
+            this.storageSettings.settings.domains.hide = !haEnabled;
+            this.storageSettings.settings.fetchHaEntities.hide = !haEnabled;
 
-        this.storageSettings.settings.testMessage.choices = Object.keys(getTextSettings(false)).map(key => key);
+            this.storageSettings.settings.testMessage.choices = Object.keys(getTextSettings(false)).map(key => key);
 
-        const settings: Setting[] = await super.getSettings();
+            const settings: Setting[] = await super.getSettings();
 
-        const detectionRulesSettings = await getDetectionRulesSettings({
-            storage: this.storageSettings,
-            groupName: 'Detection rules',
-            withDevices: true,
-            withDetection: true,
-        });
-        settings.push(...detectionRulesSettings);
+            const detectionRulesSettings = await getDetectionRulesSettings({
+                storage: this.storageSettings,
+                groupName: 'Detection rules',
+                withDevices: true,
+                withDetection: true,
+            });
+            settings.push(...detectionRulesSettings);
 
-        return settings;
+            return settings;
+        } catch (e) {
+            this.getLogger().log('Error in getSettings', e);
+            return [];
+        }
     }
 
     fetchHomeassistantData = async () => {
@@ -825,135 +834,143 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         notifierSettings: Setting[],
         logger: Console,
     }) {
-        const {
-            triggerDevice,
-            cameraDevice,
-            notifierId,
-            time,
-            image: imageParent,
-            detection,
-            textKey,
-            source,
-            logger,
-            notifierSettings,
-            rule,
-        } = props;
+        try {
+            const {
+                triggerDevice,
+                cameraDevice,
+                notifierId,
+                time,
+                image: imageParent,
+                detection,
+                textKey,
+                source,
+                logger,
+                notifierSettings,
+                rule,
+            } = props;
 
-        const device = cameraDevice ?? await this.getCameraDevice(triggerDevice);
+            const device = cameraDevice ?? await this.getCameraDevice(triggerDevice);
 
-        if (!device) {
-            logger.log(`There is no camera linked to the device ${triggerDevice.name}`);
-            return;
-        }
-
-        const deviceSettings = await device.getSettings();
-        const notifier = systemManager.getDeviceById(notifierId) as unknown as (Notifier & ScryptedDevice);
-
-        const { haUrl, externalUrl } = this.getUrls(device.id, time);
-
-        let message = await this.getNotificationText({
-            detection,
-            externalUrl,
-            detectionTime: time,
-            notifierId,
-            textKey,
-            device: triggerDevice,
-            notifierSettings,
-            rule,
-        });
-
-        const notifierSnapshotScale = this.storageSettings.getItem(`notifier:${notifierId}:snapshotScale` as any) ?? 1;
-        const cameraSnapshotHeight = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:snapshotHeight')?.value as number) ?? 720;
-        const cameraSnapshotWidth = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:snapshotWidth')?.value as number) ?? 1280;
-
-        const { image } = await this.getCameraSnapshot({
-            cameraDevice: device,
-            snapshotHeight: cameraSnapshotHeight * notifierSnapshotScale,
-            snapshotWidth: cameraSnapshotWidth * notifierSnapshotScale,
-            image: notifierSnapshotScale === 1 ? imageParent : undefined,
-        });
-        const { priority, actions } = rule;
-
-        const haActions = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:haActions')?.value as string[]) ?? [];
-        if (actions) {
-            haActions.push(...actions);
-        }
-        let data: any = {};
-
-        if (notifier.providerId === this.pushoverProviderId) {
-            // message += '\n';
-            // for (const stringifiedAction of haActions) {
-            //     const { action, title } = JSON.parse(stringifiedAction);
-            //     const { haActionUrl } = await getWebookUrls(action, logger);
-            //     message += `<a href="${haActionUrl}">${title}</a>\n`;
-            // }
-
-            data.pushover = {
-                timestamp: time,
-                url: externalUrl,
-                html: 1,
-                priority: priority === NotificationPriority.High ? 1 :
-                    priority === NotificationPriority.Normal ? 0 :
-                        priority === NotificationPriority.Low ? -1 :
-                            -2
-            };
-        } else if (notifier.providerId === this.haProviderId) {
-            data.ha = {
-                url: haUrl,
-                clickAction: haUrl,
-                actions: haActions.length ? haActions.map(action => JSON.parse(action)) : undefined
+            if (!device) {
+                logger.log(`There is no camera linked to the device ${triggerDevice.name}`);
+                return;
             }
 
+            const deviceSettings = await device.getSettings();
+            const notifier = systemManager.getDeviceById(notifierId) as unknown as (Notifier & ScryptedDevice);
+
+            const { haUrl, externalUrl } = this.getUrls(device.id, time);
+
+            let message = await this.getNotificationText({
+                detection,
+                externalUrl,
+                detectionTime: time,
+                notifierId,
+                textKey,
+                device: triggerDevice,
+                notifierSettings,
+                rule,
+            });
+
+            const notifierSnapshotScale = this.storageSettings.getItem(`notifier:${notifierId}:snapshotScale` as any) ?? 1;
+            const cameraSnapshotHeight = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:snapshotHeight')?.value as number) ?? 720;
+            const cameraSnapshotWidth = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:snapshotWidth')?.value as number) ?? 1280;
+
+            const { image } = await this.getCameraSnapshot({
+                cameraDevice: device,
+                snapshotHeight: cameraSnapshotHeight * notifierSnapshotScale,
+                snapshotWidth: cameraSnapshotWidth * notifierSnapshotScale,
+                image: notifierSnapshotScale === 1 ? imageParent : undefined,
+            });
+            const { priority, actions } = rule;
+
+            const haActions = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:haActions')?.value as string[]) ?? [];
+            if (actions) {
+                haActions.push(...actions);
+            }
+            let data: any = {};
+
+            if (notifier.providerId === this.pushoverProviderId) {
+                // message += '\n';
+                // for (const stringifiedAction of haActions) {
+                //     const { action, title } = JSON.parse(stringifiedAction);
+                //     const { haActionUrl } = await getWebookUrls(action, logger);
+                //     message += `<a href="${haActionUrl}">${title}</a>\n`;
+                // }
+
+                data.pushover = {
+                    timestamp: time,
+                    url: externalUrl,
+                    html: 1,
+                    priority: priority === NotificationPriority.High ? 1 :
+                        priority === NotificationPriority.Normal ? 0 :
+                            priority === NotificationPriority.Low ? -1 :
+                                -2
+                };
+            } else if (notifier.providerId === this.haProviderId) {
+                data.ha = {
+                    url: haUrl,
+                    clickAction: haUrl,
+                    actions: haActions.length ? haActions.map(action => JSON.parse(action)) : undefined
+                }
+
+            }
+            const notifierOptions: NotifierOptions = {
+                body: message,
+                data,
+            }
+
+            let title = (triggerDevice ?? device).name;
+
+            const zone = this.getTriggerZone(detection, rule);
+            if (zone) {
+                title += ` (${zone})`;
+            }
+
+            logger.log(`Finally sending notification ${time} to ${notifier.name}. ${JSON.stringify({
+                notifierOptions,
+                source,
+                title,
+                message,
+                rule,
+                detection,
+            })}`);
+
+            await notifier.sendNotification(title, notifierOptions, image, undefined);
+        } catch (e) {
+            this.getLogger().log('Error in notifyCamera', e);
         }
-        const notifierOptions: NotifierOptions = {
-            body: message,
-            data,
-        }
-
-        let title = (triggerDevice ?? device).name;
-
-        const zone = this.getTriggerZone(detection, rule);
-        if (zone) {
-            title += ` (${zone})`;
-        }
-
-        logger.log(`Finally sending notification ${time} to ${notifier.name}. ${JSON.stringify({
-            notifierOptions,
-            source,
-            title,
-            message,
-            rule,
-            detection,
-        })}`);
-
-        await notifier.sendNotification(title, notifierOptions, image, undefined);
     }
 
     async executeNotificationTest() {
-        const testDevice = this.storageSettings.getItem('testDevice') as DeviceInterface;
-        const testNotifier = this.storageSettings.getItem('testNotifier') as DeviceInterface;
-        const textKey = this.storageSettings.getItem('testMessage') as string;
-        const testPriority = this.storageSettings.getItem('testPriority') as NotificationPriority;
+        const logger = this.getLogger();
+        try {
+            const testDevice = this.storageSettings.getItem('testDevice') as DeviceInterface;
+            const testNotifier = this.storageSettings.getItem('testNotifier') as DeviceInterface;
+            const textKey = this.storageSettings.getItem('testMessage') as string;
+            const testPriority = this.storageSettings.getItem('testPriority') as NotificationPriority;
 
-        if (testDevice && textKey && testNotifier) {
-            const currentTime = new Date().getTime();
-            const testNotifierId = testNotifier.id
-            const notifierSettings = await testNotifier.getSettings();
+            if (testDevice && textKey && testNotifier) {
+                const currentTime = new Date().getTime();
+                const testNotifierId = testNotifier.id
+                const notifierSettings = await testNotifier.getSettings();
 
-            const logger = this.getLogger();
-            logger.log(`Sending test notification to ${testNotifier.name} - ${testDevice.name} with key ${textKey}}`);
+                logger.log(`Sending test notification to ${testNotifier.name} - ${testDevice.name} with key ${textKey}}`);
 
-            this.notifyCamera({
-                triggerDevice: testDevice,
-                notifierId: testNotifierId,
-                time: currentTime,
-                textKey,
-                detection: { label: 'Familiar' } as ObjectDetectionResult,
-                source: NotificationSource.TEST,
-                logger,
-                notifierSettings,
-                rule: { priority: testPriority } as DetectionRule
-            })
+                this.notifyCamera({
+                    triggerDevice: testDevice,
+                    notifierId: testNotifierId,
+                    time: currentTime,
+                    textKey,
+                    detection: { label: 'Familiar' } as ObjectDetectionResult,
+                    source: NotificationSource.TEST,
+                    logger,
+                    notifierSettings,
+                    rule: { priority: testPriority } as DetectionRule
+                })
+            }
+        } catch (e) {
+            logger.log('Error in executeNotificationTest', e);
         }
     }
 
