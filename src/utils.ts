@@ -540,7 +540,7 @@ export const getDetectionRuleKeys = (detectionRuleName: string) => {
     const dayKey = `rule:${detectionRuleName}:day`;
     const startTimeKey = `rule:${detectionRuleName}:startTime`;
     const endTimeKey = `rule:${detectionRuleName}:endTime`;
-    const actionsKey = `rule:${detectionRuleName}:actions`;
+    const actionsKey = `rule:${detectionRuleName}:haActions`;
 
     return {
         enabledKey,
