@@ -488,9 +488,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const matchRules: MatchRule[] = [];
 
             const rules = (isFromNvr ? this.nvrDetectionRules : this.detectionRules) ?? [];
-            if (isFromNvr) {
-                logger.log(`Notifications from NVR: ${JSON.stringify({ detections, candidates, rules })}`);
-            }
             for (const rule of rules) {
                 const { detectionClasses, scoreThreshold, whitelistedZones, blacklistedZones } = rule;
 
