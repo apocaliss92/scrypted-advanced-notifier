@@ -339,11 +339,10 @@ export const publishDeviceState = async (props: {
     b64Image?: string,
     detection?: ObjectDetectionResult,
     resettAllClasses?: boolean,
-    ignoreMainEntity?: boolean,
     rule?: DetectionRule,
     allRuleIds?: string[],
 }) => {
-    const { mqttClient, device, triggered, console, detection, b64Image, resettAllClasses, ignoreMainEntity, rule, allRuleIds } = props;
+    const { mqttClient, device, triggered, console, detection, b64Image, resettAllClasses, rule, allRuleIds } = props;
     try {
         const detectionClass = detection?.className ? detectionClassesDefaultMap[detection.className] : undefined;
         const triggeredEntity = mqttEntities.filter(entity => entity.entity === 'triggered');
@@ -353,44 +352,42 @@ export const publishDeviceState = async (props: {
         console.debug(`Trigger entities to publish: ${JSON.stringify(entitiesToRun)}`)
         const { getEntityTopic } = getMqttTopicTopics(device.id);
 
-        if (!ignoreMainEntity) {
-            for (const mqttEntity of entitiesToRun) {
-                const { entity } = mqttEntity;
+        for (const mqttEntity of entitiesToRun) {
+            const { entity } = mqttEntity;
 
-                let value: any = triggered;
-                let retain = true;
-                switch (entity) {
-                    case 'lastImage': {
-                        value = b64Image || null;
-                        retain = false;
-                        break;
-                    }
-                    case 'lastClassname': {
-                        value = detectionClass || null;
-                        break;
-                    }
-                    case 'lastLabel': {
-                        value = detection?.label || null;
-                        break;
-                    }
-                    case 'triggered': {
-                        value = triggered;
-                        break;
-                    }
-                    case 'lastZones': {
-                        value = detection?.zones?.length ? detection.zones.toString() : null;
-                        break;
-                    }
+            let value: any = triggered;
+            let retain = true;
+            switch (entity) {
+                case 'lastImage': {
+                    value = b64Image || null;
+                    retain = false;
+                    break;
                 }
-
-                if (value !== null) {
-                    await mqttClient.publish(getEntityTopic(entity), value, retain);
+                case 'lastClassname': {
+                    value = detectionClass || null;
+                    break;
+                }
+                case 'lastLabel': {
+                    value = detection?.label || null;
+                    break;
+                }
+                case 'triggered': {
+                    value = triggered;
+                    break;
+                }
+                case 'lastZones': {
+                    value = detection?.zones?.length ? detection.zones.toString() : null;
+                    break;
                 }
             }
 
-            if (rule) {
-                await mqttClient.publish(getEntityTopic(getDetectionRuleId(rule)), true, true);
+            if (value !== null) {
+                await mqttClient.publish(getEntityTopic(entity), value, retain);
             }
+        }
+
+        if (rule) {
+            await mqttClient.publish(getEntityTopic(getDetectionRuleId(rule)), true, true);
         }
 
         if (detection) {
