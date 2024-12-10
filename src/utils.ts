@@ -104,13 +104,13 @@ export const getWebookUrls = async (cameraDeviceOrAction: string | undefined, co
 
 export const parseNotificationMessage = async (cameraDevice: DeviceInterface, deviceSensors: string[], options?: NotifierOptions, console?: Console) => {
     try {
-        let triggerDevice: DeviceInterface;
+        let triggerDevice: DeviceInterface = cameraDevice;
         let textKey: TextSettingKey;
         let detection: ObjectDetectionResult;
         const subtitle = options?.subtitle;
 
         let eventType: EventType;
-        const allDetections: ObjectDetectionResult[] = options?.recordedEvent?.data?.detections ?? [];
+        let allDetections: ObjectDetectionResult[] = options?.recordedEvent?.data?.detections ?? [];
 
         if (subtitle === 'Offline') {
             textKey = 'offlineText';
@@ -143,6 +143,16 @@ export const parseNotificationMessage = async (cameraDevice: DeviceInterface, de
             } else if (subtitle.includes('Motion')) {
                 textKey = 'motionDetectedText';
                 detection = allDetections.find(det => det.className === 'motion');
+
+                if (!allDetections.length) {
+                    allDetections = [
+                        {
+                            className: "motion",
+                            score: 1,
+                            zones: []
+                        },
+                    ]
+                }
                 eventType = EventType.ObjectDetection;
             } else if (subtitle.includes('Door/Window Open')) {
                 textKey = 'doorWindowText';
@@ -173,7 +183,6 @@ export const parseNotificationMessage = async (cameraDevice: DeviceInterface, de
 
         return {
             triggerDevice,
-            cameraDevice,
             textKey,
             detection,
             allDetections,
@@ -466,21 +475,23 @@ export const isDeviceEnabled = async (deviceId: string, deviceSettings: Setting[
     const mainSettings = await plugin.getSettings();
     const mainSettingsByKey = keyBy(mainSettings, 'key');
 
-
     const deviceSettingsByKey = keyBy(deviceSettings, 'key');
-    const { detectionRules, skippedRules } = getDeviceRules(deviceId, deviceSettingsByKey, mainSettingsByKey);
+    const { detectionRules, skippedRules, nvrRules } = getDeviceRules(deviceId, deviceSettingsByKey, mainSettingsByKey);
 
     const isPluginEnabled = mainSettingsByKey.pluginEnabled.value as boolean;
     const isMqttActive = mainSettingsByKey.mqttEnabled.value as boolean;
     const isActiveForNotifications = isPluginEnabled && !!detectionRules.length;
+    const isActiveForNvrNotifications = isPluginEnabled && !!nvrRules.length;
     const isActiveForMqttReporting = isPluginEnabled && isMqttActive && (mainSettingsByKey.activeDevicesForReporting?.value as string || []).includes(deviceId);
 
     return {
         isPluginEnabled,
         isActiveForNotifications,
+        isActiveForNvrNotifications,
         isActiveForMqttReporting,
         detectionRules,
         skippedRules,
+        nvrRules,
     }
 }
 
@@ -526,6 +537,7 @@ export const detectionRulesKey = 'detectionRules';
 
 export const getDetectionRuleKeys = (detectionRuleName: string) => {
     const enabledKey = `rule:${detectionRuleName}:enabled`;
+    const useNvrDetectionsKey = `rule:${detectionRuleName}:useNvrDetections`;
     const activationKey = `rule:${detectionRuleName}:activation`;
     const textKey = `rule:${detectionRuleName}:text`;
     const priorityKey = `rule:${detectionRuleName}:priority`;
@@ -544,6 +556,7 @@ export const getDetectionRuleKeys = (detectionRuleName: string) => {
 
     return {
         enabledKey,
+        useNvrDetectionsKey,
         activationKey,
         textKey,
         detecionClassesKey,
@@ -579,6 +592,7 @@ export const getDetectionRulesSettings = async (props: {
     for (const detectionRuleName of currentDetectionRules) {
         const {
             enabledKey,
+            useNvrDetectionsKey,
             activationKey,
             textKey,
             notifiersKey,
@@ -597,6 +611,7 @@ export const getDetectionRulesSettings = async (props: {
         } = getDetectionRuleKeys(detectionRuleName);
 
         const currentActivation = storage.getItem(activationKey as any) as DetectionRuleActivation;
+        const useNvrDetections = storage.getItem(useNvrDetectionsKey as any) as boolean ?? false;
 
         settings.push(
             {
@@ -606,6 +621,15 @@ export const getDetectionRulesSettings = async (props: {
                 group: groupName,
                 subgroup: detectionRuleName,
                 value: storage.getItem(enabledKey as any) as boolean ?? true,
+                immediate: true
+            },
+            {
+                key: useNvrDetectionsKey,
+                title: 'Use NVR detections',
+                type: 'boolean',
+                group: groupName,
+                subgroup: detectionRuleName,
+                value: useNvrDetections,
                 immediate: true
             },
             {
@@ -822,9 +846,10 @@ export const getDeviceRules = (
     mainPluginStorage: Record<string, StorageSetting>,
 ) => {
     const detectionRules: DetectionRule[] = [];
+    const nvrRules: DetectionRule[] = [];
     const skippedRules: DetectionRule[] = [];
 
-    const allDeviceIds = mainPluginStorage['activeDevicesForNotifications']?.value as string[] ?? [];
+    const allDeviceIds = getElegibleDevices().map(device => device.id);
     const activeNotifiers = mainPluginStorage['notifiers']?.value as string[] ?? [];
     const onActiveDevices = mainPluginStorage['activeDevicesForNotifications']?.value as string[] ?? [];
 
@@ -833,6 +858,7 @@ export const getDeviceRules = (
         for (const detectionRuleName of detectionRuleNames) {
             const {
                 enabledKey,
+                useNvrDetectionsKey,
                 activationKey,
                 notifiersKey,
                 detecionClassesKey,
@@ -851,6 +877,7 @@ export const getDeviceRules = (
             } = getDetectionRuleKeys(detectionRuleName);
 
             const isEnabled = JSON.parse(storage[enabledKey]?.value as string ?? 'false');
+            const useNvrDetections = JSON.parse(storage[useNvrDetectionsKey]?.value as string ?? 'false');
 
             const notifiers = storage[notifiersKey]?.value as string[] ?? [];
             const notifiersTouse = notifiers.filter(notifierId => activeNotifiers.includes(notifierId));
@@ -952,7 +979,11 @@ export const getDeviceRules = (
             if (!ruleAllowed) {
                 skippedRules.push(detectionRule);
             } else {
-                detectionRules.push(detectionRule)
+                if (useNvrDetections) {
+                    nvrRules.push(detectionRule);
+                } else {
+                    detectionRules.push(detectionRule);
+                }
             }
 
         }
@@ -961,7 +992,7 @@ export const getDeviceRules = (
     processRules(mainPluginStorage, DetectionRuleSource.Plugin);
     processRules(deviceStorage, DetectionRuleSource.Device);
 
-    return { detectionRules, skippedRules };
+    return { detectionRules, skippedRules, nvrRules };
 }
 
 export const addBoundingToImage = async (boundingBox: number[], imageBuffer: Buffer, console: Console, label: string) => {

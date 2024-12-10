@@ -76,6 +76,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     nvrEnabled: boolean = true;
     nvrMixinId: string;
     detectionRules: DetectionRule[];
+    nvrDetectionRules: DetectionRule[];
     rulesDiscovered: string[] = [];
     detectionClassListeners: Record<string, {
         motionTimeout: NodeJS.Timeout;
@@ -120,12 +121,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     isActiveForMqttReporting,
                     isPluginEnabled,
                     detectionRules,
+                    nvrRules,
                     skippedRules,
-                    isActiveForNotifications
+                    isActiveForNotifications,
+                    isActiveForNvrNotifications
                 } = await isDeviceEnabled(this.id, deviceSettings, this.plugin);
 
                 logger.debug(`Detected rules: ${JSON.stringify({ detectionRules, skippedRules })}`);
                 this.detectionRules = detectionRules;
+                this.nvrDetectionRules = nvrRules;
 
                 this.isActiveForNotifications = isActiveForNotifications;
                 this.isActiveForMqttReporting = isActiveForMqttReporting;
@@ -166,6 +170,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         notificationsActive: isActiveForNotifications,
                         mqttReportsActive: isActiveForMqttReporting,
                         isPluginEnabled,
+                        isActiveForNvrNotifications,
                     })}`);
                     await this.startListeners();
                 }
@@ -214,7 +219,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.resetTimeouts();
         this.detectionListener?.removeListener && this.detectionListener.removeListener();
         this.detectionListener = undefined;
-        delete this.plugin.currentMixinsMap[this.name];
+        // delete this.plugin.currentMixinsMap[this.name];
     }
 
     async initValues() {
@@ -435,14 +440,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    public async processDetections(props: { detections: ObjectDetectionResult[], triggerTime: number }) {
+    public async processDetections(props: {
+        detections: ObjectDetectionResult[],
+        triggerTime: number,
+        isFromNvr: boolean,
+        image?: MediaObject
+    }) {
         const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase;
-        const { detections, triggerTime } = props;
+        const { detections, triggerTime, isFromNvr, image: parentImage } = props;
         const logger = this.getLogger();
 
         if (!detections?.length) {
             return;
         }
+
         const now = new Date().getTime();
 
         const {
@@ -476,7 +487,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             const matchRules: MatchRule[] = [];
 
-            for (const rule of this.detectionRules) {
+            const rules = (isFromNvr ? this.nvrDetectionRules : this.detectionRules) ?? [];
+            if (isFromNvr) {
+                logger.log(`Notifications from NVR: ${JSON.stringify({ detections, candidates, rules })}`);
+            }
+            for (const rule of rules) {
                 const { detectionClasses, scoreThreshold, whitelistedZones, blacklistedZones } = rule;
 
                 const match = candidates.find(d => {
@@ -484,7 +499,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         return false;
                     }
 
-                    const { className: classnameRaw, score, label, zones } = d;
+                    const { className: classnameRaw, score, zones } = d;
                     const className = detectionClassesDefaultMap[classnameRaw];
 
                     if (!className) {
@@ -544,14 +559,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
             }
 
+            let imageToNotify = parentImage ?? image;
             if (!!matchRules.length) {
-                if (!image) {
+                if (!imageToNotify) {
                     const { b64Image: b64ImageNew, image: imageNew } = await this.getImage();
-                    image = imageNew;
+                    imageToNotify = imageNew;
                     b64Image = b64ImageNew;
                 }
 
-                const imageUrl = await sdk.mediaManager.convertMediaObjectToLocalUrl(image, 'image/jpg');
+                const imageUrl = await sdk.mediaManager.convertMediaObjectToLocalUrl(imageToNotify, 'image/jpg');
                 logger.debug(`Updating webook last image URL: ${imageUrl}`);
                 this.storageSettings.putSetting('lastSnapshotImageUrl', imageUrl);
             }
@@ -588,7 +604,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         triggerDeviceId: this.id,
                         match,
                         rule,
-                        image,
+                        image: imageToNotify,
                         logger,
                         eventType: EventType.ObjectDetection,
                         triggerTime,
@@ -610,7 +626,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 const { timestamp } = detection;
 
-                this.processDetections({ detections: detection.detections, triggerTime: timestamp })
+                this.processDetections({ detections: detection.detections, triggerTime: timestamp, isFromNvr: false })
             });
         } catch (e) {
             this.getLogger().log('Error in startListeners', e);

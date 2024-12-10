@@ -33,13 +33,4 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
     async putMixinSetting(key: string, value: string) {
         this.storage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
     }
-
-    // async sendNotification(title: string, options?: NotifierOptions, media?: MediaObject, icon?: MediaObject | string): Promise<void> {
-    //     if (options?.data?.letGo) {
-    //         this.mixinDevice.sendNotification(title, options, media, icon);
-    //         return;
-    //     }
-
-    //     this.sendNotificationToPlugin(this.id, title, options, media, icon);
-    // }
 }

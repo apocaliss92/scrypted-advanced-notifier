@@ -1,8 +1,8 @@
-import sdk, { HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings, WritableDeviceState } from "@scrypted/sdk";
 import axios from "axios";
 import { isEqual, keyBy, sortBy } from 'lodash';
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, getWebookUrls, NotificationPriority, getFolderPaths } from "./utils";
+import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, parseNotificationMessage, NotificationPriority, getFolderPaths } from "./utils";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
@@ -10,13 +10,16 @@ import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 import { BasePlugin, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { setupPluginAutodiscovery, subscribeToHaTopics } from "./mqtt-utils";
 import path from 'path';
+import { AdvancedNotifierNotifier } from "./notifier";
 
 const { systemManager } = sdk;
+const defaultNotifierNativeId = 'advancedNotifierDefaultNotifier';
 
-export default class AdvancedNotifierPlugin extends BasePlugin implements MixinProvider, HttpRequestHandler {
+export default class AdvancedNotifierPlugin extends BasePlugin implements MixinProvider, HttpRequestHandler, DeviceProvider {
     private deviceHaEntityMap: Record<string, string> = {};
     private haEntityDeviceMap: Record<string, string> = {};
     private deviceVideocameraMap: Record<string, string> = {};
+    private videocameraDevicesMap: Record<string, string[]> = {};
     public deviceRoomMap: Record<string, string> = {}
     private doorbellDevices: string[] = [];
     private firstCheckAlwaysActiveDevices = false;
@@ -24,6 +27,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     private haProviderId: string;
     private pushoverProviderId: string;
     private refreshDeviceLinksInterval: NodeJS.Timeout;
+    defaultNotifier: AdvancedNotifierNotifier;
 
     storageSettings = new StorageSettings(this, {
         ...getBaseSettings({
@@ -182,7 +186,26 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             pluginFriendlyName: 'Advanced notifier'
         });
 
+        (async () => {
+            await sdk.deviceManager.onDeviceDiscovered(
+                {
+                    name: 'Advanced notifier NVR notifier',
+                    nativeId: defaultNotifierNativeId,
+                    interfaces: [ScryptedInterface.Notifier],
+                    type: ScryptedDeviceType.Notifier,
+                },
+            );
+        })();
+
         this.start().then().catch(this.getLogger().log);
+    }
+
+    async getDevice(nativeId: string) {
+        if (nativeId === defaultNotifierNativeId)
+            return this.defaultNotifier ||= new AdvancedNotifierNotifier(defaultNotifierNativeId, this);
+    }
+
+    async releaseDevice(id: string, nativeId: string): Promise<void> {
     }
 
     async startStop(enabled: boolean) {
@@ -369,6 +392,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const deviceHaEntityMap: Record<string, string> = {};
             const haEntityDeviceMap: Record<string, string> = {};
             const deviceVideocameraMap: Record<string, string> = {};
+            const videocameraDevicesMap: Record<string, string[]> = {};
             const deviceRoomMap: Record<string, string> = {};
 
             const allDevices = getElegibleDevices();
@@ -387,22 +411,27 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                         deviceHaEntityMap[deviceId] = haEntityId;
                         haEntityDeviceMap[haEntityId] = deviceId;
+                    }
 
-                        if (deviceType === ScryptedDeviceType.Doorbell) {
-                            const doorbellButtonId = settings.find(setting => setting.key === 'replaceBinarySensor:replaceBinarySensor')?.value as string;
-                            if (doorbellButtonId) {
-                                doorbellDevices.push(doorbellButtonId);
-                                deviceVideocameraMap[doorbellButtonId] = deviceId;
-                            }
+                    if (deviceType === ScryptedDeviceType.Doorbell) {
+                        const doorbellButtonId = settings.find(setting => setting.key === 'replaceBinarySensor:replaceBinarySensor')?.value as string;
+                        if (doorbellButtonId) {
+                            doorbellDevices.push(doorbellButtonId);
+                            deviceVideocameraMap[doorbellButtonId] = deviceId;
                         }
+                    }
 
-                        if (linkedCamera) {
-                            const cameraDevice = systemManager.getDeviceById(linkedCamera);
-                            if (cameraDevice) {
-                                deviceVideocameraMap[deviceId] = cameraDevice.id;
-                            } else {
-                                logger.log(`Device ${device.name} is linked to the cameraId ${linkedCamera}, not available anymore`);
+                    if (linkedCamera) {
+                        const cameraDevice = systemManager.getDeviceById(linkedCamera);
+                        if (cameraDevice) {
+                            const cameraId = cameraDevice.id;
+                            deviceVideocameraMap[deviceId] = cameraId;
+                            if (!videocameraDevicesMap[cameraId]) {
+                                videocameraDevicesMap[cameraId] = [];
                             }
+                            videocameraDevicesMap[cameraId].push(deviceId);
+                        } else {
+                            logger.log(`Device ${device.name} is linked to the cameraId ${linkedCamera}, not available anymore`);
                         }
                     }
                 } catch (e) {
@@ -420,6 +449,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.deviceHaEntityMap = deviceHaEntityMap;
             this.haEntityDeviceMap = haEntityDeviceMap;
             this.deviceVideocameraMap = deviceVideocameraMap;
+            this.videocameraDevicesMap = videocameraDevicesMap;
             this.deviceRoomMap = deviceRoomMap;
             this.doorbellDevices = doorbellDevices;
             this.firstCheckAlwaysActiveDevices = true;
@@ -506,23 +536,32 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         return undefined;
     }
 
-    async sendNotificationToPlugin(notifierId: string, title: string, options?: NotifierOptions, mediaParent?: MediaObject, icon?: MediaObject | string) {
-        //     const triggerTime = options?.recordedEvent?.data.timestamp ?? new Date().getTime();
+    async onNvrNotification(cameraName: string, options?: NotifierOptions, image?: MediaObject, icon?: MediaObject | string) {
+        const logger = this.getLogger();
+        const triggerTime = options?.recordedEvent?.data.timestamp ?? new Date().getTime();
         //     const isTheFirstNotifier = !this.nvrNotificationSend[triggerTime];
         //     this.nvrNotificationSend[triggerTime] = true;
-        //     const deviceSensors = this.deviceLinkedSensors[title];
-        //     const cameraDevice = sdk.systemManager.getDeviceByName(title) as unknown as DeviceInterface;
-        //     const deviceLogger = this.getDeviceLogger(cameraDevice);
-        //     const {
-        //         textKey,
-        //         detection,
-        //         allDetections,
-        //         isDetection,
-        //         triggerDevice: triggerDeviceParent,
-        //         isDoorbell,
-        //         isOffline,
-        //         isOnline,
-        //     } = await parseNotificationMessage(cameraDevice, deviceSensors, options, deviceLogger);
+        const deviceSensors = this.videocameraDevicesMap[cameraName];
+        const cameraDevice = sdk.systemManager.getDeviceByName(cameraName) as unknown as DeviceInterface;
+        const {
+            allDetections,
+            classname,
+            detection,
+            eventType,
+            textKey,
+            triggerDevice
+        } = await parseNotificationMessage(cameraDevice, deviceSensors, options, logger);
+        // if(triggerDevice.type === ScryptedDeviceType.Camera) {
+
+        // } else {
+
+        // }
+        await (this.currentMixinsMap[triggerDevice.name] as AdvancedNotifierCameraMixin)?.processDetections({
+            detections: allDetections,
+            isFromNvr: true,
+            triggerTime,
+            image,
+        })
         //     const {
         //         allActiveDevicesForNotifications,
         //         activeDevicesForReporting,
