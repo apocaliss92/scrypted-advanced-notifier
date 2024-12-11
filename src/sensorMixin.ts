@@ -1,4 +1,4 @@
-import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ScryptedDeviceBase, ScryptedDeviceType } from "@scrypted/sdk";
+import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ScryptedDeviceBase, ScryptedDeviceType, MediaObject } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import { DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, isDeviceEnabled } from "./utils";
@@ -29,12 +29,14 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
     detectionListener: EventListenerRegister;
     mainLoopListener: NodeJS.Timeout;
     isActiveForNotifications: boolean;
+    isActiveForNvrNotifications: boolean;
     isActiveForMqttReporting: boolean;
     mqttReportInProgress: boolean;
     logger: Console;
     mqttAutodiscoverySent: boolean;
     killed: boolean;
     detectionRules: DetectionRule[];
+    nvrDetectionRules: DetectionRule[];
     rulesDiscovered: string[] = [];
     lastDetection: number;
 
@@ -57,7 +59,9 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             }
         }
 
-        this.startCheckInterval().then().catch(this.console.log)
+        this.startCheckInterval().then().catch(this.console.log);
+
+        this.plugin.currentMixinsMap[this.name] = this;
     }
 
     async startCheckInterval() {
@@ -70,17 +74,21 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 isPluginEnabled,
                 detectionRules,
                 skippedRules,
-                isActiveForNotifications
+                isActiveForNotifications,
+                isActiveForNvrNotifications,
+                nvrRules
             } = await isDeviceEnabled(this.id, deviceSettings, this.plugin);
 
             logger.debug(`Detected rules: ${JSON.stringify({ detectionRules, skippedRules })}`);
             this.detectionRules = detectionRules;
+            this.nvrDetectionRules = nvrRules;
 
             this.isActiveForNotifications = isActiveForNotifications;
+            this.isActiveForNvrNotifications = isActiveForNvrNotifications;
             this.isActiveForMqttReporting = isActiveForMqttReporting;
 
             const isCurrentlyRunning = !!this.detectionListener;
-            const shouldRun = this.isActiveForMqttReporting || this.isActiveForNotifications;
+            const shouldRun = !isActiveForNvrNotifications && (this.isActiveForMqttReporting || this.isActiveForNotifications);
 
             if (isActiveForMqttReporting) {
                 const mqttClient = await this.plugin.getMqttClient();
@@ -189,52 +197,77 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async startListeners() {
-        const logger = this.getLogger();
 
         this.detectionListener = systemManager.listenDevice(this.id, ScryptedInterface.BinarySensor, async (_, __, triggered) => {
-            const { minDelayTime } = this.storageSettings.values;
 
-            const now = new Date().getTime();
+            const timestamp = new Date().getTime();
 
-            try {
-                if (minDelayTime) {
-                    if (this.lastDetection && (now - this.lastDetection) < 1000 * minDelayTime) {
-                        logger.debug(`Waiting for delay: ${(now - this.lastDetection) / 1000}s`);
-                        return;
-                    }
+            this.processEvent({ triggered, triggerTime: timestamp, isFromNvr: false })
+        });
+    }
 
-                    this.lastDetection = now;
+    public async processEvent(props: {
+        triggerTime: number,
+        isFromNvr: boolean,
+        triggered: boolean,
+        image?: MediaObject
+    }) {
+        const { minDelayTime } = this.storageSettings.values;
+        const { isFromNvr, triggerTime, triggered, image: imageParent } = props;
+        const logger = this.getLogger();
+
+        const shouldExecute = (isFromNvr && this.isActiveForNvrNotifications) || (!isFromNvr && this.isActiveForNotifications);
+        logger.log(JSON.stringify({
+            isFromNvr,
+            isActiveForNvrNotifications: this.isActiveForNvrNotifications,
+            isActiveForNotifications: this.isActiveForNotifications,
+        }));
+
+        if (!shouldExecute) {
+            return;
+        }
+
+        try {
+            if (minDelayTime) {
+                if (this.lastDetection && (triggerTime - this.lastDetection) < 1000 * minDelayTime) {
+                    logger.debug(`Waiting for delay: ${(triggerTime - this.lastDetection) / 1000}s`);
+                    return;
                 }
 
-                logger.log(`Sensor triggered: ${triggered}`);
+                this.lastDetection = triggerTime;
+            }
 
-                const mqttClient = await this.plugin.getMqttClient();
+            logger.log(`Sensor triggered: ${triggered}`);
 
-                if (mqttClient) {
-                    try {
-                        const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase;
-                        publishDeviceState({
-                            mqttClient,
-                            device,
-                            triggered,
-                            console: logger,
-                            resettAllClasses: false,
-                            allRuleIds: []
-                        }).finally(() => this.mqttReportInProgress = false);
-                    } catch (e) {
-                        logger.log(`Error in reportDetectionsToMqtt`, e);
-                    }
+            const mqttClient = await this.plugin.getMqttClient();
+
+            if (mqttClient) {
+                try {
+                    const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase;
+                    publishDeviceState({
+                        mqttClient,
+                        device,
+                        triggered,
+                        console: logger,
+                        resettAllClasses: false,
+                        allRuleIds: []
+                    }).finally(() => this.mqttReportInProgress = false);
+                } catch (e) {
+                    logger.log(`Error in reportDetectionsToMqtt`, e);
                 }
+            }
 
-                if (triggered) {
-                    const { isDoorbell, device } = await this.plugin.getLinkedCamera(this.id);
-                    const deviceSettings = await device.getSettings();
-                    const cameraSnapshotHeight = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:snapshotHeight')?.value as number) ?? 720;
-                    const cameraSnapshotWidth = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:snapshotWidth')?.value as number) ?? 1280;
+            if (triggered) {
+                const { isDoorbell, device } = await this.plugin.getLinkedCamera(this.id);
 
-                    let image;
+                let image = imageParent;
 
-                    try {
+                try {
+                    if (!image) {
+                        const deviceSettings = await device.getSettings();
+                        const cameraSnapshotHeight = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:snapshotHeight')?.value as number) ?? 720;
+                        const cameraSnapshotWidth = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:snapshotWidth')?.value as number) ?? 1280;
+
                         image = await device.takePicture({
                             reason: 'event',
                             picture: {
@@ -242,30 +275,32 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                                 width: cameraSnapshotWidth,
                             },
                         });
-                    } catch (e) {
-                        logger.log('Error taking a picture', e);
                     }
-
-                    for (const rule of this.detectionRules) {
-                        logger.log(`Starting notifiers: ${JSON.stringify({
-                            eventType: isDoorbell ? EventType.Doorbell : EventType.Contact,
-                            triggerTime: now,
-                            rule,
-                        })})}`);
-                        this.plugin.matchDetectionFound({
-                            triggerDeviceId: this.id,
-                            logger,
-                            eventType: isDoorbell ? EventType.Doorbell : EventType.Contact,
-                            triggerTime: now,
-                            rule,
-                            image,
-                        });
-                    }
+                } catch (e) {
+                    logger.log('Error taking a picture', e);
                 }
 
-            } catch (e) {
-                logger.log('Error finding a match', e);
+                const rules = (isFromNvr ? this.nvrDetectionRules : this.detectionRules) ?? [];
+                for (const rule of rules) {
+                    logger.log(`Starting notifiers: ${JSON.stringify({
+                        eventType: isDoorbell ? EventType.Doorbell : EventType.Contact,
+                        triggerTime,
+                        rule,
+                    })})}`);
+
+                    this.plugin.matchDetectionFound({
+                        triggerDeviceId: this.id,
+                        logger,
+                        eventType: isDoorbell ? EventType.Doorbell : EventType.Contact,
+                        triggerTime,
+                        rule,
+                        image,
+                    });
+                }
             }
-        });
+
+        } catch (e) {
+            logger.log('Error finding a match', e);
+        }
     }
 }

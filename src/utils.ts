@@ -167,8 +167,9 @@ export const parseNotificationMessage = async (cameraDevice: DeviceInterface, de
             const systemState = sdk.systemManager.getSystemState();
 
             const activeSensors = deviceSensors.filter(sensorId => !systemState[sensorId].value);
-            if (activeSensors.length === 1) {
-                triggerDevice = sdk.systemManager.getDeviceById(activeSensors[0]) as unknown as DeviceInterface
+            const firstMatch = activeSensors[0];
+            if (firstMatch) {
+                triggerDevice = sdk.systemManager.getDeviceById(firstMatch) as unknown as DeviceInterface
             } else {
                 console.log(`Trigger sensor not found: ${JSON.stringify({ activeSensors, deviceSensors })}`);
             }
@@ -346,7 +347,6 @@ export const getTextSettings = (forMixin: boolean) => {
             description: 'Expression used to render the text when a device comes back onlin. Available arguments $[time}',
             defaultValue: !forMixin ? 'Back online at ${time}' : undefined,
             placeholder: !forMixin ? 'Back online at ${time}' : undefined,
-            hide: true
         },
         offlineText: {
             [groupKey]: 'Texts',
@@ -355,7 +355,6 @@ export const getTextSettings = (forMixin: boolean) => {
             description: 'Expression used to render the text when a device goes onlin. Available arguments $[time}',
             defaultValue: !forMixin ? 'Went offline at ${time}' : undefined,
             placeholder: !forMixin ? 'Went offline at ${time}' : undefined,
-            hide: true
         },
         personText: {
             group: 'Texts',
