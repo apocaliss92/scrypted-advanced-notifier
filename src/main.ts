@@ -832,12 +832,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         } else {
             const notifierSettingsByKey = keyBy(notifierSettings, 'key');
             textToUse = notifierSettingsByKey[`homeassistantMetadata:${textKey}`]?.value || this.storageSettings.getItem(textKey as any);
-            this.console.log(`Text found: ${JSON.stringify({
-                textToUse,
-                textKey,
-                fromNotifier: notifierSettingsByKey[`homeassistantMetadata:${textKey}`]?.value,
-                fromMain: this.storageSettings.getItem(textKey as any)
-            })}`)
         }
 
         const classNameParsed = detectionClassesDefaultMap[className];
