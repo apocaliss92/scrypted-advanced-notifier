@@ -1,8 +1,8 @@
-import sdk, { DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings, WritableDeviceState } from "@scrypted/sdk";
 import axios from "axios";
-import { isEqual, keyBy, sortBy } from 'lodash';
+import { isEqual, keyBy, sortBy, uniq } from 'lodash';
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, parseNotificationMessage, NotificationPriority, getFolderPaths } from "./utils";
+import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, parseNvrNotificationMessage, NotificationPriority, getFolderPaths, getDeviceRules, NvrEvent, ParseNotificationMessageResult, getPushoverPriority } from "./utils";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
@@ -14,6 +14,21 @@ import { AdvancedNotifierNotifier } from "./notifier";
 
 const { systemManager } = sdk;
 const defaultNotifierNativeId = 'advancedNotifierDefaultNotifier';
+
+interface NotifyCameraProps {
+    cameraDevice?: DeviceInterface,
+    triggerDevice: DeviceInterface,
+    notifierId: string,
+    time: number,
+    image?: MediaObject,
+    detection?: ObjectDetectionResult
+    textKey: string,
+    rule?: DetectionRule,
+    source?: NotificationSource,
+    notifierSettings: Setting[],
+    logger: Console,
+    skipImage?: boolean,
+}
 
 export default class AdvancedNotifierPlugin extends BasePlugin implements MixinProvider, HttpRequestHandler, DeviceProvider {
     private deviceHaEntityMap: Record<string, string> = {};
@@ -28,6 +43,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     private pushoverProviderId: string;
     private refreshDeviceLinksInterval: NodeJS.Timeout;
     defaultNotifier: AdvancedNotifierNotifier;
+    nvrRules: DetectionRule[] = [];
 
     storageSettings = new StorageSettings(this, {
         ...getBaseSettings({
@@ -460,6 +476,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 logger.log(`Following binary sensors are not mapped to any camera yet: ${sensorsNotMapped}`);
             }
 
+            const mainSettings = await this.getSettings();
+            const mainSettingsByKey = keyBy(mainSettings, 'key');
+            const { nvrRules } = getDeviceRules({ mainPluginStorage: mainSettingsByKey });
+            this.nvrRules = nvrRules;
+
             this.deviceHaEntityMap = deviceHaEntityMap;
             this.haEntityDeviceMap = haEntityDeviceMap;
             this.deviceVideocameraMap = deviceVideocameraMap;
@@ -487,6 +508,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 groupName: 'Detection rules',
                 withDevices: true,
                 withDetection: true,
+                withNvrEvents: true,
             });
             settings.push(...detectionRulesSettings);
 
@@ -550,18 +572,82 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         return undefined;
     }
 
+    async notifyNvrEvent(props: ParseNotificationMessageResult & { cameraDevice: DeviceInterface, triggerTime: number }) {
+        const { eventType, textKey, triggerDevice, cameraDevice, triggerTime, label } = props;
+        const logger = this.getLogger();
+        const notifiers = uniq(this.nvrRules.filter(rule => rule.nvrEvents.includes(eventType as NvrEvent)).flatMap(rule => rule.notifiers));
+
+        const notifyCameraProps: Partial<NotifyCameraProps> = {
+            triggerDevice,
+            cameraDevice,
+            time: triggerTime,
+            source: NotificationSource.NVR,
+            textKey,
+            logger,
+        }
+
+        const { externalUrl } = this.getUrls(cameraDevice.id, triggerTime);
+
+        if (eventType === NvrEvent.RecordingInterrupted) {
+            notifyCameraProps.detection = {
+                label,
+            } as ObjectDetectionResult
+        }
+
+        for (const notifierId of notifiers) {
+            const notifier = systemManager.getDeviceById(notifierId) as unknown as Notifier & DeviceInterface;
+            const notifierSettings = await notifier.getSettings();
+            notifyCameraProps.notifierId = notifierId;
+            notifyCameraProps.notifierSettings = notifierSettings;
+            const deviceSettings = await cameraDevice.getSettings();
+
+            const message = await this.getNotificationText({
+                detection: notifyCameraProps.detection,
+                detectionTime: triggerTime,
+                notifierId,
+                textKey,
+                device: triggerDevice,
+                notifierSettings,
+                externalUrl,
+            });
+
+            const notifierData = await this.getNotifierData({
+                device: cameraDevice,
+                deviceSettings,
+                notifier,
+                triggerTime
+            });
+
+            const notifierOptions: NotifierOptions = {
+                body: message,
+                data: notifierData
+            }
+
+            const title = cameraDevice.name;
+
+            logger.log(`Finally sending Nvr event notification ${triggerTime} to ${notifier.name}. ${JSON.stringify({
+                notifierOptions,
+                title,
+                message,
+            })}`);
+
+            await notifier.sendNotification(title, notifierOptions, undefined, undefined);
+
+        }
+    }
+
     async onNvrNotification(cameraName: string, options?: NotifierOptions, image?: MediaObject, icon?: MediaObject | string) {
         const logger = this.getLogger();
         const triggerTime = options?.recordedEvent?.data.timestamp ?? new Date().getTime();
         const cameraDevice = sdk.systemManager.getDeviceByName(cameraName) as unknown as DeviceInterface;
         const deviceSensors = this.videocameraDevicesMap[cameraDevice.id] ?? [];
+        const { devNotifier } = this.storageSettings.values;
+        const result = await parseNvrNotificationMessage(cameraDevice, deviceSensors, options, logger);
         const {
             allDetections,
             eventType,
-            textKey,
             triggerDevice,
-        } = await parseNotificationMessage(cameraDevice, deviceSensors, options, logger);
-        const { devNotifier } = this.storageSettings.values;
+        } = result;
 
         if (eventType === EventType.ObjectDetection) {
             await (this.currentMixinsMap[triggerDevice.name] as AdvancedNotifierCameraMixin)?.processDetections({
@@ -570,52 +656,41 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 triggerTime,
                 image,
             });
-        } else if ([EventType.Contact, EventType.Doorbell].includes(eventType)) {
+        } else if ([EventType.Contact, EventType.Doorbell, EventType.Doorlock].includes(eventType as EventType)) {
             await (this.currentMixinsMap[triggerDevice.name] as AdvancedNotifierSensorMixin)?.processEvent({
                 triggered: true,
                 isFromNvr: true,
                 triggerTime,
                 image,
             });
-        } else if ([EventType.Online, EventType.Offline].includes(eventType)) {
-            logger.log(textKey, cameraDevice.name, triggerDevice.name, devNotifier.name);
-
-            if (devNotifier) {
-                const notifierSettings = await devNotifier.getSettings();
-                this.notifyCamera({
-                    triggerDevice,
-                    cameraDevice,
-                    notifierId: devNotifier.id,
-                    time: triggerTime,
-                    image,
-                    source: NotificationSource.NVR,
-                    textKey,
-                    logger,
-                    notifierSettings,
-                    rule: { priority: NotificationPriority.High } as DetectionRule,
-                    skipImage: true
-                }).catch(e => logger.log(`Error on notifier ${devNotifier.name}`, e));
-            }
         } else {
-            logger.log(`Notification coming from NVR not mapped yet: ${JSON.stringify({
-                cameraName,
-                options,
-                allDetections,
-                eventType,
-                textKey,
-                triggerDevice,
-            })}`);
-            if (devNotifier) {
-                (devNotifier as Notifier).sendNotification('Unmapped notification', {
-                    body: JSON.stringify({
-                        cameraName,
-                        options,
-                        allDetections,
-                        eventType,
-                        textKey,
-                        triggerDevice,
-                    })
-                });
+            if (result.eventType) {
+                await this.notifyNvrEvent(
+                    {
+                        ...result,
+                        cameraDevice,
+                        triggerTime
+                    }
+                );
+            } else {
+                logger.log(`Notification coming from NVR not mapped yet: ${JSON.stringify({
+                    cameraName,
+                    options,
+                    allDetections,
+                    eventType,
+                    triggerDevice,
+                })}`);
+                if (devNotifier) {
+                    (devNotifier as Notifier).sendNotification('Unmapped notification', {
+                        body: JSON.stringify({
+                            cameraName,
+                            options,
+                            allDetections,
+                            eventType,
+                            triggerDevice,
+                        })
+                    });
+                }
             }
         }
     }
@@ -740,14 +815,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             detectionTime: number,
             detection?: ObjectDetectionResult,
             notifierId: string,
-            externalUrl: string,
+            externalUrl?: string,
             textKey: string,
             rule?: DetectionRule,
             notifierSettings: Setting[],
         }
     ) {
         const { detection, detectionTime, notifierId, device, externalUrl, textKey, notifierSettings, rule } = props;
-        const { label, className, zones } = detection ?? {};
+        const { label, className } = detection ?? {};
 
         const roomName = this.deviceRoomMap[device.id];
 
@@ -757,6 +832,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         } else {
             const notifierSettingsByKey = keyBy(notifierSettings, 'key');
             textToUse = notifierSettingsByKey[`homeassistantMetadata:${textKey}`]?.value || this.storageSettings.getItem(textKey as any);
+            this.console.log(`Text found: ${JSON.stringify({
+                textToUse,
+                textKey,
+                fromNotifier: notifierSettingsByKey[`homeassistantMetadata:${textKey}`]?.value,
+                fromMain: this.storageSettings.getItem(textKey as any)
+            })}`)
         }
 
         const classNameParsed = detectionClassesDefaultMap[className];
@@ -771,29 +852,61 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         return textToUse.toString()
             .replace('${time}', time)
-            .replace('${nvrLink}', externalUrl)
+            .replace('${nvrLink}', externalUrl ?? '')
             .replace('${person}', label ?? '')
             .replace('${plate}', label ?? '')
+            .replace('${streamName}', label ?? '')
             .replace('${label}', label ?? '')
-            .replace('${class}', detectionClassText)
+            .replace('${class}', detectionClassText ?? '')
             .replace('${zone}', zone ?? '')
             .replace('${room}', roomName ?? '');
     }
 
-    async notifyCamera(props: {
-        cameraDevice?: DeviceInterface,
-        triggerDevice: DeviceInterface,
-        notifierId: string,
-        time: number,
-        image?: MediaObject,
-        detection?: ObjectDetectionResult
-        textKey: string,
-        rule?: DetectionRule,
-        source?: NotificationSource,
-        notifierSettings: Setting[],
-        logger: Console,
-        skipImage?: boolean,
+    async getNotifierData(props: {
+        notifier: DeviceBase,
+        rule?: DetectionRule
+        deviceSettings: Setting[],
+        device: DeviceBase,
+        triggerTime: number,
     }) {
+        const { notifier, rule, deviceSettings, triggerTime, device } = props;
+        const { priority, actions } = rule ?? {};
+
+        const { haUrl, externalUrl } = this.getUrls(device.id, triggerTime);
+
+        const haActions = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:haActions')?.value as string[]) ?? [];
+        if (actions) {
+            haActions.push(...actions);
+        }
+        let data: any = {};
+
+        if (notifier.providerId === this.pushoverProviderId) {
+            // message += '\n';
+            // for (const stringifiedAction of haActions) {
+            //     const { action, title } = JSON.parse(stringifiedAction);
+            //     const { haActionUrl } = await getWebookUrls(action, logger);
+            //     message += `<a href="${haActionUrl}">${title}</a>\n`;
+            // }
+
+            data.pushover = {
+                timestamp: triggerTime,
+                url: externalUrl,
+                html: 1,
+                priority: getPushoverPriority(priority)
+            };
+        } else if (notifier.providerId === this.haProviderId) {
+            data.ha = {
+                url: haUrl,
+                clickAction: haUrl,
+                actions: haActions.length ? haActions.map(action => JSON.parse(action)) : undefined
+            }
+
+        }
+
+        return data;
+    }
+
+    async notifyCamera(props: NotifyCameraProps) {
         try {
             const {
                 triggerDevice,
@@ -820,7 +933,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const deviceSettings = await device.getSettings();
             const notifier = systemManager.getDeviceById(notifierId) as unknown as (Notifier & ScryptedDevice);
 
-            const { haUrl, externalUrl } = this.getUrls(device.id, time);
+            const { externalUrl } = this.getUrls(device.id, time);
 
             let message = await this.getNotificationText({
                 detection,
@@ -843,49 +956,26 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 snapshotWidth: cameraSnapshotWidth * notifierSnapshotScale,
                 image: notifierSnapshotScale === 1 ? imageParent : undefined,
             }) : {};
-            const { priority, actions } = rule ?? {};
 
-            const haActions = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:haActions')?.value as string[]) ?? [];
-            if (actions) {
-                haActions.push(...actions);
-            }
-            let data: any = {};
-
-            if (notifier.providerId === this.pushoverProviderId) {
-                // message += '\n';
-                // for (const stringifiedAction of haActions) {
-                //     const { action, title } = JSON.parse(stringifiedAction);
-                //     const { haActionUrl } = await getWebookUrls(action, logger);
-                //     message += `<a href="${haActionUrl}">${title}</a>\n`;
-                // }
-
-                data.pushover = {
-                    timestamp: time,
-                    url: externalUrl,
-                    html: 1,
-                    priority: priority === NotificationPriority.High ? 1 :
-                        priority === NotificationPriority.Normal ? 0 :
-                            priority === NotificationPriority.Low ? -1 :
-                                -2
-                };
-            } else if (notifier.providerId === this.haProviderId) {
-                data.ha = {
-                    url: haUrl,
-                    clickAction: haUrl,
-                    actions: haActions.length ? haActions.map(action => JSON.parse(action)) : undefined
-                }
-
-            }
-            const notifierOptions: NotifierOptions = {
-                body: message,
-                data,
-            }
 
             let title = (triggerDevice ?? device).name;
 
             const zone = this.getTriggerZone(detection, rule);
             if (zone) {
                 title += ` (${zone})`;
+            }
+
+            const notifierData = await this.getNotifierData({
+                device,
+                deviceSettings,
+                notifier,
+                rule,
+                triggerTime: time
+            });
+
+            const notifierOptions: NotifierOptions = {
+                body: message,
+                data: notifierData
             }
 
             logger.log(`Finally sending notification ${time} to ${notifier.name}. ${JSON.stringify({

@@ -1,4 +1,4 @@
-import sdk, { Camera, MediaObject, NotifierOptions, ObjectDetectionResult, ScryptedDeviceBase, ScryptedDeviceType, ScryptedMimeTypes, Setting, Settings } from "@scrypted/sdk"
+import sdk, { Camera, LockState, MediaObject, NotifierOptions, ObjectDetectionResult, ScryptedDeviceBase, ScryptedDeviceType, ScryptedMimeTypes, Setting, Settings } from "@scrypted/sdk"
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { keyBy, sortBy, uniq, uniqBy } from "lodash";
 const { endpointManager } = sdk;
@@ -27,10 +27,10 @@ export const getElegibleDevices = () => {
 
 export enum EventType {
     ObjectDetection = 'ObjectDetection',
+    Package = 'Package',
     Doorbell = 'Doorbell',
     Contact = 'Contact',
-    Offline = 'Offline',
-    Online = 'Online',
+    Doorlock = 'Doorlock',
 }
 
 export const getDefaultEntityId = (name: string) => {
@@ -102,28 +102,39 @@ export const getWebookUrls = async (cameraDeviceOrAction: string | undefined, co
     }
 }
 
-export const parseNotificationMessage = async (cameraDevice: DeviceInterface, deviceSensors: string[], options?: NotifierOptions, console?: Console) => {
+export interface ParseNotificationMessageResult {
+    triggerDevice: DeviceInterface,
+    textKey: TextSettingKey,
+    detection: ObjectDetectionResult,
+    allDetections: ObjectDetectionResult[],
+    eventType: EventType | NvrEvent,
+    classname: DetectionClass,
+    label: string,
+}
+
+export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface, deviceSensors: string[], options?: NotifierOptions, console?: Console): Promise<ParseNotificationMessageResult> => {
     try {
         let triggerDevice: DeviceInterface = cameraDevice;
         let textKey: TextSettingKey;
-        let detection: ObjectDetectionResult;
+        let detection: ObjectDetectionResult
+        let label: string;
         const subtitle = options?.subtitle;
 
-        let eventType: EventType;
+        let eventType: EventType | NvrEvent;
         let allDetections: ObjectDetectionResult[] = options?.recordedEvent?.data?.detections ?? [];
 
         if (subtitle === 'Offline') {
             textKey = 'offlineText';
-            eventType = EventType.Offline;
+            eventType = NvrEvent.Offline;
         } else if (subtitle === 'Online') {
             textKey = 'onlineText';
-            eventType = EventType.Online;
+            eventType = NvrEvent.Online;
         } else {
-
             if (subtitle.includes('Maybe: Vehicle')) {
                 textKey = 'plateDetectedText';
                 detection = allDetections.find(det => det.className === 'plate');
                 eventType = EventType.ObjectDetection;
+                label = detection.label;
             } else if (subtitle.includes('Person')) {
                 textKey = 'personDetectedText';
                 detection = allDetections.find(det => det.className === 'person');
@@ -140,6 +151,7 @@ export const parseNotificationMessage = async (cameraDevice: DeviceInterface, de
                 textKey = 'familiarDetectedText';
                 detection = allDetections.find(det => det.className === 'face');
                 eventType = EventType.ObjectDetection;
+                label = detection.label;
             } else if (subtitle.includes('Motion')) {
                 textKey = 'motionDetectedText';
                 detection = allDetections.find(det => det.className === 'motion');
@@ -160,18 +172,37 @@ export const parseNotificationMessage = async (cameraDevice: DeviceInterface, de
             } else if (subtitle.includes('Doorbell Ringing')) {
                 textKey = 'doorbellText';
                 eventType = EventType.Doorbell;
+            } else if (subtitle.includes('Door Unlocked')) {
+                textKey = 'doorlockText';
+                eventType = EventType.Doorlock;
+            } else if (subtitle.includes('Package Detected')) {
+                textKey = 'packageText';
+                eventType = EventType.Package;
+            } else if (subtitle.includes('Recording Interrupted')) {
+                textKey = 'packageText';
+                eventType = NvrEvent.RecordingInterrupted;
+                const regex = new RegExp('The (.*) Stream has been offline for an extended period.');
+                label = regex.exec(options.body)[1];
             }
         }
 
-        if ([EventType.Contact, EventType.Doorbell].includes(eventType)) {
+        // Remove this when nvr will provide trigger IDs
+        if ([EventType.Contact, EventType.Doorlock, EventType.Doorbell].includes(eventType as EventType)) {
             const systemState = sdk.systemManager.getSystemState();
 
-            const activeSensors = deviceSensors.filter(sensorId => !systemState[sensorId].value);
-            const firstMatch = activeSensors[0];
-            if (firstMatch) {
-                triggerDevice = sdk.systemManager.getDeviceById(firstMatch) as unknown as DeviceInterface
+            const foundSensor = deviceSensors.find(deviceId => {
+                const device = sdk.systemManager.getDeviceById(deviceId);
+                if (device.type === ScryptedDeviceType.Lock) {
+                    return systemState[deviceId].lockState?.value === LockState.Unlocked;
+                } else {
+                    return systemState[deviceId].binaryState?.value === true;
+                }
+            })
+
+            if (foundSensor) {
+                triggerDevice = sdk.systemManager.getDeviceById(foundSensor) as unknown as DeviceInterface
             } else {
-                console.log(`Trigger sensor not found: ${JSON.stringify({ activeSensors, deviceSensors })}`);
+                console.log(`Trigger sensor not found: ${JSON.stringify({ deviceSensors })}`);
             }
         }
 
@@ -188,11 +219,12 @@ export const parseNotificationMessage = async (cameraDevice: DeviceInterface, de
             detection,
             allDetections,
             eventType,
-            classname: detection ? detectionClassesDefaultMap[detection.className] : undefined
+            classname: detection ? detectionClassesDefaultMap[detection.className] : undefined,
+            label,
         }
     } catch (e) {
         console.log(`Error parsing notification: ${JSON.stringify({ device: cameraDevice.name, options })}`, e);
-        return {};
+        return {} as ParseNotificationMessageResult;
     }
 }
 
@@ -254,6 +286,7 @@ export type TextSettingKey =
     | 'vehicleText'
     | 'animalText'
     | 'onlineText'
+    | 'doorlockText'
     | 'offlineText';
 
 export const getTextSettings = (forMixin: boolean) => {
@@ -331,6 +364,14 @@ export const getTextSettings = (forMixin: boolean) => {
             description: 'Expression used to render the text when a binary sensor opens. Available arguments ${room} $[time} ${nvrLink}',
             defaultValue: !forMixin ? 'Door/window opened in ${room}' : undefined,
             placeholder: !forMixin ? 'Door/window opened in ${room}' : undefined
+        },
+        doorlockText: {
+            [groupKey]: 'Texts',
+            title: 'Doorlock sensor open text',
+            type: 'string',
+            description: 'Expression used to render the text when a lock sensor opens. Available arguments ${room} $[time} ${nvrLink}',
+            defaultValue: !forMixin ? 'Door unlocked in ${room}' : undefined,
+            placeholder: !forMixin ? 'Door unlocked in ${room}' : undefined
         },
         packageText: {
             [groupKey]: 'Texts',
@@ -475,7 +516,11 @@ export const isDeviceEnabled = async (deviceId: string, deviceSettings: Setting[
     const mainSettingsByKey = keyBy(mainSettings, 'key');
 
     const deviceSettingsByKey = keyBy(deviceSettings, 'key');
-    const { detectionRules, skippedRules, nvrRules } = getDeviceRules(deviceId, deviceSettingsByKey, mainSettingsByKey);
+    const { detectionRules, skippedRules, nvrRules } = getDeviceRules({
+        deviceId: deviceId,
+        deviceStorage: deviceSettingsByKey,
+        mainPluginStorage: mainSettingsByKey,
+    });
 
     const isPluginEnabled = mainSettingsByKey.pluginEnabled.value as boolean;
     const isMqttActive = mainSettingsByKey.mqttEnabled.value as boolean;
@@ -516,6 +561,9 @@ export const getTextKey = (props: { classname?: string, eventType: EventType }) 
         case EventType.Doorbell:
             key = 'doorbellText';
             break;
+        case EventType.Doorlock:
+            key = 'doorlockText';
+            break;
         case EventType.ObjectDetection: {
             key = textKeyClassnameMap[detectionClassesDefaultMap[classname]];
         }
@@ -532,6 +580,12 @@ export enum DetectionRuleActivation {
     Schedule = 'Schedule',
 }
 
+export enum NvrEvent {
+    Online = 'Online',
+    Offline = 'Offline',
+    RecordingInterrupted = 'RecordingInterrupted'
+}
+
 export const detectionRulesKey = 'detectionRules';
 
 export const getDetectionRuleKeys = (detectionRuleName: string) => {
@@ -541,6 +595,7 @@ export const getDetectionRuleKeys = (detectionRuleName: string) => {
     const textKey = `rule:${detectionRuleName}:text`;
     const priorityKey = `rule:${detectionRuleName}:priority`;
     const detecionClassesKey = `rule:${detectionRuleName}:detecionClasses`;
+    const nvrEventsKey = `rule:${detectionRuleName}:nvrEvents`;
     const scoreThresholdKey = `rule:${detectionRuleName}:scoreThreshold`;
     const whitelistedZonesKey = `rule:${detectionRuleName}:whitelistedZones`;
     const blacklistedZonesKey = `rule:${detectionRuleName}:blacklistedZones`;
@@ -559,6 +614,7 @@ export const getDetectionRuleKeys = (detectionRuleName: string) => {
         activationKey,
         textKey,
         detecionClassesKey,
+        nvrEventsKey,
         scoreThresholdKey,
         whitelistedZonesKey,
         blacklistedZonesKey,
@@ -574,7 +630,7 @@ export const getDetectionRuleKeys = (detectionRuleName: string) => {
     }
 }
 
-export const deviceFilter = `(interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && (type === '${ScryptedDeviceType.Camera}' || type === '${ScryptedDeviceType.Doorbell}' || type === '${ScryptedDeviceType.Sensor}'))`;
+export const deviceFilter = `(interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && (type === '${ScryptedDeviceType.Camera}' || type === '${ScryptedDeviceType.Doorbell}' || type === '${ScryptedDeviceType.Sensor}' || type === '${ScryptedDeviceType.Lock}'))`;
 export const notifierFilter = `(type === '${ScryptedDeviceType.Notifier}' && interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}'))`;
 
 export const getDetectionRulesSettings = async (props: {
@@ -583,8 +639,9 @@ export const getDetectionRulesSettings = async (props: {
     zones?: string[],
     withDevices?: boolean;
     withDetection?: boolean;
+    withNvrEvents?: boolean;
 }) => {
-    const { storage, zones, groupName, withDevices, withDetection } = props;
+    const { storage, zones, groupName, withDevices, withDetection, withNvrEvents } = props;
     const settings: Setting[] = [];
 
     const currentDetectionRules = storage.getItem(detectionRulesKey);
@@ -596,6 +653,7 @@ export const getDetectionRulesSettings = async (props: {
             textKey,
             notifiersKey,
             detecionClassesKey,
+            nvrEventsKey,
             scoreThresholdKey,
             whitelistedZonesKey,
             blacklistedZonesKey,
@@ -661,6 +719,21 @@ export const getDetectionRulesSettings = async (props: {
                 value: JSON.parse(storage.getItem(detecionClassesKey as any) as string ?? '[]')
             }
         );
+
+        if (useNvrDetections && withNvrEvents) {
+            settings.push(
+                {
+                    key: nvrEventsKey,
+                    title: 'NVR events',
+                    group: groupName,
+                    subgroup: detectionRuleName,
+                    multiple: true,
+                    combobox: true,
+                    choices: Object.values(NvrEvent),
+                    value: JSON.parse(storage.getItem(nvrEventsKey as any) as string ?? '[]')
+                }
+            );
+        }
 
         if (withDetection) {
             settings.push(
@@ -830,6 +903,7 @@ export interface DetectionRule {
     notifiers: string[];
     devices: string[];
     detectionClasses?: DetectionClass[];
+    nvrEvents?: NvrEvent[];
     scoreThreshold?: number;
     whitelistedZones?: string[];
     blacklistedZones?: string[];
@@ -840,10 +914,13 @@ export interface DetectionRule {
 }
 
 export const getDeviceRules = (
-    deviceId: string,
-    deviceStorage: Record<string, StorageSetting>,
-    mainPluginStorage: Record<string, StorageSetting>,
+    props: {
+        deviceStorage?: Record<string, StorageSetting>,
+        mainPluginStorage: Record<string, StorageSetting>,
+        deviceId?: string,
+    }
 ) => {
+    const { deviceId, deviceStorage, mainPluginStorage } = props;
     const detectionRules: DetectionRule[] = [];
     const nvrRules: DetectionRule[] = [];
     const skippedRules: DetectionRule[] = [];
@@ -873,6 +950,7 @@ export const getDeviceRules = (
                 disabledSensorsKey,
                 priorityKey,
                 actionsKey,
+                nvrEventsKey
             } = getDetectionRuleKeys(detectionRuleName);
 
             const isEnabled = JSON.parse(storage[enabledKey]?.value as string ?? 'false');
@@ -890,6 +968,7 @@ export const getDeviceRules = (
             const devicesToUse = activationType === DetectionRuleActivation.OnActive ? onActiveDevices : devices;
 
             const detectionClasses = storage[detecionClassesKey]?.value as DetectionClass[] ?? [];
+            const nvrEvents = storage[nvrEventsKey]?.value as NvrEvent[] ?? [];
             const scoreThreshold = Number(storage[scoreThresholdKey]?.value || 0.7);
 
             const detectionRule: DetectionRule = {
@@ -899,10 +978,11 @@ export const getDeviceRules = (
                 notifiers: notifiersTouse,
                 scoreThreshold,
                 detectionClasses,
+                nvrEvents,
                 devices: devicesToUse,
                 customText,
                 priority,
-                actions
+                actions,
             }
 
             if (source === DetectionRuleSource.Device) {
@@ -970,7 +1050,7 @@ export const getDeviceRules = (
             const ruleAllowed =
                 isEnabled &&
                 !!devicesToUse.length &&
-                devicesToUse.includes(deviceId) &&
+                (deviceId ? devicesToUse.includes(deviceId) : true) &&
                 !!notifiersTouse.length &&
                 timeAllowed &&
                 sensorsOk;
@@ -989,7 +1069,10 @@ export const getDeviceRules = (
     };
 
     processRules(mainPluginStorage, DetectionRuleSource.Plugin);
-    processRules(deviceStorage, DetectionRuleSource.Device);
+
+    if (deviceStorage) {
+        processRules(deviceStorage, DetectionRuleSource.Device);
+    }
 
     return { detectionRules, skippedRules, nvrRules };
 }
@@ -1051,3 +1134,8 @@ export const addBoundingToImage = async (boundingBox: number[], imageBuffer: Buf
         return {}
     }
 }
+
+export const getPushoverPriority = (priority: NotificationPriority) => priority === NotificationPriority.High ? 1 :
+    priority === NotificationPriority.Normal ? 0 :
+        priority === NotificationPriority.Low ? -1 :
+            -2;

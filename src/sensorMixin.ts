@@ -88,7 +88,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             this.isActiveForMqttReporting = isActiveForMqttReporting;
 
             const isCurrentlyRunning = !!this.detectionListener;
-            const shouldRun = !isActiveForNvrNotifications && (this.isActiveForMqttReporting || this.isActiveForNotifications);
+            const shouldRun = this.isActiveForMqttReporting || this.isActiveForNotifications;
 
             if (isActiveForMqttReporting) {
                 const mqttClient = await this.plugin.getMqttClient();
@@ -217,11 +217,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
 
         const shouldExecute = (isFromNvr && this.isActiveForNvrNotifications) || (!isFromNvr && this.isActiveForNotifications);
-        logger.log(JSON.stringify({
-            isFromNvr,
-            isActiveForNvrNotifications: this.isActiveForNvrNotifications,
-            isActiveForNotifications: this.isActiveForNotifications,
-        }));
 
         if (!shouldExecute) {
             return;
@@ -259,6 +254,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
             if (triggered) {
                 const { isDoorbell, device } = await this.plugin.getLinkedCamera(this.id);
+                const isDoorlock = this.type === ScryptedDeviceType.Lock;
 
                 let image = imageParent;
 
@@ -280,10 +276,12 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                     logger.log('Error taking a picture', e);
                 }
 
+                const eventType = isDoorbell ? EventType.Doorbell : isDoorlock ? EventType.Doorlock : EventType.Contact;
+
                 const rules = (isFromNvr ? this.nvrDetectionRules : this.detectionRules) ?? [];
                 for (const rule of rules) {
                     logger.log(`Starting notifiers: ${JSON.stringify({
-                        eventType: isDoorbell ? EventType.Doorbell : EventType.Contact,
+                        eventType,
                         triggerTime,
                         rule,
                     })})}`);
@@ -291,7 +289,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                     this.plugin.matchDetectionFound({
                         triggerDeviceId: this.id,
                         logger,
-                        eventType: isDoorbell ? EventType.Doorbell : EventType.Contact,
+                        eventType,
                         triggerTime,
                         rule,
                         image,

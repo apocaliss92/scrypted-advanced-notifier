@@ -135,7 +135,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 this.isActiveForMqttReporting = isActiveForMqttReporting;
 
                 const isCurrentlyRunning = !!this.detectionListener;
-                const shouldRun = !isActiveForNvrNotifications && (this.isActiveForMqttReporting || this.isActiveForNotifications);
+                const shouldRun = this.isActiveForMqttReporting || this.isActiveForNotifications;
 
                 if (isActiveForMqttReporting) {
                     const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase & Settings;
