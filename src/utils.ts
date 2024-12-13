@@ -179,7 +179,7 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
                 textKey = 'packageText';
                 eventType = EventType.Package;
             } else if (subtitle.includes('Recording Interrupted')) {
-                textKey = 'packageText';
+                textKey = 'streamInterruptedText';
                 eventType = NvrEvent.RecordingInterrupted;
                 const regex = new RegExp('The (.*) Stream has been offline for an extended period.');
                 label = regex.exec(options.body)[1];
@@ -287,7 +287,8 @@ export type TextSettingKey =
     | 'animalText'
     | 'onlineText'
     | 'doorlockText'
-    | 'offlineText';
+    | 'offlineText'
+    | 'streamInterruptedText';
 
 export const getTextSettings = (forMixin: boolean) => {
     const groupKey = forMixin ? 'subgroup' : 'group';
@@ -385,7 +386,7 @@ export const getTextSettings = (forMixin: boolean) => {
             [groupKey]: 'Texts',
             title: 'Online device text',
             type: 'string',
-            description: 'Expression used to render the text when a device comes back onlin. Available arguments $[time}',
+            description: 'Expression used to render the text when a device comes back online. Available arguments $[time}',
             defaultValue: !forMixin ? 'Back online at ${time}' : undefined,
             placeholder: !forMixin ? 'Back online at ${time}' : undefined,
         },
@@ -393,9 +394,17 @@ export const getTextSettings = (forMixin: boolean) => {
             [groupKey]: 'Texts',
             title: 'Online device text',
             type: 'string',
-            description: 'Expression used to render the text when a device goes onlin. Available arguments $[time}',
+            description: 'Expression used to render the text when a device goes offline. Available arguments $[time}',
             defaultValue: !forMixin ? 'Went offline at ${time}' : undefined,
             placeholder: !forMixin ? 'Went offline at ${time}' : undefined,
+        },
+        streamInterruptedText: {
+            [groupKey]: 'Texts',
+            title: 'Stream interrupted text',
+            type: 'string',
+            description: 'Expression used to render the text when a streams gets interrupted. Available arguments $[time} ${streamName}',
+            defaultValue: !forMixin ? 'Stream ${streamName} interrupted at ${time}' : undefined,
+            placeholder: !forMixin ? 'Stream ${streamName} interrupted at ${time}' : undefined,
         },
         personText: {
             group: 'Texts',
@@ -547,6 +556,8 @@ const textKeyClassnameMap: Record<DetectionClass, TextSettingKey> = {
     [DetectionClass.Animal]: 'animalDetectedText',
     [DetectionClass.Motion]: 'motionDetectedText',
     [DetectionClass.Package]: 'motionDetectedText',
+    [DetectionClass.DoorLock]: 'doorlockText',
+    [DetectionClass.DoorSensor]: 'doorWindowText',
 }
 
 export const getTextKey = (props: { classname?: string, eventType: EventType }) => {

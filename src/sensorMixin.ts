@@ -1,9 +1,10 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ScryptedDeviceBase, ScryptedDeviceType, MediaObject } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, isDeviceEnabled } from "./utils";
+import { DetectionRule, DetectionRuleSource, EventType, getDetectionRulesSettings, getMixinBaseSettings, isDeviceEnabled } from "./utils";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoverDetectionRules, getDetectionRuleId, publishDeviceState, setupDeviceAutodiscovery } from "./mqtt-utils";
+import { DetectionClass } from "./detecionClasses";
 
 const { systemManager } = sdk;
 
@@ -256,6 +257,17 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 const { isDoorbell, device } = await this.plugin.getLinkedCamera(this.id);
                 const isDoorlock = this.type === ScryptedDeviceType.Lock;
 
+                const rules = (isFromNvr ? this.nvrDetectionRules : this.detectionRules) ?? [];
+                const enabledRules = rules.filter(
+                    rule => rule.source === DetectionRuleSource.Plugin ?
+                        true :
+                        rule.detectionClasses.includes(isDoorlock ? DetectionClass.DoorLock : DetectionClass.DoorSensor
+                        ));
+
+                if (!enabledRules.length) {
+                    return;
+                }
+
                 let image = imageParent;
 
                 try {
@@ -278,8 +290,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
                 const eventType = isDoorbell ? EventType.Doorbell : isDoorlock ? EventType.Doorlock : EventType.Contact;
 
-                const rules = (isFromNvr ? this.nvrDetectionRules : this.detectionRules) ?? [];
-                for (const rule of rules) {
+                for (const rule of enabledRules) {
                     logger.log(`Starting notifiers: ${JSON.stringify({
                         eventType,
                         triggerTime,

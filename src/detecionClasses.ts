@@ -6,6 +6,8 @@ export enum DetectionClass {
     Face = 'face',
     Plate = 'plate',
     Package = 'package',
+    DoorSensor = 'sensor open',
+    DoorLock = 'lock open',
 }
 
 export const defaultDetectionClasses = Object.values(DetectionClass);
