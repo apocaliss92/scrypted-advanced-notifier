@@ -259,7 +259,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
                 const rules = (isFromNvr ? this.nvrDetectionRules : this.detectionRules) ?? [];
                 const enabledRules = rules.filter(
-                    rule => rule.source === DetectionRuleSource.Plugin ?
+                    rule => rule.source === DetectionRuleSource.Plugin && rule.devices.length ?
                         true :
                         rule.detectionClasses.includes(isDoorlock ? DetectionClass.DoorLock : DetectionClass.DoorSensor
                         ));
