@@ -78,7 +78,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 isActiveForNotifications,
                 isActiveForNvrNotifications,
                 nvrRules
-            } = await isDeviceEnabled(this.id, deviceSettings, this.plugin);
+            } = await isDeviceEnabled(this.id, deviceSettings, this.plugin, this.type);
 
             logger.debug(`Detected rules: ${JSON.stringify({ detectionRules, skippedRules })}`);
             this.detectionRules = detectionRules;
@@ -257,12 +257,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 const { isDoorbell, device } = await this.plugin.getLinkedCamera(this.id);
                 const isDoorlock = this.type === ScryptedDeviceType.Lock;
 
-                const rules = (isFromNvr ? this.nvrDetectionRules : this.detectionRules) ?? [];
-                const enabledRules = rules.filter(
-                    rule => rule.source === DetectionRuleSource.Plugin && rule.devices.length ?
-                        true :
-                        rule.detectionClasses.includes(isDoorlock ? DetectionClass.DoorLock : DetectionClass.DoorSensor
-                        ));
+                const enabledRules = (isFromNvr ? this.nvrDetectionRules : this.detectionRules) ?? [];
 
                 if (!enabledRules.length) {
                     return;

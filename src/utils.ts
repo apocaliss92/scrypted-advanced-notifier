@@ -520,13 +520,14 @@ export const getMixinBaseSettings = (name: string, type: ScryptedDeviceType) => 
 
 export const mainPluginName = scrypted.name;
 
-export const isDeviceEnabled = async (deviceId: string, deviceSettings: Setting[], plugin: AdvancedNotifierPlugin) => {
+export const isDeviceEnabled = async (deviceId: string, deviceSettings: Setting[], plugin: AdvancedNotifierPlugin, deviceType?: ScryptedDeviceType) => {
     const mainSettings = await plugin.getSettings();
     const mainSettingsByKey = keyBy(mainSettings, 'key');
 
     const deviceSettingsByKey = keyBy(deviceSettings, 'key');
     const { detectionRules, skippedRules, nvrRules } = getDeviceRules({
-        deviceId: deviceId,
+        deviceId,
+        deviceType,
         deviceStorage: deviceSettingsByKey,
         mainPluginStorage: mainSettingsByKey,
     });
@@ -929,9 +930,10 @@ export const getDeviceRules = (
         deviceStorage?: Record<string, StorageSetting>,
         mainPluginStorage: Record<string, StorageSetting>,
         deviceId?: string,
+        deviceType?: ScryptedDeviceType
     }
 ) => {
-    const { deviceId, deviceStorage, mainPluginStorage } = props;
+    const { deviceId, deviceStorage, mainPluginStorage, deviceType } = props;
     const detectionRules: DetectionRule[] = [];
     const nvrRules: DetectionRule[] = [];
     const skippedRules: DetectionRule[] = [];
@@ -1058,12 +1060,27 @@ export const getDeviceRules = (
                 }
             }
 
+            let isSensorEnabled = true;
+            if (
+                source === DetectionRuleSource.Plugin &&
+                deviceType &&
+                [ScryptedDeviceType.Lock, ScryptedDeviceType.Sensor].includes(deviceType) &&
+                !mainDevices.length
+            ) {
+                if (deviceType === ScryptedDeviceType.Lock) {
+                    isSensorEnabled = detectionClasses.includes(DetectionClass.DoorLock);
+                } else if (deviceType === ScryptedDeviceType.Sensor) {
+                    isSensorEnabled = detectionClasses.includes(DetectionClass.DoorSensor);
+                }
+            }
+
             const ruleAllowed =
                 isEnabled &&
                 !!devicesToUse.length &&
                 (deviceId ? devicesToUse.includes(deviceId) : true) &&
                 !!notifiersTouse.length &&
                 timeAllowed &&
+                isSensorEnabled &&
                 sensorsOk;
 
             if (!ruleAllowed) {
