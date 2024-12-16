@@ -245,7 +245,7 @@ export const publishRelevantDetections = async (props: {
         for (const detection of detections) {
             const detectionClass = detectionClassesDefaultMap[detection.className];
             if (detectionClass) {
-                const entitiesToPublish = deviceClassMqttEntitiesGrouped[detectionClass];
+                const entitiesToPublish = deviceClassMqttEntitiesGrouped[detectionClass] ?? [];
                 console.debug(`Relevant detections to publish: ${JSON.stringify({ detections, entitiesToPublish })}`);
 
                 for (const entry of entitiesToPublish) {
