@@ -1,10 +1,9 @@
-import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ScryptedDeviceBase, ScryptedDeviceType, MediaObject } from "@scrypted/sdk";
+import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ScryptedDeviceBase, ScryptedDeviceType, MediaObject, LockState } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DetectionRule, DetectionRuleSource, EventType, getDetectionRulesSettings, getMixinBaseSettings, isDeviceEnabled } from "./utils";
+import { DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, isDeviceEnabled } from "./utils";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoverDetectionRules, getDetectionRuleId, publishDeviceState, setupDeviceAutodiscovery } from "./mqtt-utils";
-import { DetectionClass } from "./detecionClasses";
 
 const { systemManager } = sdk;
 
@@ -40,12 +39,16 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
     nvrDetectionRules: DetectionRule[];
     rulesDiscovered: string[] = [];
     lastDetection: number;
+    event: ScryptedInterface;
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
         public plugin: HomeAssistantUtilitiesProvider
     ) {
         super(options);
+
+        const isLock = this.type === ScryptedDeviceType.Lock;
+        this.event = isLock ? ScryptedInterface.Lock : ScryptedInterface.BinarySensor;
 
         this.storageSettings.settings.room.onGet = async () => {
             const rooms = this.plugin.storageSettings.getItem('fetchedRooms');
@@ -85,7 +88,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             this.nvrDetectionRules = nvrRules;
 
             this.isActiveForNotifications = isActiveForNotifications;
-            this.isActiveForNvrNotifications = isActiveForNvrNotifications;
             this.isActiveForMqttReporting = isActiveForMqttReporting;
 
             const isCurrentlyRunning = !!this.detectionListener;
@@ -123,13 +125,20 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 logger.log('Stopping and cleaning listeners.');
                 this.resetListeners();
             } else if (!isCurrentlyRunning && shouldRun) {
-                logger.log(`Starting ${ScryptedInterface.BinarySensor} listeners: ${JSON.stringify({
+                logger.log(`Starting ${this.event} listeners: ${JSON.stringify({
                     notificationsActive: isActiveForNotifications,
                     mqttReportsActive: isActiveForMqttReporting,
                     isPluginEnabled,
                 })}`);
                 await this.startListeners();
             }
+            if (isActiveForNvrNotifications && !this.isActiveForNvrNotifications) {
+                logger.log(`Starting listener for NVR events`);
+            } else if (!isActiveForNvrNotifications && this.isActiveForNvrNotifications) {
+                logger.log(`Stopping listener for NVR events`);
+            }
+
+            this.isActiveForNvrNotifications = isActiveForNvrNotifications;
         };
 
         this.mainLoopListener = setInterval(async () => {
@@ -198,12 +207,13 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async startListeners() {
-
-        this.detectionListener = systemManager.listenDevice(this.id, ScryptedInterface.BinarySensor, async (_, __, triggered) => {
-
+        this.detectionListener = systemManager.listenDevice(this.id, this.event, async (_, __, triggered) => {
             const timestamp = new Date().getTime();
 
-            this.processEvent({ triggered, triggerTime: timestamp, isFromNvr: false })
+            const isTriggered = triggered ===
+                (this.event === ScryptedInterface.Lock ? LockState.Unlocked : true);
+            this.console.log(triggered, isTriggered);
+            this.processEvent({ triggered: isTriggered, triggerTime: timestamp, isFromNvr: false })
         });
     }
 

@@ -2,7 +2,7 @@ import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, Objec
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import { DetectionRule, DetectionRuleSource, EventType, filterAndSortValidDetections, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled } from "./utils";
-import { detectionClassesDefaultMap, isFaceClassname } from "./detecionClasses";
+import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoverDetectionRules, getDetectionRuleId, publishDeviceState, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery } from "./mqtt-utils";
 
@@ -68,6 +68,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     mainLoopListener: NodeJS.Timeout;
     isActiveForNotifications: boolean;
     isActiveForMqttReporting: boolean;
+    isActiveForNvrNotifications: boolean;
     mqttReportInProgress: boolean;
     lastDetectionMap: Record<string, number> = {};
     logger: Console;
@@ -174,6 +175,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     })}`);
                     await this.startListeners();
                 }
+
+                if (isActiveForNvrNotifications && !this.isActiveForNvrNotifications) {
+                    logger.log(`Starting listener for NVR events`);
+                } else if (!isActiveForNvrNotifications && this.isActiveForNvrNotifications) {
+                    logger.log(`Stopping listener for NVR events`);
+                }
+
+                this.isActiveForNvrNotifications = isActiveForNvrNotifications;
             } catch (e) {
                 logger.log('Error in startCheckInterval funct', e);
             }
