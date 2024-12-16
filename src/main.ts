@@ -243,7 +243,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             await this.refreshDevicesLinks();
             await this.setupMqttEntities();
 
-            this.refreshDeviceLinksInterval = setInterval(async () => await this.refreshDevicesLinks(), 5000);
+            this.refreshDeviceLinksInterval = setInterval(async () => await this.refreshDevicesLinks(), 10000);
         } catch (e) {
             this.getLogger().log(`Error in initFLow`, e);
         }
@@ -319,19 +319,24 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         return;
     }
 
+    private async sendAutoDiscovery() {
+        const mqttClient = await this.getMqttClient();
+        const logger = this.getLogger();
+        const objDetectionPlugin = systemManager.getDeviceByName('Scrypted NVR Object Detection') as unknown as Settings;
+        const settings = await objDetectionPlugin.getSettings();
+        const knownPeople = settings?.find(setting => setting.key === 'knownPeople')?.choices
+            ?.filter(choice => !!choice)
+            .map(person => person.trim());
+
+        await setupPluginAutodiscovery({ mqttClient, people: knownPeople, console: logger });
+    }
+
     private async setupMqttEntities() {
         const { mqttEnabled, mqttActiveEntitiesTopic } = this.storageSettings.values;
         if (mqttEnabled) {
             try {
                 const mqttClient = await this.getMqttClient();
-                const logger = this.getLogger();
-                const objDetectionPlugin = systemManager.getDeviceByName('Scrypted NVR Object Detection') as unknown as Settings;
-                const settings = await objDetectionPlugin.getSettings();
-                const knownPeople = settings?.find(setting => setting.key === 'knownPeople')?.choices
-                    ?.filter(choice => !!choice)
-                    .map(person => person.trim());
-
-                await setupPluginAutodiscovery({ mqttClient, people: knownPeople, console: logger });
+                await this.sendAutoDiscovery();
 
                 if (mqttActiveEntitiesTopic) {
                     this.getLogger().log(`Subscribing to ${mqttActiveEntitiesTopic}`);
@@ -488,6 +493,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.deviceRoomMap = deviceRoomMap;
             this.doorbellDevices = doorbellDevices;
             this.firstCheckAlwaysActiveDevices = true;
+
+            if (this.storageSettings.values.mqttEnabled) {
+                await this.sendAutoDiscovery();
+            }
         } catch (e) {
             logger.log('Error in refreshDevicesLinks', e);
         }

@@ -1,7 +1,6 @@
-import mqtt, { connectAsync, MqttClient as Client } from 'mqtt';
-import sdk, { MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ScryptedInterface } from '@scrypted/sdk';
-import { defaultDetectionClasses, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, isMotionClassname, parentDetectionClassMap } from './detecionClasses';
-import { addBoundingToImage, DetectionRule, firstUpperCase, getWebooks, storeWebhookImage } from './utils';
+import { MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ScryptedInterface } from '@scrypted/sdk';
+import { DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, parentDetectionClassMap } from './detecionClasses';
+import { DetectionRule, firstUpperCase, getWebooks, storeWebhookImage } from './utils';
 import { cloneDeep, groupBy } from 'lodash';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 
@@ -39,7 +38,12 @@ const onlineEntity: MqttEntity = {
     deviceClass: 'power'
 };
 
-const deviceClassMqttEntities: MqttEntity[] = defaultDetectionClasses.flatMap(className => {
+const deviceClassMqttEntities: MqttEntity[] = [
+    DetectionClass.Motion,
+    DetectionClass.Animal,
+    DetectionClass.Person,
+    DetectionClass.Vehicle,
+].flatMap(className => {
     const parsedClassName = firstUpperCase(className);
     const entries: MqttEntity[] = [
         { entity: `${className}Detected`, name: `Detected ${parsedClassName}`, domain: 'binary_sensor', className, },
@@ -84,7 +88,7 @@ export const setupPluginAutodiscovery = async (props: {
     people: string[],
     console: Console,
 }) => {
-    const { console, people, mqttClient } = props;
+    const { people, mqttClient } = props;
 
     const mqttdevice = {
         ids: `${idPrefix}-${peopleTrackerId}`,
@@ -136,7 +140,7 @@ export const setupDeviceAutodiscovery = async (props: {
     withDetections?: boolean,
     deviceClass: string,
 }) => {
-    const { device, console, withDetections, deviceClass, mqttClient } = props;
+    const { device, withDetections, deviceClass, mqttClient } = props;
     const { name, id } = device;
 
     const mqttdevice = {

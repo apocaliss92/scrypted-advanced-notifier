@@ -72,7 +72,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     mqttReportInProgress: boolean;
     lastDetectionMap: Record<string, number> = {};
     logger: Console;
-    mqttAutodiscoverySent: boolean;
     killed: boolean;
     nvrEnabled: boolean = true;
     nvrMixinId: string;
@@ -142,16 +141,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase & Settings;
                     const mqttClient = await this.plugin.getMqttClient();
                     if (mqttClient) {
-                        if (!this.mqttAutodiscoverySent) {
-                            await setupDeviceAutodiscovery({
-                                mqttClient,
-                                device,
-                                console: logger,
-                                withDetections: true,
-                                deviceClass: 'motion'
-                            });
-                            this.mqttAutodiscoverySent = true;
-                        }
+                        await setupDeviceAutodiscovery({
+                            mqttClient,
+                            device,
+                            console: logger,
+                            withDetections: true,
+                            deviceClass: 'motion'
+                        });
 
                         const missingRules = detectionRules.filter(rule => !this.rulesDiscovered.includes(getDetectionRuleId(rule)));
                         if (missingRules.length) {
@@ -198,7 +194,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             } catch (e) {
                 logger.log('Error in startCheckInterval', e);
             }
-        }, 5000);
+        }, 10000);
     }
 
     resetTimeouts(detectionClass?: string) {

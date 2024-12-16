@@ -33,7 +33,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
     isActiveForMqttReporting: boolean;
     mqttReportInProgress: boolean;
     logger: Console;
-    mqttAutodiscoverySent: boolean;
     killed: boolean;
     detectionRules: DetectionRule[];
     nvrDetectionRules: DetectionRule[];
@@ -97,16 +96,13 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 const mqttClient = await this.plugin.getMqttClient();
                 if (mqttClient) {
                     const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase & Settings;
-                    if (!this.mqttAutodiscoverySent) {
-                        await setupDeviceAutodiscovery({
-                            mqttClient,
-                            device,
-                            console: logger,
-                            withDetections: true,
-                            deviceClass: this.storageSettings.values.haDeviceClass || 'window'
-                        });
-                        this.mqttAutodiscoverySent = true;
-                    }
+                    await setupDeviceAutodiscovery({
+                        mqttClient,
+                        device,
+                        console: logger,
+                        withDetections: true,
+                        deviceClass: this.storageSettings.values.haDeviceClass || 'window'
+                    });
 
                     const missingRules = detectionRules.filter(rule => !this.rulesDiscovered.includes(getDetectionRuleId(rule)));
                     if (missingRules.length) {
@@ -151,7 +147,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             } catch (e) {
                 logger.log('Error in startCheckInterval', e);
             }
-        }, 5000);
+        }, 10000);
     }
 
     resetListeners() {
@@ -212,7 +208,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
             const isTriggered = triggered ===
                 (this.event === ScryptedInterface.Lock ? LockState.Unlocked : true);
-            this.console.log(triggered, isTriggered);
             this.processEvent({ triggered: isTriggered, triggerTime: timestamp, isFromNvr: false })
         });
     }
