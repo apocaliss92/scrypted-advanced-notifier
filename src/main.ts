@@ -387,11 +387,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     private async initPluginSettings() {
         const logger = this.getLogger();
         const cloudPlugin = systemManager.getDeviceByName('Scrypted Cloud') as unknown as Settings;
-        const oauthUrl = await (cloudPlugin as any).getOauthUrl();
-        const url = new URL(oauthUrl);
-        const serverId = url.searchParams.get('server_id');
-        super.putSetting('serverId', serverId);
-        logger.log(`Server id found: ${serverId}`);
+        if(cloudPlugin) {
+            const oauthUrl = await (cloudPlugin as any).getOauthUrl();
+            const url = new URL(oauthUrl);
+            const serverId = url.searchParams.get('server_id');
+            super.putSetting('serverId', serverId);
+            logger.log(`Server id found: ${serverId}`);
+        } else {
+            logger.log(`Cloud plugin not found`);
+        }
 
         const localIp = (await sdk.endpointManager.getLocalAddresses())[0];
         super.putSetting('localIp', localIp);
