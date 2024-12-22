@@ -244,12 +244,18 @@ const classnamePrio = {
     motion: 7,
 }
 
+const initZoneDetections = Object.keys(DetectionClass).reduce((tot, curr) => ({
+    ...tot,
+    [curr]: false,
+}), {});
+
 export const filterAndSortValidDetections = (detections: ObjectDetectionResult[], logger: Console) => {
     const sortedByPriorityAndScore = sortBy(detections,
         (detection) => [detection?.className ? classnamePrio[detection.className] : 100,
         1 - (detection.score ?? 0)]
     );
     let hasLabel = false;
+    const zoneDetections: Record<string, Record<DetectionClass, boolean>> = {};
     const uniqueByClassName = uniqBy(sortedByPriorityAndScore, det => det.className);
     const candidates = uniqueByClassName.filter(det => {
         const { className, label, movement } = det;

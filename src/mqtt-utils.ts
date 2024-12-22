@@ -1,5 +1,5 @@
 import { MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ScryptedInterface } from '@scrypted/sdk';
-import { DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, parentDetectionClassMap } from './detecionClasses';
+import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, parentDetectionClassMap } from './detecionClasses';
 import { DetectionRule, firstUpperCase, getWebooks, storeWebhookImage } from './utils';
 import { cloneDeep, groupBy } from 'lodash';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
@@ -38,12 +38,7 @@ const onlineEntity: MqttEntity = {
     deviceClass: 'power'
 };
 
-const deviceClassMqttEntities: MqttEntity[] = [
-    DetectionClass.Motion,
-    DetectionClass.Animal,
-    DetectionClass.Person,
-    DetectionClass.Vehicle,
-].flatMap(className => {
+const deviceClassMqttEntities: MqttEntity[] = defaultDetectionClasses.flatMap(className => {
     const parsedClassName = firstUpperCase(className);
     const entries: MqttEntity[] = [
         { entity: `${className}Detected`, name: `Detected ${parsedClassName}`, domain: 'binary_sensor', className, },
