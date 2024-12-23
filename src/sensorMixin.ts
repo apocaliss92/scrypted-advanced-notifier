@@ -121,7 +121,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 logger.log('Stopping and cleaning listeners.');
                 this.resetListeners();
             } else if (!isCurrentlyRunning && shouldRun) {
-                logger.log(`Starting ${this.event} listeners: ${JSON.stringify({
+                logger.log(`Starting ${this.event} listener: ${JSON.stringify({
                     notificationsActive: isActiveForNotifications,
                     mqttReportsActive: isActiveForMqttReporting,
                     isPluginEnabled,

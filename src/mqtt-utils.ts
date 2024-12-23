@@ -1,4 +1,4 @@
-import { MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ScryptedInterface } from '@scrypted/sdk';
+import { MediaObject, ObjectDetectionResult, ObjectsDetected, ScryptedDeviceBase, ScryptedInterface } from '@scrypted/sdk';
 import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, parentDetectionClassMap } from './detecionClasses';
 import { DetectionRule, firstUpperCase, getWebooks, storeWebhookImage } from './utils';
 import { cloneDeep, groupBy } from 'lodash';
@@ -19,10 +19,10 @@ const peopleTrackerId = 'people-tracker';
 
 const mqttEntities: MqttEntity[] = [
     { entity: 'triggered', name: 'Notification triggered', domain: 'binary_sensor' },
-    { entity: 'lastImage', name: 'Last image detected', domain: 'camera' },
-    { entity: 'lastClassname', name: 'Last classname detected', domain: 'sensor' },
-    { entity: 'lastZones', name: 'Last zones detected', domain: 'sensor' },
-    { entity: 'lastLabel', name: 'Last label detected', domain: 'sensor' },
+    // { entity: 'lastImage', name: 'Last image detected', domain: 'camera' },
+    // { entity: 'lastClassname', name: 'Last classname detected', domain: 'sensor' },
+    // { entity: 'lastZones', name: 'Last zones detected', domain: 'sensor' },
+    // { entity: 'lastLabel', name: 'Last label detected', domain: 'sensor' },
 ];
 
 const batteryEntity: MqttEntity = {
@@ -41,12 +41,17 @@ const onlineEntity: MqttEntity = {
 const deviceClassMqttEntities: MqttEntity[] = defaultDetectionClasses.flatMap(className => {
     const parsedClassName = firstUpperCase(className);
     const entries: MqttEntity[] = [
-        { entity: `${className}Detected`, name: `Detected ${parsedClassName}`, domain: 'binary_sensor', className, },
-        { entity: `${className}LastImage`, name: `Last image ${parsedClassName}`, domain: 'camera', className },
+        { entity: `${className}Detected`, name: `${parsedClassName} detected`, domain: 'binary_sensor', className, },
+        { entity: `${className}LastImage`, name: `${parsedClassName} last image `, domain: 'camera', className },
+        { entity: `${className}LastDetection`, name: `${parsedClassName} last detection `, domain: 'sensor', className },
     ];
 
     if (isLabelDetection(className)) {
-        entries.push({ entity: `${className}LastLabel`, name: `Last label ${parsedClassName}`, domain: 'sensor', className });
+        entries.push({ entity: `${className}LastLabel`, name: `${parsedClassName} last recognized`, domain: 'sensor', className });
+    }
+
+    if ([DetectionClass.Animal, DetectionClass.Person, DetectionClass.Vehicle].includes(className)) {
+        entries.push({ entity: `${className}Objects`, name: `${parsedClassName} objects`, domain: 'sensor', className });
     }
 
     return entries;
@@ -252,6 +257,8 @@ export const publishRelevantDetections = async (props: {
                         value = true;
                     } else if (entity.includes('LastLabel')) {
                         value = detection?.label || null;
+                    } else if (entity.includes('LastDetection')) {
+                        value = new Date(triggerTime).toISOString();
                     } else if (entity.includes('LastImage') && b64Image) {
                         // if (isFaceClassname(detectionClass)) {
                         // const { b64Image: newB64Image } = await addBoundingToImage(detection.boundingBox,
@@ -357,27 +364,27 @@ export const publishDeviceState = async (props: {
             let value: any = triggered;
             let retain = true;
             switch (entity) {
-                case 'lastImage': {
-                    value = b64Image || null;
-                    retain = false;
-                    break;
-                }
-                case 'lastClassname': {
-                    value = detectionClass || null;
-                    break;
-                }
-                case 'lastLabel': {
-                    value = detection?.label || null;
-                    break;
-                }
+                // case 'lastImage': {
+                //     value = b64Image || null;
+                //     retain = false;
+                //     break;
+                // }
+                // case 'lastClassname': {
+                //     value = detectionClass || null;
+                //     break;
+                // }
+                // case 'lastLabel': {
+                //     value = detection?.label || null;
+                //     break;
+                // }
                 case 'triggered': {
                     value = triggered;
                     break;
                 }
-                case 'lastZones': {
-                    value = detection?.zones?.length ? detection.zones.toString() : null;
-                    break;
-                }
+                // case 'lastZones': {
+                //     value = detection?.zones?.length ? detection.zones.toString() : null;
+                //     break;
+                // }
             }
 
             if (value !== null) {
@@ -438,5 +445,28 @@ export const publishDeviceState = async (props: {
         }
     } catch (e) {
         console.log(`Error publishing`, e);
+    }
+}
+
+export const publishOccupancy = async (props: {
+    mqttClient: MqttClient,
+    device: ScryptedDeviceBase,
+    console: Console,
+    objectsDetected: ObjectsDetected,
+}) => {
+    const { mqttClient, device, objectsDetected } = props;
+    try {
+        const { getEntityTopic } = getMqttTopicTopics(device.id);
+
+        const entities = deviceClassMqttEntities.filter(entity => entity.entity.includes('Objects'));
+        for (const classEntity of entities) {
+            const classObjects = objectsDetected.detections.filter(det => classEntity.className === detectionClassesDefaultMap[det.className])?.length;
+
+            await mqttClient.publish(getEntityTopic(classEntity.entity), classObjects, true);
+        }
+    } catch (e) {
+        console.log(`Error publishing ${JSON.stringify({
+            objectsDetected,
+        })}`, e);
     }
 }

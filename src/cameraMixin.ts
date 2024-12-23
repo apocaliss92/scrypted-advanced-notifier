@@ -1,13 +1,14 @@
-import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase } from "@scrypted/sdk";
+import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ObjectDetection } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import { DetectionRule, DetectionRuleSource, EventType, filterAndSortValidDetections, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled } from "./utils";
 import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
-import { discoverDetectionRules, getDetectionRuleId, publishDeviceState, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery } from "./mqtt-utils";
+import { discoverDetectionRules, getDetectionRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery } from "./mqtt-utils";
+import { log } from "console";
 
 const { systemManager } = sdk;
-const secondsPerPicture = 10;
+const secondsPerPicture = 5;
 const motionDuration = 10;
 
 interface MatchRule { match: ObjectDetectionResult, rule: DetectionRule, dataToReport: any }
@@ -83,6 +84,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         motionListener: EventListenerRegister
     }> = {};
     lastPictureTaken: number;
+    lastFrameAnalysis: number;
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -224,7 +226,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.resetTimeouts();
         this.detectionListener?.removeListener && this.detectionListener.removeListener();
         this.detectionListener = undefined;
-        // delete this.plugin.currentMixinsMap[this.name];
     }
 
     async initValues() {
@@ -445,6 +446,86 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
+    async checkOccupancyData(image: MediaObject) {
+        try {
+            const logger = this.getLogger();
+            const objectDetection: ObjectDetection = this.plugin.storageSettings.values.objectDetectionDevice;
+            if (!objectDetection) {
+                logger.log('No detection plugin selected');
+                return;
+            }
+
+            // const zone: ClipPath = this.storageSettings.values.captureZone;
+            let detected: ObjectsDetected;
+            // if (zone?.length >= 3) {
+            //     const image = await sdk.mediaManager.convertMediaObject<Image>(picture, ScryptedMimeTypes.Image);
+            //     let left = image.width;
+            //     let top = image.height;
+            //     let right = 0;
+            //     let bottom = 0;
+            //     for (const point of zone) {
+            //         left = Math.min(left, point[0]);
+            //         top = Math.min(top, point[1]);
+            //         right = Math.max(right, point[0]);
+            //         bottom = Math.max(bottom, point[1]);
+            //     }
+
+            //     left = left * image.width;
+            //     top = top * image.height;
+            //     right = right * image.width;
+            //     bottom = bottom * image.height;
+
+            //     let width = right - left;
+            //     let height = bottom - top;
+            //     // square it for standard detection
+            //     width = height = Math.max(width, height);
+            //     // recenter it
+            //     left = left + (right - left - width) / 2;
+            //     top = top + (bottom - top - height) / 2;
+            //     // ensure bounds are within image.
+            //     left = Math.max(0, left);
+            //     top = Math.max(0, top);
+            //     width = Math.min(width, image.width - left);
+            //     height = Math.min(height, image.height - top);
+
+            //     const cropped = await image.toImage({
+            //         crop: {
+            //             left,
+            //             top,
+            //             width,
+            //             height,
+            //         },
+            //     });
+            //     detected = await objectDetection.detectObjects(cropped);
+
+            //     // adjust the origin of the bounding boxes for the crop.
+            //     for (const d of detected.detections) {
+            //         d.boundingBox[0] += left;
+            //         d.boundingBox[1] += top;
+            //     }
+            //     detected.inputDimensions = [image.width, image.height];
+            // }
+            // else {
+            detected = await objectDetection.detectObjects(image);
+            // }
+
+            // this.checkDetection(this.storageSettings.values.detections, this.storageSettings.values.labels, this.storageSettings.values.labelDistance, this.storageSettings.values.labelScore, detected);
+
+            const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase & Settings;
+            const mqttClient = await this.plugin.getMqttClient();
+
+            await publishOccupancy({
+                console: logger,
+                device,
+                mqttClient,
+                objectsDetected: detected
+            })
+        }
+        catch (e) {
+            this.console.error('failed to take picture', e);
+        }
+    }
+
     public async processDetections(props: {
         detections: ObjectDetectionResult[],
         triggerTime: number,
@@ -481,6 +562,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const { b64Image: b64ImageNew, image: imageNew } = await this.getImage();
                 image = imageNew;
                 b64Image = b64ImageNew;
+                this.checkOccupancyData(image).catch(logger.log);
             }
 
             this.reportDetectionsToMqtt({ detections: candidates, triggerTime, logger, device, b64Image, image });

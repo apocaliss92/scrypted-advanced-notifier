@@ -14,6 +14,7 @@ import { AdvancedNotifierNotifier } from "./notifier";
 
 const { systemManager } = sdk;
 const defaultNotifierNativeId = 'advancedNotifierDefaultNotifier';
+const nvrAcceleratedMotionSensorId = sdk.systemManager.getDeviceById('@scrypted/nvr', 'motion')?.id;
 
 interface NotifyCameraProps {
     cameraDevice?: DeviceInterface,
@@ -157,6 +158,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             multiple: true,
             combobox: true,
             deviceFilter: deviceFilter,
+        },
+        objectDetectionDevice: {
+            title: 'Object Detector',
+            group: 'Detection rules',
+            description: 'Select the object detection plugin to use for detecting objects.',
+            type: 'device',
+            deviceFilter: `interfaces.includes('ObjectDetectionPreview') && id !== '${nvrAcceleratedMotionSensorId}'`,
+            immediate: true,
         },
         testDevice: {
             title: 'Device',

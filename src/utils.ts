@@ -264,7 +264,7 @@ export const filterAndSortValidDetections = (detections: ObjectDetectionResult[]
             logger.debug(`Label ${label} not valid`);
             return false;
         } else if (movement && !movement.moving) {
-            logger.debug(`Movement data ${movement} not valid`);
+            logger.debug(`Movement data ${JSON.stringify(movement)} not valid: ${JSON.stringify(det)}`);
             return false;
         }
         if (hasLabel) {
