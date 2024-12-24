@@ -167,6 +167,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             deviceFilter: `interfaces.includes('ObjectDetectionPreview') && id !== '${nvrAcceleratedMotionSensorId}'`,
             immediate: true,
         },
+        securitySystem: {
+            title: 'Security system',
+            group: 'Detection rules',
+            description: 'Select the security system device that will be used to enable rules.',
+            type: 'device',
+            deviceFilter: `type === '${ScryptedDeviceType.SecuritySystem}'`,
+            immediate: true,
+        },
         testDevice: {
             title: 'Device',
             group: 'Test',

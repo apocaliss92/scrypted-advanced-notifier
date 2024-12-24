@@ -1,4 +1,4 @@
-import sdk, { Camera, LockState, MediaObject, NotifierOptions, ObjectDetectionResult, ScryptedDeviceBase, ScryptedDeviceType, ScryptedMimeTypes, Setting, Settings } from "@scrypted/sdk"
+import sdk, { Camera, LockState, MediaObject, NotifierOptions, ObjectDetectionResult, ScryptedDeviceBase, ScryptedDeviceType, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Setting, Settings } from "@scrypted/sdk"
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep, keyBy, sortBy, uniq, uniqBy } from "lodash";
 const { endpointManager } = sdk;
@@ -596,6 +596,7 @@ export enum DetectionRuleActivation {
     Always = 'Always',
     OnActive = 'OnActive',
     Schedule = 'Schedule',
+    AlarmSystem = 'AlarmSystem',
 }
 
 export enum NvrEvent {
@@ -625,6 +626,7 @@ export const getDetectionRuleKeys = (detectionRuleName: string) => {
     const startTimeKey = `rule:${detectionRuleName}:startTime`;
     const endTimeKey = `rule:${detectionRuleName}:endTime`;
     const actionsKey = `rule:${detectionRuleName}:haActions`;
+    const securitySystemModesKey = `rule:${detectionRuleName}:securitySystemModes`;
 
     return {
         enabledKey,
@@ -645,6 +647,7 @@ export const getDetectionRuleKeys = (detectionRuleName: string) => {
         endTimeKey,
         priorityKey,
         actionsKey,
+        securitySystemModesKey,
     }
 }
 
@@ -683,6 +686,7 @@ export const getDetectionRulesSettings = async (props: {
             disabledSensorsKey,
             priorityKey,
             actionsKey,
+            securitySystemModesKey,
         } = getDetectionRuleKeys(detectionRuleName);
 
         const currentActivation = storage.getItem(activationKey as any) as DetectionRuleActivation;
@@ -712,7 +716,12 @@ export const getDetectionRulesSettings = async (props: {
                 title: 'Activation',
                 group: groupName,
                 subgroup: detectionRuleName,
-                choices: [DetectionRuleActivation.Always, DetectionRuleActivation.OnActive, DetectionRuleActivation.Schedule],
+                choices: [
+                    DetectionRuleActivation.Always,
+                    DetectionRuleActivation.OnActive,
+                    DetectionRuleActivation.Schedule,
+                    DetectionRuleActivation.AlarmSystem,
+                ],
                 value: currentActivation,
                 immediate: true,
                 combobox: true
@@ -737,6 +746,26 @@ export const getDetectionRulesSettings = async (props: {
                 value: JSON.parse(storage.getItem(detecionClassesKey as any) as string ?? '[]')
             }
         );
+
+        if (currentActivation === DetectionRuleActivation.AlarmSystem) {
+            settings.push({
+                key: securitySystemModesKey,
+                title: 'Alarm modes',
+                description: 'Modes of the selected security system to trigger this rule',
+                group: groupName,
+                subgroup: detectionRuleName,
+                multiple: true,
+                combobox: true,
+                type: 'string',
+                choices: [
+                    SecuritySystemMode.Disarmed,
+                    SecuritySystemMode.HomeArmed,
+                    SecuritySystemMode.NightArmed,
+                    SecuritySystemMode.AwayArmed,
+                ],
+                value: JSON.parse(storage.getItem(securitySystemModesKey as any) as string ?? '[]'),
+            })
+        }
 
         if (useNvrDetections && withNvrEvents) {
             settings.push(
@@ -974,7 +1003,8 @@ export const getDeviceRules = (
                 disabledSensorsKey,
                 priorityKey,
                 actionsKey,
-                nvrEventsKey
+                nvrEventsKey,
+                securitySystemModesKey
             } = getDetectionRuleKeys(detectionRuleName);
 
             const isEnabled = JSON.parse(storage[enabledKey]?.value as string ?? 'false');
@@ -988,6 +1018,7 @@ export const getDeviceRules = (
             const actions = storage[actionsKey]?.value as string[];
             const customText = storage[textKey]?.value as string || undefined;
             const mainDevices = storage[devicesKey]?.value as string[] ?? [];
+            const securitySystemModes = storage[securitySystemModesKey]?.value as SecuritySystemMode[] ?? [];
             const devices = source === DetectionRuleSource.Device ? [deviceId] : mainDevices.length ? mainDevices : allDeviceIds;
             const devicesToUse = activationType === DetectionRuleActivation.OnActive ? onActiveDevices : devices;
 
@@ -1086,6 +1117,18 @@ export const getDeviceRules = (
                 }
             }
 
+            let isSecuritySystemEnabled = true;
+            if (
+                activationType === DetectionRuleActivation.AlarmSystem
+            ) {
+                const securitySystemDeviceId = mainPluginStorage['securitySystem']?.value as string;
+                if (securitySystemDeviceId) {
+                    const securitySystemDevice = sdk.systemManager.getDeviceById<SecuritySystem>(securitySystemDeviceId);
+                    const currentMode = securitySystemDevice.securitySystemState?.mode;
+                    isSecuritySystemEnabled = currentMode ? securitySystemModes.includes(currentMode) : false;
+                }
+            }
+
             const ruleAllowed =
                 isEnabled &&
                 !!devicesToUse.length &&
@@ -1093,7 +1136,8 @@ export const getDeviceRules = (
                 !!notifiersTouse.length &&
                 timeAllowed &&
                 isSensorEnabled &&
-                sensorsOk;
+                sensorsOk &&
+                isSecuritySystemEnabled;
 
             if (source === DetectionRuleSource.Plugin) {
                 allPluginRules.push(cloneDeep(detectionRule));
