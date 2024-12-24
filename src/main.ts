@@ -2,7 +2,7 @@ import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpR
 import axios from "axios";
 import { isEqual, keyBy, sortBy, uniq } from 'lodash';
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, parseNvrNotificationMessage, NotificationPriority, getFolderPaths, getDeviceRules, NvrEvent, ParseNotificationMessageResult, getPushoverPriority } from "./utils";
+import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, parseNvrNotificationMessage, NotificationPriority, getFolderPaths, getDeviceRules, NvrEvent, ParseNotificationMessageResult, getPushoverPriority, getDetectionRuleKeys } from "./utils";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
@@ -337,7 +337,33 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             ?.filter(choice => !!choice)
             .map(person => person.trim());
 
-        await setupPluginAutodiscovery({ mqttClient, people: knownPeople, console: logger });
+        const mainSettings = await this.getSettings();
+        const mainSettingsByKey = keyBy(mainSettings, 'key');
+        const allRules: DetectionRule[] = [];
+        const { allPluginRules } = getDeviceRules({ mainPluginStorage: mainSettingsByKey });
+        allRules.push(...allPluginRules);
+
+        const allDevices = getElegibleDevices();
+        for (const device of allDevices) {
+            const deviceSettings = await device.getSettings();
+            const deviceSettingsByKey = keyBy(deviceSettings, 'key');
+            const { allDeviceRules } = getDeviceRules({
+                mainPluginStorage: mainSettingsByKey,
+                deviceId: device.id,
+                deviceType: device.type,
+                deviceStorage: deviceSettingsByKey
+            });
+            allRules.push(...allDeviceRules);
+        }
+
+        await setupPluginAutodiscovery({
+            mqttClient,
+            people: knownPeople,
+            console: logger,
+            detectionRules: allRules,
+        });
+
+        return { allRules };
     }
 
     private async setupMqttEntities() {
@@ -345,17 +371,30 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if (mqttEnabled) {
             try {
                 const mqttClient = await this.getMqttClient();
-                await this.sendAutoDiscovery();
+                const { allRules } = await this.sendAutoDiscovery();
+                const logger = this.getLogger();
 
                 if (mqttActiveEntitiesTopic) {
                     this.getLogger().log(`Subscribing to ${mqttActiveEntitiesTopic}`);
                     await subscribeToHaTopics({
                         entitiesActiveTopic: mqttActiveEntitiesTopic,
                         mqttClient,
+                        detectionRules: allRules,
                         cb: async (topic, message) => {
                             if (topic === mqttActiveEntitiesTopic) {
-                                this.getLogger().log(`Received update for ${topic} topic: ${JSON.stringify(message)}`);
+                                logger.log(`Received update for ${topic} topic: ${JSON.stringify(message)}`);
                                 await this.syncHaEntityIds(message);
+                            }
+                        },
+                        ruleCb: async ({ active, ruleName, deviceId }) => {
+                            const { enabledKey } = getDetectionRuleKeys(ruleName);
+                            if (!deviceId) {
+                                logger.log(`Setting rule ${ruleName} to ${active}`);
+                                await this.putSetting(enabledKey, active);
+                            } else {
+                                const device = sdk.systemManager.getDeviceById<Settings>(deviceId);
+                                logger.log(`Setting rule ${ruleName} for device ${device.name} to ${active}`);
+                                await device.putSetting(`homeassistantMetadata:${enabledKey}`, active);
                             }
                         }
                     });
@@ -396,7 +435,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     private async initPluginSettings() {
         const logger = this.getLogger();
         const cloudPlugin = systemManager.getDeviceByName('Scrypted Cloud') as unknown as Settings;
-        if(cloudPlugin) {
+        if (cloudPlugin) {
             const oauthUrl = await (cloudPlugin as any).getOauthUrl();
             const url = new URL(oauthUrl);
             const serverId = url.searchParams.get('server_id');

@@ -1,6 +1,6 @@
 import sdk, { Camera, LockState, MediaObject, NotifierOptions, ObjectDetectionResult, ScryptedDeviceBase, ScryptedDeviceType, ScryptedMimeTypes, Setting, Settings } from "@scrypted/sdk"
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
-import { keyBy, sortBy, uniq, uniqBy } from "lodash";
+import { cloneDeep, keyBy, sortBy, uniq, uniqBy } from "lodash";
 const { endpointManager } = sdk;
 import { scrypted, name } from '../package.json';
 import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detecionClasses";
@@ -696,7 +696,7 @@ export const getDetectionRulesSettings = async (props: {
                 group: groupName,
                 subgroup: detectionRuleName,
                 value: storage.getItem(enabledKey as any) as boolean ?? true,
-                immediate: true
+                immediate: true,
             },
             {
                 key: useNvrDetectionsKey,
@@ -926,6 +926,7 @@ export interface DetectionRule {
     whitelistedZones?: string[];
     blacklistedZones?: string[];
     source: DetectionRuleSource;
+    deviceId?: string;
     customText?: string;
     priority: NotificationPriority;
     actions?: string[];
@@ -943,13 +944,17 @@ export const getDeviceRules = (
     const detectionRules: DetectionRule[] = [];
     const nvrRules: DetectionRule[] = [];
     const skippedRules: DetectionRule[] = [];
+    const allPluginRules: DetectionRule[] = [];
+    const allDeviceRules: DetectionRule[] = [];
 
     const allDeviceIds = getElegibleDevices().map(device => device.id);
     const activeNotifiers = mainPluginStorage['notifiers']?.value as string[] ?? [];
     const onActiveDevices = mainPluginStorage['activeDevicesForNotifications']?.value as string[] ?? [];
 
     const processRules = (storage: Record<string, StorageSetting>, source: DetectionRuleSource) => {
-        const detectionRuleNames = storage[detectionRulesKey]?.value as string[] ?? [];
+        const detectionRuleNames = storage[detectionRulesKey]?.value as string[] ??
+            storage[`homeassistantMetadata:${detectionRulesKey}`]?.value as string[] ??
+            [];
         for (const detectionRuleName of detectionRuleNames) {
             const {
                 enabledKey,
@@ -1002,7 +1007,8 @@ export const getDeviceRules = (
                 customText,
                 priority,
                 actions,
-            }
+                deviceId
+            };
 
             if (source === DetectionRuleSource.Device) {
                 const whitelistedZones = storage[whitelistedZonesKey]?.value as string[] ?? [];
@@ -1089,6 +1095,12 @@ export const getDeviceRules = (
                 isSensorEnabled &&
                 sensorsOk;
 
+            if (source === DetectionRuleSource.Plugin) {
+                allPluginRules.push(cloneDeep(detectionRule));
+            } else if (source === DetectionRuleSource.Device) {
+                allDeviceRules.push(cloneDeep(detectionRule));
+            }
+
             if (!ruleAllowed) {
                 skippedRules.push(detectionRule);
             } else {
@@ -1108,7 +1120,7 @@ export const getDeviceRules = (
         processRules(deviceStorage, DetectionRuleSource.Device);
     }
 
-    return { detectionRules, skippedRules, nvrRules };
+    return { detectionRules, skippedRules, nvrRules, allPluginRules, allDeviceRules };
 }
 
 export const addBoundingToImage = async (boundingBox: number[], imageBuffer: Buffer, console: Console, label: string) => {
