@@ -8,7 +8,7 @@ import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 import { BasePlugin, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
-import { setupPluginAutodiscovery, subscribeToHaTopics } from "./mqtt-utils";
+import { setupPluginAutodiscovery, subscribeToMqttTopics } from "./mqtt-utils";
 import path from 'path';
 import { AdvancedNotifierNotifier } from "./notifier";
 
@@ -382,31 +382,29 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 const { allRules } = await this.sendAutoDiscovery();
                 const logger = this.getLogger();
 
-                if (mqttActiveEntitiesTopic) {
-                    this.getLogger().log(`Subscribing to ${mqttActiveEntitiesTopic}`);
-                    await subscribeToHaTopics({
-                        entitiesActiveTopic: mqttActiveEntitiesTopic,
-                        mqttClient,
-                        detectionRules: allRules,
-                        cb: async (topic, message) => {
-                            if (topic === mqttActiveEntitiesTopic) {
-                                logger.log(`Received update for ${topic} topic: ${JSON.stringify(message)}`);
-                                await this.syncHaEntityIds(message);
-                            }
-                        },
-                        ruleCb: async ({ active, ruleName, deviceId }) => {
-                            const { enabledKey } = getDetectionRuleKeys(ruleName);
-                            if (!deviceId) {
-                                logger.log(`Setting rule ${ruleName} to ${active}`);
-                                await this.putSetting(enabledKey, active);
-                            } else {
-                                const device = sdk.systemManager.getDeviceById<Settings>(deviceId);
-                                logger.log(`Setting rule ${ruleName} for device ${device.name} to ${active}`);
-                                await device.putSetting(`homeassistantMetadata:${enabledKey}`, active);
-                            }
+                this.getLogger().log(`Subscribing to mqtt topics`);
+                await subscribeToMqttTopics({
+                    entitiesActiveTopic: mqttActiveEntitiesTopic,
+                    mqttClient,
+                    detectionRules: allRules,
+                    cb: async (topic, message) => {
+                        if (topic === mqttActiveEntitiesTopic) {
+                            logger.log(`Received update for ${topic} topic: ${JSON.stringify(message)}`);
+                            await this.syncHaEntityIds(message);
                         }
-                    });
-                }
+                    },
+                    ruleCb: async ({ active, ruleName, deviceId }) => {
+                        const { enabledKey } = getDetectionRuleKeys(ruleName);
+                        if (!deviceId) {
+                            logger.log(`Setting rule ${ruleName} to ${active}`);
+                            await this.putSetting(enabledKey, active);
+                        } else {
+                            const device = sdk.systemManager.getDeviceById<Settings>(deviceId);
+                            logger.log(`Setting rule ${ruleName} for device ${device.name} to ${active}`);
+                            await device.putSetting(`homeassistantMetadata:${enabledKey}`, active);
+                        }
+                    }
+                });
             } catch (e) {
                 this.getLogger().log('Error setting up MQTT client', e);
             }

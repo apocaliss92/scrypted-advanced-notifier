@@ -165,10 +165,10 @@ export const setupPluginAutodiscovery = async (props: {
     }
 }
 
-export const subscribeToHaTopics = async (
+export const subscribeToMqttTopics = async (
     props: {
         mqttClient: MqttClient,
-        entitiesActiveTopic: string,
+        entitiesActiveTopic?: string,
         detectionRules: DetectionRule[],
         cb: (topic: any, message: any) => void,
         ruleCb: (props: {
@@ -180,12 +180,15 @@ export const subscribeToHaTopics = async (
 ) => {
     const { cb, entitiesActiveTopic, mqttClient, detectionRules, ruleCb } = props;
     mqttClient.removeAllListeners();
-    mqttClient.subscribe([entitiesActiveTopic], async (messageTopic, message) => {
-        const messageString = message.toString();
-        if (messageTopic === entitiesActiveTopic) {
-            cb(messageTopic, messageString !== 'null' ? JSON.parse(messageString) : [])
-        }
-    });
+
+    if (entitiesActiveTopic) {
+        mqttClient.subscribe([entitiesActiveTopic], async (messageTopic, message) => {
+            const messageString = message.toString();
+            if (messageTopic === entitiesActiveTopic) {
+                cb(messageTopic, messageString !== 'null' ? JSON.parse(messageString) : [])
+            }
+        });
+    }
 
     const { getCommandTopic, getEntityTopic } = getMqttTopicTopics(mainRuleId);
     for (const detectionRule of detectionRules) {
