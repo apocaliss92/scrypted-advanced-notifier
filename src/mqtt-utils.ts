@@ -57,7 +57,7 @@ const deviceClassMqttEntitiesGrouped = groupBy(deviceClassMqttEntities, entry =>
 
 export const getDetectionRuleId = (rule: DetectionRule) => `${rule.source}_${rule.name.replace(/\s/g, '')}`;
 
-const getMqttTopicTopics = (deviceId: string) => {
+export const getMqttTopicTopics = (deviceId: string) => {
     const getEntityTopic = (entity: string) => `scrypted/advancedNotifier/${deviceId}/${entity}`;
     const getCommandTopic = (entity: string) => `${getEntityTopic(entity)}/set`;
     const getInfoTopic = (entity: string) => `${getEntityTopic(entity)}/info`;
@@ -81,10 +81,11 @@ const getPersonStrings = (person: string) => {
     }
 }
 
-const getRuleStrings = (rule: DetectionRule) => {
+export const getRuleStrings = (rule: DetectionRule) => {
     const entityId = rule.name.trim().replace(' ', '_');
+    const ruleDeviceId = rule.deviceId ? `${deviceRuleId}-${rule.deviceId}` : mainRuleId;
 
-    return { entityId };
+    return { entityId, ruleDeviceId };
 }
 
 export const setupPluginAutodiscovery = async (props: {
@@ -124,8 +125,8 @@ export const setupPluginAutodiscovery = async (props: {
         const isPluginRule = detectionRule.source === DetectionRuleSource.Plugin;
 
         if (isPluginRule) {
-            const { getCommandTopic, getEntityTopic, getDiscoveryTopic } = getMqttTopicTopics(mainRuleId);
-            const { entityId } = getRuleStrings(detectionRule);
+            const { entityId, ruleDeviceId } = getRuleStrings(detectionRule);
+            const { getCommandTopic, getEntityTopic, getDiscoveryTopic } = getMqttTopicTopics(ruleDeviceId);
             const commandTopic = getCommandTopic(entityId);
             const stateTopic = getEntityTopic(entityId);
 
@@ -143,8 +144,8 @@ export const setupPluginAutodiscovery = async (props: {
 
             await mqttClient.publish(getDiscoveryTopic('switch', entityId), JSON.stringify(detectionRUleEnabledConfig));
         } else {
-            const { getCommandTopic, getEntityTopic, getDiscoveryTopic } = getMqttTopicTopics(`${deviceRuleId}-${detectionRule.deviceId}`);
-            const { entityId } = getRuleStrings(detectionRule);
+            const { entityId, ruleDeviceId } = getRuleStrings(detectionRule);
+            const { getCommandTopic, getEntityTopic, getDiscoveryTopic } = getMqttTopicTopics(ruleDeviceId);
             const commandTopic = getCommandTopic(entityId);
             const stateTopic = getEntityTopic(entityId);
 
@@ -170,7 +171,7 @@ export const subscribeToMqttTopics = async (
         mqttClient: MqttClient,
         entitiesActiveTopic?: string,
         detectionRules: DetectionRule[],
-        cb: (topic: any, message: any) => void,
+        activeEntitiesCb: (activeEntities: string[]) => void,
         ruleCb: (props: {
             ruleName: string;
             deviceId?: string;
@@ -178,24 +179,24 @@ export const subscribeToMqttTopics = async (
         }) => void
     }
 ) => {
-    const { cb, entitiesActiveTopic, mqttClient, detectionRules, ruleCb } = props;
+    const { activeEntitiesCb, entitiesActiveTopic, mqttClient, detectionRules, ruleCb } = props;
     mqttClient.removeAllListeners();
 
     if (entitiesActiveTopic) {
         mqttClient.subscribe([entitiesActiveTopic], async (messageTopic, message) => {
             const messageString = message.toString();
             if (messageTopic === entitiesActiveTopic) {
-                cb(messageTopic, messageString !== 'null' ? JSON.parse(messageString) : [])
+                activeEntitiesCb(messageString !== 'null' ? JSON.parse(messageString) : [])
             }
         });
     }
 
-    const { getCommandTopic, getEntityTopic } = getMqttTopicTopics(mainRuleId);
     for (const detectionRule of detectionRules) {
         const isPluginRule = detectionRule.source === DetectionRuleSource.Plugin;
+        const { entityId, ruleDeviceId } = getRuleStrings(detectionRule);
+        const { getCommandTopic, getEntityTopic } = getMqttTopicTopics(ruleDeviceId);
 
         if (isPluginRule) {
-            const { entityId } = getRuleStrings(detectionRule);
             const commandTopic = getCommandTopic(entityId);
             const stateTopic = getEntityTopic(entityId);
 
@@ -211,8 +212,6 @@ export const subscribeToMqttTopics = async (
                 }
             });
         } else {
-            const { getCommandTopic, getEntityTopic } = getMqttTopicTopics(`${deviceRuleId}-${detectionRule.deviceId}`);
-
             const { entityId } = getRuleStrings(detectionRule);
             const commandTopic = getCommandTopic(entityId);
             const stateTopic = getEntityTopic(entityId);

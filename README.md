@@ -20,11 +20,12 @@ Mainly supported notifiers are from `Homeassistant` and `Pushover` plugins
 List of strings that will be shown on the notifications based on the detection type. Useful to have localized text, many placeholders are available and specified in each text
 ## Detection rules
 Fine grained rules can be defined to filter out detections and dispatch to specific notiries at specific conditions, called `Detection rules`. These rules can be added on Plugin level or on Camera level. Each rule has the following settings:
-- `Enabled`: Enable or disable the rule
+- `Enabled`: Enable or disable the rule (On homeassistant will be available a switch to enable/disable each rule)
 - `Activation`: One of Always, OnActive, Schedule
     - Always - the rule will always be active (besides enabled flag being off)
     - OnActive - the rule will be active only for the devices selected in the `"OnActive" devices` selector (in Detection Rules -> General). This target is automatically synced with the MQTT topic defined in the setting "Active entities topic" under MQTT. MQTT Must be enabled
     - Schedule - the rule will be active based on a schedule defined in the rule
+    - AlarmSystem - the rule will be active based on the current status of the alarm system defined in Plugin => Detection Rules => General => Security System
 - `Priority`: Priority of the notification, will have effect only for pushover
 - `Custom text`: override text to show on each notification. Will override the defaults
 - `Detection classes`: detection classes to trigger the notification
@@ -32,6 +33,7 @@ Fine grained rules can be defined to filter out detections and dispatch to speci
 - `Notifiers`: notifiers to notify
 - `Open sensors`: sensors that must be open to trigger a notification
 - `Closed sensors`: sensors that must be closed to trigger a notification
+- `Alarm modes`: alarm modes to be active to enable this rule (only available for activation AlarmSystem)
 - `Actions`: actions that will be shown on the notification. Rendering will vary depending on the notifier. For HA will be an actionable notification, for pushover will be additional links in the text. Both of them require homeassistant to work, the same event will be triggered with the specified action type
 - `Devices`: Only available for `Always` and `Schedule` activations. Devices for which notification is active
 - `Day - Start time - End time`: properties required for the `Schedule` activation

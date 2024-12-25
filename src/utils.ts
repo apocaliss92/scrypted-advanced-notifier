@@ -11,6 +11,7 @@ import AdvancedNotifierPlugin from "./main";
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Settings;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
+export const enabledRegex = new RegExp('rule:(.*):enabled');
 
 export const getElegibleDevices = () => {
     const allDevices = Object.keys(sdk.systemManager.getSystemState()).map(deviceId => sdk.systemManager.getDeviceById(deviceId) as unknown as DeviceInterface);

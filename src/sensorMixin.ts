@@ -1,7 +1,7 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ScryptedDeviceBase, ScryptedDeviceType, MediaObject, LockState } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, isDeviceEnabled } from "./utils";
+import { DetectionRule, enabledRegex, EventType, getDetectionRulesSettings, getMixinBaseSettings, isDeviceEnabled } from "./utils";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoverDetectionRules, getDetectionRuleId, publishDeviceState, setupDeviceAutodiscovery } from "./mqtt-utils";
 
@@ -172,7 +172,20 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         return settings;
     }
 
-    async putMixinSetting(key: string, value: string) {
+    async putMixinSetting(key: string, value: string, skipMqtt?: boolean) {
+        if (!skipMqtt) {
+            const enabledResult = enabledRegex.exec(key);
+            if (enabledResult) {
+                const ruleName = enabledResult[1];
+                await this.plugin.updateRuleOnMqtt({
+                    active: JSON.parse(value as string ?? 'false'),
+                    logger: this.getLogger(),
+                    ruleName,
+                    deviceId: this.id
+                })
+            }
+        }
+
         this.storage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
     }
 

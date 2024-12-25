@@ -1,14 +1,14 @@
-import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import axios from "axios";
 import { isEqual, keyBy, sortBy, uniq } from 'lodash';
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, parseNvrNotificationMessage, NotificationPriority, getFolderPaths, getDeviceRules, NvrEvent, ParseNotificationMessageResult, getPushoverPriority, getDetectionRuleKeys } from "./utils";
+import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, parseNvrNotificationMessage, NotificationPriority, getFolderPaths, getDeviceRules, NvrEvent, ParseNotificationMessageResult, getPushoverPriority, getDetectionRuleKeys, enabledRegex } from "./utils";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 import { BasePlugin, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
-import { setupPluginAutodiscovery, subscribeToMqttTopics } from "./mqtt-utils";
+import { getMqttTopicTopics, getRuleStrings, setupPluginAutodiscovery, subscribeToMqttTopics } from "./mqtt-utils";
 import path from 'path';
 import { AdvancedNotifierNotifier } from "./notifier";
 
@@ -374,6 +374,29 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         return { allRules };
     }
 
+    async putSetting(key: string, value: SettingValue, skipMqtt?: boolean): Promise<void> {
+        if (!skipMqtt) {
+            const enabledResult = enabledRegex.exec(key);
+            if (enabledResult) {
+                const ruleName = enabledResult[1];
+                this.updateRuleOnMqtt({ active: value as boolean, ruleName, logger: this.getLogger() })
+            }
+        }
+
+        return this.storageSettings.putSetting(key, value);
+    }
+
+    async updateRuleOnMqtt(props: { deviceId?: string, active: boolean, ruleName: string, logger: Console }) {
+        const { active, ruleName, deviceId, logger } = props;
+        const mqttClient = await this.getMqttClient();
+        const { entityId, ruleDeviceId } = getRuleStrings({ name: ruleName, deviceId } as DetectionRule);
+
+        const { getEntityTopic } = getMqttTopicTopics(ruleDeviceId);
+        const stateTopic = getEntityTopic(entityId);
+        logger.log(`Setting rule ${ruleName} to ${active} for device ${deviceId}`);
+        await mqttClient.publish(stateTopic, active ? 'ON' : 'OFF');
+    }
+
     private async setupMqttEntities() {
         const { mqttEnabled, mqttActiveEntitiesTopic } = this.storageSettings.values;
         if (mqttEnabled) {
@@ -387,17 +410,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     entitiesActiveTopic: mqttActiveEntitiesTopic,
                     mqttClient,
                     detectionRules: allRules,
-                    cb: async (topic, message) => {
-                        if (topic === mqttActiveEntitiesTopic) {
-                            logger.log(`Received update for ${topic} topic: ${JSON.stringify(message)}`);
-                            await this.syncHaEntityIds(message);
-                        }
+                    activeEntitiesCb: async (message) => {
+                        logger.log(`Received update for ${mqttActiveEntitiesTopic} topic: ${JSON.stringify(message)}`);
+                        await this.syncHaEntityIds(message);
                     },
                     ruleCb: async ({ active, ruleName, deviceId }) => {
                         const { enabledKey } = getDetectionRuleKeys(ruleName);
                         if (!deviceId) {
                             logger.log(`Setting rule ${ruleName} to ${active}`);
-                            await this.putSetting(enabledKey, active);
+                            await this.putSetting(enabledKey, active, true);
                         } else {
                             const device = sdk.systemManager.getDeviceById<Settings>(deviceId);
                             logger.log(`Setting rule ${ruleName} for device ${device.name} to ${active}`);
@@ -434,7 +455,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if (isEqual(sortBy(deviceIds), sortBy(this.storageSettings.values.activeDevicesForNotifications ?? []))) {
             this.getLogger().log('Devices did not change');
         } else {
-            super.putSetting('activeDevicesForNotifications', deviceIds);
+            this.putSetting('activeDevicesForNotifications', deviceIds);
         }
     }
 
@@ -445,14 +466,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const oauthUrl = await (cloudPlugin as any).getOauthUrl();
             const url = new URL(oauthUrl);
             const serverId = url.searchParams.get('server_id');
-            super.putSetting('serverId', serverId);
+            this.putSetting('serverId', serverId);
             logger.log(`Server id found: ${serverId}`);
         } else {
             logger.log(`Cloud plugin not found`);
         }
 
         const localIp = (await sdk.endpointManager.getLocalAddresses())[0];
-        super.putSetting('localIp', localIp);
+        this.putSetting('localIp', localIp);
         logger.log(`Local IP found: ${localIp}`);
 
         const pushoverPlugin = systemManager.getDeviceByName('Pushover Plugin') as unknown as ScryptedDeviceBase;
@@ -618,8 +639,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         } finally {
             this.getLogger().log(`Entities found: ${JSON.stringify(entityIds)}`);
             this.getLogger().log(`Rooms found: ${JSON.stringify(rooms)}`);
-            await super.putSetting('fetchedEntities', entityIds);
-            await super.putSetting('fetchedRooms', rooms);
+            await this.putSetting('fetchedEntities', entityIds);
+            await this.putSetting('fetchedRooms', rooms);
         }
     }
 
