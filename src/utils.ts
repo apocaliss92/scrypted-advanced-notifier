@@ -1,4 +1,4 @@
-import sdk, { Camera, LockState, MediaObject, NotifierOptions, ObjectDetectionResult, ScryptedDeviceBase, ScryptedDeviceType, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Setting, Settings } from "@scrypted/sdk"
+import sdk, { Camera, LockState, MediaObject, NotifierOptions, ObjectDetectionResult, Point, ScryptedDeviceBase, ScryptedDeviceType, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Setting, Settings } from "@scrypted/sdk"
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep, keyBy, sortBy, uniq, uniqBy } from "lodash";
 const { endpointManager } = sdk;
@@ -12,6 +12,12 @@ import AdvancedNotifierPlugin from "./main";
 export type DeviceInterface = Camera & ScryptedDeviceBase & Settings;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
 export const enabledRegex = new RegExp('rule:(.*):enabled');
+
+export interface ObserveZoneData {
+    name: string;
+    path: Point[]
+};
+export type ObserveZoneClasses = Record<string, DetectionClass[]>;
 
 export const getElegibleDevices = () => {
     const allDevices = Object.keys(sdk.systemManager.getSystemState()).map(deviceId => sdk.systemManager.getDeviceById(deviceId) as unknown as DeviceInterface);

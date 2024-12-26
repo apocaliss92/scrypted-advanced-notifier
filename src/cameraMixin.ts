@@ -1,11 +1,11 @@
-import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ObjectDetection } from "@scrypted/sdk";
+import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ObjectDetection, Point } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DetectionRule, DetectionRuleSource, enabledRegex, EventType, filterAndSortValidDetections, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled } from "./utils";
+import { DetectionRule, DetectionRuleSource, enabledRegex, EventType, filterAndSortValidDetections, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled, ObserveZoneClasses, ObserveZoneData } from "./utils";
 import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoverDetectionRules, getDetectionRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
-import { log } from "console";
+import polygonClipping from 'polygon-clipping';
 
 const { systemManager } = sdk;
 const secondsPerPicture = 5;
@@ -86,6 +86,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }> = {};
     lastPictureTaken: number;
     lastFrameAnalysis: number;
+    observeZoneData: ObserveZoneData[];
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -152,7 +153,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 console: logger,
                                 withDetections: true,
                                 deviceClass: 'motion',
-                                detectionRules: allDeviceRules
+                                detectionRules: allDeviceRules,
+                                observeZoneData: await this.getObserveZones()
                             });
 
                             this.getLogger().log(`Subscribing to mqtt topics`);
@@ -263,15 +265,29 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async getObserveZones() {
         try {
+            if (this.observeZoneData) {
+                return this.observeZoneData;
+            }
+
+            const res: ObserveZoneData[] = [];
             const settings = await this.mixinDevice.getSettings();
             const zonesSetting = settings.find((setting: { key: string; }) => new RegExp('objectdetectionplugin:.*:zones').test(setting.key))?.value ?? [];
 
-            return zonesSetting.filter(zone => {
-                const zoneFilterMode = settings.find((setting: { key: string; }) => new RegExp(`objectdetectionplugin:.*:zoneinfo-filterMode-${zone}`).test(setting.key))?.value;
-
-                return zoneFilterMode === 'observe';
-
+            const zoneNames = zonesSetting.filter(zone => {
+                return settings.find((setting: { key: string; }) => new RegExp(`objectdetectionplugin:.*:zoneinfo-filterMode-${zone}`).test(setting.key))?.value === 'observe';
             });
+
+            zoneNames.forEach(zoneName => {
+                const zonePath = JSON.parse(settings.find((setting) => setting.subgroup === `Zone: ${zoneName}` && setting.type === 'clippath')?.value ?? '[]');
+
+                res.push({
+                    name: zoneName,
+                    path: zonePath
+                })
+            });
+
+            this.observeZoneData = res;
+            return this.observeZoneData;
         } catch (e) {
             this.getLogger().log('Error in getObserveZones', e);
             return [];
@@ -293,7 +309,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             const detectionRulesSettings = await getDetectionRulesSettings({
                 storage: this.storageSettings,
-                zones: await this.getObserveZones(),
+                zones: (await this.getObserveZones()).map(item => item.name),
                 groupName: 'Advanced notifier detection rules',
                 withDetection: true,
             });
@@ -495,74 +511,55 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 return;
             }
 
-            // const zone: ClipPath = this.storageSettings.values.captureZone;
-            let detected: ObjectsDetected;
-            // if (zone?.length >= 3) {
-            //     const image = await sdk.mediaManager.convertMediaObject<Image>(picture, ScryptedMimeTypes.Image);
-            //     let left = image.width;
-            //     let top = image.height;
-            //     let right = 0;
-            //     let bottom = 0;
-            //     for (const point of zone) {
-            //         left = Math.min(left, point[0]);
-            //         top = Math.min(top, point[1]);
-            //         right = Math.max(right, point[0]);
-            //         bottom = Math.max(bottom, point[1]);
-            //     }
-
-            //     left = left * image.width;
-            //     top = top * image.height;
-            //     right = right * image.width;
-            //     bottom = bottom * image.height;
-
-            //     let width = right - left;
-            //     let height = bottom - top;
-            //     // square it for standard detection
-            //     width = height = Math.max(width, height);
-            //     // recenter it
-            //     left = left + (right - left - width) / 2;
-            //     top = top + (bottom - top - height) / 2;
-            //     // ensure bounds are within image.
-            //     left = Math.max(0, left);
-            //     top = Math.max(0, top);
-            //     width = Math.min(width, image.width - left);
-            //     height = Math.min(height, image.height - top);
-
-            //     const cropped = await image.toImage({
-            //         crop: {
-            //             left,
-            //             top,
-            //             width,
-            //             height,
-            //         },
-            //     });
-            //     detected = await objectDetection.detectObjects(cropped);
-
-            //     // adjust the origin of the bounding boxes for the crop.
-            //     for (const d of detected.detections) {
-            //         d.boundingBox[0] += left;
-            //         d.boundingBox[1] += top;
-            //     }
-            //     detected.inputDimensions = [image.width, image.height];
-            // }
-            // else {
-            detected = await objectDetection.detectObjects(image);
-            // }
-
-            // this.checkDetection(this.storageSettings.values.detections, this.storageSettings.values.labels, this.storageSettings.values.labelDistance, this.storageSettings.values.labelScore, detected);
-
+            const detected = await objectDetection.detectObjects(image);
             const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase & Settings;
             const mqttClient = await this.plugin.getMqttClient();
+
+            const observeZonesClasses: ObserveZoneClasses = {};
+            const zonesData = await this.getObserveZones();
+
+            zonesData.forEach(({ name }) => {
+                observeZonesClasses[name] = [];
+            });
+            let someMatch = false;
+
+            detected.detections.filter(detection => detection.score >= 0.7).forEach(detection => {
+                const [X_min, Y_min, X_max, Y_max] = detection.boundingBox;
+                const boundingBoxInCoords: Point[] = [
+                    [X_min, Y_min],
+                    [X_max, Y_min],
+                    [X_min, Y_max],
+                    [X_max, Y_max],
+                ];
+                const intersectedZones = zonesData.filter(zone => polygonClipping.intersection([boundingBoxInCoords], [zone.path]));
+                if (intersectedZones.length) {
+                    someMatch = true;
+                }
+
+                intersectedZones.forEach(intersectedZone => {
+                    const className = detectionClassesDefaultMap[detection.className];
+                    !observeZonesClasses[intersectedZone.name].includes(className) && observeZonesClasses[intersectedZone.name].push(className);
+                })
+            });
+
+            if (someMatch) {
+                logger.log(`Some matches found for ${JSON.stringify({
+                    detected,
+                    zonesData,
+                    observeZonesClasses,
+                })}`);
+            }
 
             await publishOccupancy({
                 console: logger,
                 device,
                 mqttClient,
-                objectsDetected: detected
-            })
+                objectsDetected: detected,
+                observeZonesClasses
+            });
         }
         catch (e) {
-            this.console.error('failed to take picture', e);
+            this.console.error('Error in checkOccupancyData', e);
         }
     }
 

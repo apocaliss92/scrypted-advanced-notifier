@@ -1,6 +1,6 @@
 import { MediaObject, ObjectDetectionResult, ObjectsDetected, ScryptedDeviceBase, ScryptedInterface } from '@scrypted/sdk';
 import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, parentDetectionClassMap } from './detecionClasses';
-import { DetectionRule, DetectionRuleSource, firstUpperCase, getWebooks, storeWebhookImage } from './utils';
+import { DetectionRule, DetectionRuleSource, firstUpperCase, getWebooks, ObserveZoneClasses, ObserveZoneData, storeWebhookImage } from './utils';
 import { cloneDeep, groupBy } from 'lodash';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 
@@ -92,6 +92,12 @@ export const getRuleStrings = (rule: DetectionRule) => {
     const ruleDeviceId = rule.deviceId ? `${deviceRuleId}-${rule.deviceId}` : mainRuleId;
 
     return { entityId, ruleDeviceId };
+}
+
+export const getObserveZoneStrings = (zoneName: string) => {
+    const entityId = zoneName.trim().replace(' ', '_');
+
+    return { entityId };
 }
 
 export const setupPluginAutodiscovery = async (props: {
@@ -245,9 +251,10 @@ export const setupDeviceAutodiscovery = async (props: {
     console: Console,
     withDetections?: boolean,
     deviceClass: string,
-    detectionRules: DetectionRule[]
+    detectionRules: DetectionRule[],
+    observeZoneData?: ObserveZoneData[],
 }) => {
-    const { device, withDetections, deviceClass, mqttClient, detectionRules } = props;
+    const { device, withDetections, deviceClass, mqttClient, detectionRules, observeZoneData } = props;
     const { name, id } = device;
 
     const mqttdevice = {
@@ -339,6 +346,22 @@ export const setupDeviceAutodiscovery = async (props: {
         };
 
         await mqttClient.publish(getDiscoveryTopic('switch', entityId), JSON.stringify(detectionRUleEnabledConfig));
+    }
+
+    if (observeZoneData) {
+        for (const zoneData of observeZoneData) {
+            const { entityId } = getObserveZoneStrings(zoneData.name);
+
+            const config = {
+                state_topic: getEntityTopic(entityId),
+                dev: mqttdevice,
+                unique_id: `${idPrefix}-${id}-zone-occupancy-${entityId}`,
+                object_id: `${device.name}_zone_occupancy_${entityId}`,
+                name: `Zone occupancy ${zoneData.name}`,
+            }
+
+            await mqttClient.publish(getDiscoveryTopic('sensor', entityId), JSON.stringify(config));
+        }
     }
 }
 
@@ -578,8 +601,9 @@ export const publishOccupancy = async (props: {
     device: ScryptedDeviceBase,
     console: Console,
     objectsDetected: ObjectsDetected,
+    observeZonesClasses: ObserveZoneClasses
 }) => {
-    const { mqttClient, device, objectsDetected } = props;
+    const { mqttClient, device, objectsDetected, observeZonesClasses } = props;
     try {
         const { getEntityTopic } = getMqttTopicTopics(device.id);
 
@@ -588,6 +612,13 @@ export const publishOccupancy = async (props: {
             const classObjects = objectsDetected.detections.filter(det => classEntity.className === detectionClassesDefaultMap[det.className])?.length;
 
             await mqttClient.publish(getEntityTopic(classEntity.entity), classObjects, true);
+        }
+
+        for (const zoneData of Object.entries(observeZonesClasses)) {
+            const [zoneName, detectionClasses] = zoneData;
+            const { entityId } = getObserveZoneStrings(zoneName);
+
+            await mqttClient.publish(getEntityTopic(entityId), detectionClasses, true);
         }
     } catch (e) {
         console.log(`Error publishing ${JSON.stringify({
