@@ -532,7 +532,7 @@ export const isDeviceEnabled = async (deviceId: string, deviceSettings: Setting[
     const mainSettingsByKey = keyBy(mainSettings, 'key');
 
     const deviceSettingsByKey = keyBy(deviceSettings, 'key');
-    const { detectionRules, skippedRules, nvrRules } = getDeviceRules({
+    const { detectionRules, skippedRules, nvrRules, allDeviceRules } = getDeviceRules({
         deviceId,
         deviceType,
         deviceStorage: deviceSettingsByKey,
@@ -553,6 +553,7 @@ export const isDeviceEnabled = async (deviceId: string, deviceSettings: Setting[
         detectionRules,
         skippedRules,
         nvrRules,
+        allDeviceRules
     }
 }
 

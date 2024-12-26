@@ -1,9 +1,9 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ScryptedDeviceBase, ScryptedDeviceType, MediaObject, LockState } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DetectionRule, enabledRegex, EventType, getDetectionRulesSettings, getMixinBaseSettings, isDeviceEnabled } from "./utils";
+import { DetectionRule, enabledRegex, EventType, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, isDeviceEnabled } from "./utils";
 import HomeAssistantUtilitiesProvider from "./main";
-import { discoverDetectionRules, getDetectionRuleId, publishDeviceState, setupDeviceAutodiscovery } from "./mqtt-utils";
+import { discoverDetectionRules, getDetectionRuleId, publishDeviceState, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 
 const { systemManager } = sdk;
 
@@ -31,6 +31,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
     isActiveForNotifications: boolean;
     isActiveForNvrNotifications: boolean;
     isActiveForMqttReporting: boolean;
+    mainAutodiscoveryDone: boolean;
     mqttReportInProgress: boolean;
     logger: Console;
     killed: boolean;
@@ -79,7 +80,8 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 skippedRules,
                 isActiveForNotifications,
                 isActiveForNvrNotifications,
-                nvrRules
+                nvrRules,
+                allDeviceRules
             } = await isDeviceEnabled(this.id, deviceSettings, this.plugin, this.type);
 
             logger.debug(`Detected rules: ${JSON.stringify({ detectionRules, skippedRules })}`);
@@ -96,13 +98,30 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 const mqttClient = await this.plugin.getMqttClient();
                 if (mqttClient) {
                     const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase & Settings;
-                    await setupDeviceAutodiscovery({
-                        mqttClient,
-                        device,
-                        console: logger,
-                        withDetections: true,
-                        deviceClass: this.storageSettings.values.haDeviceClass || 'window'
-                    });
+                    if (!this.mainAutodiscoveryDone) {
+                        await setupDeviceAutodiscovery({
+                            mqttClient,
+                            device,
+                            console: logger,
+                            withDetections: true,
+                            deviceClass: this.storageSettings.values.haDeviceClass || 'window',
+                            detectionRules: allDeviceRules
+                        });
+
+                        this.getLogger().log(`Subscribing to mqtt topics`);
+                        await subscribeToDeviceMqttTopics({
+                            mqttClient,
+                            detectionRules: allDeviceRules,
+                            device,
+                            ruleCb: async ({ active, ruleName }) => {
+                                const { enabledKey } = getDetectionRuleKeys(ruleName);
+                                logger.log(`Setting rule ${ruleName} for device ${device.name} to ${active}`);
+                                await device.putSetting(`homeassistantMetadata:${enabledKey}`, active);
+                            },
+                        });
+
+                        this.mainAutodiscoveryDone = true;
+                    }
 
                     const missingRules = detectionRules.filter(rule => !this.rulesDiscovered.includes(getDetectionRuleId(rule)));
                     if (missingRules.length) {

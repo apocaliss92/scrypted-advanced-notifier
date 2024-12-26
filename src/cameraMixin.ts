@@ -1,10 +1,10 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ObjectDetection } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DetectionRule, DetectionRuleSource, enabledRegex, EventType, filterAndSortValidDetections, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled } from "./utils";
+import { DetectionRule, DetectionRuleSource, enabledRegex, EventType, filterAndSortValidDetections, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled } from "./utils";
 import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
-import { discoverDetectionRules, getDetectionRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery } from "./mqtt-utils";
+import { discoverDetectionRules, getDetectionRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { log } from "console";
 
 const { systemManager } = sdk;
@@ -69,6 +69,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     mainLoopListener: NodeJS.Timeout;
     isActiveForNotifications: boolean;
     isActiveForMqttReporting: boolean;
+    mainAutodiscoveryDone: boolean;
     isActiveForNvrNotifications: boolean;
     mqttReportInProgress: boolean;
     lastDetectionMap: Record<string, number> = {};
@@ -126,7 +127,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     nvrRules,
                     skippedRules,
                     isActiveForNotifications,
-                    isActiveForNvrNotifications
+                    isActiveForNvrNotifications,
+                    allDeviceRules,
                 } = await isDeviceEnabled(this.id, deviceSettings, this.plugin);
 
                 logger.debug(`Detected rules: ${JSON.stringify({ detectionRules, skippedRules })}`);
@@ -140,16 +142,37 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const shouldRun = this.isActiveForMqttReporting || this.isActiveForNotifications;
 
                 if (isActiveForMqttReporting) {
-                    const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase & Settings;
+                    const device = sdk.systemManager.getDeviceById<ScryptedDeviceBase & Settings>(this.id);
                     const mqttClient = await this.plugin.getMqttClient();
                     if (mqttClient) {
-                        await setupDeviceAutodiscovery({
-                            mqttClient,
-                            device,
-                            console: logger,
-                            withDetections: true,
-                            deviceClass: 'motion'
-                        });
+                        if (!this.mainAutodiscoveryDone) {
+                            await setupDeviceAutodiscovery({
+                                mqttClient,
+                                device,
+                                console: logger,
+                                withDetections: true,
+                                deviceClass: 'motion',
+                                detectionRules: allDeviceRules
+                            });
+
+                            this.getLogger().log(`Subscribing to mqtt topics`);
+                            await subscribeToDeviceMqttTopics({
+                                mqttClient,
+                                detectionRules: allDeviceRules,
+                                device,
+                                ruleCb: async ({ active, ruleName }) => {
+                                    const { enabledKey } = getDetectionRuleKeys(ruleName);
+                                    logger.log(`Setting rule ${ruleName} to ${active}`);
+                                    await device.putSetting(`homeassistantMetadata:${enabledKey}`, active);
+                                },
+                                switchRecordingCb: async (active) => {
+                                    logger.log(`Setting NVR privacy mode to ${!active}`);
+                                    await device.putSetting(`recording:privacyMode`, !active);
+                                }
+                            });
+
+                            this.mainAutodiscoveryDone = true;
+                        }
 
                         const missingRules = detectionRules.filter(rule => !this.rulesDiscovered.includes(getDetectionRuleId(rule)));
                         if (missingRules.length) {
@@ -157,8 +180,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             this.rulesDiscovered.push(...missingRules.map(rule => getDetectionRuleId(rule)))
                         }
                     }
+                    const settings = await this.mixinDevice.getSettings();
+                    const isRecording = !settings.find(setting => setting.key === 'recording:privacyMode')?.value;
 
-                    reportDeviceValues({ console: logger, device, mqttClient });
+                    reportDeviceValues({ console: logger, device, mqttClient, isRecording });
                 }
 
                 if (isCurrentlyRunning && !shouldRun) {
@@ -232,6 +257,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { lastSnapshotCloudUrl, lastSnapshotLocalUrl } = await getWebookUrls(this.name, console);
         this.storageSettings.putSetting('lastSnapshotWebhookCloudUrl', lastSnapshotCloudUrl);
         this.storageSettings.putSetting('lastSnapshotWebhookLocalUrl', lastSnapshotLocalUrl);
+
+
     }
 
     async getObserveZones() {

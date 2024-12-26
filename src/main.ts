@@ -8,7 +8,7 @@ import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 import { BasePlugin, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
-import { getMqttTopicTopics, getRuleStrings, setupPluginAutodiscovery, subscribeToMqttTopics } from "./mqtt-utils";
+import { getMqttTopicTopics, getRuleStrings, setupPluginAutodiscovery, subscribeToMainMqttTopics } from "./mqtt-utils";
 import path from 'path';
 import { AdvancedNotifierNotifier } from "./notifier";
 
@@ -347,31 +347,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         const mainSettings = await this.getSettings();
         const mainSettingsByKey = keyBy(mainSettings, 'key');
-        const allRules: DetectionRule[] = [];
         const { allPluginRules } = getDeviceRules({ mainPluginStorage: mainSettingsByKey });
-        allRules.push(...allPluginRules);
-
-        const allDevices = getElegibleDevices();
-        for (const device of allDevices) {
-            const deviceSettings = await device.getSettings();
-            const deviceSettingsByKey = keyBy(deviceSettings, 'key');
-            const { allDeviceRules } = getDeviceRules({
-                mainPluginStorage: mainSettingsByKey,
-                deviceId: device.id,
-                deviceType: device.type,
-                deviceStorage: deviceSettingsByKey
-            });
-            allRules.push(...allDeviceRules);
-        }
 
         await setupPluginAutodiscovery({
             mqttClient,
             people: knownPeople,
             console: logger,
-            detectionRules: allRules,
+            detectionRules: allPluginRules,
         });
 
-        return { allRules };
+        return { allPluginRules };
     }
 
     async putSetting(key: string, value: SettingValue, skipMqtt?: boolean): Promise<void> {
@@ -402,29 +387,23 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if (mqttEnabled) {
             try {
                 const mqttClient = await this.getMqttClient();
-                const { allRules } = await this.sendAutoDiscovery();
+                const { allPluginRules } = await this.sendAutoDiscovery();
                 const logger = this.getLogger();
 
                 this.getLogger().log(`Subscribing to mqtt topics`);
-                await subscribeToMqttTopics({
+                await subscribeToMainMqttTopics({
                     entitiesActiveTopic: mqttActiveEntitiesTopic,
                     mqttClient,
-                    detectionRules: allRules,
+                    detectionRules: allPluginRules,
                     activeEntitiesCb: async (message) => {
                         logger.log(`Received update for ${mqttActiveEntitiesTopic} topic: ${JSON.stringify(message)}`);
                         await this.syncHaEntityIds(message);
                     },
-                    ruleCb: async ({ active, ruleName, deviceId }) => {
+                    ruleCb: async ({ active, ruleName }) => {
                         const { enabledKey } = getDetectionRuleKeys(ruleName);
-                        if (!deviceId) {
-                            logger.log(`Setting rule ${ruleName} to ${active}`);
-                            await this.putSetting(enabledKey, active, true);
-                        } else {
-                            const device = sdk.systemManager.getDeviceById<Settings>(deviceId);
-                            logger.log(`Setting rule ${ruleName} for device ${device.name} to ${active}`);
-                            await device.putSetting(`homeassistantMetadata:${enabledKey}`, active);
-                        }
-                    }
+                        logger.log(`Setting rule ${ruleName} to ${active}`);
+                        await this.putSetting(enabledKey, active, true);
+                    },
                 });
             } catch (e) {
                 this.getLogger().log('Error setting up MQTT client', e);
