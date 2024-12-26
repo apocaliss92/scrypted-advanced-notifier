@@ -151,7 +151,7 @@ export const setupPluginAutodiscovery = async (props: {
 
             const detectionRUleEnabledConfig = {
                 dev: mqttMainSettingsDevice,
-                unique_id: `${deviceRuleId}-rule-${entityId}`,
+                unique_id: `${ruleDeviceId}-rule-${entityId}`,
                 name: `Device ${detectionRule.deviceId} rule ${detectionRule.name}`,
                 platform: 'switch',
                 command_topic: commandTopic,
