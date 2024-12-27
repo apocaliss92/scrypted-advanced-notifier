@@ -528,7 +528,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             detected.detections.filter(detection => detection.score >= 0.7).forEach(detection => {
                 const boundingBoxInCoords = normalizeBoxToClipPath(detection.boundingBox, detected.inputDimensions);
-                const intersectedZones = zonesData.filter(zone => polygonClipping.intersection([boundingBoxInCoords], [zone.path]));
+                const intersectedZones = zonesData.filter(zone => !!polygonClipping.intersection([boundingBoxInCoords], [zone.path]).length);
                 if (intersectedZones.length) {
                     someMatch = true;
                 }
