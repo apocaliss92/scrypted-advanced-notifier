@@ -1237,3 +1237,15 @@ export const getPushoverPriority = (priority: NotificationPriority) => priority 
     priority === NotificationPriority.Normal ? 0 :
         priority === NotificationPriority.Low ? -1 :
             -2;
+
+export const normalizeBoxToClipPath = (boundingBox: [number, number, number, number], inputDimensions: [number, number]): [Point, Point, Point, Point] => {
+    let [x, y, width, height] = boundingBox;
+    let x2 = x + width;
+    let y2 = y + height;
+    // the zones are point paths in percentage format
+    x = x / inputDimensions[0];
+    y = y / inputDimensions[1];
+    x2 = x2 / inputDimensions[0];
+    y2 = y2 / inputDimensions[1];
+    return [[x, y], [x2, y], [x2, y2], [x, y2]];
+}

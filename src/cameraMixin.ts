@@ -1,7 +1,7 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ObjectDetection, Point } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DetectionRule, DetectionRuleSource, enabledRegex, EventType, filterAndSortValidDetections, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled, ObserveZoneClasses, ObserveZoneData } from "./utils";
+import { DetectionRule, DetectionRuleSource, enabledRegex, EventType, filterAndSortValidDetections, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled, normalizeBoxToClipPath, ObserveZoneClasses, ObserveZoneData } from "./utils";
 import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { detectionClassForObjectsReporting, discoverDetectionRules, getDetectionRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
@@ -527,13 +527,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             let someMatch = false;
 
             detected.detections.filter(detection => detection.score >= 0.7).forEach(detection => {
-                const [X_min, Y_min, X_max, Y_max] = detection.boundingBox;
-                const boundingBoxInCoords: Point[] = [
-                    [X_min, Y_min],
-                    [X_max, Y_min],
-                    [X_min, Y_max],
-                    [X_max, Y_max],
-                ];
+                const boundingBoxInCoords = normalizeBoxToClipPath(detection.boundingBox, detected.inputDimensions);
                 const intersectedZones = zonesData.filter(zone => polygonClipping.intersection([boundingBoxInCoords], [zone.path]));
                 if (intersectedZones.length) {
                     someMatch = true;
