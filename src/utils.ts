@@ -17,7 +17,7 @@ export interface ObserveZoneData {
     name: string;
     path: Point[]
 };
-export type ObserveZoneClasses = Record<string, DetectionClass[]>;
+export type ObserveZoneClasses = Record<string, Partial<Record<DetectionClass, number>>>;
 
 export const getElegibleDevices = () => {
     const allDevices = Object.keys(sdk.systemManager.getSystemState()).map(deviceId => sdk.systemManager.getDeviceById(deviceId) as unknown as DeviceInterface);

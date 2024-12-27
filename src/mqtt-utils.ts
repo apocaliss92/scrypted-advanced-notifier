@@ -1,6 +1,6 @@
 import { MediaObject, ObjectDetectionResult, ObjectsDetected, ScryptedDeviceBase, ScryptedInterface } from '@scrypted/sdk';
 import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, parentDetectionClassMap } from './detecionClasses';
-import { DetectionRule, DetectionRuleSource, firstUpperCase, getWebooks, ObserveZoneClasses, ObserveZoneData, storeWebhookImage } from './utils';
+import { DetectionRule, firstUpperCase, getWebooks, ObserveZoneClasses, ObserveZoneData, storeWebhookImage } from './utils';
 import { cloneDeep, groupBy } from 'lodash';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 
@@ -12,6 +12,8 @@ interface MqttEntity {
     key?: string,
     deviceClass?: string,
 }
+
+export const detectionClassForObjectsReporting = [DetectionClass.Animal, DetectionClass.Person, DetectionClass.Vehicle];
 
 const idPrefix = 'scrypted-an';
 const namePrefix = 'Scrypted AN';
@@ -52,7 +54,7 @@ const deviceClassMqttEntities: MqttEntity[] = defaultDetectionClasses.flatMap(cl
         entries.push({ entity: `${className}LastLabel`, name: `${parsedClassName} last recognized`, domain: 'sensor', className });
     }
 
-    if ([DetectionClass.Animal, DetectionClass.Person, DetectionClass.Vehicle].includes(className)) {
+    if (detectionClassForObjectsReporting.includes(className)) {
         entries.push({ entity: `${className}Objects`, name: `${parsedClassName} objects`, domain: 'sensor', className });
     }
 
@@ -94,10 +96,13 @@ export const getRuleStrings = (rule: DetectionRule) => {
     return { entityId, ruleDeviceId };
 }
 
-export const getObserveZoneStrings = (zoneName: string) => {
-    const entityId = zoneName.trim().replace(' ', '_');
+export const getObserveZoneStrings = (zoneName: string, className: DetectionClass) => {
+    const parsedClassName = firstUpperCase(className);
+    const parsedZoneName = zoneName.trim().replace(' ', '_');
+    const entityId = `${parsedZoneName}_${className}_Objects`;
+    const name = `${parsedZoneName} ${parsedClassName} objects`;
 
-    return { entityId };
+    return { entityId, name };
 }
 
 export const setupPluginAutodiscovery = async (props: {
@@ -350,17 +355,19 @@ export const setupDeviceAutodiscovery = async (props: {
 
     if (observeZoneData) {
         for (const zoneData of observeZoneData) {
-            const { entityId } = getObserveZoneStrings(zoneData.name);
 
-            const config = {
-                state_topic: getEntityTopic(entityId),
-                dev: mqttdevice,
-                unique_id: `${idPrefix}-${id}-zone-occupancy-${entityId}`,
-                object_id: `${device.name}_zone_occupancy_${entityId}`,
-                name: `Zone occupancy ${zoneData.name}`,
+            for (const className of detectionClassForObjectsReporting) {
+                const { entityId, name } = getObserveZoneStrings(zoneData.name, className);
+                const config = {
+                    state_topic: getEntityTopic(entityId),
+                    dev: mqttdevice,
+                    unique_id: `${idPrefix}-${id}-${entityId}`,
+                    object_id: `${device.name}_${entityId}`,
+                    name,
+                };
+
+                await mqttClient.publish(getDiscoveryTopic('sensor', entityId), JSON.stringify(config));
             }
-
-            await mqttClient.publish(getDiscoveryTopic('sensor', entityId), JSON.stringify(config));
         }
     }
 }
@@ -615,10 +622,13 @@ export const publishOccupancy = async (props: {
         }
 
         for (const zoneData of Object.entries(observeZonesClasses)) {
-            const [zoneName, detectionClasses] = zoneData;
-            const { entityId } = getObserveZoneStrings(zoneName);
+            const [zoneName, zoneDataOfClasses] = zoneData;
+            for (const zoneClassData of Object.entries(zoneDataOfClasses)) {
+                const [className, objects] = zoneClassData;
+                const { entityId } = getObserveZoneStrings(zoneName, className as DetectionClass);
 
-            await mqttClient.publish(getEntityTopic(entityId), detectionClasses, true);
+                await mqttClient.publish(getEntityTopic(entityId), objects, true);
+            }
         }
     } catch (e) {
         console.log(`Error publishing ${JSON.stringify({

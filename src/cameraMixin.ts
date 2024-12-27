@@ -2,9 +2,9 @@ import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, Objec
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import { DetectionRule, DetectionRuleSource, enabledRegex, EventType, filterAndSortValidDetections, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled, ObserveZoneClasses, ObserveZoneData } from "./utils";
-import { detectionClassesDefaultMap } from "./detecionClasses";
+import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
-import { discoverDetectionRules, getDetectionRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
+import { detectionClassForObjectsReporting, discoverDetectionRules, getDetectionRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import polygonClipping from 'polygon-clipping';
 
 const { systemManager } = sdk;
@@ -519,7 +519,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const zonesData = await this.getObserveZones();
 
             zonesData.forEach(({ name }) => {
-                observeZonesClasses[name] = [];
+                observeZonesClasses[name] = {};
+                detectionClassForObjectsReporting.forEach(className => {
+                    observeZonesClasses[name][className] = 0;
+                })
             });
             let someMatch = false;
 
@@ -538,7 +541,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 intersectedZones.forEach(intersectedZone => {
                     const className = detectionClassesDefaultMap[detection.className];
-                    !observeZonesClasses[intersectedZone.name].includes(className) && observeZonesClasses[intersectedZone.name].push(className);
+                    if (detectionClassForObjectsReporting.includes(className)) {
+                        observeZonesClasses[intersectedZone.name][className] += 1;
+                    }
                 })
             });
 
