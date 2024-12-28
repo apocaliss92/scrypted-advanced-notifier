@@ -354,23 +354,24 @@ export const setupDeviceAutodiscovery = async (props: {
         await mqttClient.publish(getDiscoveryTopic('switch', entityId), JSON.stringify(detectionRUleEnabledConfig));
     }
 
-    if (observeZoneData) {
-        for (const zoneData of observeZoneData) {
+    // TODO: Check if rules can just replace these
+    // if (observeZoneData) {
+    //     for (const zoneData of observeZoneData) {
 
-            for (const className of detectionClassForObjectsReporting) {
-                const { entityId, name } = getObserveZoneStrings(zoneData.name, className);
-                const config = {
-                    state_topic: getEntityTopic(entityId),
-                    dev: mqttdevice,
-                    unique_id: `${idPrefix}-${id}-${entityId}`,
-                    object_id: `${device.name}_${entityId}`,
-                    name,
-                };
+    //         for (const className of detectionClassForObjectsReporting) {
+    //             const { entityId, name } = getObserveZoneStrings(zoneData.name, className);
+    //             const config = {
+    //                 state_topic: getEntityTopic(entityId),
+    //                 dev: mqttdevice,
+    //                 unique_id: `${idPrefix}-${id}-${entityId}`,
+    //                 object_id: `${device.name}_${entityId}`,
+    //                 name,
+    //             };
 
-                await mqttClient.publish(getDiscoveryTopic('sensor', entityId), JSON.stringify(config));
-            }
-        }
-    }
+    //             await mqttClient.publish(getDiscoveryTopic('sensor', entityId), JSON.stringify(config));
+    //         }
+    //     }
+    // }
 }
 
 export const discoverDetectionRules = async (props: {
@@ -658,15 +659,15 @@ export const publishOccupancy = async (props: {
             await mqttClient.publish(getEntityTopic(classEntity.entity), classObjects, true);
         }
 
-        for (const zoneData of Object.entries(observeZonesClasses)) {
-            const [zoneName, zoneDataOfClasses] = zoneData;
-            for (const zoneClassData of Object.entries(zoneDataOfClasses)) {
-                const [className, objects] = zoneClassData;
-                const { entityId } = getObserveZoneStrings(zoneName, className as DetectionClass);
+        // for (const zoneData of Object.entries(observeZonesClasses)) {
+        //     const [zoneName, zoneDataOfClasses] = zoneData;
+        //     for (const zoneClassData of Object.entries(zoneDataOfClasses)) {
+        //         const [className, objects] = zoneClassData;
+        //         const { entityId } = getObserveZoneStrings(zoneName, className as DetectionClass);
 
-                await mqttClient.publish(getEntityTopic(entityId), objects, true);
-            }
-        }
+        //         await mqttClient.publish(getEntityTopic(entityId), objects, true);
+        //     }
+        // }
 
         for (const occupancyRule of occupancyRulesData) {
             const { occupies, rule } = occupancyRule;

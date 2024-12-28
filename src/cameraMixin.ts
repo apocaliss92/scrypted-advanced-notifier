@@ -524,11 +524,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     async checkOccupancyData(image: MediaObject) {
         try {
             const logger = this.getLogger();
-            const objectDetection: ObjectDetection = this.plugin.storageSettings.values.objectDetectionDevice;
+            const objectDetection: ObjectDetection = this.storageSettings.values.objectDetectionDevice ??
+                this.plugin.storageSettings.values.objectDetectionDevice;
             if (!objectDetection) {
                 logger.log('No detection plugin selected');
                 return;
             }
+            const scoreThreshold = this.storageSettings.values.objectOccupancyThreshold ?? 0.5;
 
             const detected = await objectDetection.detectObjects(image);
             const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase & Settings;
@@ -538,25 +540,24 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const occupancyRulesData: Record<string, OccupancyRuleData> = {};
             const zonesData = await this.getObserveZones();
 
-            zonesData.forEach(({ name }) => {
-                observeZonesClasses[name] = {};
-                detectionClassForObjectsReporting.forEach(className => {
-                    observeZonesClasses[name][className] = 0;
-                })
-            });
+            // zonesData.forEach(({ name }) => {
+            //     observeZonesClasses[name] = {};
+            //     detectionClassForObjectsReporting.forEach(className => {
+            //         observeZonesClasses[name][className] = 0;
+            //     })
+            // });
             detected.detections.forEach(detection => {
                 const className = detectionClassesDefaultMap[detection.className];
                 const boundingBoxInCoords = normalizeBoxToClipPath(detection.boundingBox, detected.inputDimensions);
                 const intersectedZones = zonesData.filter(zone => !!polygonClipping.intersection([boundingBoxInCoords], [zone.path]).length);
 
-                // TODO: Move this to a plugin configuration
-                if (detection.score >= 0.5) {
-                    intersectedZones.forEach(intersectedZone => {
-                        if (detectionClassForObjectsReporting.includes(className)) {
-                            observeZonesClasses[intersectedZone.name][className] += 1;
-                        }
-                    });
-                }
+                // if (detection.score >= scoreThreshold) {
+                //     intersectedZones.forEach(intersectedZone => {
+                //         if (detectionClassForObjectsReporting.includes(className)) {
+                //             observeZonesClasses[intersectedZone.name][className] += 1;
+                //         }
+                //     });
+                // }
 
                 for (const occupancyRule of this.occupancyRules) {
                     let matches = true;

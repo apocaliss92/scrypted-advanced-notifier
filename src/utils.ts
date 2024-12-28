@@ -468,6 +468,8 @@ export type MixinBaseSettingKey =
     | 'haActions'
     | typeof detectionRulesKey
     | typeof occupancyRulesKey
+    | 'objectOccupancyThreshold'
+    | 'objectDetectionDevice'
 
 export enum NotificationPriority {
     VeryLow = "VeryLow",
@@ -534,7 +536,28 @@ export const getMixinBaseSettings = (name: string, type: ScryptedDeviceType) => 
             defaultValue: [],
             choices: [],
         },
-        [occupancyRulesKey]: {
+    } as StorageSettingsDict<MixinBaseSettingKey>;
+
+    if (type === ScryptedDeviceType.Camera) {
+        settings['objectDetectionDevice'] = {
+            title: 'Object Detector',
+            group: occupancyRulesGroup,
+            description: 'Select the object detection plugin to use for detecting objects. (overrides the configuration in plugin)',
+            type: 'device',
+            deviceFilter: `interfaces.includes('ObjectDetectionPreview') && id !== '${nvrAcceleratedMotionSensorId}'`,
+            immediate: true,
+        };
+        settings['objectOccupancyThreshold'] = {
+            title: 'Score threshold',
+            type: 'number',
+            placeholder: '0.5',
+            defaultValue: 0.5,
+            group: occupancyRulesGroup,
+            description: 'Select the object detection plugin to use for detecting objects.',
+            deviceFilter: `interfaces.includes('ObjectDetectionPreview') && id !== '${nvrAcceleratedMotionSensorId}'`,
+            immediate: true,
+        };
+        settings[occupancyRulesKey] = {
             title: 'Rules',
             group: occupancyRulesGroup,
             type: 'string',
@@ -542,8 +565,8 @@ export const getMixinBaseSettings = (name: string, type: ScryptedDeviceType) => 
             combobox: true,
             defaultValue: [],
             choices: [],
-        }
-    };
+        };
+    }
 
     return settings;
 }
