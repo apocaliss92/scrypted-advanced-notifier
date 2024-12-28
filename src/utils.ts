@@ -18,6 +18,10 @@ export interface ObserveZoneData {
     path: Point[]
 };
 export type ObserveZoneClasses = Record<string, Partial<Record<DetectionClass, number>>>;
+export type OccupancyRuleData = {
+    rule: OccupancyRule;
+    occupies: boolean;
+};
 
 export const getElegibleDevices = () => {
     const allDevices = Object.keys(sdk.systemManager.getSystemState()).map(deviceId => sdk.systemManager.getDeviceById(deviceId) as unknown as DeviceInterface);
@@ -451,6 +455,9 @@ export const getTextSettings = (forMixin: boolean) => {
     return settings;
 }
 
+export const detectionRulesGroup = 'Advanced notifier detection rules';
+export const occupancyRulesGroup = 'Advanced notifier occupancy rules';
+
 export type MixinBaseSettingKey =
     | 'debug'
     | 'room'
@@ -460,6 +467,7 @@ export type MixinBaseSettingKey =
     | 'useNvrImages'
     | 'haActions'
     | typeof detectionRulesKey
+    | typeof occupancyRulesKey
 
 export enum NotificationPriority {
     VeryLow = "VeryLow",
@@ -519,7 +527,16 @@ export const getMixinBaseSettings = (name: string, type: ScryptedDeviceType) => 
         },
         [detectionRulesKey]: {
             title: 'Rules',
-            group: 'Advanced notifier detection rules',
+            group: detectionRulesGroup,
+            type: 'string',
+            multiple: true,
+            combobox: true,
+            defaultValue: [],
+            choices: [],
+        },
+        [occupancyRulesKey]: {
+            title: 'Rules',
+            group: occupancyRulesGroup,
             type: 'string',
             multiple: true,
             combobox: true,
@@ -545,9 +562,14 @@ export const isDeviceEnabled = async (deviceId: string, deviceSettings: Setting[
         mainPluginStorage: mainSettingsByKey,
     });
 
+    const { occupancyRules, skippedOccupancyRules } = getDeviceOccupancyRules({
+        deviceStorage: deviceSettingsByKey,
+        mainPluginStorage: mainSettingsByKey,
+    });
+
     const isPluginEnabled = mainSettingsByKey.pluginEnabled.value as boolean;
     const isMqttActive = mainSettingsByKey.mqttEnabled.value as boolean;
-    const isActiveForNotifications = isPluginEnabled && !!detectionRules.length;
+    const isActiveForNotifications = isPluginEnabled && (!!occupancyRules.length || !!detectionRules.length);
     const isActiveForNvrNotifications = isPluginEnabled && !!nvrRules.length;
     const isActiveForMqttReporting = isPluginEnabled && isMqttActive && (mainSettingsByKey.activeDevicesForReporting?.value as string || []).includes(deviceId);
 
@@ -559,7 +581,9 @@ export const isDeviceEnabled = async (deviceId: string, deviceSettings: Setting[
         detectionRules,
         skippedRules,
         nvrRules,
-        allDeviceRules
+        allDeviceRules,
+        skippedOccupancyRules,
+        occupancyRules,
     }
 }
 
@@ -659,6 +683,37 @@ export const getDetectionRuleKeys = (detectionRuleName: string) => {
     }
 }
 
+export const occupancyRulesKey = 'occupancyRules';
+
+export const getOccupancyRuleKeys = (detectionRuleName: string) => {
+    const enabledKey = `occupancyRule:${detectionRuleName}:enabled`;
+    const objectDetectorKey = `occupancyRule:${detectionRuleName}:objectDetector`;
+    const detecionClassKey = `occupancyRule:${detectionRuleName}:detecionClassKey`;
+    const scoreThresholdKey = `occupancyRule:${detectionRuleName}:scoreThreshold`;
+    const zoneKey = `occupancyRule:${detectionRuleName}:zone`;
+    const zoneMatchTypeKey = `occupancyRule:${detectionRuleName}:zoneMatchType`;
+    const zoneOccupiedTextKey = `occupancyRule:${detectionRuleName}:zoneOccupiedText`;
+    const zoneNotOccupiedTextKey = `occupancyRule:${detectionRuleName}:zoneNotOccupiedText`;
+    const notifiersKey = `occupancyRule:${detectionRuleName}:notifiers`;
+
+    return {
+        enabledKey,
+        objectDetectorKey,
+        detecionClassKey,
+        scoreThresholdKey,
+        zoneKey,
+        zoneOccupiedTextKey,
+        zoneNotOccupiedTextKey,
+        notifiersKey,
+        zoneMatchTypeKey,
+    }
+}
+
+export enum ZoneMatchType {
+    Intersect = 'Intersect',
+    Contain = 'Contain',
+}
+
 export const deviceFilter = `(interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && (type === '${ScryptedDeviceType.Camera}' || type === '${ScryptedDeviceType.Doorbell}' || type === '${ScryptedDeviceType.Sensor}' || type === '${ScryptedDeviceType.Lock}'))`;
 export const notifierFilter = `(type === '${ScryptedDeviceType.Notifier}' && interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}'))`;
 
@@ -673,7 +728,7 @@ export const getDetectionRulesSettings = async (props: {
     const { storage, zones, groupName, withDevices, withDetection, withNvrEvents } = props;
     const settings: Setting[] = [];
 
-    const currentDetectionRules = storage.getItem(detectionRulesKey);
+    const currentDetectionRules = storage.getItem(detectionRulesKey) ?? [];
     for (const detectionRuleName of currentDetectionRules) {
         const {
             enabledKey,
@@ -941,6 +996,121 @@ export const getDetectionRulesSettings = async (props: {
     return settings;
 }
 
+const nvrAcceleratedMotionSensorId = sdk.systemManager.getDeviceById('@scrypted/nvr', 'motion')?.id;
+
+export const getOccupancyRulesSettings = async (props: {
+    groupName: string,
+    storage: StorageSettings<any>,
+    zones?: string[],
+}) => {
+    const { storage, zones, groupName } = props;
+    const settings: Setting[] = [];
+
+    const currentOccupancyRules = storage.getItem(occupancyRulesKey) ?? [];
+    for (const occupancyRuleName of currentOccupancyRules) {
+        const {
+            enabledKey,
+            // objectDetectorKey,
+            scoreThresholdKey,
+            zoneKey,
+            detecionClassKey,
+            notifiersKey,
+            zoneNotOccupiedTextKey,
+            zoneOccupiedTextKey,
+            zoneMatchTypeKey,
+        } = getOccupancyRuleKeys(occupancyRuleName);
+
+        settings.push(
+            {
+                key: enabledKey,
+                title: 'Enabled',
+                type: 'boolean',
+                group: groupName,
+                subgroup: occupancyRuleName,
+                value: storage.getItem(enabledKey as any) as boolean ?? true,
+                immediate: true,
+            },
+            // TODO: Enabled this later one, will need to think about performance. Maybe not worth it to have
+            // {
+            //     key: objectDetectorKey,
+            //     title: 'Object Detector',
+            //     group: groupName,
+            //     subgroup: occupancyRuleName,
+            //     description: 'Select the object detection plugin to use for detecting objects.',
+            //     type: 'device',
+            //     deviceFilter: `interfaces.includes('ObjectDetectionPreview') && id !== '${nvrAcceleratedMotionSensorId}'`,
+            //     immediate: true,
+            //     value: storage.getItem(objectDetectorKey)
+            // },
+            {
+                key: detecionClassKey,
+                title: 'Detection class',
+                group: groupName,
+                subgroup: occupancyRuleName,
+                choices: defaultDetectionClasses,
+                value: storage.getItem(detecionClassKey),
+            },
+            {
+                key: zoneKey,
+                title: 'Observe zone',
+                group: groupName,
+                subgroup: occupancyRuleName,
+                choices: zones,
+                value: storage.getItem(zoneKey),
+                readonly: !zones.length
+            },
+            {
+                key: zoneMatchTypeKey,
+                title: 'Zone type',
+                group: groupName,
+                subgroup: occupancyRuleName,
+                choices: Object.values(ZoneMatchType),
+                value: storage.getItem(zoneMatchTypeKey) ?? ZoneMatchType.Intersect,
+            },
+            {
+                key: scoreThresholdKey,
+                title: 'Score threshold',
+                group: groupName,
+                subgroup: occupancyRuleName,
+                type: 'number',
+                placeholder: '0.7',
+                value: storage.getItem(scoreThresholdKey as any) as string
+            },
+            {
+                key: zoneOccupiedTextKey,
+                title: 'Zone occupied text',
+                description: 'Text to use for the notification when the rule gets activated (zone occupied)',
+                group: groupName,
+                subgroup: occupancyRuleName,
+                value: storage.getItem(zoneOccupiedTextKey),
+                type: 'string',
+            },
+            {
+                key: zoneNotOccupiedTextKey,
+                title: 'Zone not occupied text',
+                description: 'Text to use for the notification when the rule gets deactivated (zone not occupied)',
+                group: groupName,
+                subgroup: occupancyRuleName,
+                value: storage.getItem(zoneNotOccupiedTextKey),
+                type: 'string',
+            },
+            {
+                key: notifiersKey,
+                title: 'Notifiers',
+                group: groupName,
+                subgroup: occupancyRuleName,
+                type: 'device',
+                multiple: true,
+                combobox: true,
+                deviceFilter: notifierFilter,
+                value: JSON.parse(storage.getItem(notifiersKey as any) as string ?? '[]')
+            },
+        );
+    };
+
+    return settings;
+}
+
 export enum DetectionRuleSource {
     Plugin = 'Plugin',
     Device = 'Device',
@@ -1173,6 +1343,86 @@ export const getDeviceRules = (
     }
 
     return { detectionRules, skippedRules, nvrRules, allPluginRules, allDeviceRules };
+}
+
+export interface OccupancyRule {
+    name: string
+    notifiers: string[];
+    objectDetector: string;
+    detectionClass?: DetectionClass;
+    scoreThreshold?: number;
+    observeZone?: string;
+    zoneOccupiedText?: string;
+    zoneNotOccupiedText: string;
+    zoneType: ZoneMatchType;
+}
+
+export const getDeviceOccupancyRules = (
+    props: {
+        mainPluginStorage?: Record<string, StorageSetting>,
+        deviceStorage?: Record<string, StorageSetting>,
+    }
+) => {
+    const { deviceStorage, mainPluginStorage } = props;
+    const occupancyRules: OccupancyRule[] = [];
+    const skippedOccupancyRules: OccupancyRule[] = [];
+
+    const activeNotifiers = mainPluginStorage['notifiers']?.value as string[] ?? [];
+
+    const occupancyRuleNames = deviceStorage[occupancyRulesKey]?.value as string[] ??
+        deviceStorage[`homeassistantMetadata:${occupancyRulesKey}`]?.value as string[] ??
+        [];
+
+    for (const occupancyRuleName of occupancyRuleNames) {
+        const {
+            detecionClassKey,
+            enabledKey,
+            notifiersKey,
+            zoneKey,
+            objectDetectorKey,
+            scoreThresholdKey,
+            zoneNotOccupiedTextKey,
+            zoneOccupiedTextKey,
+            zoneMatchTypeKey,
+        } = getOccupancyRuleKeys(occupancyRuleName);
+
+        const isEnabled = JSON.parse(deviceStorage[enabledKey]?.value as string ?? 'false');
+
+        const notifiers = deviceStorage[notifiersKey]?.value as string[] ?? [];
+        const notifiersTouse = notifiers.filter(notifierId => activeNotifiers.includes(notifierId));
+
+        const zoneOccupiedText = deviceStorage[zoneOccupiedTextKey]?.value as string || undefined;
+        const zoneNotOccupiedText = deviceStorage[zoneNotOccupiedTextKey]?.value as string || undefined;
+        const objectDetector = deviceStorage[objectDetectorKey]?.value as string;
+        const detectionClass = deviceStorage[detecionClassKey]?.value as DetectionClass;
+        const scoreThreshold = Number(deviceStorage[scoreThresholdKey]?.value || 0.7);
+        const observeZone = deviceStorage[zoneKey]?.value as string;
+        const zoneMatchType = deviceStorage[zoneMatchTypeKey]?.value as ZoneMatchType ?? ZoneMatchType.Intersect;
+
+        const occupancyRule: OccupancyRule = {
+            name: occupancyRuleName,
+            notifiers: notifiersTouse,
+            objectDetector,
+            zoneNotOccupiedText,
+            zoneOccupiedText,
+            detectionClass,
+            observeZone,
+            scoreThreshold,
+            zoneType: zoneMatchType,
+        };
+
+        const ruleAllowed = isEnabled && !!detectionClass && !!observeZone;
+        // const ruleAllowed = isEnabled && !!detectionClass && !!observeZone && !!objectDetector;
+
+        if (!ruleAllowed) {
+            skippedOccupancyRules.push(occupancyRule);
+        } else {
+            occupancyRules.push(occupancyRule);
+        }
+
+    }
+
+    return { occupancyRules, skippedOccupancyRules };
 }
 
 export const addBoundingToImage = async (boundingBox: number[], imageBuffer: Buffer, console: Console, label: string) => {

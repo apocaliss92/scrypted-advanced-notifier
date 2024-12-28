@@ -1,10 +1,10 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ObjectDetection, Point } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DetectionRule, DetectionRuleSource, enabledRegex, EventType, filterAndSortValidDetections, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, getWebookUrls, isDeviceEnabled, normalizeBoxToClipPath, ObserveZoneClasses, ObserveZoneData } from "./utils";
+import { DetectionRule, detectionRulesGroup, DetectionRuleSource, enabledRegex, EventType, filterAndSortValidDetections, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getWebookUrls, isDeviceEnabled, normalizeBoxToClipPath, ObserveZoneClasses, ObserveZoneData, OccupancyRule, OccupancyRuleData, occupancyRulesGroup, ZoneMatchType } from "./utils";
 import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
-import { detectionClassForObjectsReporting, discoverDetectionRules, getDetectionRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
+import { detectionClassForObjectsReporting, discoverDetectionRules, discoverOccupancyRules, getDetectionRuleId, getOccupancyRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import polygonClipping from 'polygon-clipping';
 
 const { systemManager } = sdk;
@@ -77,9 +77,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     killed: boolean;
     nvrEnabled: boolean = true;
     nvrMixinId: string;
+    occupancyRules: OccupancyRule[];
     detectionRules: DetectionRule[];
     nvrDetectionRules: DetectionRule[];
     rulesDiscovered: string[] = [];
+    occupancyRulesDiscovered: string[] = [];
     detectionClassListeners: Record<string, {
         motionTimeout: NodeJS.Timeout;
         motionListener: EventListenerRegister
@@ -130,11 +132,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     isActiveForNotifications,
                     isActiveForNvrNotifications,
                     allDeviceRules,
+                    occupancyRules,
+                    skippedOccupancyRules,
                 } = await isDeviceEnabled(this.id, deviceSettings, this.plugin);
 
-                logger.debug(`Detected rules: ${JSON.stringify({ detectionRules, skippedRules })}`);
+                logger.debug(`Detected rules: ${JSON.stringify({ detectionRules, skippedRules, occupancyRules, skippedOccupancyRules })}`);
                 this.detectionRules = detectionRules;
                 this.nvrDetectionRules = nvrRules;
+                this.occupancyRules = occupancyRules;
 
                 this.isActiveForNotifications = isActiveForNotifications;
                 this.isActiveForMqttReporting = isActiveForMqttReporting;
@@ -180,6 +185,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         if (missingRules.length) {
                             await discoverDetectionRules({ mqttClient, console: logger, device, rules: missingRules });
                             this.rulesDiscovered.push(...missingRules.map(rule => getDetectionRuleId(rule)))
+                        }
+
+                        const missingOccupancyRules = occupancyRules.filter(rule => !this.occupancyRulesDiscovered.includes(getOccupancyRuleId(rule)));
+                        if (missingOccupancyRules.length) {
+                            await discoverOccupancyRules({ mqttClient, console: logger, device, rules: missingOccupancyRules });
+                            this.occupancyRulesDiscovered.push(...missingOccupancyRules.map(rule => getOccupancyRuleId(rule)))
                         }
                     }
                     const settings = await this.mixinDevice.getSettings();
@@ -306,14 +317,22 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             this.storageSettings.settings.lastSnapshotWebhookLocalUrl.hide = !lastSnapshotWebhook;
 
             const settings: Setting[] = await this.storageSettings.getSettings();
+            const zones = (await this.getObserveZones()).map(item => item.name);
 
             const detectionRulesSettings = await getDetectionRulesSettings({
                 storage: this.storageSettings,
-                zones: (await this.getObserveZones()).map(item => item.name),
-                groupName: 'Advanced notifier detection rules',
+                zones,
+                groupName: detectionRulesGroup,
                 withDetection: true,
             });
             settings.push(...detectionRulesSettings);
+
+            const occupancyRulesSettings = await getOccupancyRulesSettings({
+                storage: this.storageSettings,
+                zones,
+                groupName: occupancyRulesGroup,
+            });
+            settings.push(...occupancyRulesSettings);
 
             return settings;
         } catch (e) {
@@ -516,6 +535,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const mqttClient = await this.plugin.getMqttClient();
 
             const observeZonesClasses: ObserveZoneClasses = {};
+            const occupancyRulesData: Record<string, OccupancyRuleData> = {};
             const zonesData = await this.getObserveZones();
 
             zonesData.forEach(({ name }) => {
@@ -524,37 +544,59 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     observeZonesClasses[name][className] = 0;
                 })
             });
-            let someMatch = false;
-
-            detected.detections.filter(detection => detection.score >= 0.7).forEach(detection => {
+            detected.detections.forEach(detection => {
+                const className = detectionClassesDefaultMap[detection.className];
                 const boundingBoxInCoords = normalizeBoxToClipPath(detection.boundingBox, detected.inputDimensions);
                 const intersectedZones = zonesData.filter(zone => !!polygonClipping.intersection([boundingBoxInCoords], [zone.path]).length);
-                if (intersectedZones.length) {
-                    someMatch = true;
+
+                // TODO: Move this to a plugin configuration
+                if (detection.score >= 0.5) {
+                    intersectedZones.forEach(intersectedZone => {
+                        if (detectionClassForObjectsReporting.includes(className)) {
+                            observeZonesClasses[intersectedZone.name][className] += 1;
+                        }
+                    });
                 }
 
-                intersectedZones.forEach(intersectedZone => {
-                    const className = detectionClassesDefaultMap[detection.className];
-                    if (detectionClassForObjectsReporting.includes(className)) {
-                        observeZonesClasses[intersectedZone.name][className] += 1;
-                    }
-                })
-            });
+                for (const occupancyRule of this.occupancyRules) {
+                    let matches = true;
+                    const { name, zoneType, observeZone, scoreThreshold, detectionClass } = occupancyRule;
+                    if (detection.score >= scoreThreshold && detectionClass === className) {
+                        const zone = zonesData.find(zoneData => zoneData.name === observeZone);
+                        let zoneMatches = false;
 
-            if (someMatch) {
-                logger.log(`Some matches found for ${JSON.stringify({
-                    detected,
-                    zonesData,
-                    observeZonesClasses,
-                })}`);
-            }
+                        if (zoneType === ZoneMatchType.Intersect) {
+                            zoneMatches = !!polygonClipping.intersection([boundingBoxInCoords], [zone.path]).length;
+                        } else {
+                            zoneMatches = zone.path.some(point => !polygonClipping.intersection([boundingBoxInCoords], [[point, [point[0] + 1, point[1]], [point[0] + 1, point[1] + 1]]]).length);
+                        }
+
+                        if (!zoneMatches) {
+                            matches = false
+                        }
+                    } else {
+                        matches = true;
+                    }
+
+                    const existingRule = occupancyRulesData[name];
+                    if (!existingRule) {
+                        occupancyRulesData[name] = {
+                            rule: occupancyRule,
+                            occupies: matches
+                        }
+                    } else if (!existingRule.occupies && matches) {
+                        existingRule.occupies = true;
+                    }
+                }
+            });
 
             await publishOccupancy({
                 console: logger,
                 device,
                 mqttClient,
                 objectsDetected: detected,
-                observeZonesClasses
+                observeZonesClasses,
+                occupancyRulesData: Object.values(occupancyRulesData)
             });
         }
         catch (e) {
