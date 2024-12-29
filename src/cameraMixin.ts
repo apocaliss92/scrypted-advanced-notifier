@@ -1,7 +1,7 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ObjectDetection, Point } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DetectionRule, detectionRulesGroup, DetectionRuleSource, enabledRegex, EventType, filterAndSortValidDetections, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getWebookUrls, isDeviceEnabled, normalizeBoxToClipPath, ObserveZoneClasses, ObserveZoneData, OccupancyRule, OccupancyRuleData, occupancyRulesGroup, ZoneMatchType } from "./utils";
+import { DetectionRule, detectionRulesGroup, DetectionRuleSource, DeviceInterface, enabledRegex, EventType, filterAndSortValidDetections, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getWebookUrls, isDeviceEnabled, normalizeBoxToClipPath, ObserveZoneClasses, ObserveZoneData, OccupancyRule, OccupancyRuleData, occupancyRulesGroup, ZoneMatchType } from "./utils";
 import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { detectionClassForObjectsReporting, discoverDetectionRules, discoverOccupancyRules, getDetectionRuleId, getOccupancyRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
@@ -61,6 +61,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             type: 'string',
             title: 'Local URL',
             readonly: true,
+        },
+        lastOccupancyResult: {
+            json: true,
+            hide: true,
         }
     });
 
@@ -89,6 +93,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     lastPictureTaken: number;
     lastFrameAnalysis: number;
     observeZoneData: ObserveZoneData[];
+    lastOccupancyResult: Record<string, { lastOccupancy: boolean, lastChange: number }> = {};
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -115,6 +120,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.startCheckInterval().then().catch(this.console.log);
 
         this.plugin.currentMixinsMap[this.name] = this;
+
+        this.console.log('FOUND LAST OCCUPANCY RESULT', this.storageSettings.values.lastOccupancyResult);
+        this.lastOccupancyResult = JSON.parse(this.storageSettings.values.lastOccupancyResult ?? '{}');
     }
 
     async startCheckInterval() {
@@ -521,23 +529,28 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
+    async notifyOccupancy(props: {
+        notifiers: string[],
+        text: string,
+    }) { }
+
     async checkOccupancyData(image: MediaObject) {
         try {
             const logger = this.getLogger();
+            const now = new Date().getTime();
             const objectDetection: ObjectDetection = this.storageSettings.values.objectDetectionDevice ??
                 this.plugin.storageSettings.values.objectDetectionDevice;
             if (!objectDetection) {
                 logger.log('No detection plugin selected');
                 return;
             }
-            const scoreThreshold = this.storageSettings.values.objectOccupancyThreshold ?? 0.5;
 
             const detected = await objectDetection.detectObjects(image);
-            const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase & Settings;
+            const device = systemManager.getDeviceById<DeviceInterface>(this.id);
             const mqttClient = await this.plugin.getMqttClient();
 
             const observeZonesClasses: ObserveZoneClasses = {};
-            const occupancyRulesData: Record<string, OccupancyRuleData> = {};
+            const occupancyRulesDataMap: Record<string, OccupancyRuleData> = {};
             const zonesData = await this.getObserveZones();
 
             // zonesData.forEach(({ name }) => {
@@ -546,6 +559,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             //         observeZonesClasses[name][className] = 0;
             //     })
             // });
+            // const scoreThreshold = this.storageSettings.values.objectOccupancyThreshold ?? 0.5;
             detected.detections.forEach(detection => {
                 const className = detectionClassesDefaultMap[detection.className];
                 const boundingBoxInCoords = normalizeBoxToClipPath(detection.boundingBox, detected.inputDimensions);
@@ -579,9 +593,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         matches = true;
                     }
 
-                    const existingRule = occupancyRulesData[name];
+                    const existingRule = occupancyRulesDataMap[name];
                     if (!existingRule) {
-                        occupancyRulesData[name] = {
+                        occupancyRulesDataMap[name] = {
                             rule: occupancyRule,
                             occupies: matches
                         }
@@ -591,14 +605,68 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
             });
 
+            const occupancyRulesData: OccupancyRuleData[] = [];
+            Object.values(occupancyRulesDataMap).forEach(occupancyRuleData => {
+                const { changeStateConfirm = 30, name } = occupancyRuleData.rule;
+                const lastResult = this.lastOccupancyResult[occupancyRuleData.rule.name];
+                const stateChanged = lastResult?.lastOccupancy !== occupancyRuleData.occupies;
+                const timeoutOk = (now - (lastResult?.lastChange ?? 0)) >= 1000 * changeStateConfirm;
+
+                const shouldUpdate = !lastResult ||
+                    (
+                        stateChanged && timeoutOk
+                    )
+
+                if (shouldUpdate) {
+                    occupancyRulesData.push(occupancyRuleData);
+                    this.lastOccupancyResult[name] = {
+                        lastChange: now,
+                        lastOccupancy: occupancyRuleData.occupies
+                    };
+                    // TODO: Send notification here
+                    logger.log(`Updating rule ${occupancyRuleData.rule.name}: ${JSON.stringify({
+                        stateChanged,
+                        timeoutOk,
+                        occupancyRuleData,
+                        lastResult,
+                    })}`);
+                } else {
+                    logger.log(`Not updating rule ${occupancyRuleData.rule.name}: ${JSON.stringify({
+                        stateChanged,
+                        timeoutOk,
+                        occupancyRuleData,
+                        lastResult,
+                    })}`);
+                }
+            });
+
+            await this.storageSettings.putSetting('lastOccupancyResult', JSON.stringify(this.lastOccupancyResult));
+
             await publishOccupancy({
                 console: logger,
                 device,
                 mqttClient,
                 objectsDetected: detected,
                 observeZonesClasses,
-                occupancyRulesData: Object.values(occupancyRulesData)
+                occupancyRulesData
             });
+
+            for (const occupancyRuleData of occupancyRulesData) {
+                const rule = occupancyRuleData.rule;
+                const message = occupancyRuleData.occupies ?
+                    rule.zoneOccupiedText :
+                    rule.zoneNotOccupiedText;
+
+                if (message) {
+                    await this.plugin.notifyOccupancyEvent({
+                        cameraDevice: device,
+                        message,
+                        rule,
+                        triggerTime: now,
+                        image
+                    });
+                }
+            }
         }
         catch (e) {
             this.console.error('Error in checkOccupancyData', e);

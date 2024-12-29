@@ -2,7 +2,7 @@ import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpR
 import axios from "axios";
 import { isEqual, keyBy, sortBy, uniq } from 'lodash';
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, parseNvrNotificationMessage, NotificationPriority, getFolderPaths, getDeviceRules, NvrEvent, ParseNotificationMessageResult, getPushoverPriority, getDetectionRuleKeys, enabledRegex } from "./utils";
+import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, parseNvrNotificationMessage, NotificationPriority, getFolderPaths, getDeviceRules, NvrEvent, ParseNotificationMessageResult, getPushoverPriority, getDetectionRuleKeys, enabledRegex, OccupancyRule } from "./utils";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
@@ -639,6 +639,55 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         return undefined;
     }
 
+    async notifyOccupancyEvent(props: {
+        cameraDevice: DeviceInterface,
+        triggerTime: number,
+        message: string,
+        rule: OccupancyRule,
+        image: MediaObject
+    }) {
+        const { cameraDevice, rule, message, triggerTime, image } = props;
+        const logger = this.getLogger();
+
+        const notifyCameraProps: Partial<NotifyCameraProps> = {
+            cameraDevice,
+            time: triggerTime,
+            source: NotificationSource.NVR,
+            logger,
+        }
+
+        for (const notifierId of rule.notifiers) {
+            const notifier = systemManager.getDeviceById(notifierId) as unknown as Notifier & DeviceInterface;
+            const notifierSettings = await notifier.getSettings();
+            notifyCameraProps.notifierId = notifierId;
+            notifyCameraProps.notifierSettings = notifierSettings;
+            const deviceSettings = await cameraDevice.getSettings();
+
+            const notifierData = await this.getNotifierData({
+                device: cameraDevice,
+                deviceSettings,
+                notifier,
+                triggerTime,
+                rule,
+            });
+
+            const notifierOptions: NotifierOptions = {
+                body: message,
+                data: notifierData
+            }
+
+            const title = cameraDevice.name;
+
+            logger.log(`Finally sending Occupancy event notification ${triggerTime} to ${notifier.name}. ${JSON.stringify({
+                notifierOptions,
+                title,
+                message,
+            })}`);
+
+            await notifier.sendNotification(title, notifierOptions, image, undefined);
+        }
+    }
+
     async notifyNvrEvent(props: ParseNotificationMessageResult & { cameraDevice: DeviceInterface, triggerTime: number }) {
         const { eventType, textKey, triggerDevice, cameraDevice, triggerTime, label } = props;
         const logger = this.getLogger();
@@ -930,7 +979,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     async getNotifierData(props: {
         notifier: DeviceBase,
-        rule?: DetectionRule
+        rule?: DetectionRule | OccupancyRule,
         deviceSettings: Setting[],
         device: DeviceBase,
         triggerTime: number,

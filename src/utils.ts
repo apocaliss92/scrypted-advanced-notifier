@@ -667,7 +667,6 @@ export const getDetectionRuleKeys = (detectionRuleName: string) => {
     const useNvrDetectionsKey = `rule:${detectionRuleName}:useNvrDetections`;
     const activationKey = `rule:${detectionRuleName}:activation`;
     const textKey = `rule:${detectionRuleName}:text`;
-    const priorityKey = `rule:${detectionRuleName}:priority`;
     const detecionClassesKey = `rule:${detectionRuleName}:detecionClasses`;
     const nvrEventsKey = `rule:${detectionRuleName}:nvrEvents`;
     const scoreThresholdKey = `rule:${detectionRuleName}:scoreThreshold`;
@@ -681,6 +680,7 @@ export const getDetectionRuleKeys = (detectionRuleName: string) => {
     const startTimeKey = `rule:${detectionRuleName}:startTime`;
     const endTimeKey = `rule:${detectionRuleName}:endTime`;
     const actionsKey = `rule:${detectionRuleName}:haActions`;
+    const priorityKey = `rule:${detectionRuleName}:priority`;
     const securitySystemModesKey = `rule:${detectionRuleName}:securitySystemModes`;
 
     return {
@@ -718,6 +718,9 @@ export const getOccupancyRuleKeys = (detectionRuleName: string) => {
     const zoneOccupiedTextKey = `occupancyRule:${detectionRuleName}:zoneOccupiedText`;
     const zoneNotOccupiedTextKey = `occupancyRule:${detectionRuleName}:zoneNotOccupiedText`;
     const notifiersKey = `occupancyRule:${detectionRuleName}:notifiers`;
+    const changeStateConfirmKey = `occupancyRule:${detectionRuleName}:changeStateConfirm`;
+    const actionsKey = `occupancyRule:${detectionRuleName}:haActions`;
+    const priorityKey = `occupancyRule:${detectionRuleName}:priority`;
 
     return {
         enabledKey,
@@ -729,6 +732,9 @@ export const getOccupancyRuleKeys = (detectionRuleName: string) => {
         zoneNotOccupiedTextKey,
         notifiersKey,
         zoneMatchTypeKey,
+        changeStateConfirmKey,
+        actionsKey,
+        priorityKey,
     }
 }
 
@@ -1041,6 +1047,9 @@ export const getOccupancyRulesSettings = async (props: {
             zoneNotOccupiedTextKey,
             zoneOccupiedTextKey,
             zoneMatchTypeKey,
+            changeStateConfirmKey,
+            actionsKey,
+            priorityKey
         } = getOccupancyRuleKeys(occupancyRuleName);
 
         settings.push(
@@ -1100,6 +1109,16 @@ export const getOccupancyRulesSettings = async (props: {
                 value: storage.getItem(scoreThresholdKey as any) as string
             },
             {
+                key: changeStateConfirmKey,
+                title: 'Occupancy confirmation',
+                description: 'Seconds to wait until an occupancy state change gets confirmed',
+                group: groupName,
+                subgroup: occupancyRuleName,
+                type: 'number',
+                placeholder: '30',
+                value: storage.getItem(changeStateConfirmKey as any) as number
+            },
+            {
                 key: zoneOccupiedTextKey,
                 title: 'Zone occupied text',
                 description: 'Text to use for the notification when the rule gets activated (zone occupied)',
@@ -1127,6 +1146,27 @@ export const getOccupancyRulesSettings = async (props: {
                 combobox: true,
                 deviceFilter: notifierFilter,
                 value: JSON.parse(storage.getItem(notifiersKey as any) as string ?? '[]')
+            },
+            {
+                key: priorityKey,
+                type: 'string',
+                title: 'Pushover priority',
+                group: groupName,
+                subgroup: occupancyRuleName,
+                choices: [NotificationPriority.VeryLow, NotificationPriority.Low, NotificationPriority.Normal, NotificationPriority.High],
+                value: storage.getItem(priorityKey as any) as DetectionRuleActivation ?? NotificationPriority.Normal,
+                immediate: true,
+                combobox: true
+            },
+            {
+                key: actionsKey,
+                title: 'Homeassistant Actions',
+                description: 'Actions to show on the notification, i.e. {"action":"open_door","title":"Open door","icon":"sfsymbols:door"}',
+                type: 'string',
+                multiple: true,
+                group: groupName,
+                subgroup: occupancyRuleName,
+                value: JSON.parse(storage.getItem(actionsKey as any) as string ?? '[]'),
             },
         );
     };
@@ -1374,10 +1414,13 @@ export interface OccupancyRule {
     objectDetector: string;
     detectionClass?: DetectionClass;
     scoreThreshold?: number;
+    changeStateConfirm?: number;
     observeZone?: string;
     zoneOccupiedText?: string;
     zoneNotOccupiedText: string;
     zoneType: ZoneMatchType;
+    priority: NotificationPriority;
+    actions?: string[];
 }
 
 export const getDeviceOccupancyRules = (
@@ -1407,6 +1450,9 @@ export const getDeviceOccupancyRules = (
             zoneNotOccupiedTextKey,
             zoneOccupiedTextKey,
             zoneMatchTypeKey,
+            changeStateConfirmKey,
+            actionsKey,
+            priorityKey
         } = getOccupancyRuleKeys(occupancyRuleName);
 
         const isEnabled = JSON.parse(deviceStorage[enabledKey]?.value as string ?? 'false');
@@ -1419,8 +1465,11 @@ export const getDeviceOccupancyRules = (
         const objectDetector = deviceStorage[objectDetectorKey]?.value as string;
         const detectionClass = deviceStorage[detecionClassKey]?.value as DetectionClass;
         const scoreThreshold = Number(deviceStorage[scoreThresholdKey]?.value || 0.7);
+        const changeStateConfirm = Number(deviceStorage[changeStateConfirmKey]?.value || 30);
         const observeZone = deviceStorage[zoneKey]?.value as string;
         const zoneMatchType = deviceStorage[zoneMatchTypeKey]?.value as ZoneMatchType ?? ZoneMatchType.Intersect;
+        const priority = deviceStorage[priorityKey]?.value as NotificationPriority;
+        const actions = deviceStorage[actionsKey]?.value as string[];
 
         const occupancyRule: OccupancyRule = {
             name: occupancyRuleName,
@@ -1431,7 +1480,10 @@ export const getDeviceOccupancyRules = (
             detectionClass,
             observeZone,
             scoreThreshold,
+            changeStateConfirm,
             zoneType: zoneMatchType,
+            priority,
+            actions,
         };
 
         const ruleAllowed = isEnabled && !!detectionClass && !!observeZone;
