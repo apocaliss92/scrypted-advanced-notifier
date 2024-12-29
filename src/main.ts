@@ -643,7 +643,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { eventType, textKey, triggerDevice, cameraDevice, triggerTime, label } = props;
         const logger = this.getLogger();
         const rules = this.nvrRules.filter(rule => rule.nvrEvents.includes(eventType as NvrEvent));
-        const notifiers = uniq(rules.flatMap(rule => rule.notifiers));
 
         const notifyCameraProps: Partial<NotifyCameraProps> = {
             triggerDevice,
@@ -662,46 +661,48 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             } as ObjectDetectionResult
         }
 
-        for (const notifierId of notifiers) {
-            const notifier = systemManager.getDeviceById(notifierId) as unknown as Notifier & DeviceInterface;
-            const notifierSettings = await notifier.getSettings();
-            notifyCameraProps.notifierId = notifierId;
-            notifyCameraProps.notifierSettings = notifierSettings;
-            const deviceSettings = await cameraDevice.getSettings();
+        for (const rule of rules) {
+            const notifiers = rule.notifiers
+            for (const notifierId of notifiers) {
+                const notifier = systemManager.getDeviceById(notifierId) as unknown as Notifier & DeviceInterface;
+                const notifierSettings = await notifier.getSettings();
+                notifyCameraProps.notifierId = notifierId;
+                notifyCameraProps.notifierSettings = notifierSettings;
+                const deviceSettings = await cameraDevice.getSettings();
 
-            const message = await this.getNotificationText({
-                detection: notifyCameraProps.detection,
-                detectionTime: triggerTime,
-                notifierId,
-                textKey,
-                device: triggerDevice,
-                notifierSettings,
-                externalUrl,
-            });
+                const message = await this.getNotificationText({
+                    detection: notifyCameraProps.detection,
+                    detectionTime: triggerTime,
+                    notifierId,
+                    textKey,
+                    device: triggerDevice,
+                    notifierSettings,
+                    externalUrl,
+                });
 
-            const notifierData = await this.getNotifierData({
-                device: cameraDevice,
-                deviceSettings,
-                notifier,
-                triggerTime,
-                rule: rules[0]
-            });
+                const notifierData = await this.getNotifierData({
+                    device: cameraDevice,
+                    deviceSettings,
+                    notifier,
+                    triggerTime,
+                    rule,
+                });
 
-            const notifierOptions: NotifierOptions = {
-                body: message,
-                data: notifierData
+                const notifierOptions: NotifierOptions = {
+                    body: message,
+                    data: notifierData
+                }
+
+                const title = cameraDevice.name;
+
+                logger.log(`Finally sending Nvr event notification ${triggerTime} to ${notifier.name}. ${JSON.stringify({
+                    notifierOptions,
+                    title,
+                    message,
+                })}`);
+
+                await notifier.sendNotification(title, notifierOptions, undefined, undefined);
             }
-
-            const title = cameraDevice.name;
-
-            logger.log(`Finally sending Nvr event notification ${triggerTime} to ${notifier.name}. ${JSON.stringify({
-                notifierOptions,
-                title,
-                message,
-            })}`);
-
-            await notifier.sendNotification(title, notifierOptions, undefined, undefined);
-
         }
     }
 
