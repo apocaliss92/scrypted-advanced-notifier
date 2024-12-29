@@ -121,7 +121,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         this.plugin.currentMixinsMap[this.name] = this;
 
-        this.console.log('FOUND LAST OCCUPANCY RESULT', this.storageSettings.values.lastOccupancyResult);
         this.lastOccupancyResult = JSON.parse(this.storageSettings.values.lastOccupancyResult ?? '{}');
     }
 
