@@ -9,7 +9,7 @@ const { systemManager } = sdk;
 
 export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> implements Settings {
     storageSettings = new StorageSettings(this, {
-        ...getMixinBaseSettings(this.name, this.type),
+        ...getMixinBaseSettings(this.name, false),
         minDelayTime: {
             subgroup: 'Notifier',
             title: 'Minimum notification delay',

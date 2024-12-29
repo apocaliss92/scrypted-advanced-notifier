@@ -15,7 +15,7 @@ interface MatchRule { match: ObjectDetectionResult, rule: DetectionRule, dataToR
 
 export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> implements Settings {
     storageSettings = new StorageSettings(this, {
-        ...getMixinBaseSettings(this.name, this.type),
+        ...getMixinBaseSettings(this.name, true),
         minDelayTime: {
             subgroup: 'Notifier',
             title: 'Minimum notification delay',
@@ -121,7 +121,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         this.plugin.currentMixinsMap[this.name] = this;
 
-        this.lastOccupancyResult = JSON.parse(this.storageSettings.values.lastOccupancyResult ?? '{}');
+        this.lastOccupancyResult = this.storageSettings.values.lastOccupancyResult ?? {};
     }
 
     async startCheckInterval() {

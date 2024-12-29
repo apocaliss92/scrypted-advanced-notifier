@@ -478,7 +478,7 @@ export enum NotificationPriority {
     High = "High"
 }
 
-export const getMixinBaseSettings = (name: string, type: ScryptedDeviceType) => {
+export const getMixinBaseSettings = (name: string, withOccupancy: boolean) => {
     const settings: StorageSettingsDict<MixinBaseSettingKey> = {
         debug: {
             title: 'Log debug messages',
@@ -538,7 +538,7 @@ export const getMixinBaseSettings = (name: string, type: ScryptedDeviceType) => 
         },
     } as StorageSettingsDict<MixinBaseSettingKey>;
 
-    if (type === ScryptedDeviceType.Camera) {
+    if (withOccupancy) {
         settings['objectDetectionDevice'] = {
             title: 'Object Detector',
             group: occupancyRulesGroup,
