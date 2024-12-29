@@ -42,6 +42,25 @@ The same detection rules can be defined on each camera level with some additiona
 - `Whitelisted zones`: Only detections on these zones will trigger a notification
 - `Blacklisted zones`: Detections on these zones will be ignored
 
+## Occupancy rules
+Similar concept applied to occupancy, a combination of observe zone + detection class can be set to check if the zone is occupied or not
+### General configurations
+- `Object detector`: Plugin to use to execute the object detection (Overrides the setting specified in the plugin section)
+- `Score threshold`: minimum score to trigger the occupancy in bulk (not used for now)
+
+### Rule configurations
+- `Enabled`: Enable or disable the rule (On homeassistant will be available a switch to enable/disable each rule)
+- `Detection class`: Detection class to match in the zone
+- `Observe zone`: Zone of type 'Observe' that will be matched
+- `Zone type`: Intersect if the match can happen on any intersection, Contain if the detection must happen completely inside the zone
+- `Score threshold`: minimum score to trigger the occupancy
+- `Occupancy confirmation`: minimum amount of seconds to wait if the state should be updated. This should avoid some false positives
+- `Zone occupied text`: Text that will be notified when the zone gets occupied
+- `Zone not occupied text`: Text that will be notified when the zone becomes free
+- `Notifiers`: notifiers to notify
+- `Priority`: Priority of the notification, will have effect only for pushover
+- `Actions`: actions that will be shown on the notification. Rendering will vary depending on the notifier. For HA will be an actionable notification, for pushover will be additional links in the text. Both of them require homeassistant to work, the same event will be triggered with the specified action type
+
 ## Test
 A test notification can be send with the specified settings
 
@@ -65,7 +84,6 @@ Simple webooks to retrieve information, only the last snapshot is for now availa
 
 ## What's next
 * Add boundary box on detected object (really struggling :D)
-* Notification snoozing
 * Add more test suits to emulate a detection on specific conditions
 * Setup a timeframe where all the notifications are kept and release as a GIF at the end (I saw a comment from an user on discord and I found it a great idea!)
  * ...
