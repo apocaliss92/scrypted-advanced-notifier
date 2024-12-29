@@ -642,7 +642,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     async notifyNvrEvent(props: ParseNotificationMessageResult & { cameraDevice: DeviceInterface, triggerTime: number }) {
         const { eventType, textKey, triggerDevice, cameraDevice, triggerTime, label } = props;
         const logger = this.getLogger();
-        const notifiers = uniq(this.nvrRules.filter(rule => rule.nvrEvents.includes(eventType as NvrEvent)).flatMap(rule => rule.notifiers));
+        const rules = this.nvrRules.filter(rule => rule.nvrEvents.includes(eventType as NvrEvent));
+        const notifiers = uniq(rules.flatMap(rule => rule.notifiers));
 
         const notifyCameraProps: Partial<NotifyCameraProps> = {
             triggerDevice,
@@ -682,7 +683,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 device: cameraDevice,
                 deviceSettings,
                 notifier,
-                triggerTime
+                triggerTime,
+                rule: rules[0]
             });
 
             const notifierOptions: NotifierOptions = {
