@@ -605,32 +605,38 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             });
 
             const occupancyRulesData: OccupancyRuleData[] = [];
+            const rulesToNotNotify: string[] = [];
             Object.values(occupancyRulesDataMap).forEach(occupancyRuleData => {
                 const { changeStateConfirm = 30, name } = occupancyRuleData.rule;
                 const lastResult = this.lastOccupancyResult[occupancyRuleData.rule.name];
                 const stateChanged = lastResult?.lastOccupancy !== occupancyRuleData.occupies;
-                const timeoutOk = (now - (lastResult?.lastChange ?? 0)) >= 1000 * changeStateConfirm;
+                const timeoutOk = (now - (lastResult?.lastChange ?? 0)) >= (1000 * changeStateConfirm);
+                const tooOld = lastResult && (now - (lastResult?.lastChange ?? 0)) >= (1000 * 60 * 60 * 1); // Force an update every hour
 
                 const shouldUpdate = !lastResult ||
                     (
                         stateChanged && timeoutOk
                     )
 
-                if (shouldUpdate) {
+                if (shouldUpdate || tooOld) {
                     occupancyRulesData.push(occupancyRuleData);
                     this.lastOccupancyResult[name] = {
                         lastChange: now,
                         lastOccupancy: occupancyRuleData.occupies
                     };
-                    // TODO: Send notification here
-                    logger.log(`Updating rule ${occupancyRuleData.rule.name}: ${JSON.stringify({
+
+                    logger.debug(`Updating rule ${occupancyRuleData.rule.name}: ${JSON.stringify({
                         stateChanged,
                         timeoutOk,
                         occupancyRuleData,
                         lastResult,
                     })}`);
+
+                    if (tooOld && !shouldUpdate) {
+                        rulesToNotNotify.push(occupancyRuleData.rule.name);
+                    }
                 } else {
-                    logger.log(`Not updating rule ${occupancyRuleData.rule.name}: ${JSON.stringify({
+                    logger.debug(`Not updating rule ${occupancyRuleData.rule.name}: ${JSON.stringify({
                         stateChanged,
                         timeoutOk,
                         occupancyRuleData,
@@ -652,18 +658,21 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             for (const occupancyRuleData of occupancyRulesData) {
                 const rule = occupancyRuleData.rule;
-                const message = occupancyRuleData.occupies ?
-                    rule.zoneOccupiedText :
-                    rule.zoneNotOccupiedText;
 
-                if (message) {
-                    await this.plugin.notifyOccupancyEvent({
-                        cameraDevice: device,
-                        message,
-                        rule,
-                        triggerTime: now,
-                        image
-                    });
+                if (!rulesToNotNotify.includes(rule.name)) {
+                    const message = occupancyRuleData.occupies ?
+                        rule.zoneOccupiedText :
+                        rule.zoneNotOccupiedText;
+
+                    if (message) {
+                        await this.plugin.notifyOccupancyEvent({
+                            cameraDevice: device,
+                            message,
+                            rule,
+                            triggerTime: now,
+                            image
+                        });
+                    }
                 }
             }
         }
