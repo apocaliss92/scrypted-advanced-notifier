@@ -562,7 +562,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             detected.detections.forEach(detection => {
                 const className = detectionClassesDefaultMap[detection.className];
                 const boundingBoxInCoords = normalizeBoxToClipPath(detection.boundingBox, detected.inputDimensions);
-                const intersectedZones = zonesData.filter(zone => !!polygonClipping.intersection([boundingBoxInCoords], [zone.path]).length);
+                // const intersectedZones = zonesData.filter(zone => !!polygonClipping.intersection([boundingBoxInCoords], [zone.path]).length);
 
                 // if (detection.score >= scoreThreshold) {
                 //     intersectedZones.forEach(intersectedZone => {
