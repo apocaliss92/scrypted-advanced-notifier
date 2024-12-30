@@ -93,7 +93,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     lastPictureTaken: number;
     lastFrameAnalysis: number;
     observeZoneData: ObserveZoneData[];
-    lastOccupancyResult: Record<string, { lastOccupancy: boolean, lastChange: number }> = {};
+    lastOccupancyResult: Record<string, { lastOccupancy?: boolean, lastChange?: number, lastCheck: number }> = {};
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -225,6 +225,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     logger.log(`Stopping listener for NVR events`);
                 }
 
+                if (isActiveForMqttReporting && !!occupancyRules.length) {
+                    await this.forceOccupancyCheck();
+                }
+
                 this.isActiveForNvrNotifications = isActiveForNvrNotifications;
             } catch (e) {
                 logger.log('Error in startCheckInterval funct', e);
@@ -277,8 +281,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { lastSnapshotCloudUrl, lastSnapshotLocalUrl } = await getWebookUrls(this.name, console);
         this.storageSettings.putSetting('lastSnapshotWebhookCloudUrl', lastSnapshotCloudUrl);
         this.storageSettings.putSetting('lastSnapshotWebhookLocalUrl', lastSnapshotLocalUrl);
-
-
     }
 
     async getObserveZones() {
@@ -528,10 +530,31 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    async notifyOccupancy(props: {
-        notifiers: string[],
-        text: string,
-    }) { }
+    async forceOccupancyCheck() {
+        const now = new Date().getTime();
+        const logger = this.getLogger();
+        const anyOutdatedRule = this.occupancyRules.some(rule => {
+            const { forceUpdate, name } = rule;
+            const lastResult = this.lastOccupancyResult[name];
+
+            logger.debug(`Should force update occupancy: ${!lastResult || (now - (lastResult?.lastCheck ?? 0)) >= (1000 * forceUpdate)}, ${JSON.stringify({
+                lastCheck: lastResult.lastCheck,
+                forceUpdate,
+                now,
+                name
+            })}`);
+
+            return !lastResult || (now - (lastResult?.lastCheck ?? 0)) >= (1000 * forceUpdate);
+        });
+
+        if (anyOutdatedRule) {
+            logger.log('Forcing update of occupancy data');
+            const { image } = await this.getImage();
+            if (image) {
+                this.checkOccupancyData(image).catch(logger.log);
+            }
+        }
+    }
 
     async checkOccupancyData(image: MediaObject) {
         try {
@@ -539,6 +562,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const now = new Date().getTime();
             const objectDetection: ObjectDetection = this.storageSettings.values.objectDetectionDevice ??
                 this.plugin.storageSettings.values.objectDetectionDevice;
+
             if (!objectDetection) {
                 logger.log('No detection plugin selected');
                 return;
@@ -559,52 +583,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             //     })
             // });
             // const scoreThreshold = this.storageSettings.values.objectOccupancyThreshold ?? 0.5;
-            detected.detections.forEach(detection => {
-                const className = detectionClassesDefaultMap[detection.className];
-                const boundingBoxInCoords = normalizeBoxToClipPath(detection.boundingBox, detected.inputDimensions);
-                // const intersectedZones = zonesData.filter(zone => !!polygonClipping.intersection([boundingBoxInCoords], [zone.path]).length);
+            // const intersectedZones = zonesData.filter(zone => !!polygonClipping.intersection([boundingBoxInCoords], [zone.path]).length);
 
-                // if (detection.score >= scoreThreshold) {
-                //     intersectedZones.forEach(intersectedZone => {
-                //         if (detectionClassForObjectsReporting.includes(className)) {
-                //             observeZonesClasses[intersectedZone.name][className] += 1;
-                //         }
-                //     });
-                // }
-
-                for (const occupancyRule of this.occupancyRules) {
-                    let matches = true;
-                    const { name, zoneType, observeZone, scoreThreshold, detectionClass } = occupancyRule;
-
-                    if (detection.score >= scoreThreshold && detectionClass === className) {
-                        const zone = zonesData.find(zoneData => zoneData.name === observeZone);
-                        let zoneMatches = false;
-
-                        if (zoneType === ZoneMatchType.Intersect) {
-                            zoneMatches = !!polygonClipping.intersection([boundingBoxInCoords], [zone.path]).length;
-                        } else {
-                            zoneMatches = zone.path.some(point => !polygonClipping.intersection([boundingBoxInCoords], [[point, [point[0] + 1, point[1]], [point[0] + 1, point[1] + 1]]]).length);
-                        }
-
-                        if (!zoneMatches) {
-                            matches = false
-                        }
-                    } else {
-                        matches = true;
-                    }
-
-                    const existingRule = occupancyRulesDataMap[name];
-                    if (!existingRule) {
-                        occupancyRulesDataMap[name] = {
-                            rule: occupancyRule,
-                            occupies: matches
-                        }
-                    } else if (!existingRule.occupies && matches) {
-                        existingRule.occupies = true;
-                    }
-                }
-            });
-
+            // if (detection.score >= scoreThreshold) {
+            //     intersectedZones.forEach(intersectedZone => {
+            //         if (detectionClassForObjectsReporting.includes(className)) {
+            //             observeZonesClasses[intersectedZone.name][className] += 1;
+            //         }
+            //     });
+            // }
             for (const occupancyRule of this.occupancyRules) {
                 const { name, zoneType, observeZone, scoreThreshold, detectionClass, maxObjects = 1 } = occupancyRule;
 
@@ -631,6 +618,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 const occupies = (maxObjects - objectsDetected) <= 0;
 
+                logger.log(JSON.stringify({
+                    maxObjects,
+                    name,
+                    objectsDetected
+                }))
                 const existingRule = occupancyRulesDataMap[name];
                 if (!existingRule) {
                     occupancyRulesDataMap[name] = {
@@ -651,15 +643,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const timeoutOk = (now - (lastResult?.lastChange ?? 0)) >= (1000 * changeStateConfirm);
                 const tooOld = lastResult && (now - (lastResult?.lastChange ?? 0)) >= (1000 * 60 * 60 * 1); // Force an update every hour
 
-                const shouldUpdate = !lastResult ||
-                    (
-                        stateChanged && timeoutOk
-                    )
+                const shouldUpdate = !lastResult || (stateChanged && timeoutOk);
 
                 if (shouldUpdate || tooOld) {
                     occupancyRulesData.push(occupancyRuleData);
                     this.lastOccupancyResult[name] = {
                         lastChange: now,
+                        lastCheck: now,
                         lastOccupancy: occupancyRuleData.occupies
                     };
 
@@ -682,6 +672,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         lastResult,
                         detected,
                     })}`);
+
+                    this.lastOccupancyResult[name] = {
+                        lastCheck: now,
+                    };
                 }
             });
 
