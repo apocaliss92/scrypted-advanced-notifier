@@ -721,6 +721,7 @@ export const getOccupancyRuleKeys = (detectionRuleName: string) => {
     const changeStateConfirmKey = `occupancyRule:${detectionRuleName}:changeStateConfirm`;
     const actionsKey = `occupancyRule:${detectionRuleName}:haActions`;
     const priorityKey = `occupancyRule:${detectionRuleName}:priority`;
+    const maxObjectsKey = `occupancyRule:${detectionRuleName}:maxObjects`;
 
     return {
         enabledKey,
@@ -735,6 +736,7 @@ export const getOccupancyRuleKeys = (detectionRuleName: string) => {
         changeStateConfirmKey,
         actionsKey,
         priorityKey,
+        maxObjectsKey,
     }
 }
 
@@ -1049,7 +1051,8 @@ export const getOccupancyRulesSettings = async (props: {
             zoneMatchTypeKey,
             changeStateConfirmKey,
             actionsKey,
-            priorityKey
+            priorityKey,
+            maxObjectsKey,
         } = getOccupancyRuleKeys(occupancyRuleName);
 
         settings.push(
@@ -1117,6 +1120,16 @@ export const getOccupancyRulesSettings = async (props: {
                 type: 'number',
                 placeholder: '30',
                 value: storage.getItem(changeStateConfirmKey as any) as number
+            },
+            {
+                key: maxObjectsKey,
+                title: 'Max objects',
+                description: 'Amount of objects that can fit the zone (if set to 2 and only 1 is detected, zone will be considered free)',
+                group: groupName,
+                subgroup: occupancyRuleName,
+                type: 'number',
+                placeholder: '1',
+                value: storage.getItem(maxObjectsKey as any) as number
             },
             {
                 key: zoneOccupiedTextKey,
@@ -1415,6 +1428,7 @@ export interface OccupancyRule {
     detectionClass?: DetectionClass;
     scoreThreshold?: number;
     changeStateConfirm?: number;
+    maxObjects?: number;
     observeZone?: string;
     zoneOccupiedText?: string;
     zoneNotOccupiedText: string;
@@ -1452,7 +1466,8 @@ export const getDeviceOccupancyRules = (
             zoneMatchTypeKey,
             changeStateConfirmKey,
             actionsKey,
-            priorityKey
+            priorityKey,
+            maxObjectsKey,
         } = getOccupancyRuleKeys(occupancyRuleName);
 
         const isEnabled = JSON.parse(deviceStorage[enabledKey]?.value as string ?? 'false');
@@ -1466,6 +1481,7 @@ export const getDeviceOccupancyRules = (
         const detectionClass = deviceStorage[detecionClassKey]?.value as DetectionClass;
         const scoreThreshold = Number(deviceStorage[scoreThresholdKey]?.value || 0.7);
         const changeStateConfirm = Number(deviceStorage[changeStateConfirmKey]?.value || 30);
+        const maxObjects = Number(deviceStorage[maxObjectsKey]?.value || 1);
         const observeZone = deviceStorage[zoneKey]?.value as string;
         const zoneMatchType = deviceStorage[zoneMatchTypeKey]?.value as ZoneMatchType ?? ZoneMatchType.Intersect;
         const priority = deviceStorage[priorityKey]?.value as NotificationPriority;
@@ -1484,6 +1500,7 @@ export const getDeviceOccupancyRules = (
             zoneType: zoneMatchType,
             priority,
             actions,
+            maxObjects,
         };
 
         const ruleAllowed = isEnabled && !!detectionClass && !!observeZone;

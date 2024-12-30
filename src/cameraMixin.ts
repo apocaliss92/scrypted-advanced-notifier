@@ -548,7 +548,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const device = systemManager.getDeviceById<DeviceInterface>(this.id);
             const mqttClient = await this.plugin.getMqttClient();
 
-            const observeZonesClasses: ObserveZoneClasses = {};
+            // const observeZonesClasses: ObserveZoneClasses = {};
             const occupancyRulesDataMap: Record<string, OccupancyRuleData> = {};
             const zonesData = await this.getObserveZones();
 
@@ -575,6 +575,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 for (const occupancyRule of this.occupancyRules) {
                     let matches = true;
                     const { name, zoneType, observeZone, scoreThreshold, detectionClass } = occupancyRule;
+
                     if (detection.score >= scoreThreshold && detectionClass === className) {
                         const zone = zonesData.find(zoneData => zoneData.name === observeZone);
                         let zoneMatches = false;
@@ -604,6 +605,43 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
             });
 
+            for (const occupancyRule of this.occupancyRules) {
+                const { name, zoneType, observeZone, scoreThreshold, detectionClass, maxObjects = 1 } = occupancyRule;
+
+                let objectsDetected = 0;
+
+                for (const detection of detected.detections) {
+                    const className = detectionClassesDefaultMap[detection.className];
+                    if (detection.score >= scoreThreshold && detectionClass === className) {
+                        const boundingBoxInCoords = normalizeBoxToClipPath(detection.boundingBox, detected.inputDimensions);
+                        const zone = zonesData.find(zoneData => zoneData.name === observeZone);
+                        let zoneMatches = false;
+
+                        if (zoneType === ZoneMatchType.Intersect) {
+                            zoneMatches = !!polygonClipping.intersection([boundingBoxInCoords], [zone.path]).length;
+                        } else {
+                            zoneMatches = zone.path.some(point => !polygonClipping.intersection([boundingBoxInCoords], [[point, [point[0] + 1, point[1]], [point[0] + 1, point[1] + 1]]]).length);
+                        }
+
+                        if (zoneMatches) {
+                            objectsDetected += 1;
+                        }
+                    }
+                }
+
+                const occupies = (maxObjects - objectsDetected) <= 0;
+
+                const existingRule = occupancyRulesDataMap[name];
+                if (!existingRule) {
+                    occupancyRulesDataMap[name] = {
+                        rule: occupancyRule,
+                        occupies
+                    }
+                } else if (!existingRule.occupies && occupies) {
+                    existingRule.occupies = true;
+                }
+            }
+
             const occupancyRulesData: OccupancyRuleData[] = [];
             const rulesToNotNotify: string[] = [];
             Object.values(occupancyRulesDataMap).forEach(occupancyRuleData => {
@@ -625,22 +663,24 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         lastOccupancy: occupancyRuleData.occupies
                     };
 
-                    logger.debug(`Updating rule ${occupancyRuleData.rule.name}: ${JSON.stringify({
+                    logger.log(`Updating rule ${occupancyRuleData.rule.name}: ${JSON.stringify({
                         stateChanged,
                         timeoutOk,
                         occupancyRuleData,
                         lastResult,
+                        detected,
                     })}`);
 
                     if (tooOld && !shouldUpdate) {
                         rulesToNotNotify.push(occupancyRuleData.rule.name);
                     }
                 } else {
-                    logger.debug(`Not updating rule ${occupancyRuleData.rule.name}: ${JSON.stringify({
+                    logger.log(`Not updating rule ${occupancyRuleData.rule.name}: ${JSON.stringify({
                         stateChanged,
                         timeoutOk,
                         occupancyRuleData,
                         lastResult,
+                        detected,
                     })}`);
                 }
             });
@@ -652,7 +692,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 device,
                 mqttClient,
                 objectsDetected: detected,
-                observeZonesClasses,
+                observeZonesClasses: {},
                 occupancyRulesData
             });
 
