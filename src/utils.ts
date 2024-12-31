@@ -1131,7 +1131,7 @@ export const getOccupancyRulesSettings = async (props: {
                 group: groupName,
                 subgroup: occupancyRuleName,
                 type: 'number',
-                placeholder: '60',
+                placeholder: '30',
                 value: storage.getItem(forceUpdateKey as any) as number
             },
             {
@@ -1496,7 +1496,7 @@ export const getDeviceOccupancyRules = (
         const detectionClass = deviceStorage[detecionClassKey]?.value as DetectionClass;
         const scoreThreshold = Number(deviceStorage[scoreThresholdKey]?.value || 0.5);
         const changeStateConfirm = Number(deviceStorage[changeStateConfirmKey]?.value || 30);
-        const forceUpdate = Number(deviceStorage[forceUpdateKey]?.value || 60);
+        const forceUpdate = Number(deviceStorage[forceUpdateKey]?.value || 30);
         const maxObjects = Number(deviceStorage[maxObjectsKey]?.value || 1);
         const observeZone = deviceStorage[zoneKey]?.value as string;
         const zoneMatchType = deviceStorage[zoneMatchTypeKey]?.value as ZoneMatchType ?? ZoneMatchType.Intersect;
