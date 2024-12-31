@@ -1051,7 +1051,7 @@ export const getOccupancyRulesSettings = async (props: {
             zoneNotOccupiedTextKey,
             zoneOccupiedTextKey,
             zoneMatchTypeKey,
-            changeStateConfirmKey,
+            // changeStateConfirmKey,
             actionsKey,
             priorityKey,
             maxObjectsKey,
@@ -1111,19 +1111,19 @@ export const getOccupancyRulesSettings = async (props: {
                 group: groupName,
                 subgroup: occupancyRuleName,
                 type: 'number',
-                placeholder: '0.7',
+                placeholder: '0.5',
                 value: storage.getItem(scoreThresholdKey as any) as string
             },
-            {
-                key: changeStateConfirmKey,
-                title: 'Occupancy confirmation',
-                description: 'Seconds to wait until an occupancy state change gets confirmed',
-                group: groupName,
-                subgroup: occupancyRuleName,
-                type: 'number',
-                placeholder: '30',
-                value: storage.getItem(changeStateConfirmKey as any) as number
-            },
+            // {
+            //     key: changeStateConfirmKey,
+            //     title: 'Occupancy confirmation',
+            //     description: 'Seconds to wait until an occupancy state change gets confirmed',
+            //     group: groupName,
+            //     subgroup: occupancyRuleName,
+            //     type: 'number',
+            //     placeholder: '30',
+            //     value: storage.getItem(changeStateConfirmKey as any) as number
+            // },
             {
                 key: forceUpdateKey,
                 title: 'Force update in seconds',
@@ -1494,7 +1494,7 @@ export const getDeviceOccupancyRules = (
         const zoneNotOccupiedText = deviceStorage[zoneNotOccupiedTextKey]?.value as string || undefined;
         const objectDetector = deviceStorage[objectDetectorKey]?.value as string;
         const detectionClass = deviceStorage[detecionClassKey]?.value as DetectionClass;
-        const scoreThreshold = Number(deviceStorage[scoreThresholdKey]?.value || 0.7);
+        const scoreThreshold = Number(deviceStorage[scoreThresholdKey]?.value || 0.5);
         const changeStateConfirm = Number(deviceStorage[changeStateConfirmKey]?.value || 30);
         const forceUpdate = Number(deviceStorage[forceUpdateKey]?.value || 60);
         const maxObjects = Number(deviceStorage[maxObjectsKey]?.value || 1);

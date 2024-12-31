@@ -62,7 +62,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             title: 'Local URL',
             readonly: true,
         },
-        lastOccupancyResult: {
+        occupancyState: {
             json: true,
             hide: true,
         }
@@ -94,7 +94,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     lastFrameAnalysis: number;
     lastObserveZonesFetched: number;
     observeZoneData: ObserveZoneData[];
-    lastOccupancyResult: Record<string, { lastOccupancy: boolean, lastChange: number, lastCheck: number }> = {};
+    occupancyState: Record<string, {
+        lastOccupancy: boolean,
+        occupancyToConfirm?: boolean,
+        lastChange: number,
+        lastCheck: number
+    }> = {};
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -122,7 +127,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         this.plugin.currentMixinsMap[this.name] = this;
 
-        this.lastOccupancyResult = this.storageSettings.values.lastOccupancyResult ?? {};
+        this.occupancyState = this.storageSettings.values.occupancyState ?? {};
     }
 
     async startCheckInterval() {
@@ -539,16 +544,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
         const anyOutdatedRule = this.occupancyRules.some(rule => {
             const { forceUpdate, name } = rule;
-            const lastResult = this.lastOccupancyResult[name];
+            const currentState = this.occupancyState[name];
 
-            logger.debug(`Should force update occupancy: ${!lastResult || (now - (lastResult?.lastCheck ?? 0)) >= (1000 * forceUpdate)}, ${JSON.stringify({
-                lastCheck: lastResult.lastCheck,
+            logger.debug(`Should force update occupancy: ${!currentState || (now - (currentState?.lastCheck ?? 0)) >= (1000 * forceUpdate)}, ${JSON.stringify({
+                lastCheck: currentState.lastCheck,
                 forceUpdate,
                 now,
                 name
             })}`);
 
-            return !lastResult || (now - (lastResult?.lastCheck ?? 0)) >= (1000 * forceUpdate);
+            return !currentState || (now - (currentState?.lastCheck ?? 0)) >= (1000 * forceUpdate);
         });
 
         if (anyOutdatedRule) {
@@ -641,27 +646,26 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const occupancyRulesData: OccupancyRuleData[] = [];
             const rulesToNotNotify: string[] = [];
             Object.values(occupancyRulesDataMap).forEach(occupancyRuleData => {
-                const { changeStateConfirm = 30, name } = occupancyRuleData.rule;
-                const lastResult = this.lastOccupancyResult[occupancyRuleData.rule.name];
-                const stateChanged = lastResult?.lastOccupancy !== occupancyRuleData.occupies;
-                const timeoutOk = (now - (lastResult?.lastChange ?? 0)) >= (1000 * changeStateConfirm);
-                const tooOld = lastResult && (now - (lastResult?.lastChange ?? 0)) >= (1000 * 60 * 60 * 1); // Force an update every hour
+                const { name } = occupancyRuleData.rule;
+                const currentState = this.occupancyState[occupancyRuleData.rule.name];
+                const stateChanged = currentState?.lastOccupancy !== occupancyRuleData.occupies;
+                const tooOld = currentState && (now - (currentState?.lastChange ?? 0)) >= (1000 * 60 * 60 * 1); // Force an update every hour
 
-                const shouldUpdate = !lastResult || (stateChanged && timeoutOk);
+                const shouldUpdate = !currentState || stateChanged;
 
-                if (shouldUpdate || tooOld) {
+                if (!currentState || currentState.occupancyToConfirm === occupancyRuleData.occupies) {
                     occupancyRulesData.push(occupancyRuleData);
-                    this.lastOccupancyResult[name] = {
+                    this.occupancyState[name] = {
                         lastChange: now,
                         lastCheck: now,
-                        lastOccupancy: occupancyRuleData.occupies
+                        lastOccupancy: occupancyRuleData.occupies,
+                        occupancyToConfirm: undefined,
                     };
 
                     logger.log(`Updating occupancy rule ${occupancyRuleData.rule.name}: ${JSON.stringify({
                         stateChanged,
-                        timeoutOk,
                         occupancyRuleData,
-                        lastResult,
+                        currentState,
                         detected,
                     })}`);
 
@@ -671,20 +675,26 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 } else {
                     logger.log(`Not updating occupancy rule ${occupancyRuleData.rule.name}: ${JSON.stringify({
                         stateChanged,
-                        timeoutOk,
                         occupancyRuleData,
-                        lastResult,
+                        currentState,
                         detected,
                     })}`);
-
-                    this.lastOccupancyResult[name] = {
-                        ...this.lastOccupancyResult[name],
+                    this.occupancyState[name] = {
+                        ...this.occupancyState[name],
                         lastCheck: now,
+                        occupancyToConfirm: occupancyRuleData.occupies
                     };
                 }
+
+                // const shouldUpdate = !currentState || (stateChanged && timeoutOk);
+                // const timeoutOk = (now - (currentState?.lastChange ?? 0)) >= (1000 * changeStateConfirm);
+                // if (shouldUpdate || tooOld) {
+                // } else {
+
+                // }
             });
 
-            await this.storageSettings.putSetting('lastOccupancyResult', JSON.stringify(this.lastOccupancyResult));
+            await this.storageSettings.putSetting('occupancyState', JSON.stringify(this.occupancyState));
 
             await publishOccupancy({
                 console: logger,
