@@ -546,7 +546,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const { forceUpdate, name } = rule;
             const currentState = this.occupancyState[name];
 
-            logger.debug(`Should force update occupancy: ${!currentState || (now - (currentState?.lastCheck ?? 0)) >= (1000 * forceUpdate)}, ${JSON.stringify({
+            logger.log(`Should force update occupancy: ${!currentState || (now - (currentState?.lastCheck ?? 0)) >= (1000 * forceUpdate)}, ${JSON.stringify({
                 lastCheck: currentState.lastCheck,
                 forceUpdate,
                 now,
@@ -627,11 +627,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 const occupies = (maxObjects - objectsDetected) <= 0;
 
-                logger.log(JSON.stringify({
+                logger.log(`Rule ${name}: ${JSON.stringify({
                     maxObjects,
-                    name,
                     objectsDetected
-                }))
+                })}`)
                 const existingRule = occupancyRulesDataMap[name];
                 if (!existingRule) {
                     occupancyRulesDataMap[name] = {
@@ -653,7 +652,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 const shouldUpdate = !currentState || stateChanged;
 
-                if (!currentState || currentState.occupancyToConfirm === occupancyRuleData.occupies) {
+                if (!currentState || (currentState.occupancyToConfirm && currentState.occupancyToConfirm === occupancyRuleData.occupies)) {
                     occupancyRulesData.push(occupancyRuleData);
                     this.occupancyState[name] = {
                         lastChange: now,
@@ -672,7 +671,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     if (tooOld && !shouldUpdate) {
                         rulesToNotNotify.push(occupancyRuleData.rule.name);
                     }
-                } else {
+                } else if (currentState && occupancyRuleData.occupies !== currentState.lastOccupancy) {
                     logger.log(`Not updating occupancy rule ${occupancyRuleData.rule.name}: ${JSON.stringify({
                         stateChanged,
                         occupancyRuleData,
@@ -683,6 +682,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         ...this.occupancyState[name],
                         lastCheck: now,
                         occupancyToConfirm: occupancyRuleData.occupies
+                    };
+                } else {
+                    this.occupancyState[name] = {
+                        ...this.occupancyState[name],
+                        lastCheck: now,
                     };
                 }
 
