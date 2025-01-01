@@ -183,7 +183,8 @@ export const motionClasses = [
 
 export const packageClasses = [
     DetectionClass.Package,
-    'packet'
+    'packet',
+    'debug-scan-package',
 ]
 
 export const isFaceClassname = (classname: string) => faceClasses.includes(classname);

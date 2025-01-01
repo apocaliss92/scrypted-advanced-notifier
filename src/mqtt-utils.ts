@@ -609,7 +609,7 @@ export const publishDeviceState = async (props: {
                     value = detection?.label || null;
                 }
 
-                if (value !== null) {
+                if (value != null) {
                     await mqttClient.publish(getEntityTopic(entity), value, retain);
                 }
             }
