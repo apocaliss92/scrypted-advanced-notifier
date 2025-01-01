@@ -661,7 +661,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         occupancyToConfirm: undefined,
                     };
 
-                    logger.debug(`Updating occupancy rule ${occupancyRuleData.rule.name}: ${JSON.stringify({
+                    logger.log(`Updating occupancy rule ${occupancyRuleData.rule.name}: ${JSON.stringify({
                         stateChanged,
                         occupancyRuleData,
                         currentState,
@@ -672,7 +672,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         rulesToNotNotify.push(occupancyRuleData.rule.name);
                     }
                 } else if (currentState && occupancyRuleData.occupies !== currentState.lastOccupancy) {
-                    logger.debug(`Not updating occupancy rule ${occupancyRuleData.rule.name}: ${JSON.stringify({
+                    logger.log(`Marking the rule to confirm for next iteration ${occupancyRuleData.rule.name}: ${JSON.stringify({
+                        stateChanged,
+                        occupancyRuleData,
+                        currentState,
+                        detected,
+                    })}`);
+
+                    this.occupancyState[name] = {
+                        ...this.occupancyState[name],
+                        lastCheck: now,
+                        occupancyToConfirm: occupancyRuleData.occupies
+                    };
+                } else {
+                    logger.log(`Updating lastCheck ${occupancyRuleData.rule.name}: ${JSON.stringify({
                         stateChanged,
                         occupancyRuleData,
                         currentState,
@@ -681,12 +694,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     this.occupancyState[name] = {
                         ...this.occupancyState[name],
                         lastCheck: now,
-                        occupancyToConfirm: occupancyRuleData.occupies
-                    };
-                } else {
-                    this.occupancyState[name] = {
-                        ...this.occupancyState[name],
-                        lastCheck: now,
+                        occupancyToConfirm: undefined,
                     };
                 }
 
