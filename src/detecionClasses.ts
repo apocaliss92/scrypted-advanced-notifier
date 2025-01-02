@@ -185,6 +185,7 @@ export const packageClasses = [
     DetectionClass.Package,
     'packet',
     'debug-scan-package',
+    'debug-moved-package',
 ]
 
 export const isFaceClassname = (classname: string) => faceClasses.includes(classname);
