@@ -189,6 +189,7 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
             } else if (subtitle.includes('Package Detected')) {
                 textKey = 'packageText';
                 eventType = EventType.Package;
+                console.log(`Package detection received: ${JSON.stringify(options)}`);
             } else if (subtitle.includes('Recording Interrupted')) {
                 textKey = 'streamInterruptedText';
                 eventType = NvrEvent.RecordingInterrupted;
