@@ -17,7 +17,8 @@ interface OccupancyData {
     occupancyToConfirm?: boolean,
     confirmationStart?: number,
     lastChange: number,
-    lastCheck: number
+    lastCheck: number,
+    objectsDetected: number,
 }
 
 export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> implements Settings {
@@ -629,10 +630,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 const occupies = (maxObjects - objectsDetected) <= 0;
 
-                logger.debug(`Rule ${name}: ${JSON.stringify({
-                    maxObjects,
+                this.occupancyState[name] = {
+                    ...this.occupancyState[name] ?? {} as OccupancyData,
                     objectsDetected
-                })}`)
+                };
+
                 const existingRule = occupancyRulesDataMap[name];
                 if (!existingRule) {
                     occupancyRulesDataMap[name] = {
