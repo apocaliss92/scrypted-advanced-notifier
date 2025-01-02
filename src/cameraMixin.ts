@@ -709,7 +709,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 occupancyToConfirm: undefined,
                             };
 
-                            logger.log(`Confirming occupancy rule ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
+                            const stateActuallyChanged = occupancyRuleData.occupies !== currentState.lastOccupancy;
+
+                            if (!stateActuallyChanged) {
+                                rulesToNotNotify.push(occupancyRuleData.rule.name);
+                            }
+
+                            logger.log(`Confirming occupancy rule ${occupancyRuleData.rule.name}: ${JSON.stringify({
+                                stateActuallyChanged,
+                                ...logPayload,
+                            })}`);
                         } else {
                             // Time is passed and value changed, restart confirmation flow
                             occupancyData = {
