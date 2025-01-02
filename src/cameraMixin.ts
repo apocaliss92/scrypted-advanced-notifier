@@ -659,11 +659,19 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     occupancyRuleData,
                     currentState,
                     detected,
+                    tooOld,
                 };
 
                 // If the zone is not inizialized or last state change is too old, proceed with update regardless
                 if (!currentState || tooOld) {
+                    logger.log(`Force pushing rule ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
                     occupancyRulesData.push(occupancyRuleData);
+
+                    occupancyData = {
+                        ...occupancyData,
+                        lastChange: now,
+                        lastOccupancy: occupancyRuleData.occupies,
+                    };
 
                     // Avoid sending a notification if it's just a force updated due to time elpased
                     if (currentState) {
@@ -671,21 +679,25 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
                 } else if (toConfirm) {
                     const isConfirmationTimePassed = (now - (currentState?.confirmationStart ?? 0)) >= (1000 * changeStateConfirm);
+                    const isStateConfirmed = occupancyRuleData.occupies === currentState.occupancyToConfirm;
 
                     // If confirmation time is not done but value is changed, discard new state
-                    if (!isConfirmationTimePassed && occupancyRuleData.occupies !== currentState.occupancyToConfirm) {
-                        logger.log(`Confirmation failed, value changed during confirmation time ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
-
-                        occupancyData = {
-                            ...occupancyData,
-                            confirmationStart: undefined,
-                            occupancyToConfirm: undefined,
-                        };
-                    } else {
-                        // If confirmation time is not done, do nothing and wait for next iteration
-                        if (!isConfirmationTimePassed) {
+                    if (!isConfirmationTimePassed) {
+                        if (isStateConfirmed) {
+                            // Do nothing and wait for next iteration
                             logger.log(`Confirmation time is not passed yet ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
                         } else {
+                            // Reset confirmation data because the value changed before confirmation time passed
+                            logger.log(`Confirmation failed, value changed during confirmation time ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
+
+                            occupancyData = {
+                                ...occupancyData,
+                                confirmationStart: undefined,
+                                occupancyToConfirm: undefined,
+                            };
+                        }
+                    } else {
+                        if (isStateConfirmed) {
                             // Time is passed and value didn't change, update the state
                             occupancyRulesData.push(occupancyRuleData);
 
@@ -697,7 +709,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 occupancyToConfirm: undefined,
                             };
 
-                            logger.log(`Updating occupancy rule ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
+                            logger.log(`Confirming occupancy rule ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
+                        } else {
+                            // Time is passed and value changed, restart confirmation flow
+                            occupancyData = {
+                                ...occupancyData,
+                                confirmationStart: now,
+                                occupancyToConfirm: occupancyRuleData.occupies
+                            };
+
+                            logger.log(`Restarting confirmation flow for occupancy rule ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
                         }
                     }
                 } else if (occupancyRuleData.occupies !== currentState.lastOccupancy) {
@@ -709,7 +730,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         occupancyToConfirm: occupancyRuleData.occupies
                     };
                 } else {
-                    logger.log(`Updating lastCheck ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
+                    logger.log(`Refreshing lastCheck only for rule ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
                 }
 
                 this.occupancyState[name] = {
