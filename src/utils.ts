@@ -1051,7 +1051,7 @@ export const getOccupancyRulesSettings = async (props: {
             zoneNotOccupiedTextKey,
             zoneOccupiedTextKey,
             zoneMatchTypeKey,
-            // changeStateConfirmKey,
+            changeStateConfirmKey,
             actionsKey,
             priorityKey,
             maxObjectsKey,
@@ -1114,16 +1114,16 @@ export const getOccupancyRulesSettings = async (props: {
                 placeholder: '0.5',
                 value: storage.getItem(scoreThresholdKey as any) as string
             },
-            // {
-            //     key: changeStateConfirmKey,
-            //     title: 'Occupancy confirmation',
-            //     description: 'Seconds to wait until an occupancy state change gets confirmed',
-            //     group: groupName,
-            //     subgroup: occupancyRuleName,
-            //     type: 'number',
-            //     placeholder: '30',
-            //     value: storage.getItem(changeStateConfirmKey as any) as number
-            // },
+            {
+                key: changeStateConfirmKey,
+                title: 'Occupancy confirmation',
+                description: 'Seconds to wait until an occupancy state change gets confirmed',
+                group: groupName,
+                subgroup: occupancyRuleName,
+                type: 'number',
+                placeholder: '30',
+                value: storage.getItem(changeStateConfirmKey as any) as number
+            },
             {
                 key: forceUpdateKey,
                 title: 'Force update in seconds',

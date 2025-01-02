@@ -12,6 +12,13 @@ const secondsPerPicture = 5;
 const motionDuration = 10;
 
 interface MatchRule { match: ObjectDetectionResult, rule: DetectionRule, dataToReport: any }
+interface OccupancyData {
+    lastOccupancy: boolean,
+    occupancyToConfirm?: boolean,
+    confirmationStart?: number,
+    lastChange: number,
+    lastCheck: number
+}
 
 export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> implements Settings {
     storageSettings = new StorageSettings(this, {
@@ -94,12 +101,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     lastFrameAnalysis: number;
     lastObserveZonesFetched: number;
     observeZoneData: ObserveZoneData[];
-    occupancyState: Record<string, {
-        lastOccupancy: boolean,
-        occupancyToConfirm?: boolean,
-        lastChange: number,
-        lastCheck: number
-    }> = {};
+    occupancyState: Record<string, OccupancyData> = {};
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -645,65 +647,75 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const occupancyRulesData: OccupancyRuleData[] = [];
             const rulesToNotNotify: string[] = [];
             Object.values(occupancyRulesDataMap).forEach(occupancyRuleData => {
-                const { name } = occupancyRuleData.rule;
+                const { name, changeStateConfirm } = occupancyRuleData.rule;
                 const currentState = this.occupancyState[occupancyRuleData.rule.name];
-                const stateChanged = currentState?.lastOccupancy !== occupancyRuleData.occupies;
                 const tooOld = currentState && (now - (currentState?.lastChange ?? 0)) >= (1000 * 60 * 60 * 1); // Force an update every hour
+                const toConfirm = currentState.occupancyToConfirm != undefined && !!currentState.confirmationStart;
 
-                const shouldUpdate = !currentState || stateChanged;
+                let occupancyData: Partial<OccupancyData> = {
+                    lastCheck: now
+                }
+                const logPayload: any = {
+                    occupancyRuleData,
+                    currentState,
+                    detected,
+                };
 
-                if (!currentState || currentState.occupancyToConfirm === occupancyRuleData.occupies) {
+                // If the zone is not inizialized or last state change is too old, proceed with update regardless
+                if (!currentState || tooOld) {
                     occupancyRulesData.push(occupancyRuleData);
-                    this.occupancyState[name] = {
-                        lastChange: now,
-                        lastCheck: now,
-                        lastOccupancy: occupancyRuleData.occupies,
-                        occupancyToConfirm: undefined,
-                    };
 
-                    logger.log(`Updating occupancy rule ${occupancyRuleData.rule.name}: ${JSON.stringify({
-                        stateChanged,
-                        occupancyRuleData,
-                        currentState,
-                        detected,
-                    })}`);
-
-                    if (tooOld && !shouldUpdate) {
+                    // Avoid sending a notification if it's just a force updated due to time elpased
+                    if (currentState) {
                         rulesToNotNotify.push(occupancyRuleData.rule.name);
                     }
-                } else if (currentState && occupancyRuleData.occupies !== currentState.lastOccupancy) {
-                    logger.log(`Marking the rule to confirm for next iteration ${occupancyRuleData.rule.name}: ${JSON.stringify({
-                        stateChanged,
-                        occupancyRuleData,
-                        currentState,
-                        detected,
-                    })}`);
+                } else if (toConfirm) {
+                    const isConfirmationTimePassed = (now - (currentState?.confirmationStart ?? 0)) >= (1000 * changeStateConfirm);
 
-                    this.occupancyState[name] = {
-                        ...this.occupancyState[name],
-                        lastCheck: now,
+                    // If confirmation time is not done but value is changed, discard new state
+                    if (!isConfirmationTimePassed && occupancyRuleData.occupies !== currentState.occupancyToConfirm) {
+                        logger.log(`Confirmation failed, value changed during confirmation time ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
+
+                        occupancyData = {
+                            ...occupancyData,
+                            confirmationStart: undefined,
+                            occupancyToConfirm: undefined,
+                        };
+                    } else {
+                        // If confirmation time is not done, do nothing and wait for next iteration
+                        if (!isConfirmationTimePassed) {
+                            logger.log(`Confirmation time is not passed yet ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
+                        } else {
+                            // Time is passed and value didn't change, update the state
+                            occupancyRulesData.push(occupancyRuleData);
+
+                            occupancyData = {
+                                ...occupancyData,
+                                lastChange: now,
+                                lastOccupancy: occupancyRuleData.occupies,
+                                confirmationStart: undefined,
+                                occupancyToConfirm: undefined,
+                            };
+
+                            logger.log(`Updating occupancy rule ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
+                        }
+                    }
+                } else if (occupancyRuleData.occupies !== currentState.lastOccupancy) {
+                    logger.log(`Marking the rule to confirm for next iteration ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
+
+                    occupancyData = {
+                        ...occupancyData,
+                        confirmationStart: now,
                         occupancyToConfirm: occupancyRuleData.occupies
                     };
                 } else {
-                    logger.log(`Updating lastCheck ${occupancyRuleData.rule.name}: ${JSON.stringify({
-                        stateChanged,
-                        occupancyRuleData,
-                        currentState,
-                        detected,
-                    })}`);
-                    this.occupancyState[name] = {
-                        ...this.occupancyState[name],
-                        lastCheck: now,
-                        occupancyToConfirm: undefined,
-                    };
+                    logger.log(`Updating lastCheck ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
                 }
 
-                // const shouldUpdate = !currentState || (stateChanged && timeoutOk);
-                // const timeoutOk = (now - (currentState?.lastChange ?? 0)) >= (1000 * changeStateConfirm);
-                // if (shouldUpdate || tooOld) {
-                // } else {
-
-                // }
+                this.occupancyState[name] = {
+                    ...this.occupancyState[name],
+                    ...occupancyData
+                };
             });
 
             await this.storageSettings.putSetting('occupancyState', JSON.stringify(this.occupancyState));
