@@ -106,6 +106,12 @@ export const getObserveZoneStrings = (zoneName: string, className: DetectionClas
     return { entityId, name };
 }
 
+const mqttMainSettingsDevice = {
+    manufacturer: 'Scrypted',
+    ids: `${idPrefix}-main-settings`,
+    name: `${namePrefix} main settings`,
+};
+
 export const setupPluginAutodiscovery = async (props: {
     mqttClient: MqttClient,
     people: string[],
@@ -115,6 +121,7 @@ export const setupPluginAutodiscovery = async (props: {
     const { people, mqttClient, detectionRules } = props;
 
     const mqttPeopleTrackerDevice = {
+        ...getMqttDevice(),
         ids: `${idPrefix}-${peopleTrackerId}`,
         name: `${namePrefix} people tracker`
     };
@@ -133,11 +140,6 @@ export const setupPluginAutodiscovery = async (props: {
 
         await mqttClient.publish(getDiscoveryTopic('sensor', personId), JSON.stringify(config));
     }
-
-    const mqttMainSettingsDevice = {
-        ids: `${idPrefix}-main-settings`,
-        name: `${namePrefix} main settings`,
-    };
 
     for (const detectionRule of detectionRules) {
         const { entityId, ruleDeviceId } = getRuleStrings(detectionRule);
@@ -251,6 +253,24 @@ export const subscribeToDeviceMqttTopics = async (
     }
 }
 
+const getMqttDevice = (device?: ScryptedDeviceBase) => {
+    if (device) {
+        return {
+            ids: `${idPrefix}-${device.id}`,
+            name: `${device.name}`,
+            // name: `${namePrefix} ${device.name}`,
+            manufacturer: 'Scrypted',
+            model: `${device?.info?.manufacturer} ${device?.info?.model}`,
+            via_device: mqttMainSettingsDevice.ids
+        }
+    } else {
+        return {
+            manufacturer: 'Scrypted',
+            via_device: mqttMainSettingsDevice.ids
+        }
+    }
+}
+
 export const setupDeviceAutodiscovery = async (props: {
     mqttClient: MqttClient,
     device: ScryptedDeviceBase,
@@ -261,12 +281,9 @@ export const setupDeviceAutodiscovery = async (props: {
     observeZoneData?: ObserveZoneData[],
 }) => {
     const { device, withDetections, deviceClass, mqttClient, detectionRules, observeZoneData } = props;
-    const { name, id } = device;
+    const { id } = device;
 
-    const mqttdevice = {
-        ids: `${idPrefix}-${id}`,
-        name: `${namePrefix} ${name}`
-    };
+    const mqttdevice = getMqttDevice(device);
 
     const { getDiscoveryTopic, getEntityTopic, getCommandTopic } = getMqttTopicTopics(device.id);
     const allEntities = [triggeredEntity, ...deviceClassMqttEntities];
@@ -381,12 +398,9 @@ export const discoverDetectionRules = async (props: {
     rules?: DetectionRule[],
 }) => {
     const { device, rules, mqttClient } = props;
-    const { name, id } = device;
+    const { id } = device;
 
-    const mqttdevice = {
-        ids: `${idPrefix}-${id}`,
-        name: `${namePrefix} ${name}`
-    };
+    const mqttdevice = getMqttDevice(device);
 
     const { getDiscoveryTopic, getEntityTopic } = getMqttTopicTopics(device.id);
 
@@ -416,12 +430,9 @@ export const discoverOccupancyRules = async (props: {
     rules?: OccupancyRule[],
 }) => {
     const { device, rules, mqttClient } = props;
-    const { name, id } = device;
+    const { id } = device;
 
-    const mqttdevice = {
-        ids: `${idPrefix}-${id}`,
-        name: `${namePrefix} ${name}`
-    };
+    const mqttdevice = getMqttDevice(device);
 
     const { getDiscoveryTopic, getEntityTopic } = getMqttTopicTopics(device.id);
 
