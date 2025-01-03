@@ -659,7 +659,7 @@ export const publishOccupancy = async (props: {
     observeZonesClasses: ObserveZoneClasses,
     occupancyRulesData: OccupancyRuleData[]
 }) => {
-    const { mqttClient, device, objectsDetected, observeZonesClasses, occupancyRulesData } = props;
+    const { mqttClient, device, objectsDetected, occupancyRulesData } = props;
     try {
         const { getEntityTopic } = getMqttTopicTopics(device.id);
 

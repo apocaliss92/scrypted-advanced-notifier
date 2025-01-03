@@ -1,4 +1,4 @@
-import sdk, { Camera, LockState, MediaObject, NotifierOptions, ObjectDetectionResult, Point, ScryptedDeviceBase, ScryptedDeviceType, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Setting, Settings } from "@scrypted/sdk"
+import sdk, { Camera, LockState, MediaObject, NotifierOptions, ObjectDetectionResult, ObjectsDetected, Point, ScryptedDeviceBase, ScryptedDeviceType, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Setting, Settings } from "@scrypted/sdk"
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep, keyBy, sortBy, uniq, uniqBy } from "lodash";
 const { endpointManager } = sdk;
@@ -21,6 +21,7 @@ export type ObserveZoneClasses = Record<string, Partial<Record<DetectionClass, n
 export type OccupancyRuleData = {
     rule: OccupancyRule;
     occupies: boolean;
+    detectedResult: ObjectsDetected
 };
 
 export const getElegibleDevices = () => {
@@ -469,8 +470,8 @@ export type MixinBaseSettingKey =
     | 'haActions'
     | typeof detectionRulesKey
     | typeof occupancyRulesKey
-    | 'objectOccupancyThreshold'
-    | 'objectDetectionDevice'
+// | 'objectOccupancyThreshold'
+// | 'objectDetectionDevice'
 
 export enum NotificationPriority {
     VeryLow = "VeryLow",
@@ -540,24 +541,24 @@ export const getMixinBaseSettings = (name: string, withOccupancy: boolean) => {
     } as StorageSettingsDict<MixinBaseSettingKey>;
 
     if (withOccupancy) {
-        settings['objectDetectionDevice'] = {
-            title: 'Object Detector',
-            group: occupancyRulesGroup,
-            description: 'Select the object detection plugin to use for detecting objects. (overrides the configuration in plugin)',
-            type: 'device',
-            deviceFilter: `interfaces.includes('ObjectDetectionPreview') && id !== '${nvrAcceleratedMotionSensorId}'`,
-            immediate: true,
-        };
-        settings['objectOccupancyThreshold'] = {
-            title: 'Score threshold',
-            type: 'number',
-            placeholder: '0.5',
-            defaultValue: 0.5,
-            group: occupancyRulesGroup,
-            description: 'Select the object detection plugin to use for detecting objects.',
-            deviceFilter: `interfaces.includes('ObjectDetectionPreview') && id !== '${nvrAcceleratedMotionSensorId}'`,
-            immediate: true,
-        };
+        // settings['objectDetectionDevice'] = {
+        //     title: 'Object Detector',
+        //     group: occupancyRulesGroup,
+        //     description: 'Select the object detection plugin to use for detecting objects. (overrides the configuration in plugin)',
+        //     type: 'device',
+        //     deviceFilter: `interfaces.includes('ObjectDetectionPreview') && id !== '${nvrAcceleratedMotionSensorId}'`,
+        //     immediate: true,
+        // };
+        // settings['objectOccupancyThreshold'] = {
+        //     title: 'Score threshold',
+        //     type: 'number',
+        //     placeholder: '0.5',
+        //     defaultValue: 0.5,
+        //     group: occupancyRulesGroup,
+        //     description: 'Select the object detection plugin to use for detecting objects.',
+        //     deviceFilter: `interfaces.includes('ObjectDetectionPreview') && id !== '${nvrAcceleratedMotionSensorId}'`,
+        //     immediate: true,
+        // };
         settings[occupancyRulesKey] = {
             title: 'Rules',
             group: occupancyRulesGroup,
@@ -712,6 +713,7 @@ export const occupancyRulesKey = 'occupancyRules';
 export const getOccupancyRuleKeys = (detectionRuleName: string) => {
     const enabledKey = `occupancyRule:${detectionRuleName}:enabled`;
     const objectDetectorKey = `occupancyRule:${detectionRuleName}:objectDetector`;
+    const captureZoneKey = `occupancyRule:${detectionRuleName}:captureZone`;
     const detecionClassKey = `occupancyRule:${detectionRuleName}:detecionClassKey`;
     const scoreThresholdKey = `occupancyRule:${detectionRuleName}:scoreThreshold`;
     const zoneKey = `occupancyRule:${detectionRuleName}:zone`;
@@ -740,6 +742,7 @@ export const getOccupancyRuleKeys = (detectionRuleName: string) => {
         priorityKey,
         maxObjectsKey,
         forceUpdateKey,
+        captureZoneKey,
     }
 }
 
@@ -1044,7 +1047,8 @@ export const getOccupancyRulesSettings = async (props: {
     for (const occupancyRuleName of currentOccupancyRules) {
         const {
             enabledKey,
-            // objectDetectorKey,
+            objectDetectorKey,
+            captureZoneKey,
             scoreThresholdKey,
             zoneKey,
             detecionClassKey,
@@ -1069,18 +1073,17 @@ export const getOccupancyRulesSettings = async (props: {
                 value: storage.getItem(enabledKey as any) as boolean ?? true,
                 immediate: true,
             },
-            // TODO: Enabled this later one, will need to think about performance. Maybe not worth it to have
-            // {
-            //     key: objectDetectorKey,
-            //     title: 'Object Detector',
-            //     group: groupName,
-            //     subgroup: occupancyRuleName,
-            //     description: 'Select the object detection plugin to use for detecting objects.',
-            //     type: 'device',
-            //     deviceFilter: `interfaces.includes('ObjectDetectionPreview') && id !== '${nvrAcceleratedMotionSensorId}'`,
-            //     immediate: true,
-            //     value: storage.getItem(objectDetectorKey)
-            // },
+            {
+                key: objectDetectorKey,
+                title: 'Object Detector',
+                group: groupName,
+                subgroup: occupancyRuleName,
+                description: 'Select the object detection plugin to use for detecting objects.',
+                type: 'device',
+                deviceFilter: `interfaces.includes('ObjectDetectionPreview') && id !== '${nvrAcceleratedMotionSensorId}'`,
+                immediate: true,
+                value: storage.getItem(objectDetectorKey)
+            },
             {
                 key: detecionClassKey,
                 title: 'Detection class',
@@ -1097,6 +1100,14 @@ export const getOccupancyRulesSettings = async (props: {
                 choices: zones,
                 value: storage.getItem(zoneKey),
                 readonly: !zones.length
+            },
+            {
+                key: captureZoneKey,
+                title: 'Capture zone',
+                group: groupName,
+                subgroup: occupancyRuleName,
+                value: storage.getItem(captureZoneKey),
+                type: 'clippath'
             },
             {
                 key: zoneMatchTypeKey,
@@ -1148,7 +1159,7 @@ export const getOccupancyRulesSettings = async (props: {
             {
                 key: zoneOccupiedTextKey,
                 title: 'Zone occupied text',
-                description: 'Text to use for the notification when the rule gets activated (zone occupied)',
+                description: 'Text to use for the notification when the rule gets activated (zone occupied). Available arguments ${detectedObjects} ${maxObjects}',
                 group: groupName,
                 subgroup: occupancyRuleName,
                 value: storage.getItem(zoneOccupiedTextKey),
@@ -1157,7 +1168,7 @@ export const getOccupancyRulesSettings = async (props: {
             {
                 key: zoneNotOccupiedTextKey,
                 title: 'Zone not occupied text',
-                description: 'Text to use for the notification when the rule gets deactivated (zone not occupied)',
+                description: 'Text to use for the notification when the rule gets deactivated (zone not occupied). Available arguments ${detectedObjects} ${maxObjects}',
                 group: groupName,
                 subgroup: occupancyRuleName,
                 value: storage.getItem(zoneNotOccupiedTextKey),
@@ -1450,6 +1461,7 @@ export interface OccupancyRule {
     zoneType: ZoneMatchType;
     priority: NotificationPriority;
     actions?: string[];
+    captureZone?: Point[];
 }
 
 export const getDeviceOccupancyRules = (
@@ -1484,6 +1496,7 @@ export const getDeviceOccupancyRules = (
             priorityKey,
             maxObjectsKey,
             forceUpdateKey,
+            captureZoneKey,
         } = getOccupancyRuleKeys(occupancyRuleName);
 
         const isEnabled = JSON.parse(deviceStorage[enabledKey]?.value as string ?? 'false');
@@ -1503,6 +1516,7 @@ export const getDeviceOccupancyRules = (
         const zoneMatchType = deviceStorage[zoneMatchTypeKey]?.value as ZoneMatchType ?? ZoneMatchType.Intersect;
         const priority = deviceStorage[priorityKey]?.value as NotificationPriority;
         const actions = deviceStorage[actionsKey]?.value as string[];
+        const captureZone = JSON.parse(deviceStorage[captureZoneKey]?.value as string ?? '[]') as Point[];
 
         const occupancyRule: OccupancyRule = {
             name: occupancyRuleName,
@@ -1519,10 +1533,10 @@ export const getDeviceOccupancyRules = (
             priority,
             actions,
             maxObjects,
+            captureZone
         };
 
         const ruleAllowed = isEnabled && !!detectionClass && !!observeZone;
-        // const ruleAllowed = isEnabled && !!detectionClass && !!observeZone && !!objectDetector;
 
         if (!ruleAllowed) {
             skippedOccupancyRules.push(occupancyRule);

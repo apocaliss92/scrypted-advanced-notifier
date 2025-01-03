@@ -1,10 +1,10 @@
-import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ObjectDetection, Point } from "@scrypted/sdk";
+import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ObjectDetection, Image, ScryptedMimeTypes } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import { DetectionRule, detectionRulesGroup, DetectionRuleSource, DeviceInterface, enabledRegex, EventType, filterAndSortValidDetections, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getWebookUrls, isDeviceEnabled, normalizeBoxToClipPath, ObserveZoneClasses, ObserveZoneData, OccupancyRule, OccupancyRuleData, occupancyRulesGroup, ZoneMatchType } from "./utils";
-import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
+import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
-import { detectionClassForObjectsReporting, discoverDetectionRules, discoverOccupancyRules, getDetectionRuleId, getOccupancyRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
+import { discoverDetectionRules, discoverOccupancyRules, getDetectionRuleId, getOccupancyRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import polygonClipping from 'polygon-clipping';
 
 const { systemManager } = sdk;
@@ -19,6 +19,8 @@ interface OccupancyData {
     lastChange: number,
     lastCheck: number,
     objectsDetected: number,
+    detectedResult: ObjectsDetected,
+    image: MediaObject
 }
 
 export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> implements Settings {
@@ -568,19 +570,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    async checkOccupancyData(image: MediaObject) {
+    async checkOccupancyData(imageParent: MediaObject) {
         try {
             const logger = this.getLogger();
             const now = new Date().getTime();
-            const objectDetection: ObjectDetection = this.storageSettings.values.objectDetectionDevice ??
-                this.plugin.storageSettings.values.objectDetectionDevice;
 
-            if (!objectDetection) {
-                logger.log('No detection plugin selected');
-                return;
-            }
-
-            const detected = await objectDetection.detectObjects(image);
             const device = systemManager.getDeviceById<DeviceInterface>(this.id);
             const mqttClient = await this.plugin.getMqttClient();
 
@@ -604,15 +598,85 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             //         }
             //     });
             // }
+            const objectDetectorParent: ObjectDetection = this.plugin.storageSettings.values.objectDetectionDevice;
+
+            if (!objectDetectorParent) {
+                logger.log(`No detection plugin selected.`);
+                return;
+            }
+
+            const detectedResultParent = await objectDetectorParent.detectObjects(imageParent);
+
             for (const occupancyRule of this.occupancyRules) {
-                const { name, zoneType, observeZone, scoreThreshold, detectionClass, maxObjects = 1 } = occupancyRule;
+                const { name, zoneType, observeZone, scoreThreshold, detectionClass, maxObjects = 1, objectDetector: ruleObjectDetector, captureZone } = occupancyRule;
+
+                let objectDetector = objectDetectorParent;
+                let detectedResult = detectedResultParent;
+
+                if (ruleObjectDetector) {
+                    objectDetector = systemManager.getDeviceById<ObjectDetection>(ruleObjectDetector);
+                }
+                let imageToUse = imageParent;
+
+                if (captureZone?.length >= 3) {
+                    const zone = zonesData.find(zoneData => zoneData.name === observeZone)?.path;
+                    const image = await sdk.mediaManager.convertMediaObject<Image>(imageParent, ScryptedMimeTypes.Image);
+                    let left = image.width;
+                    let top = image.height;
+                    let right = 0;
+                    let bottom = 0;
+                    for (const point of zone) {
+                        left = Math.min(left, point[0]);
+                        top = Math.min(top, point[1]);
+                        right = Math.max(right, point[0]);
+                        bottom = Math.max(bottom, point[1]);
+                    }
+
+                    left = left * image.width;
+                    top = top * image.height;
+                    right = right * image.width;
+                    bottom = bottom * image.height;
+
+                    let width = right - left;
+                    let height = bottom - top;
+                    // square it for standard detection
+                    width = height = Math.max(width, height);
+                    // recenter it
+                    left = left + (right - left - width) / 2;
+                    top = top + (bottom - top - height) / 2;
+                    // ensure bounds are within image.
+                    left = Math.max(0, left);
+                    top = Math.max(0, top);
+                    width = Math.min(width, image.width - left);
+                    height = Math.min(height, image.height - top);
+
+                    const cropped = await image.toImage({
+                        crop: {
+                            left,
+                            top,
+                            width,
+                            height,
+                        },
+                    });
+                    imageToUse = cropped;
+                    detectedResult = await objectDetector.detectObjects(cropped);
+
+                    // adjust the origin of the bounding boxes for the crop.
+                    for (const d of detectedResult.detections) {
+                        d.boundingBox[0] += left;
+                        d.boundingBox[1] += top;
+                    }
+                    detectedResult.inputDimensions = [image.width, image.height];
+                } else if (ruleObjectDetector) {
+                    detectedResult = await objectDetector.detectObjects(imageParent);
+                }
 
                 let objectsDetected = 0;
 
-                for (const detection of detected.detections) {
+                for (const detection of detectedResult.detections) {
                     const className = detectionClassesDefaultMap[detection.className];
                     if (detection.score >= scoreThreshold && detectionClass === className) {
-                        const boundingBoxInCoords = normalizeBoxToClipPath(detection.boundingBox, detected.inputDimensions);
+                        const boundingBoxInCoords = normalizeBoxToClipPath(detection.boundingBox, detectedResult.inputDimensions);
                         const zone = zonesData.find(zoneData => zoneData.name === observeZone);
                         let zoneMatches = false;
 
@@ -632,14 +696,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 this.occupancyState[name] = {
                     ...this.occupancyState[name] ?? {} as OccupancyData,
-                    objectsDetected
+                    objectsDetected,
+                    detectedResult,
+                    image: imageToUse
                 };
 
                 const existingRule = occupancyRulesDataMap[name];
                 if (!existingRule) {
                     occupancyRulesDataMap[name] = {
                         rule: occupancyRule,
-                        occupies
+                        occupies,
+                        detectedResult,
+
                     }
                 } else if (!existingRule.occupies && occupies) {
                     existingRule.occupies = true;
@@ -660,7 +728,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const logPayload: any = {
                     occupancyRuleData,
                     currentState,
-                    detected,
                     tooOld,
                 };
 
@@ -687,10 +754,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     if (!isConfirmationTimePassed) {
                         if (isStateConfirmed) {
                             // Do nothing and wait for next iteration
-                            logger.debug(`Confirmation time is not passed yet ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
+                            logger.log(`Confirmation time is not passed yet ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
                         } else {
                             // Reset confirmation data because the value changed before confirmation time passed
-                            logger.debug(`Confirmation failed, value changed during confirmation time ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
+                            logger.log(`Confirmation failed, value changed during confirmation time ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
 
                             occupancyData = {
                                 ...occupancyData,
@@ -729,11 +796,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 occupancyToConfirm: occupancyRuleData.occupies
                             };
 
-                            logger.debug(`Restarting confirmation flow for occupancy rule ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
+                            logger.log(`Restarting confirmation flow for occupancy rule ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
                         }
                     }
                 } else if (occupancyRuleData.occupies !== currentState.lastOccupancy) {
-                    logger.debug(`Marking the rule to confirm for next iteration ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
+                    logger.log(`Marking the rule to confirm for next iteration ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
 
                     occupancyData = {
                         ...occupancyData,
@@ -756,18 +823,23 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 console: logger,
                 device,
                 mqttClient,
-                objectsDetected: detected,
+                objectsDetected: detectedResultParent,
                 observeZonesClasses: {},
                 occupancyRulesData
             });
 
             for (const occupancyRuleData of occupancyRulesData) {
                 const rule = occupancyRuleData.rule;
+                const currentState = this.occupancyState[rule.name];
 
                 if (!rulesToNotNotify.includes(rule.name)) {
-                    const message = occupancyRuleData.occupies ?
+                    let message = occupancyRuleData.occupies ?
                         rule.zoneOccupiedText :
                         rule.zoneNotOccupiedText;
+
+                    message = message.toString()
+                        .replace('${detectedObjects}', String(currentState.objectsDetected) ?? '')
+                        .replace('${maxObjects}', String(rule.maxObjects) ?? '')
 
                     if (message) {
                         await this.plugin.notifyOccupancyEvent({
@@ -775,7 +847,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             message,
                             rule,
                             triggerTime: now,
-                            image
+                            image: currentState?.image ?? imageParent
                         });
                     }
                 }

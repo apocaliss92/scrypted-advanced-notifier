@@ -1,6 +1,6 @@
 import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import axios from "axios";
-import { isEqual, keyBy, sortBy, uniq } from 'lodash';
+import { isEqual, keyBy, sortBy } from 'lodash';
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, parseNvrNotificationMessage, NotificationPriority, getFolderPaths, getDeviceRules, NvrEvent, ParseNotificationMessageResult, getPushoverPriority, getDetectionRuleKeys, enabledRegex, OccupancyRule } from "./utils";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
@@ -644,7 +644,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         triggerTime: number,
         message: string,
         rule: OccupancyRule,
-        image: MediaObject
+        image: MediaObject,
     }) {
         const { cameraDevice, rule, message, triggerTime, image } = props;
         const logger = this.getLogger();
@@ -768,7 +768,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             triggerDevice,
         } = result;
 
-        logger.log(`NVR notification received: ${JSON.stringify({ cameraName, options })}`)
+        logger.debug(`NVR notification received: ${JSON.stringify({ cameraName, options })}`)
 
         if (eventType === EventType.ObjectDetection) {
             await (this.currentMixinsMap[triggerDevice.name] as AdvancedNotifierCameraMixin)?.processDetections({
