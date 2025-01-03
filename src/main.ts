@@ -2,15 +2,16 @@ import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpR
 import axios from "axios";
 import { isEqual, keyBy, sortBy } from 'lodash';
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, parseNvrNotificationMessage, NotificationPriority, getFolderPaths, getDeviceRules, NvrEvent, ParseNotificationMessageResult, getPushoverPriority, getDetectionRuleKeys, enabledRegex, OccupancyRule } from "./utils";
+import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, parseNvrNotificationMessage, NotificationPriority, getFolderPaths, getDeviceRules, NvrEvent, ParseNotificationMessageResult, getPushoverPriority, getDetectionRuleKeys, detectRuleEnabledRegex, OccupancyRule, occupancyRuleEnabledRegex } from "./utils";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 import { BasePlugin, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
-import { getMqttTopicTopics, getRuleStrings, setupPluginAutodiscovery, subscribeToMainMqttTopics } from "./mqtt-utils";
+import { getMqttTopicTopics, getOccupancyRuleStrings, getRuleStrings, setupPluginAutodiscovery, subscribeToMainMqttTopics } from "./mqtt-utils";
 import path from 'path';
 import { AdvancedNotifierNotifier } from "./notifier";
+import { version } from '../package.json';
 
 const { systemManager } = sdk;
 const defaultNotifierNativeId = 'advancedNotifierDefaultNotifier';
@@ -219,6 +220,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             pluginFriendlyName: 'Advanced notifier'
         });
 
+        if (version === '1.5.0') {
+            this.log.a('In version 1.5.0 there have been many changes/fixes on the MQTT devices declaration. Please clear all the devices on Homeassistant with prefix "Scrypted AN" to have fresh sensors');
+        }
+
         (async () => {
             await sdk.deviceManager.onDeviceDiscovered(
                 {
@@ -361,24 +366,39 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     async putSetting(key: string, value: SettingValue, skipMqtt?: boolean): Promise<void> {
         if (!skipMqtt) {
-            const enabledResult = enabledRegex.exec(key);
-            if (enabledResult) {
-                const ruleName = enabledResult[1];
-                this.updateRuleOnMqtt({ active: value as boolean, ruleName, logger: this.getLogger() })
+            const enabledResultDetected = detectRuleEnabledRegex.exec(key);
+            const enabledResultOccupancy = occupancyRuleEnabledRegex.exec(key);
+            if (enabledResultDetected) {
+                const ruleName = enabledResultDetected[1];
+                this.updateDetectionRuleOnMqtt({ active: value as boolean, ruleName, logger: this.getLogger() });
+            } else if (enabledResultOccupancy) {
+                const ruleName = enabledResultOccupancy[1];
+                this.updateOccupancyRuleOnMqtt({ active: value as boolean, ruleName, logger: this.getLogger() });
             }
         }
 
         return this.storageSettings.putSetting(key, value);
     }
 
-    async updateRuleOnMqtt(props: { deviceId?: string, active: boolean, ruleName: string, logger: Console }) {
+    async updateDetectionRuleOnMqtt(props: { deviceId?: string, active: boolean, ruleName: string, logger: Console }) {
         const { active, ruleName, deviceId, logger } = props;
         const mqttClient = await this.getMqttClient();
         const { entityId, ruleDeviceId } = getRuleStrings({ name: ruleName, deviceId } as DetectionRule);
 
         const { getEntityTopic } = getMqttTopicTopics(ruleDeviceId);
         const stateTopic = getEntityTopic(entityId);
-        logger.log(`Setting rule ${ruleName} to ${active} for device ${deviceId}`);
+        logger.log(`Setting detection rule ${ruleName} to ${active} for device ${deviceId}`);
+        await mqttClient.publish(stateTopic, active ? 'ON' : 'OFF');
+    }
+
+    async updateOccupancyRuleOnMqtt(props: { deviceId?: string, active: boolean, ruleName: string, logger: Console }) {
+        const { active, ruleName, deviceId, logger } = props;
+        const mqttClient = await this.getMqttClient();
+        const { entityId, ruleDeviceId } = getOccupancyRuleStrings({ name: ruleName } as OccupancyRule);
+
+        const { getEntityTopic } = getMqttTopicTopics(ruleDeviceId);
+        const stateTopic = getEntityTopic(entityId);
+        logger.log(`Setting occupancy rule ${ruleName} to ${active} for device ${deviceId}`);
         await mqttClient.publish(stateTopic, active ? 'ON' : 'OFF');
     }
 

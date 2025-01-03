@@ -11,7 +11,8 @@ import AdvancedNotifierPlugin from "./main";
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Settings;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
-export const enabledRegex = new RegExp('rule:(.*):enabled');
+export const detectRuleEnabledRegex = new RegExp('rule:(.*):enabled');
+export const occupancyRuleEnabledRegex = new RegExp('occupancyRule:(.*):enabled');
 
 export interface ObserveZoneData {
     name: string;

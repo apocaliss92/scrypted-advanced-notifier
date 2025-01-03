@@ -1,7 +1,7 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ScryptedDeviceBase, ScryptedDeviceType, MediaObject, LockState } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DetectionRule, enabledRegex, EventType, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, isDeviceEnabled } from "./utils";
+import { DetectionRule, detectRuleEnabledRegex, EventType, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, isDeviceEnabled } from "./utils";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoverDetectionRules, getDetectionRuleId, publishDeviceState, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 
@@ -113,7 +113,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                             mqttClient,
                             detectionRules: allDeviceRules,
                             device,
-                            ruleCb: async ({ active, ruleName }) => {
+                            detectionRuleCb: async ({ active, ruleName }) => {
                                 const { enabledKey } = getDetectionRuleKeys(ruleName);
                                 logger.log(`Setting rule ${ruleName} for device ${device.name} to ${active}`);
                                 await device.putSetting(`homeassistantMetadata:${enabledKey}`, active);
@@ -193,10 +193,10 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
     async putMixinSetting(key: string, value: string, skipMqtt?: boolean) {
         if (!skipMqtt) {
-            const enabledResult = enabledRegex.exec(key);
+            const enabledResult = detectRuleEnabledRegex.exec(key);
             if (enabledResult) {
                 const ruleName = enabledResult[1];
-                await this.plugin.updateRuleOnMqtt({
+                await this.plugin.updateDetectionRuleOnMqtt({
                     active: JSON.parse(value as string ?? 'false'),
                     logger: this.getLogger(),
                     ruleName,

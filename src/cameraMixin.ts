@@ -1,7 +1,7 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ObjectDetection, Image, ScryptedMimeTypes } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DetectionRule, detectionRulesGroup, DetectionRuleSource, DeviceInterface, enabledRegex, EventType, filterAndSortValidDetections, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getWebookUrls, isDeviceEnabled, normalizeBoxToClipPath, ObserveZoneClasses, ObserveZoneData, OccupancyRule, OccupancyRuleData, occupancyRulesGroup, ZoneMatchType } from "./utils";
+import { DetectionRule, detectionRulesGroup, DetectionRuleSource, DeviceInterface, detectRuleEnabledRegex, occupancyRuleEnabledRegex, EventType, filterAndSortValidDetections, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRuleKeys, getOccupancyRulesSettings, getWebookUrls, isDeviceEnabled, normalizeBoxToClipPath, ObserveZoneClasses, ObserveZoneData, OccupancyRule, OccupancyRuleData, occupancyRulesGroup, ZoneMatchType } from "./utils";
 import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoverDetectionRules, discoverOccupancyRules, getDetectionRuleId, getOccupancyRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
@@ -179,17 +179,22 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 deviceClass: 'motion',
                                 detectionRules: allDeviceRules,
                                 occupancyRules: allOccupancyRules,
-                                observeZoneData: await this.getObserveZones()
                             });
 
                             this.getLogger().log(`Subscribing to mqtt topics`);
                             await subscribeToDeviceMqttTopics({
                                 mqttClient,
                                 detectionRules: allDeviceRules,
+                                occupancyRules: allOccupancyRules,
                                 device,
-                                ruleCb: async ({ active, ruleName }) => {
+                                detectionRuleCb: async ({ active, ruleName }) => {
                                     const { enabledKey } = getDetectionRuleKeys(ruleName);
-                                    logger.log(`Setting rule ${ruleName} to ${active}`);
+                                    logger.log(`Setting detection rule ${ruleName} to ${active}`);
+                                    await device.putSetting(`homeassistantMetadata:${enabledKey}`, active);
+                                },
+                                occupancyRuleCb: async ({ active, ruleName }) => {
+                                    const { enabledKey } = getOccupancyRuleKeys(ruleName);
+                                    logger.log(`Setting occupancy rule ${ruleName} to ${active}`);
                                     await device.putSetting(`homeassistantMetadata:${enabledKey}`, active);
                                 },
                                 switchRecordingCb: async (active) => {
@@ -369,15 +374,24 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async putMixinSetting(key: string, value: string, skipMqtt?: boolean) {
         if (!skipMqtt) {
-            const enabledResult = enabledRegex.exec(key);
-            if (enabledResult) {
-                const ruleName = enabledResult[1];
-                await this.plugin.updateRuleOnMqtt({
+            const enabledResultDetected = detectRuleEnabledRegex.exec(key);
+            const enabledResultOccupancy = occupancyRuleEnabledRegex.exec(key);
+            if (enabledResultDetected) {
+                const ruleName = enabledResultDetected[1];
+                await this.plugin.updateDetectionRuleOnMqtt({
                     active: JSON.parse(value as string ?? 'false'),
                     logger: this.getLogger(),
                     ruleName,
                     deviceId: this.id
-                })
+                });
+            } else if (enabledResultOccupancy) {
+                const ruleName = enabledResultOccupancy[1];
+                await this.plugin.updateOccupancyRuleOnMqtt({
+                    active: JSON.parse(value as string ?? 'false'),
+                    logger: this.getLogger(),
+                    ruleName,
+                    deviceId: this.id
+                });
             }
         }
 
