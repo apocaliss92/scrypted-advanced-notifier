@@ -152,6 +152,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     allDeviceRules,
                     occupancyRules,
                     skippedOccupancyRules,
+                    allOccupancyRules,
                 } = await isDeviceEnabled(this.id, deviceSettings, this.plugin);
 
                 logger.debug(`Detected rules: ${JSON.stringify({ detectionRules, skippedRules, occupancyRules, skippedOccupancyRules })}`);
@@ -177,6 +178,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 withDetections: true,
                                 deviceClass: 'motion',
                                 detectionRules: allDeviceRules,
+                                occupancyRules: allOccupancyRules,
                                 observeZoneData: await this.getObserveZones()
                             });
 

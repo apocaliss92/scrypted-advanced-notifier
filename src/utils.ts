@@ -580,14 +580,14 @@ export const isDeviceEnabled = async (deviceId: string, deviceSettings: Setting[
     const mainSettingsByKey = keyBy(mainSettings, 'key');
 
     const deviceSettingsByKey = keyBy(deviceSettings, 'key');
-    const { detectionRules, skippedRules, nvrRules, allDeviceRules } = getDeviceRules({
+    const { detectionRules, skippedRules, nvrRules, allDeviceRules, } = getDeviceRules({
         deviceId,
         deviceType,
         deviceStorage: deviceSettingsByKey,
         mainPluginStorage: mainSettingsByKey,
     });
 
-    const { occupancyRules, skippedOccupancyRules } = getDeviceOccupancyRules({
+    const { occupancyRules, skippedOccupancyRules, allOccupancyRules } = getDeviceOccupancyRules({
         deviceStorage: deviceSettingsByKey,
         mainPluginStorage: mainSettingsByKey,
     });
@@ -609,6 +609,7 @@ export const isDeviceEnabled = async (deviceId: string, deviceSettings: Setting[
         allDeviceRules,
         skippedOccupancyRules,
         occupancyRules,
+        allOccupancyRules,
     }
 }
 
@@ -1462,6 +1463,7 @@ export const getDeviceOccupancyRules = (
     }
 ) => {
     const { deviceStorage, mainPluginStorage } = props;
+    const allOccupancyRules: OccupancyRule[] = [];
     const occupancyRules: OccupancyRule[] = [];
     const skippedOccupancyRules: OccupancyRule[] = [];
 
@@ -1529,6 +1531,7 @@ export const getDeviceOccupancyRules = (
 
         const ruleAllowed = isEnabled && !!detectionClass && !!observeZone;
 
+        allOccupancyRules.push(occupancyRule);
         if (!ruleAllowed) {
             skippedOccupancyRules.push(occupancyRule);
         } else {
@@ -1537,7 +1540,7 @@ export const getDeviceOccupancyRules = (
 
     }
 
-    return { occupancyRules, skippedOccupancyRules };
+    return { occupancyRules, skippedOccupancyRules, allOccupancyRules };
 }
 
 export const addBoundingToImage = async (boundingBox: number[], imageBuffer: Buffer, console: Console, label: string) => {

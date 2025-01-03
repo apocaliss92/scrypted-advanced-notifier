@@ -1,4 +1,4 @@
-import { MediaObject, ObjectDetectionResult, ObjectsDetected, ScryptedDeviceBase, ScryptedInterface } from '@scrypted/sdk';
+import { MediaObject, ObjectDetectionResult, ObjectsDetected, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface } from '@scrypted/sdk';
 import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, parentDetectionClassMap } from './detecionClasses';
 import { DetectionRule, firstUpperCase, getWebooks, ObserveZoneClasses, ObserveZoneData, OccupancyRule, OccupancyRuleData, storeWebhookImage } from './utils';
 import { cloneDeep, groupBy } from 'lodash';
@@ -8,9 +8,10 @@ interface MqttEntity {
     entity: 'triggered' | 'lastImage' | 'lastClassname' | 'lastZones' | 'lastLabel' | string;
     domain: 'sensor' | 'binary_sensor' | 'camera' | 'switch';
     name: string;
-    className?: string,
+    className?: DetectionClass,
     key?: string,
     deviceClass?: string,
+    icon?: string;
 }
 
 export const detectionClassForObjectsReporting = [DetectionClass.Animal, DetectionClass.Person, DetectionClass.Vehicle];
@@ -47,7 +48,14 @@ const deviceClassMqttEntities: MqttEntity[] = defaultDetectionClasses.flatMap(cl
     const entries: MqttEntity[] = [
         { entity: `${className}Detected`, name: `${parsedClassName} detected`, domain: 'binary_sensor', className, },
         { entity: `${className}LastImage`, name: `${parsedClassName} last image `, domain: 'camera', className },
-        { entity: `${className}LastDetection`, name: `${parsedClassName} last detection `, domain: 'sensor', className },
+        {
+            entity: `${className}LastDetection`,
+            name: `${parsedClassName} last detection `,
+            domain: 'sensor',
+            className,
+            icon: 'mdi:clock',
+            deviceClass: 'timestamp'
+        },
     ];
 
     if (isLabelDetection(className)) {
@@ -92,7 +100,7 @@ const getPersonStrings = (person: string) => {
 
 export const getRuleStrings = (rule: DetectionRule) => {
     const entityId = rule.name.trim().replace(' ', '_');
-    const ruleDeviceId = rule.deviceId ? `${deviceRuleId}-${rule.deviceId}` : mainRuleId;
+    const ruleDeviceId = rule.deviceId ? `${deviceRuleId}-${rule.name}` : mainRuleId;
 
     return { entityId, ruleDeviceId };
 }
@@ -107,7 +115,7 @@ export const getObserveZoneStrings = (zoneName: string, className: DetectionClas
 }
 
 const mqttMainSettingsDevice = {
-    manufacturer: 'Scrypted',
+    manufacturer: namePrefix,
     ids: `${idPrefix}-main-settings`,
     name: `${namePrefix} main settings`,
 };
@@ -259,16 +267,37 @@ const getMqttDevice = (device?: ScryptedDeviceBase) => {
             ids: `${idPrefix}-${device.id}`,
             name: `${device.name}`,
             // name: `${namePrefix} ${device.name}`,
-            manufacturer: 'Scrypted',
+            manufacturer: namePrefix,
             model: `${device?.info?.manufacturer} ${device?.info?.model}`,
             via_device: mqttMainSettingsDevice.ids
         }
     } else {
         return {
-            manufacturer: 'Scrypted',
+            manufacturer: namePrefix,
             via_device: mqttMainSettingsDevice.ids
         }
     }
+}
+
+const getDeviceClassEntities = (device: ScryptedDeviceBase) => {
+    let classes: DetectionClass[] = [];
+    if (device.type === ScryptedDeviceType.Camera || device.type === ScryptedDeviceType.Doorbell) {
+        classes = [
+            DetectionClass.Motion,
+            DetectionClass.Person,
+            DetectionClass.Vehicle,
+            DetectionClass.Animal,
+            DetectionClass.Face,
+            DetectionClass.Plate,
+            DetectionClass.Package,
+        ]
+    } else if (device.type === ScryptedDeviceType.Sensor) {
+        classes = [DetectionClass.DoorSensor];
+    } else if (device.type === ScryptedDeviceType.Lock) {
+        classes = [DetectionClass.DoorLock]
+    }
+
+    return deviceClassMqttEntities.filter(entry => !entry.className || classes.includes(entry.className));
 }
 
 export const setupDeviceAutodiscovery = async (props: {
@@ -278,15 +307,16 @@ export const setupDeviceAutodiscovery = async (props: {
     withDetections?: boolean,
     deviceClass: string,
     detectionRules: DetectionRule[],
+    occupancyRules?: OccupancyRule[],
     observeZoneData?: ObserveZoneData[],
 }) => {
-    const { device, withDetections, deviceClass, mqttClient, detectionRules, observeZoneData } = props;
+    const { device, withDetections, deviceClass, mqttClient, detectionRules, occupancyRules } = props;
     const { id } = device;
 
     const mqttdevice = getMqttDevice(device);
 
     const { getDiscoveryTopic, getEntityTopic, getCommandTopic } = getMqttTopicTopics(device.id);
-    const allEntities = [triggeredEntity, ...deviceClassMqttEntities];
+    const allEntities = [triggeredEntity, ...getDeviceClassEntities(device)];
     const entitiesToRun = withDetections ?
         allEntities :
         [triggeredEntity];
@@ -299,18 +329,19 @@ export const setupDeviceAutodiscovery = async (props: {
         entitiesToRun.push(cloneDeep(onlineEntity));
     }
 
-    const getConfig = (entity: string, name: string, deviceClassParent?: string) => ({
+    const getConfig = (entity: string, name: string, deviceClassParent?: string, icon?: string) => ({
         dev: mqttdevice,
         unique_id: `${idPrefix}-${id}-${entity}`,
         object_id: `${device.name}_${entity}`,
         name,
-        device_class: deviceClassParent ?? (entity === 'triggered' || entity.includes('Detected') ? deviceClass : undefined)
+        device_class: deviceClassParent ?? (entity === 'triggered' || entity.includes('Detected') ? deviceClass : undefined),
+        icon
     } as any);
 
     for (const mqttEntity of entitiesToRun) {
-        const { domain, entity, name, deviceClass: deviceClassParent } = mqttEntity;
+        const { domain, entity, name, deviceClass: deviceClassParent, icon } = mqttEntity;
 
-        const config = getConfig(entity, name, deviceClassParent);
+        const config = getConfig(entity, name, deviceClassParent, icon);
         const topic = getEntityTopic(entity);
 
         if (domain === 'binary_sensor') {
@@ -355,11 +386,11 @@ export const setupDeviceAutodiscovery = async (props: {
         const commandTopic = getCommandTopic(entityId);
         const stateTopic = getEntityTopic(entityId);
 
-        const detectionRUleEnabledConfig = {
+        const detectionRuleEnabledConfig = {
             dev: mqttdevice,
             unique_id: `${idPrefix}-${id}-${ruleDeviceId}`,
             object_id: `${device.name}_${ruleDeviceId}`,
-            name: `Rule ${detectionRule.name}`,
+            name: `Detection rule ${detectionRule.name}`,
             platform: 'switch',
             command_topic: commandTopic,
             state_topic: stateTopic,
@@ -368,8 +399,30 @@ export const setupDeviceAutodiscovery = async (props: {
             qos: 0
         };
 
-        await mqttClient.publish(getDiscoveryTopic('switch', entityId), JSON.stringify(detectionRUleEnabledConfig));
+        await mqttClient.publish(getDiscoveryTopic('switch', entityId), JSON.stringify(detectionRuleEnabledConfig));
     }
+
+    // for (const occupancyRule of occupancyRules) {
+    //     const { entityId, ruleDeviceId } = getRuleStrings(detectionRule);
+    //     const { getCommandTopic, getEntityTopic, getDiscoveryTopic } = getMqttTopicTopics(ruleDeviceId);
+    //     const commandTopic = getCommandTopic(entityId);
+    //     const stateTopic = getEntityTopic(entityId);
+
+    //     const detectionRuleEnabledConfig = {
+    //         dev: mqttdevice,
+    //         unique_id: `${idPrefix}-${id}-${ruleDeviceId}`,
+    //         object_id: `${device.name}_${ruleDeviceId}`,
+    //         name: `Detection rule ${detectionRule.name}`,
+    //         platform: 'switch',
+    //         command_topic: commandTopic,
+    //         state_topic: stateTopic,
+    //         optimistic: false,
+    //         retain: true,
+    //         qos: 0
+    //     };
+
+    //     await mqttClient.publish(getDiscoveryTopic('switch', entityId), JSON.stringify(detectionRuleEnabledConfig));
+    // }
 
     // TODO: Check if rules can just replace these
     // if (observeZoneData) {
@@ -411,7 +464,7 @@ export const discoverDetectionRules = async (props: {
         const config: any = {
             dev: mqttdevice,
             unique_id: `${idPrefix}-${id}-${entity}`,
-            name: `${rule.source} - ${rule.name} Triggered`,
+            name: `Detection rule ${rule.source} - ${rule.name}`,
             object_id: `${device.name}_${entity}`,
             device_class: 'motion',
             payload_on: 'true',
@@ -443,7 +496,7 @@ export const discoverOccupancyRules = async (props: {
         const config: any = {
             dev: mqttdevice,
             unique_id: `${idPrefix}-${id}-${entity}`,
-            name: `${rule.name} Occupancy`,
+            name: `Occupancy rule ${rule.name}`,
             object_id: `${device.name}_${entity}`,
             device_class: 'occupancy',
             payload_on: 'true',
@@ -533,7 +586,7 @@ export const publishRelevantDetections = async (props: {
         }
 
         if (reset) {
-            for (const entry of deviceClassMqttEntities) {
+            for (const entry of getDeviceClassEntities(device)) {
                 const { entity } = entry;
 
                 if (entity.includes('Detected')) {
@@ -628,7 +681,7 @@ export const publishDeviceState = async (props: {
 
         if (resettAllClasses) {
             // Resetting all detection classes
-            for (const entry of deviceClassMqttEntities) {
+            for (const entry of getDeviceClassEntities(device)) {
                 const { entity } = entry;
 
                 if (entity.includes('Detected')) {
