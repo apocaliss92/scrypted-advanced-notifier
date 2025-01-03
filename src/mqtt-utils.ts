@@ -379,6 +379,7 @@ export const setupDeviceAutodiscovery = async (props: {
         if (domain === 'binary_sensor') {
             config.payload_on = 'true';
             config.payload_off = 'false';
+            config.state_topic = topic;
         }
         if (domain === 'image') {
             config.image_topic = topic;

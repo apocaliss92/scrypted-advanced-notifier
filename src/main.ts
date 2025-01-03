@@ -220,8 +220,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             pluginFriendlyName: 'Advanced notifier'
         });
 
-        if (version === '1.5.0') {
-            this.log.a('In version 1.5.0 there have been many changes/fixes on the MQTT devices declaration. Please clear all the devices on Homeassistant with prefix "Scrypted AN" to have fresh sensors');
+        if (version === '1.5.1') {
+            this.log.a('In version 1.5.1 there have been many changes/fixes on the MQTT devices declaration. Please clear all the devices on Homeassistant with prefix "Scrypted AN" to have fresh sensors');
         }
 
         (async () => {
