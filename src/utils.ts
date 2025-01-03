@@ -1039,6 +1039,7 @@ export const getOccupancyRulesSettings = async (props: {
     groupName: string,
     storage: StorageSettings<any>,
     zones?: string[],
+    isNvrEnabled: boolean
 }) => {
     const { storage, zones, groupName } = props;
     const settings: Setting[] = [];
@@ -1073,17 +1074,7 @@ export const getOccupancyRulesSettings = async (props: {
                 value: storage.getItem(enabledKey as any) as boolean ?? true,
                 immediate: true,
             },
-            {
-                key: objectDetectorKey,
-                title: 'Object Detector',
-                group: groupName,
-                subgroup: occupancyRuleName,
-                description: 'Select the object detection plugin to use for detecting objects.',
-                type: 'device',
-                deviceFilter: `interfaces.includes('ObjectDetectionPreview') && id !== '${nvrAcceleratedMotionSensorId}'`,
-                immediate: true,
-                value: storage.getItem(objectDetectorKey)
-            },
+            ...[],
             {
                 key: detecionClassKey,
                 title: 'Detection class',

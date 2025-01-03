@@ -354,6 +354,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 storage: this.storageSettings,
                 zones,
                 groupName: occupancyRulesGroup,
+                isNvrEnabled: this.nvrEnabled
             });
             settings.push(...occupancyRulesSettings);
 
