@@ -615,11 +615,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             //         }
             //     });
             // }
-            const objectDetectorParent: ObjectDetection = this.plugin.storageSettings.values.objectDetectionDevice;
+            let objectDetectorParent: ObjectDetection = this.plugin.storageSettings.values.objectDetectionDevice;
 
             if (!objectDetectorParent) {
-                logger.log(`No detection plugin selected.`);
-                return;
+                logger.log(`No detection plugin selected. Defaulting to first one`);
+                objectDetectorParent = systemManager.getDeviceById<ObjectDetection>(
+                    this.plugin.storageSettings.settings.objectDetectionDevice.choices[0]
+                );
             }
 
             const detectedResultParent = await objectDetectorParent.detectObjects(imageParent);
