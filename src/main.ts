@@ -2,7 +2,7 @@ import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpR
 import axios from "axios";
 import { isEqual, keyBy, sortBy } from 'lodash';
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, parseNvrNotificationMessage, NotificationPriority, getFolderPaths, getDeviceRules, NvrEvent, ParseNotificationMessageResult, getPushoverPriority, getDetectionRuleKeys, detectRuleEnabledRegex, OccupancyRule, occupancyRuleEnabledRegex } from "./utils";
+import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, parseNvrNotificationMessage, NotificationPriority, getFolderPaths, getDeviceRules, NvrEvent, ParseNotificationMessageResult, getPushoverPriority, getDetectionRuleKeys, detectRuleEnabledRegex, OccupancyRule, occupancyRuleEnabledRegex, nvrAcceleratedMotionSensorId } from "./utils";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
@@ -15,7 +15,6 @@ import { version } from '../package.json';
 
 const { systemManager } = sdk;
 const defaultNotifierNativeId = 'advancedNotifierDefaultNotifier';
-const nvrAcceleratedMotionSensorId = sdk.systemManager.getDeviceById('@scrypted/nvr', 'motion')?.id;
 
 interface NotifyCameraProps {
     cameraDevice?: DeviceInterface,
@@ -220,9 +219,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             pluginFriendlyName: 'Advanced notifier'
         });
 
-        if (version === '1.5.1') {
-            this.log.a('In version 1.5.1 there have been many changes/fixes on the MQTT devices declaration. Please clear all the devices on Homeassistant with prefix "Scrypted AN" to have fresh sensors');
-        }
+        // if (version === '1.5.1') {
+        //     this.log.a('In version 1.5.1 there have been many changes/fixes on the MQTT devices declaration. Please clear all the devices on Homeassistant with prefix "Scrypted AN" to have fresh sensors');
+        // }
 
         (async () => {
             await sdk.deviceManager.onDeviceDiscovered(
@@ -788,9 +787,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             triggerDevice,
         } = result;
 
-        logger.debug(`NVR notification received: ${JSON.stringify({ cameraName, options })}`)
+        logger.debug(`NVR notification received: ${JSON.stringify({ cameraName, options })}`);
+        if (eventType === EventType.Package) {
+            logger.log(`Package detection  parsed: ${JSON.stringify({ cameraName, result, eventType, })}`)
+        }
 
-        if (eventType === EventType.ObjectDetection) {
+        if ([EventType.ObjectDetection, EventType.Package].includes(eventType as EventType)) {
+            // if (eventType === EventType.ObjectDetection) {
             await (this.currentMixinsMap[triggerDevice.name] as AdvancedNotifierCameraMixin)?.processDetections({
                 detections: allDetections,
                 isFromNvr: true,
@@ -805,7 +808,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 image,
             });
         } else {
-            if (result.eventType) {
+            if (eventType) {
                 await this.notifyNvrEvent(
                     {
                         ...result,
@@ -1013,6 +1016,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if (actions) {
             haActions.push(...actions);
         }
+        let haActionsToNotify: any[] = [];
+
+        try {
+            haActions.forEach(haAction => haActionsToNotify.push(JSON.parse(haAction)));
+        } catch (e) {
+            this.getLogger().log(`Error building ha actions: ${JSON.stringify({ haActions, actions })}.`, e);
+        }
         let data: any = {};
 
         if (notifier.providerId === this.pushoverProviderId) {
@@ -1033,7 +1043,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             data.ha = {
                 url: haUrl,
                 clickAction: haUrl,
-                actions: haActions.length ? haActions.map(action => JSON.parse(action)) : undefined
+                actions: haActionsToNotify
             }
 
         }

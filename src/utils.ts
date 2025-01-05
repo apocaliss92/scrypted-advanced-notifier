@@ -142,6 +142,12 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
         } else if (subtitle === 'Online') {
             textKey = 'onlineText';
             eventType = NvrEvent.Online;
+        } else if (subtitle === 'Recording Interrupted') {
+            textKey = 'streamInterruptedText';
+            eventType = NvrEvent.RecordingInterrupted;
+            const regex = new RegExp('The (.*) has been offline for an extended period.');
+            label = regex.exec(options.body)[1];
+            console.log(`Recording Interrupted received: ${JSON.stringify({ options, label, eventType, textKey })}`);
         } else {
             if (subtitle.includes('Maybe: Vehicle')) {
                 textKey = 'plateDetectedText';
@@ -191,12 +197,9 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
             } else if (subtitle.includes('Package Detected')) {
                 textKey = 'packageText';
                 eventType = EventType.Package;
+                detection = allDetections.find(det => det.className === 'package');
+                allDetections = allDetections.filter(det => !det.className.includes('debug'));
                 console.log(`Package detection received: ${JSON.stringify(options)}`);
-            } else if (subtitle.includes('Recording Interrupted')) {
-                textKey = 'streamInterruptedText';
-                eventType = NvrEvent.RecordingInterrupted;
-                const regex = new RegExp('The (.*) Stream has been offline for an extended period.');
-                label = regex.exec(options.body)[1];
             }
         }
 
@@ -471,8 +474,6 @@ export type MixinBaseSettingKey =
     | 'haActions'
     | typeof detectionRulesKey
     | typeof occupancyRulesKey
-// | 'objectOccupancyThreshold'
-// | 'objectDetectionDevice'
 
 export enum NotificationPriority {
     VeryLow = "VeryLow",
@@ -542,24 +543,6 @@ export const getMixinBaseSettings = (name: string, withOccupancy: boolean) => {
     } as StorageSettingsDict<MixinBaseSettingKey>;
 
     if (withOccupancy) {
-        // settings['objectDetectionDevice'] = {
-        //     title: 'Object Detector',
-        //     group: occupancyRulesGroup,
-        //     description: 'Select the object detection plugin to use for detecting objects. (overrides the configuration in plugin)',
-        //     type: 'device',
-        //     deviceFilter: `interfaces.includes('ObjectDetectionPreview') && id !== '${nvrAcceleratedMotionSensorId}'`,
-        //     immediate: true,
-        // };
-        // settings['objectOccupancyThreshold'] = {
-        //     title: 'Score threshold',
-        //     type: 'number',
-        //     placeholder: '0.5',
-        //     defaultValue: 0.5,
-        //     group: occupancyRulesGroup,
-        //     description: 'Select the object detection plugin to use for detecting objects.',
-        //     deviceFilter: `interfaces.includes('ObjectDetectionPreview') && id !== '${nvrAcceleratedMotionSensorId}'`,
-        //     immediate: true,
-        // };
         settings[occupancyRulesKey] = {
             title: 'Rules',
             group: occupancyRulesGroup,
@@ -1035,7 +1018,7 @@ export const getDetectionRulesSettings = async (props: {
     return settings;
 }
 
-const nvrAcceleratedMotionSensorId = sdk.systemManager.getDeviceById('@scrypted/nvr', 'motion')?.id;
+export const nvrAcceleratedMotionSensorId = sdk.systemManager.getDeviceById('@scrypted/nvr', 'motion')?.id;
 
 export const getOccupancyRulesSettings = async (props: {
     groupName: string,
@@ -1198,6 +1181,16 @@ export const getOccupancyRulesSettings = async (props: {
                 group: groupName,
                 subgroup: occupancyRuleName,
                 value: JSON.parse(storage.getItem(actionsKey as any) as string ?? '[]'),
+            },
+            {
+                key: objectDetectorKey,
+                title: 'Object Detector',
+                description: 'Select the object detection plugin to use for detecting objects. (overrides the configuration in plugin)',
+                type: 'device',
+                group: groupName,
+                subgroup: occupancyRuleName,
+                deviceFilter: `interfaces.includes('ObjectDetectionPreview') && id !== '${nvrAcceleratedMotionSensorId}'`,
+                immediate: true,
             },
         );
     };

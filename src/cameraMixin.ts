@@ -127,6 +127,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         this.nvrMixinId = systemManager.getDeviceByName('Scrypted NVR Object Detection')?.id;
 
+        const canUseNvr = this.nvrMixinId && this.mixins.includes(this.nvrMixinId);
+        this.nvrEnabled = canUseNvr;
+
         this.initValues().then().catch(this.console.log);
         this.startCheckInterval().then().catch(this.console.log);
 
@@ -337,10 +340,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async getMixinSettings(): Promise<Setting[]> {
         try {
-            const canUseNvr = this.nvrMixinId && this.mixins.includes(this.nvrMixinId);
-
-            this.nvrEnabled = canUseNvr;
-            this.storageSettings.settings.ignoreCameraDetections.hide = !canUseNvr;
+            this.storageSettings.settings.ignoreCameraDetections.hide = !this.nvrEnabled;
 
             const lastSnapshotWebhook = this.storageSettings.values.lastSnapshotWebhook;
             this.storageSettings.settings.lastSnapshotWebhookCloudUrl.hide = !lastSnapshotWebhook;
