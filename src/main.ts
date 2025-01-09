@@ -366,13 +366,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     async putSetting(key: string, value: SettingValue, skipMqtt?: boolean): Promise<void> {
         if (!skipMqtt) {
             const enabledResultDetected = detectRuleEnabledRegex.exec(key);
-            const enabledResultOccupancy = occupancyRuleEnabledRegex.exec(key);
             if (enabledResultDetected) {
                 const ruleName = enabledResultDetected[1];
                 this.updateDetectionRuleOnMqtt({ active: value as boolean, ruleName, logger: this.getLogger() });
-            } else if (enabledResultOccupancy) {
-                const ruleName = enabledResultOccupancy[1];
-                this.updateOccupancyRuleOnMqtt({ active: value as boolean, ruleName, logger: this.getLogger() });
             }
         }
 
@@ -788,9 +784,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         } = result;
 
         logger.debug(`NVR notification received: ${JSON.stringify({ cameraName, options })}`);
-        if (eventType === EventType.Package) {
-            logger.log(`Package detection  parsed: ${JSON.stringify({ cameraName, result, eventType, })}`)
-        }
 
         if ([EventType.ObjectDetection, EventType.Package].includes(eventType as EventType)) {
             // if (eventType === EventType.ObjectDetection) {

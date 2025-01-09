@@ -773,10 +773,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     if (!isConfirmationTimePassed) {
                         if (isStateConfirmed) {
                             // Do nothing and wait for next iteration
-                            logger.log(`Confirmation time is not passed yet ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
+                            logger.debug(`Confirmation time is not passed yet ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
                         } else {
                             // Reset confirmation data because the value changed before confirmation time passed
-                            logger.log(`Confirmation failed, value changed during confirmation time ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
+                            logger.debug(`Confirmation failed, value changed during confirmation time ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
 
                             occupancyData = {
                                 ...occupancyData,
@@ -803,7 +803,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 rulesToNotNotify.push(occupancyRuleData.rule.name);
                             }
 
-                            logger.log(`Confirming occupancy rule ${occupancyRuleData.rule.name}: ${JSON.stringify({
+                            logger.debug(`Confirming occupancy rule ${occupancyRuleData.rule.name}: ${JSON.stringify({
                                 stateActuallyChanged,
                                 ...logPayload,
                             })}`);
@@ -815,11 +815,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 occupancyToConfirm: occupancyRuleData.occupies
                             };
 
-                            logger.log(`Restarting confirmation flow for occupancy rule ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
+                            logger.debug(`Restarting confirmation flow for occupancy rule ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
                         }
                     }
                 } else if (occupancyRuleData.occupies !== currentState.lastOccupancy) {
-                    logger.log(`Marking the rule to confirm for next iteration ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
+                    logger.debug(`Marking the rule to confirm for next iteration ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
 
                     occupancyData = {
                         ...occupancyData,

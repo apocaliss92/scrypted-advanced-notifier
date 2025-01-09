@@ -198,7 +198,6 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
                 textKey = 'packageText';
                 eventType = EventType.Package;
                 detection = allDetections.find(det => det.className === 'package');
-                allDetections = allDetections.filter(det => !det.className.includes('debug'));
                 console.log(`Package detection received: ${JSON.stringify(options)}`);
             }
         }
@@ -272,10 +271,13 @@ export const filterAndSortValidDetections = (detections: ObjectDetectionResult[]
         1 - (detection.score ?? 0)]
     );
     let hasLabel = false;
-    const zoneDetections: Record<string, Record<DetectionClass, boolean>> = {};
     const uniqueByClassName = uniqBy(sortedByPriorityAndScore, det => det.className);
     const candidates = uniqueByClassName.filter(det => {
         const { className, label, movement } = det;
+        if (className.startsWith('debug-')) {
+            return false;
+        }
+
         const isLabel = isLabelDetection(className);
         if (isLabel && !label) {
             logger.debug(`Label ${label} not valid`);
