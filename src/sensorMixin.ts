@@ -148,9 +148,9 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 await this.startListeners();
             }
             if (isActiveForNvrNotifications && !this.isActiveForNvrNotifications) {
-                logger.log(`Starting listener for NVR events`);
+                logger.log(`Starting NVR events listeners`);
             } else if (!isActiveForNvrNotifications && this.isActiveForNvrNotifications) {
-                logger.log(`Stopping listener for NVR events`);
+                logger.log(`Stopping NVR events listeners`);
             }
 
             this.isActiveForNvrNotifications = isActiveForNvrNotifications;

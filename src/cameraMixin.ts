@@ -231,7 +231,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     logger.log('Stopping and cleaning listeners.');
                     this.resetListeners();
                 } else if (!isCurrentlyRunning && shouldRun) {
-                    logger.log(`Starting ${ScryptedInterface.ObjectDetector} listeners: ${JSON.stringify({
+                    logger.log(`Starting ${ScryptedInterface.ObjectDetector} listener: ${JSON.stringify({
                         notificationsActive: isActiveForNotifications,
                         mqttReportsActive: isActiveForMqttReporting,
                         isPluginEnabled,
@@ -241,9 +241,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
 
                 if (isActiveForNvrNotifications && !this.isActiveForNvrNotifications) {
-                    logger.log(`Starting listener for NVR events`);
+                    logger.log(`Starting NVR events listeners`);
                 } else if (!isActiveForNvrNotifications && this.isActiveForNvrNotifications) {
-                    logger.log(`Stopping listener for NVR events`);
+                    logger.log(`Stopping NVR events listeners`);
                 }
 
                 if (isActiveForMqttReporting && !!occupancyRules.length) {
