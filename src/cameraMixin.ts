@@ -1,11 +1,11 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ObjectDetection, Image, ScryptedMimeTypes } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DetectionRule, detectionRulesGroup, DetectionRuleSource, DeviceInterface, detectRuleEnabledRegex, occupancyRuleEnabledRegex, EventType, filterAndSortValidDetections, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRuleKeys, getOccupancyRulesSettings, getWebookUrls, isDeviceEnabled, normalizeBoxToClipPath, ObserveZoneClasses, ObserveZoneData, OccupancyRule, OccupancyRuleData, occupancyRulesGroup, ZoneMatchType } from "./utils";
+import { DetectionRule, detectionRulesGroup, DetectionRuleSource, DeviceInterface, detectRuleEnabledRegex, occupancyRuleEnabledRegex, EventType, filterAndSortValidDetections, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRuleKeys, getOccupancyRulesSettings, getWebookUrls, isDeviceEnabled, ObserveZoneData, OccupancyRule, OccupancyRuleData, occupancyRulesGroup, ZoneMatchType } from "./utils";
 import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoverDetectionRules, discoverOccupancyRules, getDetectionRuleId, getOccupancyRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
-import polygonClipping from 'polygon-clipping';
+import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 
 const { systemManager } = sdk;
 const secondsPerPicture = 5;
@@ -695,14 +695,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 for (const detection of detectedResult.detections) {
                     const className = detectionClassesDefaultMap[detection.className];
                     if (detection.score >= scoreThreshold && detectionClass === className) {
-                        const boundingBoxInCoords = normalizeBoxToClipPath(detection.boundingBox, detectedResult.inputDimensions);
+                        const boundingBoxInCoords = normalizeBox(detection.boundingBox, detectedResult.inputDimensions);
                         const zone = zonesData.find(zoneData => zoneData.name === observeZone);
                         let zoneMatches = false;
 
                         if (zoneType === ZoneMatchType.Intersect) {
-                            zoneMatches = !!polygonClipping.intersection([boundingBoxInCoords], [zone.path]).length;
+                            zoneMatches = polygonIntersectsBoundingBox(zone.path, boundingBoxInCoords);
                         } else {
-                            zoneMatches = zone.path.some(point => !polygonClipping.intersection([boundingBoxInCoords], [[point, [point[0] + 1, point[1]], [point[0] + 1, point[1] + 1]]]).length);
+                            zoneMatches = polygonContainsBoundingBox(zone.path, boundingBoxInCoords);
                         }
 
                         if (zoneMatches) {
