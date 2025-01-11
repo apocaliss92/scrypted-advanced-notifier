@@ -929,6 +929,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             for (const rule of rules) {
                 const { detectionClasses, scoreThreshold, whitelistedZones, blacklistedZones } = rule;
 
+                if (!detectionClasses.length) {
+                    return;
+                }
+
                 const match = candidates.find(d => {
                     if (ignoreCameraDetections && !d.boundingBox) {
                         return false;
@@ -943,7 +947,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         return;
                     }
 
-                    if (detectionClasses?.length && !detectionClasses.includes(className)) {
+                    if (!detectionClasses.includes(className)) {
                         logger.debug(`Classname ${className} not contained in ${detectionClasses}`);
                         return false;
                     }
