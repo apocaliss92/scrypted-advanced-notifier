@@ -671,6 +671,7 @@ export const getDetectionRuleKeys = (detectionRuleName: string) => {
     const actionsKey = `rule:${detectionRuleName}:haActions`;
     const priorityKey = `rule:${detectionRuleName}:priority`;
     const securitySystemModesKey = `rule:${detectionRuleName}:securitySystemModes`;
+    const recordingTriggerSecondsKey = `rule:${detectionRuleName}:recordingTriggerSeconds`;
 
     return {
         enabledKey,
@@ -692,6 +693,7 @@ export const getDetectionRuleKeys = (detectionRuleName: string) => {
         priorityKey,
         actionsKey,
         securitySystemModesKey,
+        recordingTriggerSecondsKey,
     }
 }
 
@@ -774,6 +776,7 @@ export const getDetectionRulesSettings = async (props: {
             priorityKey,
             actionsKey,
             securitySystemModesKey,
+            recordingTriggerSecondsKey,
         } = getDetectionRuleKeys(detectionRuleName);
 
         const currentActivation = storage.getItem(activationKey as any) as DetectionRuleActivation;
@@ -833,6 +836,19 @@ export const getDetectionRulesSettings = async (props: {
                 value: JSON.parse(storage.getItem(detecionClassesKey as any) as string ?? '[]')
             }
         );
+
+        if (withDetection) {
+            settings.push({
+                key: recordingTriggerSecondsKey,
+                title: 'Disable recording in seconds',
+                description: 'Set a value here in seconds to enable the camera recording when the rule is triggered. After the seconds specified, recording will be disabled',
+                group: groupName,
+                subgroup: detectionRuleName,
+                type: 'number',
+                placeholder: '-',
+                value: storage.getItem(recordingTriggerSecondsKey as any) as string,
+            });
+        }
 
         if (currentActivation === DetectionRuleActivation.AlarmSystem) {
             settings.push({
@@ -1226,6 +1242,7 @@ export interface DetectionRule {
     customText?: string;
     priority: NotificationPriority;
     actions?: string[];
+    disableNvrRecordingSeconds?: number;
 }
 
 export const getDeviceRules = (
@@ -1271,7 +1288,8 @@ export const getDeviceRules = (
                 priorityKey,
                 actionsKey,
                 nvrEventsKey,
-                securitySystemModesKey
+                securitySystemModesKey,
+                recordingTriggerSecondsKey
             } = getDetectionRuleKeys(detectionRuleName);
 
             const isEnabled = JSON.parse(storage[enabledKey]?.value as string ?? 'false');
@@ -1292,6 +1310,7 @@ export const getDeviceRules = (
             const detectionClasses = storage[detecionClassesKey]?.value as DetectionClass[] ?? [];
             const nvrEvents = storage[nvrEventsKey]?.value as NvrEvent[] ?? [];
             const scoreThreshold = Number(storage[scoreThresholdKey]?.value || 0.7);
+            const disableNvrRecordingSeconds = storage[recordingTriggerSecondsKey]?.value ? Number(storage[recordingTriggerSecondsKey]?.value) : undefined;
 
             const detectionRule: DetectionRule = {
                 source,
@@ -1305,7 +1324,8 @@ export const getDeviceRules = (
                 customText,
                 priority,
                 actions,
-                deviceId
+                deviceId,
+                disableNvrRecordingSeconds,
             };
 
             if (source === DetectionRuleSource.Device) {
@@ -1602,4 +1622,3 @@ export const getPushoverPriority = (priority: NotificationPriority) => priority 
         priority === NotificationPriority.Low ? -1 :
             -2;
 
-            

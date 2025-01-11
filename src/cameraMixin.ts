@@ -100,6 +100,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         motionTimeout: NodeJS.Timeout;
         motionListener: EventListenerRegister
     }> = {};
+    detectionRuleListeners: Record<string, {
+        disableNvrRecordingTimeout?: NodeJS.Timeout;
+    }> = {};
     lastPictureTaken: number;
     lastFrameAnalysis: number;
     lastObserveZonesFetched: number;
@@ -136,6 +139,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.plugin.currentMixinsMap[this.name] = this;
 
         this.occupancyState = this.storageSettings.values.occupancyState ?? {};
+    }
+
+    async enableRecording(device: Settings, enabled: boolean) {
+        await device.putSetting(`recording:privacyMode`, !enabled)
     }
 
     async startCheckInterval() {
@@ -202,7 +209,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 },
                                 switchRecordingCb: async (active) => {
                                     logger.log(`Setting NVR privacy mode to ${!active}`);
-                                    await device.putSetting(`recording:privacyMode`, !active);
+                                    await this.enableRecording(device, active);
                                 }
                             });
 
@@ -469,7 +476,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    async triggerMotion(props: { matchRule: MatchRule, device: ScryptedDeviceBase, b64Image?: string, triggerTime: number }) {
+    async triggerMotion(props: { matchRule: MatchRule, device: DeviceInterface, b64Image?: string, triggerTime: number }) {
         const logger = this.getLogger();
         try {
             const { matchRule, b64Image, device, triggerTime } = props;
@@ -499,6 +506,28 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     } catch (e) {
                         logger.log(`Error in reportDetectionsToMqtt`, e);
                     }
+                }
+
+                const { rule: { disableNvrRecordingSeconds, name } } = matchRule;
+                if (disableNvrRecordingSeconds !== undefined) {
+                    const seconds = Number(disableNvrRecordingSeconds);
+
+                    logger.log(`Enabling NVR recordings for ${seconds} seconds`);
+                    await this.enableRecording(device, true);
+
+                    if (!this.detectionRuleListeners[name]) {
+                        this.detectionRuleListeners[name] = {};
+                    }
+
+                    if (this.detectionRuleListeners[name].disableNvrRecordingTimeout) {
+                        clearTimeout(this.detectionRuleListeners[name].disableNvrRecordingTimeout);
+                        this.detectionRuleListeners[name].disableNvrRecordingTimeout = undefined;
+                    }
+
+                    this.detectionRuleListeners[name].disableNvrRecordingTimeout = setTimeout(async () => {
+                        logger.log(`Disabling NVR recordings`);
+                        await this.enableRecording(device, false);
+                    }, seconds * 1000);
                 }
             }
 
@@ -884,7 +913,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         isFromNvr: boolean,
         image?: MediaObject
     }) {
-        const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase;
+        const device = systemManager.getDeviceById<DeviceInterface>(this.id);
         const { detections, triggerTime, isFromNvr, image: parentImage } = props;
         const logger = this.getLogger();
 
