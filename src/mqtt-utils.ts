@@ -70,6 +70,25 @@ const deviceClassMqttEntities: MqttEntity[] = defaultDetectionClasses.flatMap(cl
     return entries;
 });
 
+const getRuleMqttEntities = (rule: DetectionRule): MqttEntity[] => {
+    const parsedName = `Rule ${rule.name}`;
+    const entity = getDetectionRuleId(rule);
+
+    const entries: MqttEntity[] = [
+        { entity: `${entity}`, name: `${parsedName}`, domain: 'binary_sensor', deviceClass: 'motion' },
+        { entity: `${entity}LastImage`, name: `${parsedName} last image `, domain: 'image' },
+        {
+            entity: `${entity}LastTrigger`,
+            name: `${parsedName} last trigger `,
+            domain: 'sensor',
+            icon: 'mdi:clock',
+            deviceClass: 'timestamp'
+        },
+    ];
+
+    return entries;
+}
+
 const deviceClassMqttEntitiesGrouped = groupBy(deviceClassMqttEntities, entry => entry.className);
 
 export const getDetectionRuleId = (rule: DetectionRule) => `${rule.source}_${rule.name.replace(/\s/g, '')}`;
@@ -472,21 +491,38 @@ export const discoverDetectionRules = async (props: {
     const { getDiscoveryTopic, getEntityTopic } = getMqttTopicTopics(device.id);
 
     for (const rule of rules) {
-        const entity = getDetectionRuleId(rule);
-        const topic = getEntityTopic(entity);
-
-        const config: any = {
+        const getConfig = (entity: string, name: string, deviceClass?: string, icon?: string) => ({
             dev: mqttdevice,
             unique_id: `${idPrefix}-${id}-${entity}`,
-            name: `Rule ${rule.name}`,
             object_id: `${device.name}_${entity}`,
-            device_class: 'motion',
-            payload_on: 'true',
-            payload_off: 'false',
-            state_topic: topic,
-        };
+            name,
+            device_class: deviceClass,
+            icon
+        } as any);
 
-        await mqttClient.publish(getDiscoveryTopic('binary_sensor', entity), JSON.stringify(config));
+        const mqttEntities = getRuleMqttEntities(rule);
+        for (const mqttEntity of mqttEntities) {
+            const { domain, entity, name, deviceClass: deviceClassParent, icon } = mqttEntity;
+
+            const config = getConfig(entity, name, deviceClassParent, icon);
+            const topic = getEntityTopic(entity);
+
+            if (domain === 'binary_sensor') {
+                config.payload_on = 'true';
+                config.payload_off = 'false';
+                config.state_topic = topic;
+            }
+            if (domain === 'image') {
+                config.image_topic = topic;
+                config.image_encoding = 'b64';
+                config.state_topic = topic;
+            }
+            if (domain === 'sensor') {
+                config.state_topic = topic;
+            }
+
+            await mqttClient.publish(getDiscoveryTopic(domain, entity), JSON.stringify(config));
+        }
     }
 }
 
@@ -646,8 +682,9 @@ export const publishDeviceState = async (props: {
     resettAllClasses?: boolean,
     rule?: DetectionRule,
     allRuleIds?: string[],
+    triggerTime: number,
 }) => {
-    const { mqttClient, device, triggered, console, detection, b64Image, resettAllClasses, rule, allRuleIds } = props;
+    const { mqttClient, device, triggered, console, detection, b64Image, resettAllClasses, rule, allRuleIds, triggerTime } = props;
     try {
         const detectionClass = detection?.className ? detectionClassesDefaultMap[detection.className] : undefined;
         console.debug(`Trigger entities to publish: ${JSON.stringify(triggeredEntity)}`)
@@ -663,7 +700,26 @@ export const publishDeviceState = async (props: {
         }
 
         if (rule) {
-            await mqttClient.publish(getEntityTopic(getDetectionRuleId(rule)), true, true);
+
+            const mqttEntities = getRuleMqttEntities(rule);
+            for (const entry of mqttEntities) {
+                const { entity, domain } = entry;
+                let value: any;
+                let retain: true;
+
+                if (domain === 'binary_sensor') {
+                    value = true;
+                } else if (entity.includes('LastTrigger')) {
+                    value = new Date(triggerTime).toISOString();
+                } else if (entity.includes('LastImage') && b64Image) {
+                    value = b64Image || null;
+                    retain = true;
+                }
+
+                if (value) {
+                    await mqttClient.publish(getEntityTopic(entity), value, retain);
+                }
+            }
         }
 
         if (detection) {

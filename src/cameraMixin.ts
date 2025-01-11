@@ -469,10 +469,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    async triggerMotion(props: { matchRule: MatchRule, device: ScryptedDeviceBase, b64Image?: string }) {
+    async triggerMotion(props: { matchRule: MatchRule, device: ScryptedDeviceBase, b64Image?: string, triggerTime: number }) {
         const logger = this.getLogger();
         try {
-            const { matchRule, b64Image, device } = props;
+            const { matchRule, b64Image, device, triggerTime } = props;
             const { match: { className } } = matchRule;
 
             const report = async (triggered: boolean) => {
@@ -493,6 +493,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             resettAllClasses: !triggered,
                             rule,
                             allRuleIds: this.rulesDiscovered,
+                            triggerTime,
                         });
                         this.mqttReportInProgress = false
                     } catch (e) {
@@ -1023,7 +1024,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     this.lastDetectionMap[this.getLastDetectionkey(match)] = now;
 
                     if (this.isActiveForMqttReporting) {
-                        this.triggerMotion({ matchRule, b64Image, device });
+                        this.triggerMotion({ matchRule, b64Image, device, triggerTime });
                     }
 
 

@@ -283,7 +283,8 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                         triggered,
                         console: logger,
                         resettAllClasses: false,
-                        allRuleIds: []
+                        allRuleIds: [],
+                        triggerTime,
                     }).finally(() => this.mqttReportInProgress = false);
                 } catch (e) {
                     logger.log(`Error in reportDetectionsToMqtt`, e);

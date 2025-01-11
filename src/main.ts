@@ -615,7 +615,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 return await haApi.getTemplateData(`{{ area_name('${areaId}') }}`);
             }
 
-            const entitiesResponse = await haApi.getStatesDate();
+            const entitiesResponse = await haApi.getStatesData();
             const roomIds = sortBy(JSON.parse(roomsResponse.data.replace(new RegExp('\'', 'g'), '"')), elem => elem);
 
             for (const roomId of roomIds) {
