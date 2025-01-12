@@ -561,16 +561,23 @@ export const getMixinBaseSettings = (name: string, withOccupancy: boolean) => {
 
 export const mainPluginName = scrypted.name;
 
-export const isDeviceEnabled = async (deviceId: string, deviceSettings: Setting[], plugin: AdvancedNotifierPlugin, deviceType?: ScryptedDeviceType) => {
+export const isDeviceEnabled = async (
+    deviceId: string,
+    deviceSettings: Setting[],
+    plugin: AdvancedNotifierPlugin,
+    console: Console,
+    deviceType?: ScryptedDeviceType,
+) => {
     const mainSettings = await plugin.getSettings();
     const mainSettingsByKey = keyBy(mainSettings, 'key');
 
     const deviceSettingsByKey = keyBy(deviceSettings, 'key');
-    const { detectionRules, skippedRules, nvrRules, allDeviceRules, } = getDeviceRules({
+    const { detectionRules, skippedRules, nvrRules, allDeviceRules, allPluginRules } = getDeviceRules({
         deviceId,
         deviceType,
         deviceStorage: deviceSettingsByKey,
         mainPluginStorage: mainSettingsByKey,
+        console,
     });
 
     const { occupancyRules, skippedOccupancyRules, allOccupancyRules } = getDeviceOccupancyRules({
@@ -593,6 +600,7 @@ export const isDeviceEnabled = async (deviceId: string, deviceSettings: Setting[
         skippedRules,
         nvrRules,
         allDeviceRules,
+        allPluginRules,
         skippedOccupancyRules,
         occupancyRules,
         allOccupancyRules,
@@ -1250,10 +1258,11 @@ export const getDeviceRules = (
         deviceStorage?: Record<string, StorageSetting>,
         mainPluginStorage: Record<string, StorageSetting>,
         deviceId?: string,
-        deviceType?: ScryptedDeviceType
+        deviceType?: ScryptedDeviceType,
+        console: Console
     }
 ) => {
-    const { deviceId, deviceStorage, mainPluginStorage, deviceType } = props;
+    const { deviceId, deviceStorage, mainPluginStorage, deviceType, console } = props;
     const detectionRules: DetectionRule[] = [];
     const nvrRules: DetectionRule[] = [];
     const skippedRules: DetectionRule[] = [];
@@ -1420,11 +1429,20 @@ export const getDeviceRules = (
                 isEnabled &&
                 !!devicesToUse.length &&
                 (deviceId ? devicesToUse.includes(deviceId) : true) &&
-                // !!notifiersTouse.length &&
                 timeAllowed &&
                 isSensorEnabled &&
                 sensorsOk &&
                 isSecuritySystemEnabled;
+
+            console.log(`Rule processed: ${JSON.stringify({
+                detectionRule,
+                ruleAllowed,
+                devices: !!devicesToUse.length,
+                timeAllowed,
+                isSensorEnabled,
+                sensorsOk,
+                isSecuritySystemEnabled
+            })}`);
 
             if (source === DetectionRuleSource.Plugin) {
                 allPluginRules.push(cloneDeep(detectionRule));

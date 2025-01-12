@@ -351,7 +351,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         const mainSettings = await this.getSettings();
         const mainSettingsByKey = keyBy(mainSettings, 'key');
-        const { allPluginRules } = getDeviceRules({ mainPluginStorage: mainSettingsByKey });
+        const { allPluginRules } = getDeviceRules({ mainPluginStorage: mainSettingsByKey, console: logger });
 
         await setupPluginAutodiscovery({
             mqttClient,
@@ -556,7 +556,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             const mainSettings = await this.getSettings();
             const mainSettingsByKey = keyBy(mainSettings, 'key');
-            const { nvrRules } = getDeviceRules({ mainPluginStorage: mainSettingsByKey });
+            const { nvrRules } = getDeviceRules({ mainPluginStorage: mainSettingsByKey, console: logger });
             this.nvrRules = nvrRules;
 
             this.deviceHaEntityMap = deviceHaEntityMap;

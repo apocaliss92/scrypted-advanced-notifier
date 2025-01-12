@@ -163,9 +163,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     occupancyRules,
                     skippedOccupancyRules,
                     allOccupancyRules,
-                } = await isDeviceEnabled(this.id, deviceSettings, this.plugin);
+                    allPluginRules
+                } = await isDeviceEnabled(this.id, deviceSettings, this.plugin, logger);
 
-                logger.debug(`Detected rules: ${JSON.stringify({ detectionRules, skippedRules, occupancyRules, skippedOccupancyRules })}`);
+                logger.debug(`Detected rules: ${JSON.stringify({
+                    detectionRules,
+                    skippedRules,
+                    occupancyRules,
+                    skippedOccupancyRules,
+                    nvrRules,
+                    isActiveForMqttReporting,
+                    allDeviceRules,
+                })}`);
                 this.detectionRules = detectionRules;
                 this.nvrDetectionRules = nvrRules;
                 this.occupancyRules = occupancyRules;
@@ -216,7 +225,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             this.mainAutodiscoveryDone = true;
                         }
 
-                        const missingRules = detectionRules.filter(rule => !this.rulesDiscovered.includes(getDetectionRuleId(rule)));
+                        const missingRules = [...allDeviceRules, ...allPluginRules].filter(rule => !this.rulesDiscovered.includes(getDetectionRuleId(rule)));
                         if (missingRules.length) {
                             await discoverDetectionRules({ mqttClient, console: logger, device, rules: missingRules });
                             this.rulesDiscovered.push(...missingRules.map(rule => getDetectionRuleId(rule)))
@@ -243,6 +252,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         mqttReportsActive: isActiveForMqttReporting,
                         isPluginEnabled,
                         isActiveForNvrNotifications,
+                        detectionRules,
                     })}`);
                     await this.startListeners();
                 }
@@ -648,10 +658,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             let objectDetectorParent: ObjectDetection = this.plugin.storageSettings.values.objectDetectionDevice;
 
             if (!objectDetectorParent) {
-                logger.log(`No detection plugin selected. Defaulting to first one`);
-                objectDetectorParent = systemManager.getDeviceById<ObjectDetection>(
-                    this.plugin.storageSettings.settings.objectDetectionDevice.choices[0]
-                );
+                logger.log(`No detection plugin selected. skipping occupancy`);
+                return;
+                // logger.log(`No detection plugin selected. Defaulting to first one`);
+                // objectDetectorParent = systemManager.getDeviceById<ObjectDetection>(
+                //     this.plugin.storageSettings.settings.objectDetectionDevice.choices[0]
+                // );
             }
 
             const detectedResultParent = await objectDetectorParent.detectObjects(imageParent);
