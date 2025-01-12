@@ -191,7 +191,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 occupancyRules: allOccupancyRules,
                             });
 
-                            this.getLogger().log(`Subscribing to mqtt topics`);
+                            logger.log(`Subscribing to mqtt topics`);
                             await subscribeToDeviceMqttTopics({
                                 mqttClient,
                                 detectionRules: allDeviceRules,

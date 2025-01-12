@@ -483,13 +483,16 @@ export const discoverDetectionRules = async (props: {
     console: Console,
     rules?: DetectionRule[],
 }) => {
-    const { device, rules, mqttClient } = props;
+    const { device, rules, mqttClient, console } = props;
     const { id } = device;
 
     const mqttdevice = getMqttDevice(device);
 
     const { getDiscoveryTopic, getEntityTopic } = getMqttTopicTopics(device.id);
 
+    console.debug(`Following rules will be discovered ${JSON.stringify({
+        rules,
+    })} `);
     for (const rule of rules) {
         const getConfig = (entity: string, name: string, deviceClass?: string, icon?: string) => ({
             dev: mqttdevice,
@@ -521,7 +524,13 @@ export const discoverDetectionRules = async (props: {
                 config.state_topic = topic;
             }
 
-            await mqttClient.publish(getDiscoveryTopic(domain, entity), JSON.stringify(config));
+            const discoveryTopic = getDiscoveryTopic(domain, entity);
+            console.debug(`Discovering following entity ${JSON.stringify({
+                discoveryTopic,
+                config
+            })} `);
+
+            await mqttClient.publish(discoveryTopic, JSON.stringify(config));
         }
     }
 }
