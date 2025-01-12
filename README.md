@@ -2,7 +2,7 @@
 
 https://github.com/apocaliss92/scrypted-advanced-notifier - For requests and bugs
 
-This plugin is feature rich notifier to handle detection notifications. 
+This plugin is feature rich notifier to handle detection notifications.
 
 ## Homeassistant
 It's possbile to configure an homeassistant connection (or utilize the one configured in the `Homeassistant` plugin) to fetch configured Rooms and Entities which are identified by one of the `Entity regex patterns`, these can be then assigned to a camera or sensor to add metadata used to render the notification. The fetched data will be visible in the `METADATA` group, and edited 
@@ -29,6 +29,7 @@ Fine grained rules can be defined to filter out detections and dispatch to speci
 - `Priority`: Priority of the notification, will have effect only for pushover
 - `Custom text`: override text to show on each notification. Will override the defaults
 - `Detection classes`: detection classes to trigger the notification
+- `Disable recording in seconds`: if set, when the rule is triggered will enable the NVR recordings for the same amount of seconds, will disable afterwards
 - `Score threshold`: minimum score to trigger a notification
 - `Notifiers`: notifiers to notify
 - `Open sensors`: sensors that must be open to trigger a notification

@@ -1420,7 +1420,7 @@ export const getDeviceRules = (
                 isEnabled &&
                 !!devicesToUse.length &&
                 (deviceId ? devicesToUse.includes(deviceId) : true) &&
-                !!notifiersTouse.length &&
+                // !!notifiersTouse.length &&
                 timeAllowed &&
                 isSensorEnabled &&
                 sensorsOk &&
