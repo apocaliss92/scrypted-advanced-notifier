@@ -114,6 +114,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         public plugin: HomeAssistantUtilitiesProvider
     ) {
         super(options);
+        const logger = this.getLogger();
 
         this.storageSettings.settings.room.onGet = async () => {
             const rooms = this.plugin.storageSettings.getItem('fetchedRooms');
@@ -133,8 +134,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const canUseNvr = this.nvrMixinId && this.mixins.includes(this.nvrMixinId);
         this.nvrEnabled = canUseNvr;
 
-        this.initValues().then().catch(this.console.log);
-        this.startCheckInterval().then().catch(this.console.log);
+        this.initValues().then().catch(logger.log);
+        this.startCheckInterval().then().catch(logger.log);
 
         this.plugin.currentMixinsMap[this.name] = this;
 
@@ -637,9 +638,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         if (!imageParent) {
             return;
         }
+        const logger = this.getLogger();
 
         try {
-            const logger = this.getLogger();
             const now = new Date().getTime();
 
             const device = systemManager.getDeviceById<DeviceInterface>(this.id);
@@ -908,7 +909,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }
         }
         catch (e) {
-            this.console.error('Error in checkOccupancyData', e);
+            logger.error('Error in checkOccupancyData', e);
         }
     }
 
