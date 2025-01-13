@@ -572,7 +572,7 @@ export const isDeviceEnabled = async (
     const mainSettingsByKey = keyBy(mainSettings, 'key');
 
     const deviceSettingsByKey = keyBy(deviceSettings, 'key');
-    const { detectionRules, skippedRules, nvrRules, allDeviceRules, allPluginRules, allRules } = getDeviceRules({
+    const { detectionRules, skippedRules, nvrRules, allDeviceRules, allPluginRules, allPossibleRules } = getDeviceRules({
         deviceId,
         deviceType,
         deviceStorage: deviceSettingsByKey,
@@ -604,7 +604,7 @@ export const isDeviceEnabled = async (
         skippedOccupancyRules,
         occupancyRules,
         allOccupancyRules,
-        allRules
+        allPossibleRules
     }
 }
 
@@ -1269,7 +1269,7 @@ export const getDeviceRules = (
     const skippedRules: DetectionRule[] = [];
     const allPluginRules: DetectionRule[] = [];
     const allDeviceRules: DetectionRule[] = [];
-    const allRules: DetectionRule[] = [];
+    const allPossibleRules: DetectionRule[] = [];
 
     const allDeviceIds = getElegibleDevices().map(device => device.id);
     const activeNotifiers = mainPluginStorage['notifiers']?.value as string[] ?? [];
@@ -1447,8 +1447,8 @@ export const getDeviceRules = (
                 isSecuritySystemEnabled
             })}`);
 
-            if (deviceOk) {
-                allRules.push(cloneDeep(detectionRule));
+            if (deviceOk || activationType === DetectionRuleActivation.OnActive) {
+                allPossibleRules.push(cloneDeep(detectionRule));
             }
 
             if (source === DetectionRuleSource.Plugin) {
@@ -1476,7 +1476,7 @@ export const getDeviceRules = (
         processRules(deviceStorage, DetectionRuleSource.Device);
     }
 
-    return { detectionRules, skippedRules, nvrRules, allPluginRules, allDeviceRules, allRules };
+    return { detectionRules, skippedRules, nvrRules, allPluginRules, allDeviceRules, allPossibleRules };
 }
 
 export interface OccupancyRule {

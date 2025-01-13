@@ -163,7 +163,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     occupancyRules,
                     skippedOccupancyRules,
                     allOccupancyRules,
-                    allRules,
+                    allPossibleRules,
                 } = await isDeviceEnabled(this.id, deviceSettings, this.plugin, logger);
 
                 logger.debug(`Detected rules: ${JSON.stringify({
@@ -225,7 +225,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             this.mainAutodiscoveryDone = true;
                         }
 
-                        const missingRules = allRules.filter(rule => !this.rulesDiscovered.includes(getDetectionRuleId(rule)));
+                        const missingRules = allPossibleRules.filter(rule => !this.rulesDiscovered.includes(getDetectionRuleId(rule)));
                         logger.debug(`Processing missing rules: ${JSON.stringify({
                             missingRules,
                             allDeviceRules,
@@ -968,7 +968,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 b64Image = b64ImageNew;
             }
 
-            if (timePassed) {
+            if (timePassed && this.occupancyRules.length) {
                 this.checkOccupancyData(image).catch(logger.log);
             }
 
