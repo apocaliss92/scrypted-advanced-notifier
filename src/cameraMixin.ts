@@ -634,6 +634,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async checkOccupancyData(imageParent: MediaObject) {
+        if (!imageParent) {
+            return;
+        }
+
         try {
             const logger = this.getLogger();
             const now = new Date().getTime();
@@ -641,26 +645,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const device = systemManager.getDeviceById<DeviceInterface>(this.id);
             const mqttClient = await this.plugin.getMqttClient();
 
-            // const observeZonesClasses: ObserveZoneClasses = {};
             const occupancyRulesDataMap: Record<string, OccupancyRuleData> = {};
             const zonesData = await this.getObserveZones();
 
-            // zonesData.forEach(({ name }) => {
-            //     observeZonesClasses[name] = {};
-            //     detectionClassForObjectsReporting.forEach(className => {
-            //         observeZonesClasses[name][className] = 0;
-            //     })
-            // });
-            // const scoreThreshold = this.storageSettings.values.objectOccupancyThreshold ?? 0.5;
-            // const intersectedZones = zonesData.filter(zone => !!polygonClipping.intersection([boundingBoxInCoords], [zone.path]).length);
-
-            // if (detection.score >= scoreThreshold) {
-            //     intersectedZones.forEach(intersectedZone => {
-            //         if (detectionClassForObjectsReporting.includes(className)) {
-            //             observeZonesClasses[intersectedZone.name][className] += 1;
-            //         }
-            //     });
-            // }
             let objectDetectorParent: ObjectDetection = this.plugin.storageSettings.values.objectDetectionDevice;
 
             if (!objectDetectorParent) {
