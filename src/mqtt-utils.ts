@@ -586,7 +586,7 @@ export const publishRelevantDetections = async (props: {
             const detectionClass = detectionClassesDefaultMap[detection.className];
             if (detectionClass) {
                 const entitiesToPublish = deviceClassMqttEntitiesGrouped[detectionClass] ?? [];
-                console.debug(`Relevant detections to publish: ${JSON.stringify({ detections, entitiesToPublish })}`);
+                console.debug(`Relevant detections to publish: ${JSON.stringify({ detections, entitiesToPublish, b64Image })}`);
 
                 for (const entry of entitiesToPublish) {
                     const { entity } = entry;
@@ -696,7 +696,7 @@ export const publishDeviceState = async (props: {
     const { mqttClient, device, triggered, console, detection, b64Image, resettAllClasses, rule, allRuleIds, triggerTime } = props;
     try {
         const detectionClass = detection?.className ? detectionClassesDefaultMap[detection.className] : undefined;
-        console.debug(`Trigger entities to publish: ${JSON.stringify(triggeredEntity)}`)
+        console.debug(`Trigger entities to publish: ${JSON.stringify(triggeredEntity)}`);
         const { getEntityTopic } = getMqttTopicTopics(device.id);
 
         const { entity } = triggeredEntity;
@@ -709,8 +709,13 @@ export const publishDeviceState = async (props: {
         }
 
         if (rule) {
-
             const mqttEntities = getRuleMqttEntities(rule);
+            console.debug(`Rule entities to publish: ${JSON.stringify({
+                rule,
+                mqttEntities,
+                b64Image
+            })}`);
+
             for (const entry of mqttEntities) {
                 const { entity, domain } = entry;
                 let value: any;

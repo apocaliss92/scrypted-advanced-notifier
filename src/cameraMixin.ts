@@ -163,7 +163,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     occupancyRules,
                     skippedOccupancyRules,
                     allOccupancyRules,
-                    allPluginRules
+                    allRules,
                 } = await isDeviceEnabled(this.id, deviceSettings, this.plugin, logger);
 
                 logger.debug(`Detected rules: ${JSON.stringify({
@@ -225,7 +225,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             this.mainAutodiscoveryDone = true;
                         }
 
-                        const missingRules = [...allDeviceRules, ...allPluginRules].filter(rule => !this.rulesDiscovered.includes(getDetectionRuleId(rule)));
+                        const missingRules = allRules.filter(rule => !this.rulesDiscovered.includes(getDetectionRuleId(rule)));
+                        logger.debug(`Processing missing rules: ${JSON.stringify({
+                            missingRules,
+                            allDeviceRules,
+                            nvrRules,
+                        })}`);
+
                         if (missingRules.length) {
                             await discoverDetectionRules({ mqttClient, console: logger, device, rules: missingRules });
                             this.rulesDiscovered.push(...missingRules.map(rule => getDetectionRuleId(rule)))
@@ -399,7 +405,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     active: JSON.parse(value as string ?? 'false'),
                     logger: this.getLogger(),
                     ruleName,
-                    deviceId: this.id
+                    deviceId: this.id,
                 });
             } else if (enabledResultOccupancy) {
                 const ruleName = enabledResultOccupancy[1];
@@ -467,7 +473,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         triggerTime,
                         b64Image,
                         image,
-                        room: this.storageSettings.values.room
+                        room: this.storageSettings.values.room,
                     }).finally(() => this.mqttReportInProgress = false);
                 } catch (e) {
                     logger.log(`Error in reportDetectionsToMqtt`, e);
@@ -946,15 +952,23 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let b64Image: string;
 
         if (this.isActiveForMqttReporting) {
-            if (hasLabel ||
+            const timePassed = (now - this.lastPictureTaken) >= 1000 * secondsPerPicture;
+            if (isFromNvr && parentImage) {
+                b64Image = (await sdk.mediaManager.convertMediaObjectToBuffer(parentImage, 'image/jpeg'))?.toString('base64');
+                this.lastPictureTaken = now;
+            } else if (
+                hasLabel ||
                 !this.lastPictureTaken ||
-                (now - this.lastPictureTaken) >= 1000 * secondsPerPicture
+                timePassed
             ) {
                 this.lastPictureTaken = now;
                 logger.debug('Refreshing the image');
                 const { b64Image: b64ImageNew, image: imageNew } = await this.getImage();
                 image = imageNew;
                 b64Image = b64ImageNew;
+            }
+
+            if (timePassed) {
                 this.checkOccupancyData(image).catch(logger.log);
             }
 
@@ -1064,15 +1078,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
                     this.lastDetectionMap[this.getLastDetectionkey(match)] = now;
 
+                    logger.debug(`Matching detections found: ${JSON.stringify({
+                        matchRulesMap: matchRules,
+                        candidates,
+                        b64Image,
+                        imageToNotify: !!imageToNotify,
+                        parentImage: !!parentImage
+                    })}`);
+
                     if (this.isActiveForMqttReporting) {
                         this.triggerMotion({ matchRule, b64Image, device, triggerTime });
                     }
-
-
-                    logger.log(`Matching detections found: ${JSON.stringify({
-                        matchRulesMap: matchRules,
-                        candidates,
-                    })}`);
 
                     logger.log(`Starting notifiers: ${JSON.stringify({
                         match,

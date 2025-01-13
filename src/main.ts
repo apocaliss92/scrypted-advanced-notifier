@@ -783,10 +783,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             triggerDevice,
         } = result;
 
-        logger.debug(`NVR notification received: ${JSON.stringify({ cameraName, options })}`);
+        logger.debug(`NVR notification received: ${JSON.stringify({ cameraName, options, result, imageExists: !!image })}`);
 
         if ([EventType.ObjectDetection, EventType.Package].includes(eventType as EventType)) {
-            // if (eventType === EventType.ObjectDetection) {
             await (this.currentMixinsMap[triggerDevice.name] as AdvancedNotifierCameraMixin)?.processDetections({
                 detections: allDetections,
                 isFromNvr: true,
