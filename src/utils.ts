@@ -25,6 +25,12 @@ export type OccupancyRuleData = {
     detectedResult: ObjectsDetected
 };
 
+export type StoreImageFn = (props: {
+    imageContextName: string,
+    timestamp: number,
+    imageMo: MediaObject
+}) => Promise<void>
+
 export const getElegibleDevices = () => {
     const allDevices = Object.keys(sdk.systemManager.getSystemState()).map(deviceId => sdk.systemManager.getDeviceById(deviceId) as unknown as DeviceInterface);
 

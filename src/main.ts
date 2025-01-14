@@ -2,7 +2,7 @@ import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpR
 import axios from "axios";
 import { isEqual, keyBy, sortBy } from 'lodash';
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, parseNvrNotificationMessage, NotificationPriority, getFolderPaths, getDeviceRules, NvrEvent, ParseNotificationMessageResult, getPushoverPriority, getDetectionRuleKeys, detectRuleEnabledRegex, OccupancyRule, occupancyRuleEnabledRegex, nvrAcceleratedMotionSensorId } from "./utils";
+import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, parseNvrNotificationMessage, NotificationPriority, getFolderPaths, getDeviceRules, NvrEvent, ParseNotificationMessageResult, getPushoverPriority, getDetectionRuleKeys, detectRuleEnabledRegex, OccupancyRule, occupancyRuleEnabledRegex, nvrAcceleratedMotionSensorId, StoreImageFn } from "./utils";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
@@ -11,9 +11,10 @@ import { BasePlugin, getBaseSettings } from '../../scrypted-apocaliss-base/src/b
 import { getMqttTopicTopics, getOccupancyRuleStrings, getRuleStrings, setupPluginAutodiscovery, subscribeToMainMqttTopics } from "./mqtt-utils";
 import path from 'path';
 import { AdvancedNotifierNotifier } from "./notifier";
-import { version } from '../package.json';
+// import { version } from '../package.json';
+import fs from 'fs';
 
-const { systemManager } = sdk;
+const { systemManager, mediaManager } = sdk;
 const defaultNotifierNativeId = 'advancedNotifierDefaultNotifier';
 
 interface NotifyCameraProps {
@@ -120,6 +121,26 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             multiple: true,
             combobox: true,
             deviceFilter: deviceFilter,
+        },
+        useNvrDetectionsForMqtt: {
+            group: 'MQTT',
+            title: 'Use NVR detections',
+            description: 'Use NVR detection to publish MQTT state messages',
+            type: 'boolean',
+        },
+        imagesPath: {
+            group: 'MQTT',
+            title: 'Images path',
+            description: 'Disk path where to save images. Leave blank if you do not want any image to be stored',
+            type: 'string',
+        },
+        imagesRegex: {
+            group: 'MQTT',
+            title: 'Images name',
+            description: 'Filename for the images. Possible values to be used are: ${name} ${timestamp}. Using only ${name} will ensure to have only 1 image per file',
+            type: 'string',
+            defaultValue: '${name}',
+            placeholder: '${name}',
         },
         fetchedEntities: {
             group: 'Metadata',
@@ -1224,6 +1245,26 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             activeDevicesForNotifications,
             activeDevicesForReporting,
             notifiers
+        }
+    }
+
+    public storeImage: StoreImageFn = async (props) => {
+        const { imageContextName, timestamp, imageMo } = props;
+        const { imagesPath, imagesRegex = imageContextName } = this.storageSettings.values;
+
+        if (imagesPath) {
+            const filename = imagesRegex
+                .replace('${name}', imageContextName)
+                .replace('${timestamp}', timestamp);
+
+            if (!fs.existsSync(imagesPath)) {
+                fs.mkdirSync(imagesPath);
+            }
+
+            const jpeg = await mediaManager.convertMediaObjectToBuffer(imageMo, 'image/jpeg');
+            await fs.promises.writeFile(path.join(imagesPath, `${filename}.jpg`), jpeg);
+        } else {
+            return null;
         }
     }
 }

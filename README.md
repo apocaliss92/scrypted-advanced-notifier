@@ -11,6 +11,9 @@ It's possbile to configure an homeassistant connection (or utilize the one confi
  It's possible to use MQTT to report data to homeassistant, can be configured standalone or use the configuration from the main `MQTT` plugin. 
  - `Active entities topic`: topic the plugin will subscribe to activate the rules `OnActive`. Useful to sync the plugin with an alarm system connected to homeassistant (i.e. Alarmo)
  - `Active devices for MQTT reporting`: devices selected will be periodically reported to MQTT with several information, i.e. last detections happened, images, status and so on
+ - `Use NVR detections`: MQTT topics will be published using the detections coming from NVR detections, instead of the one provided by the plugin
+ - `Images path`: If set, the images used to populate MQTT topic will be also stored on the drive path
+ - `Images name`: The name pattern to use to generate image files. The placeholders ${name} and ${timestamp} will be available. Using only ${name} will ensure the image to be overriden on every detection instead of saving one additional copy
 
 ## Notifier
 Mainly supported notifiers are from `Homeassistant` and `Pushover` plugins
