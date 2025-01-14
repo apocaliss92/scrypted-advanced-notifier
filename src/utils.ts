@@ -18,12 +18,6 @@ export interface ObserveZoneData {
     name: string;
     path: Point[]
 };
-export type ObserveZoneClasses = Record<string, Partial<Record<DetectionClass, number>>>;
-export type OccupancyRuleData = {
-    rule: OccupancyRule;
-    occupies: boolean;
-    detectedResult: ObjectsDetected
-};
 
 export type StoreImageFn = (props: {
     imageContextName: string,

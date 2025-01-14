@@ -8,7 +8,7 @@ import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 import { BasePlugin, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
-import { getMqttTopicTopics, getOccupancyRuleStrings, getRuleStrings, setupPluginAutodiscovery, subscribeToMainMqttTopics } from "./mqtt-utils";
+import { getMqttTopics, getOccupancyRuleStrings, getRuleStrings, setupPluginAutodiscovery, subscribeToMainMqttTopics } from "./mqtt-utils";
 import path from 'path';
 import { AdvancedNotifierNotifier } from "./notifier";
 // import { version } from '../package.json';
@@ -401,7 +401,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const mqttClient = await this.getMqttClient();
         const { entityId, ruleDeviceId } = getRuleStrings({ name: ruleName, deviceId } as DetectionRule);
 
-        const { getEntityTopic } = getMqttTopicTopics(ruleDeviceId);
+        const { getEntityTopic } = getMqttTopics(ruleDeviceId);
         const stateTopic = getEntityTopic(entityId);
         logger.log(`Setting detection rule ${ruleName} to ${active} for device ${deviceId}`);
         await mqttClient.publish(stateTopic, active ? 'ON' : 'OFF');
@@ -412,7 +412,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const mqttClient = await this.getMqttClient();
         const { entityId, ruleDeviceId } = getOccupancyRuleStrings({ name: ruleName } as OccupancyRule);
 
-        const { getEntityTopic } = getMqttTopicTopics(ruleDeviceId);
+        const { getEntityTopic } = getMqttTopics(ruleDeviceId);
         const stateTopic = getEntityTopic(entityId);
         logger.log(`Setting occupancy rule ${ruleName} to ${active} for device ${deviceId}`);
         await mqttClient.publish(stateTopic, active ? 'ON' : 'OFF');

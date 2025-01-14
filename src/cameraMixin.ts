@@ -1,7 +1,7 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ObjectDetection, Image, ScryptedMimeTypes } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DetectionRule, detectionRulesGroup, DetectionRuleSource, DeviceInterface, detectRuleEnabledRegex, occupancyRuleEnabledRegex, EventType, filterAndSortValidDetections, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRuleKeys, getOccupancyRulesSettings, getWebookUrls, isDeviceEnabled, ObserveZoneData, OccupancyRule, OccupancyRuleData, occupancyRulesGroup, ZoneMatchType } from "./utils";
+import { DetectionRule, detectionRulesGroup, DetectionRuleSource, DeviceInterface, detectRuleEnabledRegex, occupancyRuleEnabledRegex, EventType, filterAndSortValidDetections, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRuleKeys, getOccupancyRulesSettings, getWebookUrls, isDeviceEnabled, ObserveZoneData, OccupancyRule, occupancyRulesGroup, ZoneMatchType } from "./utils";
 import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoverDetectionRules, discoverOccupancyRules, getDetectionRuleId, getOccupancyRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
@@ -22,6 +22,13 @@ interface OccupancyData {
     detectedResult: ObjectsDetected,
     image: MediaObject
 }
+
+export type OccupancyRuleData = {
+    rule: OccupancyRule;
+    occupies: boolean;
+    image?: MediaObject;
+    b64Image?: string;
+};
 
 export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> implements Settings {
     storageSettings = new StorageSettings(this, {
@@ -618,7 +625,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const currentState = this.occupancyState[name];
 
             logger.debug(`Should force update occupancy: ${!currentState || (now - (currentState?.lastCheck ?? 0)) >= (1000 * forceUpdate)}, ${JSON.stringify({
-                lastCheck: currentState.lastCheck,
+                lastCheck: currentState?.lastCheck,
                 forceUpdate,
                 now,
                 name
@@ -665,7 +672,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const detectedResultParent = await objectDetectorParent.detectObjects(imageParent);
 
             for (const occupancyRule of this.occupancyRules) {
-                const { name, zoneType, observeZone, scoreThreshold, detectionClass, maxObjects = 1, objectDetector: ruleObjectDetector, captureZone } = occupancyRule;
+                const { name, zoneType, observeZone, scoreThreshold, detectionClass, maxObjects, objectDetector: ruleObjectDetector, captureZone } = occupancyRule;
 
                 let objectDetector = objectDetectorParent;
                 let detectedResult = detectedResultParent;
@@ -749,7 +756,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
                 }
 
-                const occupies = (maxObjects - objectsDetected) <= 0;
+                const occupies = ((maxObjects || 1) - objectsDetected) <= 0;
 
                 this.occupancyState[name] = {
                     ...this.occupancyState[name] ?? {} as OccupancyData,
@@ -763,8 +770,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     occupancyRulesDataMap[name] = {
                         rule: occupancyRule,
                         occupies,
-                        detectedResult,
-
                     }
                 } else if (!existingRule.occupies && occupies) {
                     existingRule.occupies = true;
@@ -773,7 +778,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             const occupancyRulesData: OccupancyRuleData[] = [];
             const rulesToNotNotify: string[] = [];
-            Object.values(occupancyRulesDataMap).forEach(occupancyRuleData => {
+            for (const occupancyRuleData of Object.values(occupancyRulesDataMap)) {
                 const { name, changeStateConfirm } = occupancyRuleData.rule;
                 const currentState = this.occupancyState[occupancyRuleData.rule.name];
                 const tooOld = currentState && (now - (currentState?.lastChange ?? 0)) >= (1000 * 60 * 60 * 1); // Force an update every hour
@@ -789,9 +794,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 };
 
                 // If the zone is not inizialized or last state change is too old, proceed with update regardless
+                const image = this.occupancyState[name].image;
+                const b64Image = (await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg'))?.toString('base64')
                 if (!currentState || tooOld) {
                     logger.debug(`Force pushing rule ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
-                    occupancyRulesData.push(occupancyRuleData);
+                    occupancyRulesData.push({
+                        ...occupancyRuleData,
+                        image,
+                        b64Image,
+                    });
 
                     occupancyData = {
                         ...occupancyData,
@@ -825,7 +836,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     } else {
                         if (isStateConfirmed) {
                             // Time is passed and value didn't change, update the state
-                            occupancyRulesData.push(occupancyRuleData);
+                            occupancyRulesData.push({
+                                ...occupancyRuleData,
+                                image,
+                                b64Image,
+                            });
 
                             occupancyData = {
                                 ...occupancyData,
@@ -872,7 +887,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     ...this.occupancyState[name],
                     ...occupancyData
                 };
-            });
+            }
 
             await this.storageSettings.putSetting('occupancyState', JSON.stringify(this.occupancyState));
 
@@ -881,8 +896,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 device,
                 mqttClient,
                 objectsDetected: detectedResultParent,
-                observeZonesClasses: {},
-                occupancyRulesData
+                occupancyRulesData,
+                storeImageFn: this.plugin.storeImage,
+                triggerTime: now
             });
 
             for (const occupancyRuleData of occupancyRulesData) {
@@ -911,7 +927,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }
         }
         catch (e) {
-            logger.error('Error in checkOccupancyData', e);
+            logger.log('Error in checkOccupancyData', e);
         }
     }
 

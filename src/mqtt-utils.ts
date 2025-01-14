@@ -1,8 +1,9 @@
 import { MediaObject, ObjectDetectionResult, ObjectsDetected, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface } from '@scrypted/sdk';
 import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, parentDetectionClassMap } from './detecionClasses';
-import { DetectionRule, firstUpperCase, getWebooks, ObserveZoneClasses, ObserveZoneData, OccupancyRule, OccupancyRuleData, StoreImageFn, storeWebhookImage } from './utils';
+import { DetectionRule, firstUpperCase, getWebooks, OccupancyRule, StoreImageFn, storeWebhookImage } from './utils';
 import { cloneDeep, groupBy } from 'lodash';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
+import { OccupancyRuleData } from './cameraMixin';
 
 interface MqttEntity {
     entity: 'triggered' | 'lastImage' | 'lastClassname' | 'lastZones' | 'lastLabel' | string;
@@ -70,7 +71,7 @@ const deviceClassMqttEntities: MqttEntity[] = defaultDetectionClasses.flatMap(cl
     return entries;
 });
 
-const getRuleMqttEntities = (rule: DetectionRule): MqttEntity[] => {
+const getDetectionRuleMqttEntities = (rule: DetectionRule): MqttEntity[] => {
     const parsedName = `Rule ${rule.name}`;
     const entity = getDetectionRuleId(rule);
 
@@ -89,12 +90,31 @@ const getRuleMqttEntities = (rule: DetectionRule): MqttEntity[] => {
     return entries;
 }
 
+const getOccupancyRuleMqttEntities = (rule: OccupancyRule): MqttEntity[] => {
+    const parsedName = `Rule ${rule.name}`;
+    const entity = getOccupancyRuleId(rule);
+
+    const entries: MqttEntity[] = [
+        { entity: `${entity}`, name: `${parsedName}`, domain: 'binary_sensor', deviceClass: 'occupancy' },
+        { entity: `${entity}LastImage`, name: `${parsedName} last image `, domain: 'image' },
+        {
+            entity: `${entity}LastTrigger`,
+            name: `${parsedName} last trigger `,
+            domain: 'sensor',
+            icon: 'mdi:clock',
+            deviceClass: 'timestamp'
+        },
+    ];
+
+    return entries;
+}
+
 const deviceClassMqttEntitiesGrouped = groupBy(deviceClassMqttEntities, entry => entry.className);
 
 export const getDetectionRuleId = (rule: DetectionRule) => `${rule.source}_${rule.name.replace(/\s/g, '')}`;
 export const getOccupancyRuleId = (rule: OccupancyRule) => `occupancy_${rule.name.replace(/\s/g, '')}`;
 
-export const getMqttTopicTopics = (deviceId: string) => {
+export const getMqttTopics = (deviceId: string) => {
     const getEntityTopic = (entity: string) => `scrypted/advancedNotifier/${deviceId}/${entity}`;
     const getCommandTopic = (entity: string) => `${getEntityTopic(entity)}/set`;
     const getInfoTopic = (entity: string) => `${getEntityTopic(entity)}/info`;
@@ -107,7 +127,6 @@ export const getMqttTopicTopics = (deviceId: string) => {
         getCommandTopic,
     }
 }
-
 
 const getPersonStrings = (person: string) => {
     const personId = person.trim().replace(' ', '_');
@@ -161,7 +180,7 @@ export const setupPluginAutodiscovery = async (props: {
         name: `${namePrefix} people tracker`
     };
 
-    const { getDiscoveryTopic, getEntityTopic } = getMqttTopicTopics(peopleTrackerId);
+    const { getDiscoveryTopic, getEntityTopic } = getMqttTopics(peopleTrackerId);
 
     for (const person of people) {
         const { personId, personName } = getPersonStrings(person);
@@ -178,7 +197,7 @@ export const setupPluginAutodiscovery = async (props: {
 
     for (const detectionRule of detectionRules) {
         const { entityId, ruleDeviceId } = getRuleStrings(detectionRule);
-        const { getCommandTopic, getEntityTopic, getDiscoveryTopic } = getMqttTopicTopics(ruleDeviceId);
+        const { getCommandTopic, getEntityTopic, getDiscoveryTopic } = getMqttTopics(ruleDeviceId);
         const commandTopic = getCommandTopic(entityId);
         const stateTopic = getEntityTopic(entityId);
 
@@ -222,7 +241,7 @@ export const subscribeToMainMqttTopics = async (
 
     for (const detectionRule of detectionRules) {
         const { entityId, ruleDeviceId } = getRuleStrings(detectionRule);
-        const { getCommandTopic, getEntityTopic } = getMqttTopicTopics(ruleDeviceId);
+        const { getCommandTopic, getEntityTopic } = getMqttTopics(ruleDeviceId);
 
         const commandTopic = getCommandTopic(entityId);
         const stateTopic = getEntityTopic(entityId);
@@ -261,7 +280,7 @@ export const subscribeToDeviceMqttTopics = async (
 
     for (const detectionRule of detectionRules) {
         const { entityId, ruleDeviceId } = getRuleStrings(detectionRule);
-        const { getCommandTopic, getEntityTopic } = getMqttTopicTopics(ruleDeviceId);
+        const { getCommandTopic, getEntityTopic } = getMqttTopics(ruleDeviceId);
 
         const commandTopic = getCommandTopic(entityId);
         const stateTopic = getEntityTopic(entityId);
@@ -281,7 +300,7 @@ export const subscribeToDeviceMqttTopics = async (
     if (occupancyRuleCb) {
         for (const occupancyRule of occupancyRules) {
             const { entityId, ruleDeviceId } = getOccupancyRuleStrings(occupancyRule);
-            const { getCommandTopic, getEntityTopic } = getMqttTopicTopics(ruleDeviceId);
+            const { getCommandTopic, getEntityTopic } = getMqttTopics(ruleDeviceId);
 
             const commandTopic = getCommandTopic(entityId);
             const stateTopic = getEntityTopic(entityId);
@@ -299,7 +318,7 @@ export const subscribeToDeviceMqttTopics = async (
         }
     }
 
-    const { getCommandTopic, getEntityTopic } = getMqttTopicTopics(device.id);
+    const { getCommandTopic, getEntityTopic } = getMqttTopics(device.id);
 
     if (switchRecordingCb) {
         const commandTopic = getCommandTopic(recordingEntity.entity);
@@ -366,7 +385,7 @@ export const setupDeviceAutodiscovery = async (props: {
 
     const mqttdevice = getMqttDevice(device);
 
-    const { getDiscoveryTopic, getEntityTopic, getCommandTopic } = getMqttTopicTopics(device.id);
+    const { getDiscoveryTopic, getEntityTopic, getCommandTopic } = getMqttTopics(device.id);
     const allEntities = [triggeredEntity, ...getDeviceClassEntities(device)];
     const entitiesToRun = withDetections ?
         allEntities :
@@ -434,7 +453,7 @@ export const setupDeviceAutodiscovery = async (props: {
 
     for (const detectionRule of detectionRules) {
         const { entityId, ruleDeviceId } = getRuleStrings(detectionRule);
-        const { getCommandTopic, getEntityTopic, getDiscoveryTopic } = getMqttTopicTopics(ruleDeviceId);
+        const { getCommandTopic, getEntityTopic, getDiscoveryTopic } = getMqttTopics(ruleDeviceId);
         const commandTopic = getCommandTopic(entityId);
         const stateTopic = getEntityTopic(entityId);
 
@@ -456,7 +475,7 @@ export const setupDeviceAutodiscovery = async (props: {
 
     for (const occupancyRule of occupancyRules) {
         const { entityId, ruleDeviceId } = getOccupancyRuleStrings(occupancyRule);
-        const { getCommandTopic, getEntityTopic, getDiscoveryTopic } = getMqttTopicTopics(ruleDeviceId);
+        const { getCommandTopic, getEntityTopic, getDiscoveryTopic } = getMqttTopics(ruleDeviceId);
         const commandTopic = getCommandTopic(entityId);
         const stateTopic = getEntityTopic(entityId);
 
@@ -477,33 +496,36 @@ export const setupDeviceAutodiscovery = async (props: {
     }
 }
 
-export const discoverDetectionRules = async (props: {
-    mqttClient: MqttClient
-    device: ScryptedDeviceBase,
-    console: Console,
-    rules?: DetectionRule[],
-}) => {
-    const { device, rules, mqttClient, console } = props;
+const discoveryRuleTopics = async (
+    props: {
+        device: ScryptedDeviceBase,
+        rules: (DetectionRule | OccupancyRule)[],
+        mqttEntitiesGetter: (rules: DetectionRule | OccupancyRule) => MqttEntity[],
+        console: Console,
+        mqttClient: MqttClient
+    }
+) => {
+    const { console, device, mqttClient, mqttEntitiesGetter, rules } = props;
     const { id } = device;
-
     const mqttdevice = getMqttDevice(device);
 
-    const { getDiscoveryTopic, getEntityTopic } = getMqttTopicTopics(device.id);
+    const { getDiscoveryTopic, getEntityTopic } = getMqttTopics(device.id);
 
     console.debug(`Following rules will be discovered ${JSON.stringify({
         rules,
     })} `);
-    for (const rule of rules) {
-        const getConfig = (entity: string, name: string, deviceClass?: string, icon?: string) => ({
-            dev: mqttdevice,
-            unique_id: `${idPrefix}-${id}-${entity}`,
-            object_id: `${device.name}_${entity}`,
-            name,
-            device_class: deviceClass,
-            icon
-        } as any);
 
-        const mqttEntities = getRuleMqttEntities(rule);
+    const getConfig = (entity: string, name: string, deviceClass?: string, icon?: string) => ({
+        dev: mqttdevice,
+        unique_id: `${idPrefix}-${id}-${entity}`,
+        object_id: `${device.name}_${entity}`,
+        name,
+        device_class: deviceClass,
+        icon
+    } as any);
+
+    for (const rule of rules) {
+        const mqttEntities = mqttEntitiesGetter(rule);
         for (const mqttEntity of mqttEntities) {
             const { domain, entity, name, deviceClass: deviceClassParent, icon } = mqttEntity;
 
@@ -535,36 +557,38 @@ export const discoverDetectionRules = async (props: {
     }
 }
 
+export const discoverDetectionRules = async (props: {
+    mqttClient: MqttClient
+    device: ScryptedDeviceBase,
+    console: Console,
+    rules?: DetectionRule[],
+}) => {
+    const { device, rules, mqttClient, console } = props;
+
+    await discoveryRuleTopics({
+        console,
+        device,
+        mqttClient,
+        mqttEntitiesGetter: getDetectionRuleMqttEntities,
+        rules,
+    });
+}
+
 export const discoverOccupancyRules = async (props: {
     mqttClient: MqttClient
     device: ScryptedDeviceBase,
     console: Console,
     rules?: OccupancyRule[],
 }) => {
-    const { device, rules, mqttClient } = props;
-    const { id } = device;
+    const { device, rules, mqttClient, console } = props;
 
-    const mqttdevice = getMqttDevice(device);
-
-    const { getDiscoveryTopic, getEntityTopic } = getMqttTopicTopics(device.id);
-
-    for (const rule of rules) {
-        const entity = getOccupancyRuleId(rule);
-        const topic = getEntityTopic(entity);
-
-        const config: any = {
-            dev: mqttdevice,
-            unique_id: `${idPrefix}-${id}-${entity}`,
-            name: `Rule ${rule.name}`,
-            object_id: `${device.name}_${entity}`,
-            device_class: 'occupancy',
-            payload_on: 'true',
-            payload_off: 'false',
-            state_topic: topic,
-        };
-
-        await mqttClient.publish(getDiscoveryTopic('binary_sensor', entity), JSON.stringify(config));
-    }
+    await discoveryRuleTopics({
+        console,
+        device,
+        mqttClient,
+        mqttEntitiesGetter: getOccupancyRuleMqttEntities,
+        rules,
+    });
 }
 
 export const publishRelevantDetections = async (props: {
@@ -581,7 +605,7 @@ export const publishRelevantDetections = async (props: {
 }) => {
     const { mqttClient, device, detections = [], triggerTime, console, b64Image, image, reset, room, storeImageFn } = props;
     try {
-        const { getEntityTopic } = getMqttTopicTopics(device.id);
+        const { getEntityTopic } = getMqttTopics(device.id);
 
         for (const detection of detections) {
             const detectionClass = detectionClassesDefaultMap[detection.className];
@@ -621,7 +645,7 @@ export const publishRelevantDetections = async (props: {
                 const person = detection.label;
                 if (isFaceClassname(detection.className) && person && room) {
                     const { personId } = getPersonStrings(person);
-                    const { getEntityTopic } = getMqttTopicTopics(peopleTrackerId);
+                    const { getEntityTopic } = getMqttTopics(peopleTrackerId);
                     console.debug(`Person ${person} (${personId}) detected in room ${room}. Publishing topic ${getEntityTopic(personId)} with room ${room}`);
                     await mqttClient.publish(getEntityTopic(personId), room, true);
                 }
@@ -670,7 +694,7 @@ export const reportDeviceValues = async (props: {
     console: Console
 }) => {
     const { device, mqttClient, isRecording } = props;
-    const { getEntityTopic } = getMqttTopicTopics(device.id);
+    const { getEntityTopic } = getMqttTopics(device.id);
 
     if (device.interfaces.includes(ScryptedInterface.Battery) && device.batteryLevel) {
         await mqttClient.publish(getEntityTopic(batteryEntity.entity), device.batteryLevel, true);
@@ -680,6 +704,51 @@ export const reportDeviceValues = async (props: {
     }
     if (device.interfaces.includes(ScryptedInterface.VideoRecorder)) {
         await mqttClient.publish(getEntityTopic(recordingEntity.entity), isRecording ? 'ON' : 'OFF', true);
+    }
+}
+
+
+const publishRuleData = async (props: {
+    device: ScryptedDeviceBase,
+    rule: DetectionRule | OccupancyRule,
+    mqttEntitiesGetter: (rules: DetectionRule | OccupancyRule) => MqttEntity[],
+    console: Console,
+    mqttClient: MqttClient,
+    image: MediaObject,
+    b64Image: string,
+    triggerTime: number,
+    storeImageFn?: StoreImageFn,
+    triggerValue?: boolean
+}) => {
+    const { console, device, mqttClient, mqttEntitiesGetter, rule, b64Image, image, triggerTime, storeImageFn, triggerValue } = props;
+    const mqttEntities = mqttEntitiesGetter(rule);
+    console.log(`Rule entities to publish: ${JSON.stringify({
+        rule,
+        mqttEntities,
+        b64Image,
+        triggerValue,
+    })}`);
+
+    const { getEntityTopic } = getMqttTopics(device.id);
+
+    for (const entry of mqttEntities) {
+        const { entity, domain } = entry;
+        let value: any;
+        let retain: true;
+
+        if (domain === 'binary_sensor') {
+            value = triggerValue ?? true;
+        } else if (entity.includes('LastTrigger')) {
+            value = new Date(triggerTime).toISOString();
+        } else if (entity.includes('LastImage') && b64Image) {
+            value = b64Image || null;
+            retain = true;
+            storeImageFn && storeImageFn({ imageContextName: `${entity}-${device.name}`, imageMo: image, timestamp: triggerTime }).catch(console.log);
+        }
+
+        if (value !== undefined) {
+            await mqttClient.publish(getEntityTopic(entity), value, retain);
+        }
     }
 }
 
@@ -701,7 +770,7 @@ export const publishDeviceState = async (props: {
     try {
         const detectionClass = detection?.className ? detectionClassesDefaultMap[detection.className] : undefined;
         console.debug(`Trigger entities to publish: ${JSON.stringify(triggeredEntity)}`);
-        const { getEntityTopic } = getMqttTopicTopics(device.id);
+        const { getEntityTopic } = getMqttTopics(device.id);
 
         const { entity } = triggeredEntity;
 
@@ -713,32 +782,17 @@ export const publishDeviceState = async (props: {
         }
 
         if (rule) {
-            const mqttEntities = getRuleMqttEntities(rule);
-            console.debug(`Rule entities to publish: ${JSON.stringify({
+            await publishRuleData({
+                b64Image,
+                console,
+                device,
+                image,
+                mqttClient,
+                mqttEntitiesGetter: getDetectionRuleMqttEntities,
                 rule,
-                mqttEntities,
-                b64Image
-            })}`);
-
-            for (const entry of mqttEntities) {
-                const { entity, domain } = entry;
-                let value: any;
-                let retain: true;
-
-                if (domain === 'binary_sensor') {
-                    value = true;
-                } else if (entity.includes('LastTrigger')) {
-                    value = new Date(triggerTime).toISOString();
-                } else if (entity.includes('LastImage') && b64Image) {
-                    value = b64Image || null;
-                    retain = true;
-                    storeImageFn && storeImageFn({ imageContextName: `${entity}-${device.name}`, imageMo: image, timestamp: triggerTime }).catch(console.log);
-                }
-
-                if (value) {
-                    await mqttClient.publish(getEntityTopic(entity), value, retain);
-                }
-            }
+                triggerTime,
+                storeImageFn,
+            });
         }
 
         if (detection) {
@@ -799,12 +853,13 @@ export const publishOccupancy = async (props: {
     device: ScryptedDeviceBase,
     console: Console,
     objectsDetected: ObjectsDetected,
-    observeZonesClasses: ObserveZoneClasses,
-    occupancyRulesData: OccupancyRuleData[]
+    occupancyRulesData: OccupancyRuleData[],
+    triggerTime: number,
+    storeImageFn: StoreImageFn
 }) => {
-    const { mqttClient, device, objectsDetected, occupancyRulesData } = props;
+    const { mqttClient, device, objectsDetected, occupancyRulesData, console, storeImageFn, triggerTime } = props;
     try {
-        const { getEntityTopic } = getMqttTopicTopics(device.id);
+        const { getEntityTopic } = getMqttTopics(device.id);
 
         const entities = deviceClassMqttEntities.filter(entity => entity.entity.includes('Objects'));
         for (const classEntity of entities) {
@@ -813,23 +868,23 @@ export const publishOccupancy = async (props: {
             await mqttClient.publish(getEntityTopic(classEntity.entity), classObjects, true);
         }
 
-        // for (const zoneData of Object.entries(observeZonesClasses)) {
-        //     const [zoneName, zoneDataOfClasses] = zoneData;
-        //     for (const zoneClassData of Object.entries(zoneDataOfClasses)) {
-        //         const [className, objects] = zoneClassData;
-        //         const { entityId } = getObserveZoneStrings(zoneName, className as DetectionClass);
-
-        //         await mqttClient.publish(getEntityTopic(entityId), objects, true);
-        //     }
-        // }
-
-        for (const occupancyRule of occupancyRulesData) {
-            const { occupies, rule } = occupancyRule;
-
-            await mqttClient.publish(getEntityTopic(getOccupancyRuleId(rule)), occupies, true);
+        for (const occupancyRuleData of occupancyRulesData) {
+            const { occupies, rule, b64Image, image } = occupancyRuleData;
+            await publishRuleData({
+                b64Image,
+                console,
+                device,
+                image,
+                mqttClient,
+                mqttEntitiesGetter: getOccupancyRuleMqttEntities,
+                rule,
+                triggerTime,
+                storeImageFn,
+                triggerValue: occupies
+            });
         }
     } catch (e) {
-        console.log(`Error publishing ${JSON.stringify({
+        console.log(`Error in publishOccupancy ${JSON.stringify({
             objectsDetected,
         })}`, e);
     }
