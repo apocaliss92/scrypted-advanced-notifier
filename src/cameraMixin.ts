@@ -6,6 +6,7 @@ import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoverDetectionRules, discoverOccupancyRules, getDetectionRuleId, getOccupancyRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
+import path from "path";
 
 const { systemManager } = sdk;
 const secondsPerPicture = 5;
@@ -1058,7 +1059,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 });
 
                 if (match) {
-                    matchRules.push({ match, rule, dataToReport })
+                    matchRules.push({ match, rule, dataToReport });
                 }
             }
 
@@ -1080,7 +1081,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     const { match, rule } = matchRule;
                     const lastDetectionkey = this.getLastDetectionkey(match);
                     const lastDetection = this.lastDetectionMap[lastDetectionkey];
-                    if (lastDetection && (now - lastDetection) < 1000 * minDelayTime) {
+                    if (lastDetection && (now - lastDetection) < 1000 * (rule.minDelay ?? minDelayTime)) {
                         logger.debug(`Waiting for delay: ${(now - lastDetection) / 1000}s`);
                         return false;
                     }

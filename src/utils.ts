@@ -8,6 +8,7 @@ import sharp from 'sharp';
 import path from 'path';
 import fs from 'fs';
 import AdvancedNotifierPlugin from "./main";
+import moment from "moment";
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Settings;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
@@ -22,7 +23,8 @@ export interface ObserveZoneData {
 export type StoreImageFn = (props: {
     imageContextName: string,
     timestamp: number,
-    imageMo: MediaObject
+    imageMo: MediaObject,
+    isTimelapse?: boolean,
 }) => Promise<void>
 
 export const getElegibleDevices = () => {
@@ -615,7 +617,7 @@ const textKeyClassnameMap: Record<DetectionClass, TextSettingKey> = {
     [DetectionClass.Vehicle]: 'vehicleDetectedText',
     [DetectionClass.Animal]: 'animalDetectedText',
     [DetectionClass.Motion]: 'motionDetectedText',
-    [DetectionClass.Package]: 'motionDetectedText',
+    [DetectionClass.Package]: 'packageText',
     [DetectionClass.DoorLock]: 'doorlockText',
     [DetectionClass.DoorSensor]: 'doorWindowText',
 }
@@ -681,6 +683,8 @@ export const getDetectionRuleKeys = (detectionRuleName: string) => {
     const priorityKey = `rule:${detectionRuleName}:priority`;
     const securitySystemModesKey = `rule:${detectionRuleName}:securitySystemModes`;
     const recordingTriggerSecondsKey = `rule:${detectionRuleName}:recordingTriggerSeconds`;
+    const generateTimelapseKey = `rule:${detectionRuleName}:generateTimelapse`;
+    const minDelayKey = `rule:${detectionRuleName}:minDelay`;
 
     return {
         enabledKey,
@@ -703,6 +707,8 @@ export const getDetectionRuleKeys = (detectionRuleName: string) => {
         actionsKey,
         securitySystemModesKey,
         recordingTriggerSecondsKey,
+        generateTimelapseKey,
+        minDelayKey,
     }
 }
 
@@ -786,6 +792,8 @@ export const getDetectionRulesSettings = async (props: {
             actionsKey,
             securitySystemModesKey,
             recordingTriggerSecondsKey,
+            generateTimelapseKey,
+            minDelayKey,
         } = getDetectionRuleKeys(detectionRuleName);
 
         const currentActivation = storage.getItem(activationKey as any) as DetectionRuleActivation;
@@ -856,6 +864,16 @@ export const getDetectionRulesSettings = async (props: {
                 type: 'number',
                 placeholder: '-',
                 value: storage.getItem(recordingTriggerSecondsKey as any) as string,
+            });
+            settings.push({
+                key: minDelayKey,
+                title: 'Minimum notification delay',
+                description: 'Minimum amount of seconds to wait until a notification is sent for the same detection type',
+                group: groupName,
+                subgroup: detectionRuleName,
+                type: 'number',
+                placeholder: '-',
+                value: storage.getItem(minDelayKey as any) as string,
             });
         }
 
@@ -1011,6 +1029,15 @@ export const getDetectionRulesSettings = async (props: {
         }
 
         if (currentActivation === DetectionRuleActivation.Schedule) {
+            settings.push({
+                key: generateTimelapseKey,
+                title: 'Generate timelapse',
+                type: 'boolean',
+                group: groupName,
+                subgroup: detectionRuleName,
+                value: storage.getItem(generateTimelapseKey as any) as boolean ?? false,
+                immediate: true,
+            });
             settings.push({
                 key: dayKey,
                 title: 'Day',
@@ -1252,6 +1279,8 @@ export interface DetectionRule {
     priority: NotificationPriority;
     actions?: string[];
     disableNvrRecordingSeconds?: number;
+    generateTimelapse?: boolean;
+    minDelay?: number;
 }
 
 export const getDeviceRules = (
@@ -1300,10 +1329,13 @@ export const getDeviceRules = (
                 actionsKey,
                 nvrEventsKey,
                 securitySystemModesKey,
-                recordingTriggerSecondsKey
+                recordingTriggerSecondsKey,
+                generateTimelapseKey,
+                minDelayKey
             } = getDetectionRuleKeys(detectionRuleName);
 
             const isEnabled = JSON.parse(storage[enabledKey]?.value as string ?? 'false');
+            const generateTimelapse = JSON.parse(storage[generateTimelapseKey]?.value as string ?? 'false');
             const useNvrDetections = JSON.parse(storage[useNvrDetectionsKey]?.value as string ?? 'false');
 
             const notifiers = storage[notifiersKey]?.value as string[] ?? [];
@@ -1316,12 +1348,12 @@ export const getDeviceRules = (
             const mainDevices = storage[devicesKey]?.value as string[] ?? [];
             const securitySystemModes = storage[securitySystemModesKey]?.value as SecuritySystemMode[] ?? [];
             const devices = source === DetectionRuleSource.Device ? [deviceId] : mainDevices;
-            // const devices = source === DetectionRuleSource.Device ? [deviceId] : mainDevices.length ? mainDevices : allDeviceIds;
             const devicesToUse = activationType === DetectionRuleActivation.OnActive ? onActiveDevices : devices;
 
             const detectionClasses = storage[detecionClassesKey]?.value as DetectionClass[] ?? [];
             const nvrEvents = storage[nvrEventsKey]?.value as NvrEvent[] ?? [];
             const scoreThreshold = Number(storage[scoreThresholdKey]?.value || 0.7);
+            const minDelay = storage[minDelayKey]?.value ? Number(storage[minDelayKey]?.value) : undefined;
             const disableNvrRecordingSeconds = storage[recordingTriggerSecondsKey]?.value ? Number(storage[recordingTriggerSecondsKey]?.value) : undefined;
 
             const detectionRule: DetectionRule = {
@@ -1338,6 +1370,8 @@ export const getDeviceRules = (
                 actions,
                 deviceId,
                 disableNvrRecordingSeconds,
+                generateTimelapse: activationType === DetectionRuleActivation.Schedule ? generateTimelapse : false,
+                minDelay,
             };
 
             if (source === DetectionRuleSource.Device) {
@@ -1358,33 +1392,21 @@ export const getDeviceRules = (
                 const currentDate = new Date();
                 const currentDay = currentDate.getDay();
 
-                const dayOk = !days.length || days.includes(currentDay);
+                const dayOk = !days?.length || days.includes(currentDay);
                 if (!dayOk) {
                     timeAllowed = false;
                 } else {
-                    const parseDate = (time: number, add1Day?: boolean) => {
-                        const timeDate = new Date(time);
+                    const referenceStart = moment(startTime);
+                    const referenceEnd = moment(endTime);
+                    const now = moment();
+                    let startDate = moment(now).set('hours', referenceStart.get('hours')).set('minutes', referenceStart.get('minutes'));
+                    const endDate = moment(now).set('hours', referenceEnd.get('hours')).set('minutes', referenceEnd.get('minutes'));
 
-                        const newTimeDate = new Date();
-                        if (add1Day) {
-                            newTimeDate.setDate(newTimeDate.getDate() + 1);
-                        }
-                        newTimeDate.setHours(timeDate.getHours());
-                        newTimeDate.setMinutes(timeDate.getMinutes());
-                        newTimeDate.setSeconds(0);
-                        newTimeDate.setMilliseconds(0);
-
-                        return {
-                            newDate: newTimeDate,
-                            newTimeDate: newTimeDate.getTime()
-                        }
+                    if (referenceStart.isAfter(referenceEnd)) {
+                        startDate = moment(startDate.subtract(1, 'day'));
                     }
 
-                    const { newTimeDate: startTimeParsed, newDate: a1 } = parseDate(startTime);
-                    const { newTimeDate: endTimeParsed, newDate: a2 } = parseDate(endTime, endTime < startTime);
-
-                    const currentTime = currentDate.getTime();
-                    timeAllowed = currentTime > startTimeParsed && currentTime < endTimeParsed;
+                    timeAllowed = now.isBetween(startDate, endDate);
                 }
             }
 
@@ -1441,6 +1463,8 @@ export const getDeviceRules = (
                 detectionRule,
                 ruleAllowed,
                 devices: !!devicesToUse.length,
+                deviceOk,
+                deviceIdDefined: !!deviceId,
                 timeAllowed,
                 isSensorEnabled,
                 sensorsOk,

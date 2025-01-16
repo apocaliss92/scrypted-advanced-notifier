@@ -722,7 +722,7 @@ const publishRuleData = async (props: {
 }) => {
     const { console, device, mqttClient, mqttEntitiesGetter, rule, b64Image, image, triggerTime, storeImageFn, triggerValue } = props;
     const mqttEntities = mqttEntitiesGetter(rule);
-    console.log(`Rule entities to publish: ${JSON.stringify({
+    console.debug(`Rule entities to publish: ${JSON.stringify({
         rule,
         mqttEntities,
         b64Image,

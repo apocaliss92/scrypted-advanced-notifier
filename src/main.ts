@@ -905,6 +905,19 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 rule,
             }).catch(e => logger.log(`Error on notifier ${notifier.name}`, e));
         }
+
+        if (rule.generateTimelapse) {
+            logger.log(`Storing timelapse image for rule ${rule.name}: ${JSON.stringify({
+                timestamp: triggerTime,
+                id: this.id
+            })}`);
+            this.storeImage({
+                imageMo: image,
+                timestamp: triggerTime,
+                isTimelapse: true,
+                imageContextName: cameraDevice.id,
+            }).catch(logger.log);
+        }
     };
 
     async getMixin(mixinDevice: any, mixinDeviceInterfaces: ScryptedInterface[], mixinDeviceState: WritableDeviceState): Promise<any> {
@@ -1249,20 +1262,30 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     public storeImage: StoreImageFn = async (props) => {
-        const { imageContextName, timestamp, imageMo } = props;
+        const { imageContextName, timestamp, imageMo, isTimelapse } = props;
         const { imagesPath, imagesRegex = imageContextName } = this.storageSettings.values;
 
         if (imagesPath) {
-            const filename = imagesRegex
-                .replace('${name}', imageContextName)
-                .replace('${timestamp}', timestamp);
-
             if (!fs.existsSync(imagesPath)) {
-                fs.mkdirSync(imagesPath);
+                fs.mkdirSync(imagesPath, { recursive: true });
             }
 
-            const jpeg = await mediaManager.convertMediaObjectToBuffer(imageMo, 'image/jpeg');
-            await fs.promises.writeFile(path.join(imagesPath, `${filename}.jpg`), jpeg);
+            if (!isTimelapse) {
+                const filename = imagesRegex
+                    .replace('${name}', imageContextName)
+                    .replace('${timestamp}', timestamp);
+
+                const jpeg = await mediaManager.convertMediaObjectToBuffer(imageMo, 'image/jpeg');
+                await fs.promises.writeFile(path.join(imagesPath, `${filename}.jpg`), jpeg);
+            } else {
+                const savePath = path.join(imagesPath, 'timelapse', imageContextName);
+                if (!fs.existsSync(savePath)) {
+                    fs.mkdirSync(savePath, { recursive: true });
+                }
+
+                const jpeg = await mediaManager.convertMediaObjectToBuffer(imageMo, 'image/jpeg');
+                await fs.promises.writeFile(path.join(savePath, `${timestamp}.jpg`), jpeg);
+            }
         } else {
             return null;
         }
