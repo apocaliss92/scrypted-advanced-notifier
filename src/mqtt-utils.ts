@@ -4,6 +4,7 @@ import { DetectionRule, firstUpperCase, getWebooks, OccupancyRule, StoreImageFn,
 import { cloneDeep, groupBy } from 'lodash';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 import { OccupancyRuleData } from './cameraMixin';
+import path from 'path';
 
 interface MqttEntity {
     entity: 'triggered' | 'lastImage' | 'lastClassname' | 'lastZones' | 'lastLabel' | string;
@@ -634,7 +635,12 @@ export const publishRelevantDetections = async (props: {
                         // }
                         value = b64Image || null;
                         retain = true;
-                        storeImageFn && storeImageFn({ imageContextName: `${entity}-${device.name}`, imageMo: image, timestamp: triggerTime }).catch(console.log);
+                        storeImageFn && storeImageFn({
+                            device,
+                            name: `object-detection-${entry.className}`,
+                            imageMo: image,
+                            timestamp: triggerTime
+                        }).catch(console.log);
                     }
 
                     if (value) {
@@ -743,7 +749,12 @@ const publishRuleData = async (props: {
         } else if (entity.includes('LastImage') && b64Image) {
             value = b64Image || null;
             retain = true;
-            storeImageFn && storeImageFn({ imageContextName: `${entity}-${device.name}`, imageMo: image, timestamp: triggerTime }).catch(console.log);
+            storeImageFn && storeImageFn({
+                device,
+                name: `rule-${rule.name}`,
+                imageMo: image,
+                timestamp: triggerTime
+            }).catch(console.log);
         }
 
         if (value !== undefined) {
@@ -812,7 +823,12 @@ export const publishDeviceState = async (props: {
                 } else if (entity.includes('LastImage')) {
                     value = b64Image || null;
                     retain = false;
-                    storeImageFn && storeImageFn({ imageContextName: `${entity}-${device.name}`, imageMo: image, timestamp: triggerTime }).catch(console.log);
+                    // storeImageFn && storeImageFn({
+                    //     device,
+                    //     name: `object-detection-${detectionClass}`,
+                    //     imageMo: image,
+                    //     timestamp: triggerTime
+                    // }).catch(console.log);
                 } else if (entity.includes('LastLabel')) {
                     value = detection?.label || null;
                 }
