@@ -2,7 +2,7 @@ import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpR
 import axios from "axios";
 import { isEqual, keyBy, sortBy } from 'lodash';
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, parseNvrNotificationMessage, NotificationPriority, getFolderPaths, getDeviceRules, NvrEvent, ParseNotificationMessageResult, getPushoverPriority, getDetectionRuleKeys, detectRuleEnabledRegex, OccupancyRule, occupancyRuleEnabledRegex, nvrAcceleratedMotionSensorId, StoreImageFn, TimelapseRule, RuleType } from "./utils";
+import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, parseNvrNotificationMessage, NotificationPriority, getFolderPaths, getDeviceRules, NvrEvent, ParseNotificationMessageResult, getPushoverPriority, getDetectionRuleKeys, detectRuleEnabledRegex, OccupancyRule, occupancyRuleEnabledRegex, nvrAcceleratedMotionSensorId, StoreImageFn, TimelapseRule, RuleType, getNowFriendlyDate } from "./utils";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
@@ -292,10 +292,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     async onRequest(request: HttpRequest, response: HttpResponse): Promise<void> {
-        const decodedUrl = decodeURIComponent(request.url);
-        const [_, __, ___, ____, _____, webhook, deviceNameOrAction] = decodedUrl.split('/');
+        const logger = this.getLogger();
+        const url = new URL(`http://localhost${request.url}`);
+        // const params = url.searchParams.get('params') ?? '{}';
+        const [_, __, ___, ____, _____, webhook, ...rest] = url.pathname.split('/');
+        const [deviceNameOrAction, ruleName, timelapseName] = rest
         try {
-            const { lastSnapshot, haAction, timelapse } = await getWebooks();
+            const { lastSnapshot, haAction, timelapseDownload, timelapseStream } = await getWebooks();
 
             if (webhook === haAction) {
                 const { url, accessToken } = await this.getHaApiUrl();
@@ -317,10 +320,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 const isWebhookEnabled = device?.storageSettings.getItem('lastSnapshotWebhook');
 
                 if (isWebhookEnabled) {
-                    // response.send(`${JSON.stringify(this.storageSettings.getItem('deviceLastSnapshotMap'))}`, {
-                    //     code: 404,
-                    // });
-                    // return;
                     const { snapshotsFolder } = await getFolderPaths(device.id);
 
                     const lastSnapshotFilePath = path.join(snapshotsFolder, `${webhook}.jpg`);
@@ -345,39 +344,28 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         return;
                     }
                 }
-            } else if (webhook === timelapse) {
+            } else if (webhook === timelapseDownload) {
+                const decodedTimelapseName = decodeURIComponent(timelapseName);
+                const decodedRuleName = decodeURIComponent(ruleName);
+                const { generatedPath } = this.getTimelapseFolder({
+                    ruleName: decodedRuleName
+                });
+
+                const timelapsePath = path.join(generatedPath, decodedTimelapseName);
+                logger.log(`Requesting timelapse ${decodedRuleName} for download: ${JSON.stringify({
+                    generatedPath,
+                    timelapseName,
+                    decodedTimelapseName,
+                    ruleName,
+                    decodedRuleName,
+                    timelapsePath,
+                })}`)
+
+
+                response.sendFile(timelapsePath);
+                return;
+            } else if (webhook === timelapseStream) {
                 const device = this.currentMixinsMap[deviceNameOrAction] as AdvancedNotifierCameraMixin;
-                const isWebhookEnabled = device?.storageSettings.getItem('lastSnapshotWebhook');
-
-                if (isWebhookEnabled) {
-                    // response.send(`${JSON.stringify(this.storageSettings.getItem('deviceLastSnapshotMap'))}`, {
-                    //     code: 404,
-                    // });
-                    // return;
-                    const { snapshotsFolder } = await getFolderPaths(device.id);
-
-                    const lastSnapshotFilePath = path.join(snapshotsFolder, `${webhook}.jpg`);
-
-                    if (lastSnapshotFilePath) {
-                        const mo = await sdk.mediaManager.createFFmpegMediaObject({
-                            inputArguments: [
-                                '-i', lastSnapshotFilePath,
-                            ]
-                        });
-                        const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
-                        response.send(jpeg, {
-                            headers: {
-                                'Content-Type': 'image/jpeg',
-                            }
-                        });
-                        return;
-                    } else {
-                        response.send(`Last snapshot not found for device ${deviceNameOrAction}`, {
-                            code: 404,
-                        });
-                        return;
-                    }
-                }
             }
         } catch (e) {
             response.send(`${JSON.stringify(e)}, ${e.message}`, {
@@ -757,7 +745,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         const deviceInternal = this.currentMixinsMap[cameraDevice.name] as AdvancedNotifierCameraMixin;
 
-        const { downloadUrl, streameUrl } = await deviceInternal.getTimelapseWebhookUrl(rule.name, timelapseName);
+        const { downloadUrl, streameUrl } = await deviceInternal.getTimelapseWebhookUrl({
+            ruleName: rule.name,
+            timelapseName,
+        });
 
         for (const notifierId of rule.notifiers) {
             const notifier = systemManager.getDeviceById(notifierId) as unknown as Notifier & DeviceInterface;
@@ -768,7 +759,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 deviceSettings,
                 notifier,
                 rule,
-                urlParent: streameUrl
+                videoUrl: downloadUrl,
+                ignoreActions: true,
             });
 
             const message = `${rule.customText}: ${downloadUrl}`;
@@ -1103,9 +1095,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         deviceSettings: Setting[],
         device: DeviceBase,
         triggerTime?: number,
-        urlParent?: string
+        ignoreActions?: boolean,
+        videoUrl?: string
     }) {
-        const { notifier, rule, deviceSettings, triggerTime, device, urlParent } = props;
+        const { notifier, rule, deviceSettings, triggerTime, device, videoUrl, ignoreActions } = props;
         const { priority, actions } = rule ?? {};
 
         const { haUrl, externalUrl } = this.getUrls(device.id, triggerTime);
@@ -1133,15 +1126,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             data.pushover = {
                 timestamp: triggerTime,
-                url: urlParent ?? externalUrl,
+                url: !videoUrl ? externalUrl : videoUrl,
                 html: 1,
                 priority: getPushoverPriority(priority)
             };
         } else if (notifier.providerId === this.haProviderId) {
             data.ha = {
-                url: urlParent ?? haUrl,
+                url: !videoUrl ? haUrl : undefined,
+                video: videoUrl,
                 clickAction: haUrl,
-                actions: haActionsToNotify
+                actions: !ignoreActions ? haActionsToNotify : undefined
             }
 
         }
@@ -1354,16 +1348,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     private getTimelapseFolder = (props: {
-        rule: TimelapseRule,
-        device: ScryptedDeviceBase,
+        ruleName: string,
     }) => {
         let { imagesPath } = this.storageSettings.values;
         if (!imagesPath) {
             imagesPath = process.env.SCRYPTED_PLUGIN_VOLUME;
         }
 
-        const { device, rule } = props;
-        const timelapsePath = path.join(imagesPath, 'timelapses', rule.name);
+        const { ruleName } = props;
+        const timelapsePath = path.join(imagesPath, 'timelapses', ruleName);
         const framesPath = path.join(timelapsePath, 'frames');
         const generatedPath = path.join(timelapsePath, 'generated');
 
@@ -1380,11 +1373,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         device: ScryptedDeviceBase,
         imageMo: MediaObject
     }) => {
-        const { device, rule, timestamp, imageMo } = props;
+        const { rule, timestamp, imageMo } = props;
         const { imagesPath } = this.storageSettings.values;
 
         if (imagesPath) {
-            const { framesPath } = this.getTimelapseFolder({ rule, device });
+            const { framesPath } = this.getTimelapseFolder({ ruleName: rule.name });
 
             if (!fs.existsSync(framesPath)) {
                 fs.mkdirSync(framesPath, { recursive: true });
@@ -1403,6 +1396,22 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { imagesPath } = this.storageSettings.values;
     }
 
+    public clearFramesData = async (props: {
+        rule: TimelapseRule,
+        device: ScryptedDeviceBase,
+        logger: Console
+    }) => {
+        const { rule } = props;
+        // Clear all folder starting for frames_bkp
+        // const { framesPath } = this.getTimelapseFolder({ ruleName: rule.name });
+
+        // const files = fs.readdirSync(framesPath);
+        // for (const file of files) {
+        //     const filePath = path.join(framesPath, file);
+        //     fs.unlinkSync(filePath);
+        // }
+    }
+
     public timelapseRuleEnded = async (props: {
         rule: TimelapseRule,
         device: ScryptedDeviceBase,
@@ -1413,12 +1422,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         if (imagesPath) {
             try {
-                const { timelapsePath, framesPath, generatedPath } = this.getTimelapseFolder({ rule, device });
+                const { timelapsePath, framesPath, generatedPath } = this.getTimelapseFolder({ ruleName: rule.name });
                 const listPath = path.join(timelapsePath, 'file_list.txt');
 
-                const now = new Date();
-                const formattedDate = now.toISOString();
-                const timelapseName = `${formattedDate}.mp4`;
+                const timelapseName = `${getNowFriendlyDate()}.mp4`;
                 const outputFile = path.join(generatedPath, timelapseName);
 
                 fs.readdir(framesPath, (err, files) => {
@@ -1461,13 +1468,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     cameraDevice: device as DeviceInterface,
                     timelapseName,
                     rule
-                })
+                });
 
-                // const files = fs.readdirSync(framesPath);
-                // for (const file of files) {
-                //     const filePath = path.join(framesPath, file);
-                //     fs.unlinkSync(filePath);
-                // }
+                fs.renameSync(framesPath, `${framesPath}_bkp_${getNowFriendlyDate()}`);
             } catch (e) {
                 logger.log('Error generating timelapse', e);
             }

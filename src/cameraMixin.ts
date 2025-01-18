@@ -6,7 +6,6 @@ import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoverDetectionRules, discoverOccupancyRules, getDetectionRuleId, getOccupancyRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import path from "path";
 
 const { systemManager } = sdk;
 const secondsPerPicture = 5;
@@ -1255,14 +1254,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    public async getTimelapseWebhookUrl(ruleName: string, timelapseName: string) {
+    public async getTimelapseWebhookUrl(props: {
+        ruleName: string,
+        timelapseName: string,
+    }) {
+        const { ruleName, timelapseName } = props;
         const cloudEndpoint = await sdk.endpointManager.getCloudEndpoint(undefined, { public: true });
         const [endpoint, parameters] = cloudEndpoint.split('?') ?? '';
-        const { timelapse } = await getWebooks();
+        const { timelapseDownload, timelapseStream, timelapseThumbnail } = await getWebooks();
+        const encodedName = encodeURIComponent(this.name);
+        const encodedRuleName = encodeURIComponent(ruleName);
 
-        const streameUrl = `${endpoint}${timelapse}/stream/${this.id}/${ruleName}/${timelapseName}?${parameters}`;
-        const downloadUrl = `${endpoint}${timelapse}/download/${this.id}/${ruleName}/${timelapseName}?${parameters}`;
-        const thumbnailUrl = `${endpoint}${timelapse}/thumbnail/${this.id}/${ruleName}/${timelapseName}?${parameters}`;
+        const streameUrl = `${endpoint}${timelapseStream}/${encodedName}/${encodedRuleName}/${timelapseName}?${parameters}`;
+        const downloadUrl = `${endpoint}${timelapseDownload}/${encodedName}/${encodedRuleName}/${timelapseName}?${parameters}`;
+        const thumbnailUrl = `${endpoint}${timelapseThumbnail}/${encodedName}/${encodedRuleName}/${timelapseName}?${parameters}`;
 
         return { streameUrl, downloadUrl, thumbnailUrl };
     }

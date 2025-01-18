@@ -61,12 +61,16 @@ export const getDefaultEntityId = (name: string) => {
 export const getWebooks = async () => {
     const lastSnapshot = 'lastSnapshot';
     const haAction = 'haAction';
-    const timelapse = 'timelapse';
+    const timelapseDownload = 'timelapseDownload';
+    const timelapseStream = 'timelapseStream';
+    const timelapseThumbnail = 'timelapseThumbnail';
 
     return {
         lastSnapshot,
         haAction,
-        timelapse,
+        timelapseDownload,
+        timelapseStream,
+        timelapseThumbnail,
     }
 }
 
@@ -1314,7 +1318,7 @@ export const getTimelapseRulesSettings = async (props: {
             startTimeKey,
             priorityKey,
             actionsKey,
-            framesAcquisitionDelayKey,
+            // framesAcquisitionDelayKey,
             timelapseFramerateKey,
             additionalFfmpegParametersKey,
             regularSnapshotIntervalKey,
@@ -1339,16 +1343,16 @@ export const getTimelapseRulesSettings = async (props: {
                 value: storage.getItem(textKey),
                 type: 'string',
             },
-            {
-                key: framesAcquisitionDelayKey,
-                title: 'Frames acquisition delay',
-                description: 'Minimum amount of seconds to wait until a new frame is recorded',
-                group: groupName,
-                subgroup: timelapseRuleName,
-                type: 'number',
-                placeholder: '5',
-                value: storage.getItem(framesAcquisitionDelayKey as any) as string,
-            },
+            // {
+            //     key: framesAcquisitionDelayKey,
+            //     title: 'Frames acquisition delay',
+            //     description: 'Minimum amount of seconds to wait until a new frame is recorded',
+            //     group: groupName,
+            //     subgroup: timelapseRuleName,
+            //     type: 'number',
+            //     placeholder: '5',
+            //     value: storage.getItem(framesAcquisitionDelayKey as any) as string,
+            // },
             {
                 key: timelapseFramerateKey,
                 title: 'Timelapse framerate',
@@ -1874,7 +1878,7 @@ export const getDeviceTimelapseRules = (
             const customText = storage[textKey]?.value as string || undefined;
             const additionalFfmpegParameters = storage[additionalFfmpegParametersKey]?.value as string || undefined;
 
-            const minDelay = Number(storage[framesAcquisitionDelayKey]?.value || 5);
+            // const minDelay = Number(storage[framesAcquisitionDelayKey]?.value || 5);
             const timelapseFramerate = Number(storage[timelapseFramerateKey]?.value || 10);
             const regularSnapshotInterval = Number(storage[regularSnapshotIntervalKey]?.value || 15);
 
@@ -1886,7 +1890,7 @@ export const getDeviceTimelapseRules = (
                 priority,
                 actions,
                 deviceId,
-                minDelay,
+                minDelay: 0,
                 timelapseFramerate,
                 additionalFfmpegParameters,
                 regularSnapshotInterval
@@ -2016,3 +2020,8 @@ export const getPushoverPriority = (priority: NotificationPriority) => priority 
         priority === NotificationPriority.Low ? -1 :
             -2;
 
+
+export const getNowFriendlyDate = () => {
+    const now = new Date();
+    return `${now.getDate()}-${now.getMonth()}-${now.getFullYear()}_${now.getTime()}`;
+}
