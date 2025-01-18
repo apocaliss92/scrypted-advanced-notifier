@@ -93,6 +93,18 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             defaultValue: 'https://nvr.scrypted.app/',
             placeholder: 'https://nvr.scrypted.app/',
         },
+        imagesPath: {
+            title: 'Images path',
+            description: 'Disk path where to save images. Leave blank if you do not want any image to be stored',
+            type: 'string',
+        },
+        imagesRegex: {
+            title: 'Images name',
+            description: 'Filename for the images. Possible values to be used are: ${name} ${timestamp}. Using only ${name} will ensure to have only 1 image per file',
+            type: 'string',
+            defaultValue: '${name}',
+            placeholder: '${name}',
+        },
         domains: {
             group: 'Base',
             subgroup: 'Homeassistant',
@@ -129,20 +141,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             title: 'Use NVR detections',
             description: 'Use NVR detection to publish MQTT state messages',
             type: 'boolean',
-        },
-        imagesPath: {
-            group: 'MQTT',
-            title: 'Images path',
-            description: 'Disk path where to save images. Leave blank if you do not want any image to be stored',
-            type: 'string',
-        },
-        imagesRegex: {
-            group: 'MQTT',
-            title: 'Images name',
-            description: 'Filename for the images. Possible values to be used are: ${name} ${timestamp}. Using only ${name} will ensure to have only 1 image per file',
-            type: 'string',
-            defaultValue: '${name}',
-            placeholder: '${name}',
         },
         fetchedEntities: {
             group: 'Metadata',
@@ -752,14 +750,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     async notifyTimelapse(props: {
         cameraDevice: DeviceInterface,
         rule: TimelapseRule,
-        timelapsePath: string,
+        timelapseName: string,
     }) {
-        const { cameraDevice, rule, timelapsePath } = props;
+        const { cameraDevice, rule, timelapseName } = props;
         const logger = this.getLogger();
 
         const deviceInternal = this.currentMixinsMap[cameraDevice.name] as AdvancedNotifierCameraMixin;
 
-        const { timelapseUrl } = await deviceInternal.getTimelapseWebhookUrl(timelapsePath)
+        const { downloadUrl, streameUrl } = await deviceInternal.getTimelapseWebhookUrl(rule.name, timelapseName);
 
         for (const notifierId of rule.notifiers) {
             const notifier = systemManager.getDeviceById(notifierId) as unknown as Notifier & DeviceInterface;
@@ -770,10 +768,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 deviceSettings,
                 notifier,
                 rule,
-                urlParent: timelapseUrl
+                urlParent: streameUrl
             });
 
-            const message = `${rule.customText}: ${timelapseUrl}`;
+            const message = `${rule.customText}: ${downloadUrl}`;
 
             const notifierOptions: NotifierOptions = {
                 body: message,
@@ -1419,7 +1417,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 const listPath = path.join(timelapsePath, 'file_list.txt');
 
                 const now = new Date();
-                const formattedDate = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+                const formattedDate = now.toISOString();
                 const timelapseName = `${formattedDate}.mp4`;
                 const outputFile = path.join(generatedPath, timelapseName);
 
@@ -1438,24 +1436,30 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     fs.mkdirSync(generatedPath, { recursive: true });
                 }
 
-                const cp = child_process.spawn(await sdk.mediaManager.getFFmpegPath(), [
+                const ffmpegArgs = [
+                    '-loglevel', 'error',
                     '-f', 'concat',
                     '-safe', '0',
+                    '-r', `${rule.timelapseFramerate}`,
                     '-i', listPath,
-                    '-framerate', `${rule.timelapseFramerate}`,
+                    '-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2',
+                    // '-framerate', `${rule.timelapseFramerate}`,
                     '-c:v', 'libx264',
-                    '-r', '24',
                     '-pix_fmt', 'yuv420p',
                     '-y',
                     outputFile
-                ], {
+                ];
+
+                logger.log(`Generating timelapse ${rule.name} with arguments: ${ffmpegArgs}`);
+
+                const cp = child_process.spawn(await sdk.mediaManager.getFFmpegPath(), ffmpegArgs, {
                     stdio: 'inherit',
                 });
                 await once(cp, 'exit');
 
                 await this.notifyTimelapse({
                     cameraDevice: device as DeviceInterface,
-                    timelapsePath: outputFile,
+                    timelapseName,
                     rule
                 })
 

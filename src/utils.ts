@@ -14,6 +14,7 @@ export type DeviceInterface = Camera & ScryptedDeviceBase & Settings;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
 export const detectRuleEnabledRegex = new RegExp('rule:(.*):enabled');
 export const occupancyRuleEnabledRegex = new RegExp('occupancyRule:(.*):enabled');
+export const timelapseRuleGenerateRegex = new RegExp('timelapseRule:(.*):generate');
 
 export interface ObserveZoneData {
     name: string;
@@ -265,11 +266,6 @@ const classnamePrio = {
     motion: 7,
 }
 
-const initZoneDetections = Object.keys(DetectionClass).reduce((tot, curr) => ({
-    ...tot,
-    [curr]: false,
-}), {});
-
 export const filterAndSortValidDetections = (detections: ObjectDetectionResult[], logger: Console) => {
     const sortedByPriorityAndScore = sortBy(detections,
         (detection) => [detection?.className ? classnamePrio[detection.className] : 100,
@@ -482,6 +478,7 @@ export type MixinBaseSettingKey =
     | 'haActions'
     | typeof detectionRulesKey
     | typeof occupancyRulesKey
+    | typeof timelapseRulesKey;
 
 export enum NotificationPriority {
     VeryLow = "VeryLow",
@@ -784,8 +781,11 @@ export const getTimelapseRuleKeys = (timelapseRuleName: string) => {
     const endTimeKey = `timelapseRule:${timelapseRuleName}:endTime`;
     const actionsKey = `timelapseRule:${timelapseRuleName}:haActions`;
     const priorityKey = `timelapseRule:${timelapseRuleName}:priority`;
+    const regularSnapshotIntervalKey = `timelapseRule:${timelapseRuleName}:regularSnapshotInterval`;
     const framesAcquisitionDelayKey = `timelapseRule:${timelapseRuleName}:framesAcquisitionDelay`;
     const timelapseFramerateKey = `timelapseRule:${timelapseRuleName}:timelapseFramerate`;
+    const additionalFfmpegParametersKey = `timelapseRule:${timelapseRuleName}:additionalFfmpegParameters`;
+    const generateKey = `timelapseRule:${timelapseRuleName}:generate`;
 
     return {
         enabledKey,
@@ -798,6 +798,9 @@ export const getTimelapseRuleKeys = (timelapseRuleName: string) => {
         endTimeKey,
         priorityKey,
         actionsKey,
+        regularSnapshotIntervalKey,
+        additionalFfmpegParametersKey,
+        generateKey,
     }
 }
 
@@ -1313,6 +1316,9 @@ export const getTimelapseRulesSettings = async (props: {
             actionsKey,
             framesAcquisitionDelayKey,
             timelapseFramerateKey,
+            additionalFfmpegParametersKey,
+            regularSnapshotIntervalKey,
+            generateKey,
         } = getTimelapseRuleKeys(timelapseRuleName);
 
         settings.push(
@@ -1350,8 +1356,26 @@ export const getTimelapseRulesSettings = async (props: {
                 group: groupName,
                 subgroup: timelapseRuleName,
                 type: 'number',
-                placeholder: '30',
+                placeholder: '10',
                 value: storage.getItem(timelapseFramerateKey as any) as string,
+            },
+            {
+                key: regularSnapshotIntervalKey,
+                title: 'Force snapshot seconds',
+                description: 'Force a frame acquisition on a regular basis',
+                group: groupName,
+                subgroup: timelapseRuleName,
+                type: 'number',
+                placeholder: '15',
+                value: storage.getItem(regularSnapshotIntervalKey as any) as string,
+            },
+            {
+                key: additionalFfmpegParametersKey,
+                title: 'Additional FFmpeg parameters',
+                group: groupName,
+                subgroup: timelapseRuleName,
+                value: storage.getItem(additionalFfmpegParametersKey),
+                type: 'string',
             },
             {
                 key: notifiersKey,
@@ -1412,6 +1436,14 @@ export const getTimelapseRulesSettings = async (props: {
                 type: 'time',
                 multiple: true,
                 value: storage.getItem(endTimeKey),
+            },
+            {
+                key: generateKey,
+                title: 'Generate now',
+                group: groupName,
+                subgroup: timelapseRuleName,
+                type: 'button',
+                multiple: true,
             }
         );
     };
@@ -1793,6 +1825,8 @@ export const getDeviceOccupancyRules = (
 export interface TimelapseRule extends BaseRule {
     deviceId?: string;
     timelapseFramerate?: number;
+    regularSnapshotInterval?: number;
+    additionalFfmpegParameters?: string;
 }
 
 
@@ -1825,7 +1859,9 @@ export const getDeviceTimelapseRules = (
                 priorityKey,
                 actionsKey,
                 framesAcquisitionDelayKey,
-                timelapseFramerateKey
+                timelapseFramerateKey,
+                additionalFfmpegParametersKey,
+                regularSnapshotIntervalKey,
             } = getTimelapseRuleKeys(timelapseRuleName);
 
             const isEnabled = JSON.parse(storage[enabledKey]?.value as string ?? 'false');
@@ -1836,9 +1872,11 @@ export const getDeviceTimelapseRules = (
             const priority = storage[priorityKey]?.value as NotificationPriority;
             const actions = storage[actionsKey]?.value as string[];
             const customText = storage[textKey]?.value as string || undefined;
+            const additionalFfmpegParameters = storage[additionalFfmpegParametersKey]?.value as string || undefined;
 
             const minDelay = Number(storage[framesAcquisitionDelayKey]?.value || 5);
-            const timelapseFramerate = Number(storage[timelapseFramerateKey]?.value || 30);
+            const timelapseFramerate = Number(storage[timelapseFramerateKey]?.value || 10);
+            const regularSnapshotInterval = Number(storage[regularSnapshotIntervalKey]?.value || 15);
 
             const timelapseRule: TimelapseRule = {
                 ruleType: RuleType.Timelapse,
@@ -1850,6 +1888,8 @@ export const getDeviceTimelapseRules = (
                 deviceId,
                 minDelay,
                 timelapseFramerate,
+                additionalFfmpegParameters,
+                regularSnapshotInterval
             };
 
             let timeAllowed = true;

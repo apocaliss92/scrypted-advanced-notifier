@@ -1,7 +1,7 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ObjectDetection, Image, ScryptedMimeTypes } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DetectionRule, detectionRulesGroup, DetectionRuleSource, DeviceInterface, detectRuleEnabledRegex, occupancyRuleEnabledRegex, EventType, filterAndSortValidDetections, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRuleKeys, getOccupancyRulesSettings, getWebookUrls, isDeviceEnabled, ObserveZoneData, OccupancyRule, occupancyRulesGroup, ZoneMatchType, TimelapseRule, getTimelapseRulesSettings, timelapseRulesGroup, RuleType, getWebooks } from "./utils";
+import { DetectionRule, detectionRulesGroup, DetectionRuleSource, DeviceInterface, detectRuleEnabledRegex, occupancyRuleEnabledRegex, EventType, filterAndSortValidDetections, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRuleKeys, getOccupancyRulesSettings, getWebookUrls, isDeviceEnabled, ObserveZoneData, OccupancyRule, occupancyRulesGroup, ZoneMatchType, TimelapseRule, getTimelapseRulesSettings, timelapseRulesGroup, RuleType, getWebooks, timelapseRuleGenerateRegex } from "./utils";
 import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoverDetectionRules, discoverOccupancyRules, getDetectionRuleId, getOccupancyRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
@@ -102,6 +102,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     occupancyRules: OccupancyRule[];
     detectionRules: DetectionRule[];
     timelapseRules: TimelapseRule[];
+    allTimelapseRules: TimelapseRule[];
     nvrDetectionRules: DetectionRule[];
     rulesDiscovered: string[] = [];
     occupancyRulesDiscovered: string[] = [];
@@ -117,6 +118,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     lastObserveZonesFetched: number;
     observeZoneData: ObserveZoneData[];
     occupancyState: Record<string, OccupancyData> = {};
+    timelapseLastCheck: Record<string, number> = {};
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -208,17 +210,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 if (timelapseRulesToDisable?.length) {
                     for (const rule of timelapseRulesToDisable) {
-                        logger.log(`Timelapse rule ended: ${rule.name}`);
-
                         await this.plugin.timelapseRuleEnded({
                             rule,
                             device,
                             logger,
-                        })
+                        });
                     }
                 }
 
-                // const timelapseRule = allPossibleRules.find(rule => rule.generateTimelapse);
+                // const timelapseRule = [...skippedTimelapseRules, ...timelapseRules].find(rule => rule.ruleType === RuleType.Timelapse);
                 // if (timelapseRule) {
                 //     this.plugin.timelapseRuleEnded({
                 //         rule: timelapseRule,
@@ -231,6 +231,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 this.nvrDetectionRules = nvrRules;
                 this.occupancyRules = occupancyRules;
                 this.timelapseRules = timelapseRules;
+                this.allTimelapseRules = [...skippedTimelapseRules, ...timelapseRules];
 
                 this.isActiveForNotifications = isActiveForNotifications;
                 this.isActiveForMqttReporting = isActiveForMqttReporting;
@@ -321,8 +322,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     logger.log(`Stopping NVR events listener`);
                 }
 
-                if (isActiveForMqttReporting && !!occupancyRules.length) {
-                    await this.forceOccupancyCheck();
+                if ((isActiveForMqttReporting && !!occupancyRules.length) || !!timelapseRules?.length) {
+                    await this.checkOutdatedRules();
                 }
 
                 this.isActiveForNvrNotifications = isActiveForNvrNotifications;
@@ -454,9 +455,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async putMixinSetting(key: string, value: string, skipMqtt?: boolean) {
+        const generateTimelapse = timelapseRuleGenerateRegex.exec(key);
+        const enabledResultDetected = detectRuleEnabledRegex.exec(key);
+        const enabledResultOccupancy = occupancyRuleEnabledRegex.exec(key);
+
         if (!skipMqtt) {
-            const enabledResultDetected = detectRuleEnabledRegex.exec(key);
-            const enabledResultOccupancy = occupancyRuleEnabledRegex.exec(key);
             if (enabledResultDetected) {
                 const ruleName = enabledResultDetected[1];
                 await this.plugin.updateDetectionRuleOnMqtt({
@@ -474,6 +477,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     deviceId: this.id
                 });
             }
+        }
+
+        if (generateTimelapse?.[1]) {
+            const ruleName = generateTimelapse[1];
+            const rule = this.allTimelapseRules?.find(rule => rule.name === ruleName);
+            const device = systemManager.getDeviceById<DeviceInterface>(this.id);
+
+            await this.plugin.timelapseRuleEnded({
+                rule,
+                device,
+                logger: this.getLogger(),
+            });
         }
 
         this.storage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
@@ -669,28 +684,67 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    async forceOccupancyCheck() {
+    async checkOutdatedRules() {
         const now = new Date().getTime();
         const logger = this.getLogger();
-        const anyOutdatedRule = this.occupancyRules.some(rule => {
+
+        const anyOutdatedOccupancyRule = this.occupancyRules.some(rule => {
             const { forceUpdate, name } = rule;
             const currentState = this.occupancyState[name];
+            const shouldForceFrame = !currentState || (now - (currentState?.lastCheck ?? 0)) >= (1000 * forceUpdate);
 
-            logger.debug(`Should force update occupancy: ${!currentState || (now - (currentState?.lastCheck ?? 0)) >= (1000 * forceUpdate)}, ${JSON.stringify({
+            logger.debug(`Should force update occupancy: ${JSON.stringify({
+                shouldForceFrame,
                 lastCheck: currentState?.lastCheck,
                 forceUpdate,
                 now,
                 name
             })}`);
 
-            return !currentState || (now - (currentState?.lastCheck ?? 0)) >= (1000 * forceUpdate);
+            return shouldForceFrame;
         });
 
-        if (anyOutdatedRule) {
-            logger.debug('Forcing update of occupancy data');
+        const timelapsesToRefresh = (this.timelapseRules || []).filter(rule => {
+            const { regularSnapshotInterval, name } = rule;
+            const lastCheck = this.timelapseLastCheck[name];
+            const shouldForceFrame = !lastCheck || (now - (lastCheck ?? 0)) >= (1000 * regularSnapshotInterval);
+
+            logger.debug(`Should force timelapse frame: ${JSON.stringify({
+                shouldForceFrame,
+                lastCheck,
+                regularSnapshotInterval,
+                now,
+                name
+            })}`);
+
+            return shouldForceFrame;
+        });
+        const anyTimelapseToRefresh = timelapsesToRefresh.length
+
+        if (anyOutdatedOccupancyRule || anyTimelapseToRefresh) {
             const { image } = await this.getImage();
             if (image) {
-                this.checkOccupancyData(image).catch(logger.log);
+                if (anyOutdatedOccupancyRule) {
+                    logger.debug('Forcing update of occupancy data');
+                    this.checkOccupancyData(image).catch(logger.log);
+                }
+
+                if (anyTimelapseToRefresh) {
+                    const device = systemManager.getDeviceById<DeviceInterface>(this.id);
+
+                    for (const rule of timelapsesToRefresh) {
+                        logger.debug(`Forcing timelapse image for rule ${rule.name}: ${JSON.stringify({
+                            timestamp: now,
+                            id: this.id
+                        })}`);
+                        this.plugin.storeTimelapseFrame({
+                            imageMo: image,
+                            timestamp: now,
+                            device,
+                            rule: rule as TimelapseRule
+                        }).catch(logger.log);
+                    }
+                }
             }
         }
     }
@@ -1201,18 +1255,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    public async getTimelapseWebhookUrl(timelapsePath: string) {
+    public async getTimelapseWebhookUrl(ruleName: string, timelapseName: string) {
         const cloudEndpoint = await sdk.endpointManager.getCloudEndpoint(undefined, { public: true });
         const [endpoint, parameters] = cloudEndpoint.split('?') ?? '';
-        const params = {
-            deviceId: this.id,
-            timelapsePath,
-        };
         const { timelapse } = await getWebooks();
 
-        const timelapseUrl = `${endpoint}${timelapse}/videoclip?params=${JSON.stringify(params)}&${parameters}`;
-        const thumbnailUrl = `${endpoint}${timelapse}/thumbnail?params=${JSON.stringify(params)}&${parameters}`;
+        const streameUrl = `${endpoint}${timelapse}/stream/${this.id}/${ruleName}/${timelapseName}?${parameters}`;
+        const downloadUrl = `${endpoint}${timelapse}/download/${this.id}/${ruleName}/${timelapseName}?${parameters}`;
+        const thumbnailUrl = `${endpoint}${timelapse}/thumbnail/${this.id}/${ruleName}/${timelapseName}?${parameters}`;
 
-        return { timelapseUrl, thumbnailUrl };
+        return { streameUrl, downloadUrl, thumbnailUrl };
     }
 }
