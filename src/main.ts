@@ -1132,9 +1132,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             };
         } else if (notifier.providerId === this.haProviderId) {
             data.ha = {
-                url: !videoUrl ? haUrl : undefined,
+                url: videoUrl ?? haUrl,
+                clickAction: videoUrl ?? haUrl,
                 video: videoUrl,
-                clickAction: haUrl,
                 actions: !ignoreActions ? haActionsToNotify : undefined
             }
 
