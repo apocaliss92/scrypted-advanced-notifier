@@ -763,7 +763,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 ignoreActions: true,
             });
 
-            const message = `${rule.customText}: ${downloadUrl}`;
+            const message = `${rule.customText}`;
 
             const notifierOptions: NotifierOptions = {
                 body: message,
@@ -1450,7 +1450,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     '-r', `${rule.timelapseFramerate}`,
                     '-i', listPath,
                     '-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2',
-                    // '-framerate', `${rule.timelapseFramerate}`,
                     '-c:v', 'libx264',
                     '-pix_fmt', 'yuv420p',
                     '-y',

@@ -7,13 +7,17 @@ This plugin is feature rich notifier to handle detection notifications.
 ## Homeassistant
 It's possbile to configure an homeassistant connection (or utilize the one configured in the `Homeassistant` plugin) to fetch configured Rooms and Entities which are identified by one of the `Entity regex patterns`, these can be then assigned to a camera or sensor to add metadata used to render the notification. The fetched data will be visible in the `METADATA` group, and edited 
 
+## General
+ - `Scrypted token`: Token stored on the scrypted entity on homeassistant
+ - `NVR url`: Url pointing to the NVR instance, should be accessible from outside
+ - `Images path`: If set, the images used to populate MQTT topic will be also stored on the drive path
+ - `Images name`: The name pattern to use to generate image files. The placeholders ${name} and ${timestamp} will be available. Using only ${name} will ensure the image to be overriden on every detection instead of saving one additional copy
+
 ## MQTT
  It's possible to use MQTT to report data to homeassistant, can be configured standalone or use the configuration from the main `MQTT` plugin. 
  - `Active entities topic`: topic the plugin will subscribe to activate the rules `OnActive`. Useful to sync the plugin with an alarm system connected to homeassistant (i.e. Alarmo)
  - `Active devices for MQTT reporting`: devices selected will be periodically reported to MQTT with several information, i.e. last detections happened, images, status and so on
  - `Use NVR detections`: MQTT topics will be published using the detections coming from NVR detections, instead of the one provided by the plugin
- - `Images path`: If set, the images used to populate MQTT topic will be also stored on the drive path
- - `Images name`: The name pattern to use to generate image files. The placeholders ${name} and ${timestamp} will be available. Using only ${name} will ensure the image to be overriden on every detection instead of saving one additional copy
 
 ## Notifier
 Mainly supported notifiers are from `Homeassistant` and `Pushover` plugins
@@ -65,6 +69,27 @@ Similar concept applied to occupancy, a combination of observe zone + detection 
 - `Priority`: Priority of the notification, will have effect only for pushover
 - `Actions`: actions that will be shown on the notification. Rendering will vary depending on the notifier. For HA will be an actionable notification, for pushover will be additional links in the text. Both of them require homeassistant to work, the same event will be triggered with the specified action type
 
+## Timelapse rules
+Allow to generate regular timelapses for a specific camera. The output folder will be `Images path`, if not set, the plugin folder will be used instead. For the initial period, no data clear will be done, the frames will be only moved to bkp folders. A cleanup functionality will be implemented
+### General configurations
+- `Notificataion message`: Message sent when the timelapse will be notified
+- `Timelapse framerate`: FPS of the final timelapse. The higher the value, the faster will be the timelapse
+- `Force snapshot seconds`: A new snapshot will be pushed to the timelapse on regular intervals
+- Schedule properties for the time period to capture. This functionality is very well implemented with the homeassistant notifications, the video will be shown in the preview of the notifications
+
+### Rule configurations
+- `Enabled`: Enable or disable the rule (On homeassistant will be available a switch to enable/disable each rule)
+- `Detection class`: Detection class to match in the zone
+- `Observe zone`: Zone of type 'Observe' that will be matched
+- `Zone type`: Intersect if the match can happen on any intersection, Contain if the detection must happen completely inside the zone
+- `Score threshold`: minimum score to trigger the occupancy
+- `Occupancy confirmation`: minimum amount of seconds to wait if the state should be updated. This should avoid some false positives
+- `Zone occupied text`: Text that will be notified when the zone gets occupied
+- `Zone not occupied text`: Text that will be notified when the zone becomes free
+- `Notifiers`: notifiers to notify
+- `Priority`: Priority of the notification, will have effect only for pushover
+- `Actions`: actions that will be shown on the notification. Rendering will vary depending on the notifier. For HA will be an actionable notification, for pushover will be additional links in the text. Both of them require homeassistant to work, the same event will be triggered with the specified action type
+
 ## Test
 A test notification can be send with the specified settings
 
@@ -89,5 +114,3 @@ Simple webooks to retrieve information, only the last snapshot is for now availa
 ## What's next
 * Add boundary box on detected object (really struggling :D)
 * Add more test suits to emulate a detection on specific conditions
-* Setup a timeframe where all the notifications are kept and release as a GIF at the end (I saw a comment from an user on discord and I found it a great idea!)
- * ...

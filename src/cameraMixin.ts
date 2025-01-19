@@ -1184,9 +1184,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     b64Image = b64ImageNew;
                 }
 
-                const imageUrl = await sdk.mediaManager.convertMediaObjectToLocalUrl(imageToNotify, 'image/jpg');
-                logger.debug(`Updating webook last image URL: ${imageUrl}`);
-                this.storageSettings.putSetting('lastSnapshotImageUrl', imageUrl);
+                if (imageToNotify) {
+                    const imageUrl = await sdk.mediaManager.convertMediaObjectToLocalUrl(imageToNotify, 'image/jpg');
+                    logger.debug(`Updating webook last image URL: ${imageUrl}`);
+                    this.storageSettings.putSetting('lastSnapshotImageUrl', imageUrl);
+                }
             }
 
             for (const matchRule of matchRules) {
@@ -1265,9 +1267,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const encodedName = encodeURIComponent(this.name);
         const encodedRuleName = encodeURIComponent(ruleName);
 
-        const streameUrl = `${endpoint}${timelapseStream}/${encodedName}/${encodedRuleName}/${timelapseName}?${parameters}`;
-        const downloadUrl = `${endpoint}${timelapseDownload}/${encodedName}/${encodedRuleName}/${timelapseName}?${parameters}`;
-        const thumbnailUrl = `${endpoint}${timelapseThumbnail}/${encodedName}/${encodedRuleName}/${timelapseName}?${parameters}`;
+        const paramString = parameters ? `?${parameters}` : '';
+
+        const streameUrl = `${endpoint}${timelapseStream}/${encodedName}/${encodedRuleName}/${timelapseName}${paramString}`;
+        const downloadUrl = `${endpoint}${timelapseDownload}/${encodedName}/${encodedRuleName}/${timelapseName}${paramString}`;
+        const thumbnailUrl = `${endpoint}${timelapseThumbnail}/${encodedName}/${encodedRuleName}/${timelapseName}${paramString}`;
 
         return { streameUrl, downloadUrl, thumbnailUrl };
     }
