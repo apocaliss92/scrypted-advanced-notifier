@@ -1209,17 +1209,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         parentImage: !!parentImage
                     })}`);
 
-                    if (this.isActiveForMqttReporting && rule.ruleType === RuleType.Detection) {
-                        this.triggerMotion({ matchRule, b64Image, device, triggerTime, image: imageToNotify });
-                    }
+                    if(rule.ruleType === RuleType.Detection) {
+                        if(this.isActiveForMqttReporting) {
+                            this.triggerMotion({ matchRule, b64Image, device, triggerTime, image: imageToNotify });
+                        }
 
-                    if (rule.ruleType === RuleType.Detection) {
                         logger.log(`Starting notifiers: ${JSON.stringify({
                             match,
                             rule,
                             eventType: EventType.ObjectDetection,
                             triggerTime,
                         })})}`);
+
                     }
 
                     this.plugin.matchDetectionFound({

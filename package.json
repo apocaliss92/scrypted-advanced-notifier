@@ -42,7 +42,7 @@
     "pluginDependencies": []
   },
   "dependencies": {
-    "@scrypted/common": "1.0.2",
+    "@scrypted/common": "file:../scrypted/common",
     "@scrypted/sdk": "^0.3.106",
     "axios": "^0.23.0",
     "lodash": "^4.17.21",
