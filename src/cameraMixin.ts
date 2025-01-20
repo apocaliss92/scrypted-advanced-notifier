@@ -217,15 +217,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
                 }
 
-                // const timelapseRule = [...skippedTimelapseRules, ...timelapseRules].find(rule => rule.ruleType === RuleType.Timelapse);
-                // if (timelapseRule) {
-                //     this.plugin.timelapseRuleEnded({
-                //         rule: timelapseRule,
-                //         device,
-                //         logger,
-                //     });
-                // }
-
                 this.detectionRules = detectionRules;
                 this.nvrDetectionRules = nvrRules;
                 this.occupancyRules = occupancyRules;
@@ -487,6 +478,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 rule,
                 device,
                 logger: this.getLogger(),
+                manual: true,
             });
         }
 
@@ -742,6 +734,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             device,
                             rule: rule as TimelapseRule
                         }).catch(logger.log);
+
+                        this.timelapseLastCheck[rule.name] = now;
                     }
                 }
             }

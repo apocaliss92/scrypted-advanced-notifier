@@ -745,10 +745,20 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         const deviceInternal = this.currentMixinsMap[cameraDevice.name] as AdvancedNotifierCameraMixin;
 
-        const { downloadUrl, streameUrl } = await deviceInternal.getTimelapseWebhookUrl({
+        const { downloadUrl } = await deviceInternal.getTimelapseWebhookUrl({
             ruleName: rule.name,
             timelapseName,
         });
+        const { generatedPath } = this.getTimelapseFolder({
+            ruleName: rule.name
+        });
+
+        const timelapsePath = path.join(generatedPath, timelapseName);
+
+        const fileStats = fs.statSync(timelapsePath);
+        const sizeInBytes = fileStats.size;
+        const fileSizeInMegabytes = sizeInBytes / (1024 * 1024);
+        const isVideoValid = fileSizeInMegabytes < 50;
 
         for (const notifierId of rule.notifiers) {
             const notifier = systemManager.getDeviceById(notifierId) as unknown as Notifier & DeviceInterface;
@@ -760,6 +770,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 notifier,
                 rule,
                 videoUrl: downloadUrl,
+                skipVideoAttach: !isVideoValid,
                 ignoreActions: true,
             });
 
@@ -1096,9 +1107,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         device: DeviceBase,
         triggerTime?: number,
         ignoreActions?: boolean,
+        skipVideoAttach?: boolean,
         videoUrl?: string
     }) {
-        const { notifier, rule, deviceSettings, triggerTime, device, videoUrl, ignoreActions } = props;
+        const { notifier, rule, deviceSettings, triggerTime, device, videoUrl, ignoreActions, skipVideoAttach } = props;
         const { priority, actions } = rule ?? {};
 
         const { haUrl, externalUrl } = this.getUrls(device.id, triggerTime);
@@ -1134,7 +1146,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             data.ha = {
                 url: videoUrl ?? haUrl,
                 clickAction: videoUrl ?? haUrl,
-                video: videoUrl,
+                video: !skipVideoAttach ? videoUrl : undefined,
                 actions: !ignoreActions ? haActionsToNotify : undefined
             }
 
@@ -1415,9 +1427,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     public timelapseRuleEnded = async (props: {
         rule: TimelapseRule,
         device: ScryptedDeviceBase,
-        logger: Console
+        logger: Console,
+        manual?: boolean,
     }) => {
-        const { device, rule, logger } = props;
+        const { device, rule, logger, manual } = props;
         const { imagesPath } = this.storageSettings.values;
 
         if (imagesPath) {
@@ -1428,16 +1441,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 const timelapseName = `${getNowFriendlyDate()}.mp4`;
                 const outputFile = path.join(generatedPath, timelapseName);
 
-                fs.readdir(framesPath, (err, files) => {
-                    const sortedFiles = files
-                        .sort((a, b) => parseInt(a) - parseInt(b));
-
-                    const fileListContent = sortedFiles
-                        .map(file => `file '${path.join(framesPath, file)}'`)
-                        .join('\n');
-
-                    fs.writeFileSync(listPath, fileListContent);
-                });
+                const files = fs.readdirSync(framesPath);
+                const sortedFiles = files
+                    .sort((a, b) => parseInt(a) - parseInt(b));
+                const fileListContent = sortedFiles
+                    .map(file => `file '${path.join(framesPath, file)}'`)
+                    .join('\n');
+                fs.writeFileSync(listPath, fileListContent);
 
                 if (!fs.existsSync(generatedPath)) {
                     fs.mkdirSync(generatedPath, { recursive: true });
@@ -1469,7 +1479,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     rule
                 });
 
-                fs.renameSync(framesPath, `${framesPath}_bkp_${getNowFriendlyDate()}`);
+                if (!manual) {
+                    fs.renameSync(framesPath, `${framesPath}_bkp_${getNowFriendlyDate()}`);
+                }
+
             } catch (e) {
                 logger.log('Error generating timelapse', e);
             }
