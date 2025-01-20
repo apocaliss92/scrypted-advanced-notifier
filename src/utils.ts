@@ -1610,21 +1610,21 @@ export const getDeviceRules = (
                     const referenceEnd = moment(endTime);
                     const now = moment();
 
-                    const getMinutes = (date) => date.minutes() + (date.hours() * 60);
-                    const startMinutes = getMinutes(referenceStart);
-                    const nowMinutes = getMinutes(now);
-                    const endMinutes = getMinutes(referenceEnd);
+                    const getSeconds = (date) => (date.hours() * 60 * 60) + (date.minutes() * 60) + (date.seconds());
+                    const startSeconds = getSeconds(referenceStart);
+                    const nowSeconds = getSeconds(now);
+                    const endSeconds = getSeconds(referenceEnd);
 
-                    if (startMinutes > endMinutes) {
+                    if (startSeconds > endSeconds) {
                         // Interval crosses midnight
-                        if (nowMinutes < startMinutes) {
+                        if (nowSeconds < startSeconds) {
                             // current time crosses midnight
-                            timeAllowed = nowMinutes <= endMinutes;
+                            timeAllowed = nowSeconds <= endSeconds;
                         } else {
-                            timeAllowed = nowMinutes >= startMinutes;
+                            timeAllowed = nowSeconds >= startSeconds;
                         }
                     } else {
-                        timeAllowed = nowMinutes >= startMinutes && nowMinutes <= endMinutes;
+                        timeAllowed = nowSeconds >= startSeconds && nowSeconds <= endSeconds;
                     }
 
                     // console.log(detectionRuleName, startMinutes, nowMinutes, endMinutes, timeAllowed);
@@ -2024,4 +2024,16 @@ export const getPushoverPriority = (priority: NotificationPriority) => priority 
 export const getNowFriendlyDate = () => {
     const now = new Date();
     return `${now.getDate()}-${now.getMonth()}-${now.getFullYear()}_${now.getTime()}`;
+}
+
+export function safeParseJson(value: string) {
+    try {
+        return JSON.parse(value);
+    }
+    catch (e) {
+    }
+}
+
+export function getAllDevices() {
+    return Object.keys(sdk.systemManager.getSystemState()).map(id => sdk.systemManager.getDeviceById(id));
 }
