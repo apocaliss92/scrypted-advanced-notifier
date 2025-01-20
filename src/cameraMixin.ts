@@ -1,7 +1,7 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ObjectDetection, Image, ScryptedMimeTypes } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DetectionRule, detectionRulesGroup, DetectionRuleSource, DeviceInterface, detectRuleEnabledRegex, occupancyRuleEnabledRegex, EventType, filterAndSortValidDetections, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRuleKeys, getOccupancyRulesSettings, getWebookUrls, isDeviceEnabled, ObserveZoneData, OccupancyRule, occupancyRulesGroup, ZoneMatchType, TimelapseRule, getTimelapseRulesSettings, timelapseRulesGroup, RuleType, getWebooks, timelapseRuleGenerateRegex } from "./utils";
+import { DetectionRule, detectionRulesGroup, DetectionRuleSource, DeviceInterface, detectRuleEnabledRegex, occupancyRuleEnabledRegex, EventType, filterAndSortValidDetections, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRuleKeys, getOccupancyRulesSettings, getWebookUrls, isDeviceEnabled, ObserveZoneData, OccupancyRule, occupancyRulesGroup, ZoneMatchType, TimelapseRule, getTimelapseRulesSettings, timelapseRulesGroup, RuleType, getWebooks, timelapseRuleGenerateRegex, BaseRule } from "./utils";
 import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoverDetectionRules, discoverOccupancyRules, getDetectionRuleId, getOccupancyRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
@@ -646,14 +646,19 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         return systemManager.getDeviceById(this.id) as (ObjectDetector & MotionSensor & ScryptedDevice & Camera);
     }
 
-    getLastDetectionkey(detection: ObjectDetectionResult) {
-        const { className, label } = detection;
-        let key = className;
-        if (label) {
-            key += `-${label}`;
-        }
+    getLastDetectionkey(matchRule: MatchRule) {
+        const { match, rule } = matchRule;
+        if (rule.ruleType === RuleType.Timelapse) {
+            return `rule_${rule.name}`;
+        } else {
+            const { className, label } = match;
+            let key = className;
+            if (label) {
+                key += `-${label}`;
+            }
 
-        return key;
+            return key;
+        }
     }
 
     private async getImage() {
@@ -1188,13 +1193,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             for (const matchRule of matchRules) {
                 try {
                     const { match, rule } = matchRule;
-                    const lastDetectionkey = this.getLastDetectionkey(match);
+                    const lastDetectionkey = this.getLastDetectionkey(matchRule);
                     const lastDetection = this.lastDetectionMap[lastDetectionkey];
                     if (lastDetection && (now - lastDetection) < 1000 * (rule.minDelay ?? minDelayTime)) {
                         logger.debug(`Waiting for delay: ${(now - lastDetection) / 1000}s`);
                         return false;
                     }
-                    this.lastDetectionMap[this.getLastDetectionkey(match)] = now;
+                    this.lastDetectionMap[this.getLastDetectionkey(matchRule)] = now;
 
                     logger.debug(`Matching detections found: ${JSON.stringify({
                         matchRulesMap: matchRules,

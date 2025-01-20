@@ -1472,7 +1472,7 @@ export enum RuleType {
     Timelapse = 'Timelapse',
 }
 
-interface BaseRule {
+export interface BaseRule {
     ruleType: RuleType;
     name: string;
     notifiers: string[];
