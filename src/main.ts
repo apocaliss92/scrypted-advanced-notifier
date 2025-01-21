@@ -365,7 +365,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 response.sendFile(timelapsePath);
                 return;
             } else if (webhook === timelapseStream) {
-                const device = this.currentMixinsMap[deviceNameOrAction] as AdvancedNotifierCameraMixin;
+                // const device = this.currentMixinsMap[deviceNameOrAction] as AdvancedNotifierCameraMixin;
             }
         } catch (e) {
             response.send(`${JSON.stringify(e)}, ${e.message}`, {
