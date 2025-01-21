@@ -209,11 +209,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 if (timelapseRulesToDisable?.length) {
                     for (const rule of timelapseRulesToDisable) {
-                        await this.plugin.timelapseRuleEnded({
+                        this.plugin.timelapseRuleEnded({
                             rule,
                             device,
                             logger,
-                        });
+                        }).catch(logger.log);
                     }
                 }
 
