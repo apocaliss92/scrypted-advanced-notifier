@@ -150,6 +150,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.plugin.currentMixinsMap[this.name] = this;
 
         this.occupancyState = this.storageSettings.values.occupancyState ?? {};
+
+        if (this.storageSettings.values.room && !this.room) {
+            sdk.systemManager.getDeviceById<ScryptedDevice>(this.id).setRoom(this.storageSettings.values.room);
+        }
     }
 
     async enableRecording(device: Settings, enabled: boolean) {

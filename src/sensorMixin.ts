@@ -1,4 +1,4 @@
-import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ScryptedDeviceBase, ScryptedDeviceType, MediaObject, LockState } from "@scrypted/sdk";
+import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ScryptedDeviceBase, ScryptedDeviceType, MediaObject, LockState, ScryptedDevice } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import { DetectionRule, detectRuleEnabledRegex, EventType, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, isDeviceEnabled } from "./utils";
@@ -66,6 +66,10 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         this.startCheckInterval().then().catch(this.console.log);
 
         this.plugin.currentMixinsMap[this.name] = this;
+
+        if (this.storageSettings.values.room && !this.room) {
+            sdk.systemManager.getDeviceById<ScryptedDevice>(this.id).setRoom(this.storageSettings.values.room);
+        }
     }
 
     async startCheckInterval() {
