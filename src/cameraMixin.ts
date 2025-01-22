@@ -317,6 +317,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
 
                 this.isActiveForNvrNotifications = isActiveForNvrNotifications;
+
+
+                const { entityId } = this.storageSettings.values;
+                if (entityId && !this.plugin.storageSettings.values.fetchedEntities.includes(entityId)) {
+                    logger.log(`Entity id ${entityId} does not exists on HA`);
+                }
             } catch (e) {
                 logger.log('Error in startCheckInterval funct', e);
             }
@@ -1209,8 +1215,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         parentImage: !!parentImage
                     })}`);
 
-                    if(rule.ruleType === RuleType.Detection) {
-                        if(this.isActiveForMqttReporting) {
+                    if (rule.ruleType === RuleType.Detection) {
+                        if (this.isActiveForMqttReporting) {
                             this.triggerMotion({ matchRule, b64Image, device, triggerTime, image: imageToNotify });
                         }
 

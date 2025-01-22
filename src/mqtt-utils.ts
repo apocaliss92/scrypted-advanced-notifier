@@ -430,6 +430,10 @@ export const setupDeviceAutodiscovery = async (props: {
         }
 
         await mqttClient.publish(getDiscoveryTopic(domain, entity), JSON.stringify(config));
+
+        if (entity === 'triggered') {
+            await mqttClient.publish(getEntityTopic(entity), false);
+        }
     }
 
     if (device.interfaces.includes(ScryptedInterface.VideoRecorder)) {

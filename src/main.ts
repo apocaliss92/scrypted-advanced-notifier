@@ -253,6 +253,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     type: ScryptedDeviceType.Notifier,
                 },
             );
+
+            if (this.storageSettings.values.haEnabled) {
+                await this.fetchHomeassistantData();
+            }
         })();
 
         this.start().then().catch(this.getLogger().log);
@@ -645,11 +649,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     fetchHomeassistantData = async () => {
         const { domains } = this.storageSettings.values;
+        const logger = this.getLogger();
 
         let rooms: string[] = [];
         let entityIds: string[] = [];
 
         try {
+            logger.debug(`Fetching homeasisstant data`);
             const haApi = await this.getHaApi();
             const roomsResponse = await haApi.getTemplateData("{{ areas() }}");
 
@@ -671,10 +677,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 elem => elem.entity_id)
                 .map(entityStatus => entityStatus.entity_id);
         } catch (e) {
-            this.getLogger().log(e);
+            logger.log(e);
         } finally {
-            this.getLogger().log(`Entities found: ${JSON.stringify(entityIds)}`);
-            this.getLogger().log(`Rooms found: ${JSON.stringify(rooms)}`);
+            logger.debug(`Entities found: ${JSON.stringify(entityIds)}`);
+            logger.debug(`Rooms found: ${JSON.stringify(rooms)}`);
             await this.putSetting('fetchedEntities', entityIds);
             await this.putSetting('fetchedRooms', rooms);
         }
