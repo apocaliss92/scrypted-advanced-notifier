@@ -48,6 +48,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     private refreshDeviceLinksInterval: NodeJS.Timeout;
     defaultNotifier: AdvancedNotifierNotifier;
     nvrRules: DetectionRule[] = [];
+    allPluginRules: DetectionRule[] = [];
 
     storageSettings = new StorageSettings(this, {
         ...getBaseSettings({
@@ -94,7 +95,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             placeholder: 'https://nvr.scrypted.app/',
         },
         imagesPath: {
-            title: 'Images path',
+            title: 'Storage path',
             description: 'Disk path where to save images. Leave blank if you do not want any image to be stored',
             type: 'string',
         },
@@ -602,8 +603,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             const mainSettings = await this.getSettings();
             const mainSettingsByKey = keyBy(mainSettings, 'key');
-            const { nvrRules } = getDeviceRules({ mainPluginStorage: mainSettingsByKey, console: logger });
-            this.nvrRules = nvrRules;
+            const { nvrRules, pluginActiveRules } = getDeviceRules({ mainPluginStorage: mainSettingsByKey, console: logger });
+            this.nvrRules = nvrRules || [];
+            this.allPluginRules = pluginActiveRules || [];
 
             this.deviceHaEntityMap = deviceHaEntityMap;
             this.haEntityDeviceMap = haEntityDeviceMap;
@@ -637,6 +639,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 withDevices: true,
                 withDetection: true,
                 withNvrEvents: true,
+                enabledRules: [...this.allPluginRules, ...this.nvrRules]
             });
             settings.push(...detectionRulesSettings);
 

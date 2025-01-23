@@ -35,8 +35,8 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
     mqttReportInProgress: boolean;
     logger: Console;
     killed: boolean;
-    detectionRules: DetectionRule[];
-    nvrDetectionRules: DetectionRule[];
+    detectionRules: DetectionRule[] = [];
+    nvrDetectionRules: DetectionRule[] = [];
     rulesDiscovered: string[] = [];
     lastDetection: number;
     event: ScryptedInterface;
@@ -89,8 +89,8 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             } = await isDeviceEnabled(this.id, deviceSettings, this.plugin, logger, this.type);
 
             logger.debug(`Detected rules: ${JSON.stringify({ detectionRules, skippedRules })}`);
-            this.detectionRules = detectionRules;
-            this.nvrDetectionRules = nvrRules;
+            this.detectionRules = detectionRules || [];
+            this.nvrDetectionRules = nvrRules || [];
 
             this.isActiveForNotifications = isActiveForNotifications;
             this.isActiveForMqttReporting = isActiveForMqttReporting;
@@ -189,6 +189,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         const detectionRulesSettings = await getDetectionRulesSettings({
             storage: this.storageSettings,
             groupName: 'Advanced notifier detection rules',
+            enabledRules: [...this.detectionRules, ...this.nvrDetectionRules]
         });
         settings.push(...detectionRulesSettings);
 

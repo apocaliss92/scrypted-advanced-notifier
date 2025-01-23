@@ -820,11 +820,12 @@ export const getDetectionRulesSettings = async (props: {
     groupName: string,
     storage: StorageSettings<any>,
     zones?: string[],
+    enabledRules: DetectionRule[],
     withDevices?: boolean;
     withDetection?: boolean;
     withNvrEvents?: boolean;
 }) => {
-    const { storage, zones, groupName, withDevices, withDetection, withNvrEvents } = props;
+    const { storage, zones, groupName, withDevices, withDetection, withNvrEvents, enabledRules } = props;
     const settings: Setting[] = [];
 
     const currentDetectionRules = storage.getItem(detectionRulesKey) ?? [];
@@ -865,6 +866,14 @@ export const getDetectionRulesSettings = async (props: {
                 subgroup: detectionRuleName,
                 value: storage.getItem(enabledKey as any) as boolean ?? true,
                 immediate: true,
+            },
+            {
+                title: 'Currently active',
+                type: 'boolean',
+                group: groupName,
+                subgroup: detectionRuleName,
+                value: enabledRules.some(rule => rule.name === detectionRuleName),
+                readonly: true
             },
             {
                 key: useNvrDetectionsKey,
@@ -1074,7 +1083,6 @@ export const getDetectionRulesSettings = async (props: {
             settings.push({
                 key: devicesKey,
                 title: 'Devices',
-                description: 'Leave empty to affect all devices',
                 group: groupName,
                 subgroup: detectionRuleName,
                 type: 'device',
@@ -1511,6 +1519,7 @@ export const getDeviceRules = (
     const allPluginRules: DetectionRule[] = [];
     const allDeviceRules: DetectionRule[] = [];
     const allPossibleRules: DetectionRule[] = [];
+    const pluginActiveRules: DetectionRule[] = [];
 
     // const allDeviceIds = getElegibleDevices().map(device => device.id);
     const activeNotifiers = mainPluginStorage['notifiers']?.value as string[] ?? [];
@@ -1703,12 +1712,13 @@ export const getDeviceRules = (
             }
 
             if (!ruleAllowed) {
-                skippedRules.push(detectionRule);
+                skippedRules.push(cloneDeep(detectionRule));
             } else {
+                pluginActiveRules.push(cloneDeep(detectionRule));
                 if (useNvrDetections) {
-                    nvrRules.push(detectionRule);
+                    nvrRules.push(cloneDeep(detectionRule));
                 } else {
-                    detectionRules.push(detectionRule);
+                    detectionRules.push(cloneDeep(detectionRule));
                 }
             }
 
@@ -1721,7 +1731,7 @@ export const getDeviceRules = (
         processRules(deviceStorage, DetectionRuleSource.Device);
     }
 
-    return { detectionRules, skippedRules, nvrRules, allPluginRules, allDeviceRules, allPossibleRules };
+    return { detectionRules, skippedRules, nvrRules, allPluginRules, allDeviceRules, allPossibleRules, pluginActiveRules };
 }
 
 export interface OccupancyRule extends BaseRule {

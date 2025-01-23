@@ -98,11 +98,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     killed: boolean;
     nvrEnabled: boolean = true;
     nvrMixinId: string;
-    occupancyRules: OccupancyRule[];
-    detectionRules: DetectionRule[];
-    timelapseRules: TimelapseRule[];
-    allTimelapseRules: TimelapseRule[];
-    nvrDetectionRules: DetectionRule[];
+    occupancyRules: OccupancyRule[] = [];
+    detectionRules: DetectionRule[] = [];
+    timelapseRules: TimelapseRule[] = [];
+    allTimelapseRules: TimelapseRule[] = [];
+    nvrDetectionRules: DetectionRule[] = [];
     rulesDiscovered: string[] = [];
     occupancyRulesDiscovered: string[] = [];
     detectionClassListeners: Record<string, {
@@ -186,6 +186,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const timelapseRulesToEnable = (timelapseRules || []).filter(newRule => !this.timelapseRules?.some(currentRule => currentRule.name === newRule.name));
                 const timelapseRulesToDisable = (this.timelapseRules || []).filter(currentRule => !timelapseRules?.some(newRule => newRule.name === currentRule.name));
 
+                const detectionRulesToEnable = (detectionRules || []).filter(newRule => !this.detectionRules?.some(currentRule => currentRule.name === newRule.name));
+                const detectionRulesToDisable = (this.detectionRules || []).filter(currentRule => !detectionRules?.some(newRule => newRule.name === currentRule.name));
+
                 logger.debug(`Detected rules: ${JSON.stringify({
                     detectionRules,
                     skippedRules,
@@ -198,7 +201,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     skippedTimelapseRules,
                     timelapseRulesToEnable,
                     timelapseRulesToDisable,
+                    detectionRulesToEnable,
+                    detectionRulesToDisable,
                 })}`);
+
+                if (detectionRulesToEnable?.length) {
+                    logger.log(`Detection rules started: ${detectionRulesToEnable.map(rule => rule.name).join(', ')}`);
+                }
+
+                if (detectionRulesToDisable?.length) {
+                    logger.log(`Detection rules stopped: ${detectionRulesToDisable.map(rule => rule.name).join(', ')}`);
+                }
 
                 if (timelapseRulesToEnable?.length) {
                     for (const rule of timelapseRulesToEnable) {
@@ -213,6 +226,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 if (timelapseRulesToDisable?.length) {
                     for (const rule of timelapseRulesToDisable) {
+                        logger.log(`Timelapse rule stopped: ${rule.name}`);
+
                         this.plugin.timelapseRuleEnded({
                             rule,
                             device,
@@ -221,8 +236,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
                 }
 
-                this.detectionRules = detectionRules;
-                this.nvrDetectionRules = nvrRules;
+                this.detectionRules = detectionRules || [];
+                this.nvrDetectionRules = nvrRules || [];
                 this.occupancyRules = occupancyRules;
                 this.timelapseRules = timelapseRules;
                 this.allTimelapseRules = [...skippedTimelapseRules, ...timelapseRules];
@@ -430,6 +445,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 zones,
                 groupName: detectionRulesGroup,
                 withDetection: true,
+                enabledRules: [...this.detectionRules, ...this.nvrDetectionRules]
             });
             settings.push(...detectionRulesSettings);
 

@@ -10,7 +10,7 @@ It's possbile to configure an homeassistant connection (or utilize the one confi
 ## General
  - `Scrypted token`: Token stored on the scrypted entity on homeassistant
  - `NVR url`: Url pointing to the NVR instance, should be accessible from outside
- - `Images path`: If set, the images used to populate MQTT topic will be also stored on the drive path
+ - `Storage path`: If set, the images used to populate MQTT topic will be also stored on the drive path
  - `Images name`: The name pattern to use to generate image files. The placeholders ${name} and ${timestamp} will be available. Using only ${name} will ensure the image to be overriden on every detection instead of saving one additional copy
 
 ## MQTT
