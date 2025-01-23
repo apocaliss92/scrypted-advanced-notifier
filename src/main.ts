@@ -513,7 +513,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger.log(`Cloud plugin not found`);
         }
 
-        const localIp = (await sdk.endpointManager.getLocalAddresses())[0];
+        const localIp = (await sdk.endpointManager.getLocalAddresses())?.[0];
         this.putSetting('localIp', localIp);
         logger.log(`Local IP found: ${localIp}`);
 
