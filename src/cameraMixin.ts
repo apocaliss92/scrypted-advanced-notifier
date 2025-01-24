@@ -339,7 +339,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
 
                 const { entityId } = this.storageSettings.values;
-                if (entityId && !this.plugin.storageSettings.values.fetchedEntities.includes(entityId)) {
+                if (this.plugin.storageSettings.values.haEnabled && entityId && !this.plugin.storageSettings.values.fetchedEntities.includes(entityId)) {
                     logger.log(`Entity id ${entityId} does not exists on HA`);
                 }
             } catch (e) {

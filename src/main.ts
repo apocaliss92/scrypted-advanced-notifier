@@ -148,12 +148,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             title: '',
             subgroup: 'Entities',
             multiple: true,
+            defaultValue: []
         },
         fetchedRooms: {
             group: 'Metadata',
             title: '',
             subgroup: 'Rooms',
             multiple: true,
+            defaultValue: []
         },
         notifiers: {
             group: 'Notifier',
