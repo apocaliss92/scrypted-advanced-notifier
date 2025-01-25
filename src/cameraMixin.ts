@@ -472,6 +472,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async putMixinSetting(key: string, value: string, skipMqtt?: boolean) {
+        const logger = this.getLogger();
         const generateTimelapse = timelapseRuleGenerateRegex.exec(key);
         const cleanupData = timelapseRuleCleanRegex.exec(key);
         const enabledResultDetected = detectRuleEnabledRegex.exec(key);
@@ -482,7 +483,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const ruleName = enabledResultDetected[1];
                 await this.plugin.updateDetectionRuleOnMqtt({
                     active: JSON.parse(value as string ?? 'false'),
-                    logger: this.getLogger(),
+                    logger,
                     ruleName,
                     deviceId: this.id,
                 });
@@ -490,7 +491,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const ruleName = enabledResultOccupancy[1];
                 await this.plugin.updateOccupancyRuleOnMqtt({
                     active: JSON.parse(value as string ?? 'false'),
-                    logger: this.getLogger(),
+                    logger,
                     ruleName,
                     deviceId: this.id
                 });
@@ -505,7 +506,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             await this.plugin.timelapseRuleEnded({
                 rule,
                 device,
-                logger: this.getLogger(),
+                logger,
                 manual: true,
             });
         } else if (cleanupData?.[1]) {
@@ -513,11 +514,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const rule = this.allTimelapseRules?.find(rule => rule.name === ruleName);
             const device = systemManager.getDeviceById<DeviceInterface>(this.id);
 
-            await this.plugin.clearFramesData({
+            this.plugin.clearFramesData({
                 rule,
                 device,
-                logger: this.getLogger(),
-            });
+                logger,
+            }).catch(logger.log);
         }
 
         this.storage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));

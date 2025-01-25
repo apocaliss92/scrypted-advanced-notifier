@@ -1418,11 +1418,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }) => {
         const { device, rule, logger } = props;
 
-        await this.clearFramesData({
+        this.clearFramesData({
             device,
             logger,
             rule,
-        })
+        }).catch(logger.log);
     }
 
     public clearFramesData = async (props: {

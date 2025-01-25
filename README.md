@@ -70,7 +70,7 @@ Similar concept applied to occupancy, a combination of observe zone + detection 
 - `Actions`: actions that will be shown on the notification. Rendering will vary depending on the notifier. For HA will be an actionable notification, for pushover will be additional links in the text. Both of them require homeassistant to work, the same event will be triggered with the specified action type
 
 ## Timelapse rules
-Allow to generate regular timelapses for a specific camera. The output folder will be `Images path`, if not set, the plugin folder will be used instead. For the initial period, no data clear will be done, the frames will be only moved to bkp folders. A cleanup functionality will be implemented
+Allow to generate regular timelapses for a specific camera. The output folder will be `Images path`, if not set, the plugin folder will be used instead. The frames of a session will be persisted until the start of the next one, to give the possibility to finetune the result after a session
 ### General configurations
 - `Notificataion message`: Message sent when the timelapse will be notified
 - `Timelapse framerate`: FPS of the final timelapse. The higher the value, the faster will be the timelapse
