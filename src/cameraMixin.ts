@@ -1,7 +1,7 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ObjectDetection, Image, ScryptedMimeTypes } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DetectionRule, detectionRulesGroup, DetectionRuleSource, DeviceInterface, detectRuleEnabledRegex, occupancyRuleEnabledRegex, EventType, filterAndSortValidDetections, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRuleKeys, getOccupancyRulesSettings, getWebookUrls, isDeviceEnabled, ObserveZoneData, OccupancyRule, occupancyRulesGroup, ZoneMatchType, TimelapseRule, getTimelapseRulesSettings, timelapseRulesGroup, RuleType, getWebooks, timelapseRuleGenerateRegex, BaseRule } from "./utils";
+import { DetectionRule, detectionRulesGroup, DetectionRuleSource, DeviceInterface, detectRuleEnabledRegex, occupancyRuleEnabledRegex, EventType, filterAndSortValidDetections, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRuleKeys, getOccupancyRulesSettings, getWebookUrls, isDeviceEnabled, ObserveZoneData, OccupancyRule, occupancyRulesGroup, ZoneMatchType, TimelapseRule, getTimelapseRulesSettings, timelapseRulesGroup, RuleType, getWebooks, timelapseRuleGenerateRegex, BaseRule, timelapseRuleCleanRegex } from "./utils";
 import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoverDetectionRules, discoverOccupancyRules, getDetectionRuleId, getOccupancyRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
@@ -219,7 +219,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                         await this.plugin.timelapseRuleStarted({
                             rule,
-                            device
+                            device,
+                            logger
                         })
                     }
                 }
@@ -472,6 +473,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async putMixinSetting(key: string, value: string, skipMqtt?: boolean) {
         const generateTimelapse = timelapseRuleGenerateRegex.exec(key);
+        const cleanupData = timelapseRuleCleanRegex.exec(key);
         const enabledResultDetected = detectRuleEnabledRegex.exec(key);
         const enabledResultOccupancy = occupancyRuleEnabledRegex.exec(key);
 
@@ -505,6 +507,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 device,
                 logger: this.getLogger(),
                 manual: true,
+            });
+        } else if (cleanupData?.[1]) {
+            const ruleName = cleanupData[1];
+            const rule = this.allTimelapseRules?.find(rule => rule.name === ruleName);
+            const device = systemManager.getDeviceById<DeviceInterface>(this.id);
+
+            await this.plugin.clearFramesData({
+                rule,
+                device,
+                logger: this.getLogger(),
             });
         }
 

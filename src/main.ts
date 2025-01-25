@@ -1413,10 +1413,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     public timelapseRuleStarted = async (props: {
         rule: TimelapseRule,
+        logger: Console,
         device: ScryptedDeviceBase
     }) => {
-        const { device, rule } = props;
-        const { imagesPath } = this.storageSettings.values;
+        const { device, rule, logger } = props;
+
+        await this.clearFramesData({
+            device,
+            logger,
+            rule,
+        })
     }
 
     public clearFramesData = async (props: {
@@ -1424,15 +1430,20 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         device: ScryptedDeviceBase,
         logger: Console
     }) => {
-        const { rule } = props;
-        // Clear all folder starting for frames_bkp
-        // const { framesPath } = this.getTimelapseFolder({ ruleName: rule.name });
+        const { rule, device, logger } = props;
+        const { timelapsePath } = this.getTimelapseFolder({ ruleName: rule.name });
 
-        // const files = fs.readdirSync(framesPath);
-        // for (const file of files) {
-        //     const filePath = path.join(framesPath, file);
-        //     fs.unlinkSync(filePath);
-        // }
+        const foldersToDelete = fs.readdirSync(timelapsePath)
+            .filter(item => {
+                const fullPath = path.join(timelapsePath, item);
+                return fs.statSync(fullPath).isDirectory() && item.startsWith('frames_');
+            });
+
+        foldersToDelete.forEach(folder => {
+            const folderPath = path.join(timelapsePath, folder);
+            fs.rmSync(folderPath, { recursive: true, force: true });
+            logger.log(`Folder ${folderPath} removed`);
+        });
     }
 
     public timelapseRuleEnded = async (props: {

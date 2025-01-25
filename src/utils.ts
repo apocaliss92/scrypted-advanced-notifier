@@ -15,6 +15,7 @@ export const ADVANCED_NOTIFIER_INTERFACE = name;
 export const detectRuleEnabledRegex = new RegExp('rule:(.*):enabled');
 export const occupancyRuleEnabledRegex = new RegExp('occupancyRule:(.*):enabled');
 export const timelapseRuleGenerateRegex = new RegExp('timelapseRule:(.*):generate');
+export const timelapseRuleCleanRegex = new RegExp('timelapseRule:(.*):clenup');
 
 export interface ObserveZoneData {
     name: string;
@@ -790,6 +791,7 @@ export const getTimelapseRuleKeys = (timelapseRuleName: string) => {
     const timelapseFramerateKey = `timelapseRule:${timelapseRuleName}:timelapseFramerate`;
     const additionalFfmpegParametersKey = `timelapseRule:${timelapseRuleName}:additionalFfmpegParameters`;
     const generateKey = `timelapseRule:${timelapseRuleName}:generate`;
+    const cleanDataKey = `timelapseRule:${timelapseRuleName}:clenup`;
 
     return {
         enabledKey,
@@ -805,6 +807,7 @@ export const getTimelapseRuleKeys = (timelapseRuleName: string) => {
         regularSnapshotIntervalKey,
         additionalFfmpegParametersKey,
         generateKey,
+        cleanDataKey
     }
 }
 
@@ -1331,6 +1334,7 @@ export const getTimelapseRulesSettings = async (props: {
             // additionalFfmpegParametersKey,
             regularSnapshotIntervalKey,
             generateKey,
+            cleanDataKey,
         } = getTimelapseRuleKeys(timelapseRuleName);
 
         settings.push(
@@ -1452,6 +1456,14 @@ export const getTimelapseRulesSettings = async (props: {
             {
                 key: generateKey,
                 title: 'Generate now',
+                group: groupName,
+                subgroup: timelapseRuleName,
+                type: 'button',
+                multiple: true,
+            },
+            {
+                key: cleanDataKey,
+                title: 'Cleanup data',
                 group: groupName,
                 subgroup: timelapseRuleName,
                 type: 'button',
