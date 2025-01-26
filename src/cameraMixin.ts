@@ -6,6 +6,7 @@ import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoverDetectionRules, discoverOccupancyRules, getDetectionRuleId, getOccupancyRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
+import { cloneDeep } from "lodash";
 
 const { systemManager } = sdk;
 const secondsPerPicture = 5;
@@ -237,10 +238,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
                 }
 
-                this.detectionRules = detectionRules || [];
-                this.nvrDetectionRules = nvrRules || [];
-                this.occupancyRules = occupancyRules;
-                this.timelapseRules = timelapseRules;
+                this.detectionRules = cloneDeep(detectionRules || []);
+                this.nvrDetectionRules = cloneDeep(nvrRules || []);
+                this.occupancyRules = cloneDeep(occupancyRules || []);
+                this.timelapseRules = cloneDeep(timelapseRules || []);
                 this.allTimelapseRules = [...skippedTimelapseRules, ...timelapseRules];
 
                 this.isActiveForNotifications = isActiveForNotifications;
@@ -1132,8 +1133,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             const matchRules: MatchRule[] = [];
 
-            const rules: (DetectionRule | TimelapseRule)[] = (isFromNvr ? this.nvrDetectionRules : this.detectionRules) ?? [];
-            rules.push(...this.timelapseRules ?? []);
+            const rules: (DetectionRule | TimelapseRule)[] = cloneDeep((isFromNvr ? this.nvrDetectionRules : this.detectionRules) ?? []);
+            rules.push(...cloneDeep(this.timelapseRules ?? []));
             for (const ruleParent of rules) {
                 if (ruleParent.ruleType === RuleType.Detection) {
                     const rule = ruleParent as DetectionRule
