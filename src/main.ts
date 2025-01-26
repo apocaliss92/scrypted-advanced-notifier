@@ -1430,20 +1430,20 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         device: ScryptedDeviceBase,
         logger: Console
     }) => {
-        const { rule, device, logger } = props;
-        const { timelapsePath } = this.getTimelapseFolder({ ruleName: rule.name });
+        const { rule, logger } = props;
+        const { framesPath } = this.getTimelapseFolder({ ruleName: rule.name });
 
-        const foldersToDelete = fs.readdirSync(timelapsePath)
-            .filter(item => {
-                const fullPath = path.join(timelapsePath, item);
-                return fs.statSync(fullPath).isDirectory() && item.startsWith('frames_');
-            });
+        // const foldersToDelete = fs.readdirSync(timelapsePath)
+        //     .filter(item => {
+        //         const fullPath = path.join(timelapsePath, item);
+        //         return fs.statSync(fullPath).isDirectory() && item.startsWith('frames_');
+        //     });
 
-        foldersToDelete.forEach(folder => {
-            const folderPath = path.join(timelapsePath, folder);
-            fs.rmSync(folderPath, { recursive: true, force: true });
-            logger.log(`Folder ${folderPath} removed`);
-        });
+        // foldersToDelete.forEach(folder => {
+        //     const folderPath = path.join(timelapsePath, folder);
+        fs.rmSync(framesPath, { recursive: true, force: true });
+        logger.log(`Folder ${framesPath} removed`);
+        // });
     }
 
     public timelapseRuleEnded = async (props: {
@@ -1501,9 +1501,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     rule
                 });
 
-                if (!manual) {
-                    fs.renameSync(framesPath, `${framesPath}_bkp_${getNowFriendlyDate()}`);
-                }
+                // if (!manual) {
+                //     fs.renameSync(framesPath, `${framesPath}_bkp_${getNowFriendlyDate()}`);
+                // }
 
             } catch (e) {
                 logger.log('Error generating timelapse', e);
