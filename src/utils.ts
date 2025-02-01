@@ -1304,6 +1304,7 @@ export const getOccupancyRulesSettings = async (props: {
                 subgroup: occupancyRuleName,
                 deviceFilter: `interfaces.includes('ObjectDetectionPreview') && id !== '${nvrAcceleratedMotionSensorId}'`,
                 immediate: true,
+                value: storage.getItem(objectDetectorKey)
             },
         );
     };

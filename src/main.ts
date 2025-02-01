@@ -900,6 +900,17 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 triggerTime,
                 image,
             });
+        } else if ([NvrEvent.Offline, NvrEvent.Online].includes(eventType as NvrEvent) &&
+            cameraDevice.interfaces.includes(ScryptedInterface.Battery)) {
+            logger.log(`Online/Offline notification for a battery camera. Skipping: ${JSON.stringify({
+                cameraName,
+                options,
+                allDetections,
+                eventType,
+                triggerDevice,
+            })}`);
+
+            return;
         } else {
             if (eventType) {
                 await this.notifyNvrEvent(
