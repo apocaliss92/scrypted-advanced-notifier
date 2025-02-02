@@ -1,4 +1,4 @@
-import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ObjectDetection, Image, ScryptedMimeTypes } from "@scrypted/sdk";
+import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ObjectDetection, Image, ScryptedMimeTypes, Notifier } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import { DetectionRule, detectionRulesGroup, DetectionRuleSource, DeviceInterface, detectRuleEnabledRegex, occupancyRuleEnabledRegex, EventType, filterAndSortValidDetections, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRuleKeys, getOccupancyRulesSettings, getWebookUrls, isDeviceEnabled, ObserveZoneData, OccupancyRule, occupancyRulesGroup, ZoneMatchType, TimelapseRule, getTimelapseRulesSettings, timelapseRulesGroup, RuleType, getWebooks, timelapseRuleGenerateRegex, BaseRule, timelapseRuleCleanRegex } from "./utils";
@@ -181,7 +181,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     allOccupancyRules,
                     allPossibleRules,
                     timelapseRules,
-                    skippedTimelapseRules
+                    skippedTimelapseRules,
                 } = await isDeviceEnabled(this.id, deviceSettings, this.plugin, logger);
 
                 const timelapseRulesToEnable = (timelapseRules || []).filter(newRule => !this.timelapseRules?.some(currentRule => currentRule.name === newRule.name));

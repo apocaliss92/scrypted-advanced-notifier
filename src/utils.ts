@@ -1,4 +1,4 @@
-import sdk, { Camera, LockState, MediaObject, NotifierOptions, ObjectDetectionResult, ObjectsDetected, Point, ScryptedDeviceBase, ScryptedDeviceType, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Setting, Settings } from "@scrypted/sdk"
+import sdk, { Camera, LockState, MediaObject, Notifier, NotifierOptions, ObjectDetectionResult, ObjectsDetected, Point, ScryptedDeviceBase, ScryptedDeviceType, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Setting, Settings } from "@scrypted/sdk"
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep, keyBy, sortBy, uniq, uniqBy } from "lodash";
 const { endpointManager } = sdk;
@@ -592,7 +592,14 @@ export const isDeviceEnabled = async (
     const mainSettingsByKey = keyBy(mainSettings, 'key');
 
     const deviceSettingsByKey = keyBy(deviceSettings, 'key');
-    const { detectionRules, skippedRules, nvrRules, allDeviceRules, allPluginRules, allPossibleRules } = getDeviceRules({
+    const {
+        detectionRules,
+        skippedRules,
+        nvrRules,
+        allDeviceRules,
+        allPluginRules,
+        allPossibleRules,
+    } = getDeviceRules({
         deviceId,
         deviceType,
         deviceStorage: deviceSettingsByKey,
@@ -600,12 +607,12 @@ export const isDeviceEnabled = async (
         console,
     });
 
-    const { occupancyRules, skippedOccupancyRules, allOccupancyRules } = getDeviceOccupancyRules({
+    const { occupancyRules, skippedOccupancyRules, allOccupancyRules, allNotifiers: allNotifiers2 } = getDeviceOccupancyRules({
         deviceStorage: deviceSettingsByKey,
         mainPluginStorage: mainSettingsByKey,
     });
 
-    const { skippedRules: skippedTimelapseRules, timelapseRules } = getDeviceTimelapseRules({
+    const { skippedRules: skippedTimelapseRules, timelapseRules, allNotifiers: allNotifiers3 } = getDeviceTimelapseRules({
         deviceStorage: deviceSettingsByKey,
         mainPluginStorage: mainSettingsByKey,
         console,
@@ -633,7 +640,7 @@ export const isDeviceEnabled = async (
         allOccupancyRules,
         allPossibleRules,
         timelapseRules,
-        skippedTimelapseRules
+        skippedTimelapseRules,
     }
 }
 
@@ -1534,7 +1541,6 @@ export const getDeviceRules = (
     const allPossibleRules: DetectionRule[] = [];
     const pluginActiveRules: DetectionRule[] = [];
 
-    // const allDeviceIds = getElegibleDevices().map(device => device.id);
     const activeNotifiers = mainPluginStorage['notifiers']?.value as string[] ?? [];
     const onActiveDevices = mainPluginStorage['activeDevicesForNotifications']?.value as string[] ?? [];
 
@@ -1744,7 +1750,15 @@ export const getDeviceRules = (
         processRules(deviceStorage, DetectionRuleSource.Device);
     }
 
-    return { detectionRules, skippedRules, nvrRules, allPluginRules, allDeviceRules, allPossibleRules, pluginActiveRules };
+    return {
+        detectionRules,
+        skippedRules,
+        nvrRules,
+        allPluginRules,
+        allDeviceRules,
+        allPossibleRules,
+        pluginActiveRules,
+    };
 }
 
 export interface OccupancyRule extends BaseRule {
@@ -1771,6 +1785,7 @@ export const getDeviceOccupancyRules = (
     const allOccupancyRules: OccupancyRule[] = [];
     const occupancyRules: OccupancyRule[] = [];
     const skippedOccupancyRules: OccupancyRule[] = [];
+    const allNotifiers: string[] = [];
 
     const activeNotifiers = mainPluginStorage['notifiers']?.value as string[] ?? [];
 
@@ -1801,6 +1816,7 @@ export const getDeviceOccupancyRules = (
 
         const notifiers = deviceStorage[notifiersKey]?.value as string[] ?? [];
         const notifiersTouse = notifiers.filter(notifierId => activeNotifiers.includes(notifierId));
+        allNotifiers.push(...notifiers);
 
         const zoneOccupiedText = deviceStorage[zoneOccupiedTextKey]?.value as string || undefined;
         const zoneNotOccupiedText = deviceStorage[zoneNotOccupiedTextKey]?.value as string || undefined;
@@ -1846,7 +1862,12 @@ export const getDeviceOccupancyRules = (
 
     }
 
-    return { occupancyRules, skippedOccupancyRules, allOccupancyRules };
+    return {
+        occupancyRules,
+        skippedOccupancyRules,
+        allOccupancyRules,
+        allNotifiers: uniq(allNotifiers)
+    };
 }
 
 export interface TimelapseRule extends BaseRule {
@@ -1862,12 +1883,13 @@ export const getDeviceTimelapseRules = (
         mainPluginStorage?: Record<string, StorageSetting>,
         deviceStorage: Record<string, StorageSetting>,
         console: Console
-        deviceId,
+        deviceId: string,
     }
 ) => {
     const { deviceStorage, console, mainPluginStorage, deviceId } = props;
     const timelapseRules: TimelapseRule[] = [];
     const skippedRules: TimelapseRule[] = [];
+    const allNotifiers: string[] = [];
 
     const activeNotifiers = mainPluginStorage['notifiers']?.value as string[] ?? [];
 
@@ -1895,6 +1917,7 @@ export const getDeviceTimelapseRules = (
 
             const notifiers = storage[notifiersKey]?.value as string[] ?? [];
             const notifiersTouse = notifiers.filter(notifierId => activeNotifiers.includes(notifierId));
+            allNotifiers.push(...notifiers);
 
             const priority = storage[priorityKey]?.value as NotificationPriority;
             const actions = storage[actionsKey]?.value as string[];
@@ -1977,7 +2000,11 @@ export const getDeviceTimelapseRules = (
 
     processRules(deviceStorage, DetectionRuleSource.Device);
 
-    return { timelapseRules, skippedRules };
+    return {
+        timelapseRules,
+        skippedRules,
+        allNotifiers: uniq(allNotifiers)
+    };
 }
 
 export const addBoundingToImage = async (boundingBox: number[], imageBuffer: Buffer, console: Console, label: string) => {

@@ -49,6 +49,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     defaultNotifier: AdvancedNotifierNotifier;
     nvrRules: DetectionRule[] = [];
     allPluginRules: DetectionRule[] = [];
+    lastNotExistingNotifier: number;
+    private checkExistingDevicesInterval: NodeJS.Timeout;
 
     storageSettings = new StorageSettings(this, {
         ...getBaseSettings({
@@ -292,7 +294,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             await this.refreshDevicesLinks();
             await this.setupMqttEntities();
 
-            this.refreshDeviceLinksInterval = setInterval(async () => await this.refreshDevicesLinks(), 10000);
+            this.refreshDeviceLinksInterval = setInterval(async () => {
+                await this.refreshDevicesLinks();
+                // await this.checkExistingDevices();
+            }, 10000);
+            this.checkExistingDevicesInterval = setInterval(async () => await this.checkExistingDevices(), 60 * 60 * 1000);
         } catch (e) {
             this.getLogger().log(`Error in initFLow`, e);
         }
@@ -301,7 +307,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     async onRequest(request: HttpRequest, response: HttpResponse): Promise<void> {
         const logger = this.getLogger();
         const url = new URL(`http://localhost${request.url}`);
-        // const params = url.searchParams.get('params') ?? '{}';
         const [_, __, ___, ____, _____, webhook, ...rest] = url.pathname.split('/');
         const [deviceNameOrAction, ruleName, timelapseName] = rest
         try {
@@ -596,13 +601,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 }
             }
 
-            const sensorsNotMapped = allDevices.filter(device => device.type === ScryptedDeviceType.Sensor && !deviceVideocameraMap[device.id])
-                .map(sensor => sensor.name);
-
-            if (sensorsNotMapped.length && !this.firstCheckAlwaysActiveDevices) {
-                logger.log(`Following binary sensors are not mapped to any camera yet: ${sensorsNotMapped}`);
-            }
-
             const mainSettings = await this.getSettings();
             const mainSettingsByKey = keyBy(mainSettings, 'key');
             const { nvrRules, pluginActiveRules } = getDeviceRules({ mainPluginStorage: mainSettingsByKey, console: logger });
@@ -622,6 +620,70 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
         } catch (e) {
             logger.log('Error in refreshDevicesLinks', e);
+        }
+    }
+
+    private async checkExistingDevices() {
+        const logger = this.getLogger();
+        try {
+            const notifiersRegex = new RegExp('(rule|occupancyRule|timelapseRule):(.*):notifiers');
+            const devicesRegex = new RegExp('(rule|occupancyRule|timelapseRule):(.*):devices');
+            const allDevices = getElegibleDevices();
+
+            const missingNotifiersOfDeviceRules: { deviceName: string, ruleName: string, notifierIds: string[] }[] = [];
+            const missingNotifiersOfPluginRules: { ruleName: string, notifierIds: string[] }[] = [];
+            const missingDevicesOfPluginRules: { ruleName: string, deviceIds: string[] }[] = [];
+
+            for (const device of allDevices) {
+                const settings = await this.currentMixinsMap[device.name].getMixinSettings();
+                const relevantRules = settings.filter(setting => setting.key?.match(notifiersRegex));
+
+                for (const rule of relevantRules) {
+                    const [_, type, name] = rule.key.match(notifiersRegex);
+                    const missingNotifiers = (rule.value as string[])?.filter(notifierId => !sdk.systemManager.getDeviceById(notifierId));
+                    if (missingNotifiers.length) {
+                        missingNotifiersOfDeviceRules.push({ deviceName: device.name, notifierIds: missingNotifiers, ruleName: `${type}_${name}` });
+                    }
+                }
+            }
+
+            const settings = await this.getSettings();
+            const relevantNotifierRules = settings.filter(setting => setting.key?.match(notifiersRegex));
+
+            for (const rule of relevantNotifierRules) {
+                const [_, type, name] = rule.key.match(notifiersRegex);
+                const missingNotifiers = (rule.value as string[])?.filter(notifierId => !sdk.systemManager.getDeviceById(notifierId));
+                if (missingNotifiers.length) {
+                    missingNotifiersOfPluginRules.push({ notifierIds: missingNotifiers, ruleName: `${type}_${name}` });
+                }
+            }
+            const relevantdeviceRules = settings.filter(setting => setting.key?.match(devicesRegex));
+
+            for (const rule of relevantdeviceRules) {
+                const [_, type, name] = rule.key.match(devicesRegex);
+                const missingDevices = (rule.value as string[])?.filter(notifierId => !sdk.systemManager.getDeviceById(notifierId));
+                if (missingDevices.length) {
+                    missingDevicesOfPluginRules.push({ deviceIds: missingDevices, ruleName: `${type}_${name}` });
+                }
+            }
+
+            const sensorsNotLinkedToAnyCamera = allDevices.filter(
+                device => device.type === ScryptedDeviceType.Sensor && !this.deviceVideocameraMap[device.id]
+            ).map(sensor => sensor.name);
+
+            const entitiesWithWrongEntityId = allDevices.filter(
+                device => !this.deviceHaEntityMap[device.id] || !this.storageSettings.values.fetchedEntities.includes(this.deviceHaEntityMap[device.id])
+            ).map(sensor => sensor.name);
+
+            logger.debug(`Results: ${JSON.stringify({
+                missingNotifiersOfDeviceRules,
+                missingNotifiersOfPluginRules,
+                missingDevicesOfPluginRules,
+                sensorsNotLinkedToAnyCamera,
+                entitiesWithWrongEntityId,
+            })}`);
+        } catch (e) {
+            logger.log('Error in checkExistingDevices', e);
         }
     }
 
@@ -1444,17 +1506,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { rule, logger } = props;
         const { framesPath } = this.getTimelapseFolder({ ruleName: rule.name });
 
-        // const foldersToDelete = fs.readdirSync(timelapsePath)
-        //     .filter(item => {
-        //         const fullPath = path.join(timelapsePath, item);
-        //         return fs.statSync(fullPath).isDirectory() && item.startsWith('frames_');
-        //     });
-
-        // foldersToDelete.forEach(folder => {
-        //     const folderPath = path.join(timelapsePath, folder);
         fs.rmSync(framesPath, { recursive: true, force: true });
         logger.log(`Folder ${framesPath} removed`);
-        // });
     }
 
     public timelapseRuleEnded = async (props: {
@@ -1512,13 +1565,31 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     rule
                 });
 
-                // if (!manual) {
-                //     fs.renameSync(framesPath, `${framesPath}_bkp_${getNowFriendlyDate()}`);
-                // }
-
             } catch (e) {
                 logger.log('Error generating timelapse', e);
             }
+        }
+    }
+
+    async notifyNotExistingDevices(props: {
+        notExistingDevices: string[],
+        notExistingNotifiers: string[]
+    }) {
+        const now = Date.now();
+        const { notExistingDevices, notExistingNotifiers } = props;
+        const { devNotifier } = this.storageSettings.values;
+        if (
+            devNotifier &&
+            (notExistingDevices.length || notExistingNotifiers.length) &&
+            (!this.lastNotExistingNotifier || now - this.lastNotExistingNotifier < (60 * 60 * 1000))
+        ) {
+            this.lastNotExistingNotifier = now;
+            (devNotifier as Notifier).sendNotification('Not existing devices in use', {
+                body: JSON.stringify({
+                    notExistingDevices,
+                    notExistingNotifiers,
+                })
+            });
         }
     }
 }

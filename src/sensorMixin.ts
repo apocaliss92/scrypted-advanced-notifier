@@ -85,7 +85,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 isActiveForNotifications,
                 isActiveForNvrNotifications,
                 nvrRules,
-                allDeviceRules
+                allDeviceRules,
             } = await isDeviceEnabled(this.id, deviceSettings, this.plugin, logger, this.type);
 
             logger.debug(`Detected rules: ${JSON.stringify({ detectionRules, skippedRules })}`);
