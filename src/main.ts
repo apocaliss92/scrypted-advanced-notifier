@@ -42,7 +42,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     public deviceRoomMap: Record<string, string> = {}
     private doorbellDevices: string[] = [];
     public currentMixinsMap: Record<string, AdvancedNotifierCameraMixin | AdvancedNotifierSensorMixin> = {};
-    private haProviderId: string;
+    public haNotifiersProviderId: string;
+    public haDevicesProviderId: string;
     private pushoverProviderId: string;
     private refreshDeviceLinksInterval: NodeJS.Timeout;
     defaultNotifier: AdvancedNotifierNotifier;
@@ -114,6 +115,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             description: 'Regex to filter out entities fetched',
             type: 'string',
             multiple: true,
+            defaultValue: ['binary_sensor.(.*)_triggered']
         },
         fetchHaEntities: {
             group: 'Base',
@@ -545,12 +547,20 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         this.putSetting('localIp', localIp);
         logger.log(`Local IP found: ${localIp}`);
 
-        const pushoverPlugin = systemManager.getDeviceByName('Pushover Plugin') as unknown as ScryptedDeviceBase;
-        const haPlugin = systemManager.getDeviceByName('Notify Service') as unknown as ScryptedDeviceBase;
+        const haNotifiersPlugin = systemManager.getDeviceByName('Notify Service') as unknown as ScryptedDeviceBase;
+        this.haNotifiersProviderId = haNotifiersPlugin?.id
 
-        this.haProviderId = haPlugin?.id
+        const haDevicesPlugin = systemManager.getDeviceByName('Homeassistant devices') as unknown as ScryptedDeviceBase;
+        this.haDevicesProviderId = haDevicesPlugin?.id
+
+        const pushoverPlugin = systemManager.getDeviceByName('Pushover Plugin') as unknown as ScryptedDeviceBase;
         this.pushoverProviderId = pushoverPlugin?.id
-        logger.log(`HA providerId: ${this.haProviderId} and Pushover providerId: ${this.pushoverProviderId}`);
+
+        logger.log(`HA providerIds: ${this.haNotifiersProviderId},${this.haDevicesProviderId} and Pushover providerId: ${this.pushoverProviderId}`);
+
+        if (this.storageSettings.values.haEnabled) {
+            await this.fetchHomeassistantData();
+        }
     }
 
     private async refreshDevicesLinks() {
@@ -1299,7 +1309,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 html: 1,
                 priority: getPushoverPriority(priority)
             };
-        } else if (notifier.providerId === this.haProviderId) {
+        } else if (notifier.providerId === this.haNotifiersProviderId) {
             data.ha = {
                 url: videoUrl ?? haUrl,
                 clickAction: videoUrl ?? haUrl,

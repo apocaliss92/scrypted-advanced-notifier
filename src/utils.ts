@@ -9,6 +9,7 @@ import path from 'path';
 import fs from 'fs';
 import AdvancedNotifierPlugin from "./main";
 import moment, { Moment } from "moment";
+import { SettingsMixinDeviceBase } from "@scrypted/sdk/settings-mixin";
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Settings;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
@@ -492,93 +493,103 @@ export enum NotificationPriority {
     High = "High"
 }
 
-export const getMixinBaseSettings = (name: string, withOccupancy: boolean, withTimelapse: boolean) => {
-    const settings: StorageSettingsDict<MixinBaseSettingKey> = {
-        debug: {
-            title: 'Log debug messages',
-            type: 'boolean',
-            defaultValue: false,
-            immediate: true,
-        },
-        // To delete in some weeks
-        room: {
-            title: 'Room',
-            type: 'string',
-            immediate: true,
-            hide: true,
-        },
-        entityId: {
-            title: 'EntityID',
-            type: 'string',
-            defaultValue: getDefaultEntityId(name),
-            immediate: true,
-        },
-        haDeviceClass: {
-            title: 'Device class',
-            type: 'string'
-        },
-        // DETECTION
-        useNvrDetections: {
-            title: 'Use NVR detections',
-            description: 'If enabled, the NVR notifications will be used. Make sure to extend the notifiers with this extension',
-            type: 'boolean',
-            subgroup: 'Detection',
-            immediate: true,
-            hide: true,
-        },
-        useNvrImages: {
-            title: 'Use NVR images',
-            description: 'If enabled, the NVR images coming from NVR will be used, otherwise the one defined in the plugin',
-            type: 'boolean',
-            subgroup: 'Detection',
-            defaultValue: true,
-            immediate: true,
-            hide: true,
-        },
-        // NOTIFIER
-        haActions: {
-            title: 'Homeassistant Actions',
-            description: 'Actions to show on the notification, i.e. {"action":"open_door","title":"Open door","icon":"sfsymbols:door"}',
-            subgroup: 'Notifier',
-            type: 'string',
-            multiple: true
-        },
-        [detectionRulesKey]: {
-            title: 'Rules',
-            group: detectionRulesGroup,
-            type: 'string',
-            multiple: true,
-            combobox: true,
-            defaultValue: [],
-            choices: [],
-        },
-    } as StorageSettingsDict<MixinBaseSettingKey>;
+export const getMixinBaseSettings = (props: {
+    mixin: SettingsMixinDeviceBase<any>,
+    plugin: AdvancedNotifierPlugin,
+    isCamera: boolean
+}) => {
+    try {
+        const { mixin, isCamera } = props;
+        const device = sdk.systemManager.getDeviceById<ScryptedDeviceBase>(mixin.id);
+        const defaultEntityId = !isCamera ? device.nativeId.split(':')[1] : getDefaultEntityId(device.name);
+        console.log(defaultEntityId);
 
-    if (withOccupancy) {
-        settings[occupancyRulesKey] = {
-            title: 'Rules',
-            group: occupancyRulesGroup,
-            type: 'string',
-            multiple: true,
-            combobox: true,
-            defaultValue: [],
-            choices: [],
-        };
+        const settings: StorageSettingsDict<MixinBaseSettingKey> = {
+            debug: {
+                title: 'Log debug messages',
+                type: 'boolean',
+                defaultValue: false,
+                immediate: true,
+            },
+            // To delete in some weeks
+            room: {
+                title: 'Room',
+                type: 'string',
+                immediate: true,
+                hide: true,
+            },
+            entityId: {
+                title: 'EntityID',
+                type: 'string',
+                defaultValue: defaultEntityId,
+                immediate: true,
+            },
+            haDeviceClass: {
+                title: 'Device class',
+                type: 'string'
+            },
+            // DETECTION
+            useNvrDetections: {
+                title: 'Use NVR detections',
+                description: 'If enabled, the NVR notifications will be used. Make sure to extend the notifiers with this extension',
+                type: 'boolean',
+                subgroup: 'Detection',
+                immediate: true,
+                hide: true,
+            },
+            useNvrImages: {
+                title: 'Use NVR images',
+                description: 'If enabled, the NVR images coming from NVR will be used, otherwise the one defined in the plugin',
+                type: 'boolean',
+                subgroup: 'Detection',
+                defaultValue: true,
+                immediate: true,
+                hide: true,
+            },
+            // NOTIFIER
+            haActions: {
+                title: 'Homeassistant Actions',
+                description: 'Actions to show on the notification, i.e. {"action":"open_door","title":"Open door","icon":"sfsymbols:door"}',
+                subgroup: 'Notifier',
+                type: 'string',
+                multiple: true
+            },
+            [detectionRulesKey]: {
+                title: 'Rules',
+                group: detectionRulesGroup,
+                type: 'string',
+                multiple: true,
+                combobox: true,
+                defaultValue: [],
+                choices: [],
+            },
+        } as StorageSettingsDict<MixinBaseSettingKey>;
+
+        if (isCamera) {
+            settings[occupancyRulesKey] = {
+                title: 'Rules',
+                group: occupancyRulesGroup,
+                type: 'string',
+                multiple: true,
+                combobox: true,
+                defaultValue: [],
+                choices: [],
+            };
+            settings[timelapseRulesKey] = {
+                title: 'Rules',
+                group: timelapseRulesGroup,
+                type: 'string',
+                multiple: true,
+                combobox: true,
+                defaultValue: [],
+                choices: [],
+            };
+        }
+
+        return settings;
+    } catch (e) {
+        console.log('Error in getBasixSettings', e);
     }
-
-    if (withTimelapse) {
-        settings[timelapseRulesKey] = {
-            title: 'Rules',
-            group: timelapseRulesGroup,
-            type: 'string',
-            multiple: true,
-            combobox: true,
-            defaultValue: [],
-            choices: [],
-        };
-    }
-
-    return settings;
 }
 
 export const mainPluginName = scrypted.name;

@@ -33,7 +33,11 @@ export type OccupancyRuleData = {
 
 export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> implements Settings {
     storageSettings = new StorageSettings(this, {
-        ...getMixinBaseSettings(this.name, true, true),
+        ...getMixinBaseSettings({
+            plugin: this.plugin,
+            mixin: this,
+            isCamera: true,
+        }),
         minDelayTime: {
             subgroup: 'Notifier',
             title: 'Minimum notification delay',
