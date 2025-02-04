@@ -756,7 +756,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     missingNotifiersOfPluginRules.length ||
                     missingDevicesOfPluginRules.length ||
                     sensorsNotLinkedToAnyCamera.length ||
-                    devicesWithoutRoom.length ||
+                    (alertHaIssues && devicesWithoutRoom.length) ||
                     (alertHaIssues && entitiesWithWrongEntityId.length) ||
                     !!storagePathError
                 ) {
