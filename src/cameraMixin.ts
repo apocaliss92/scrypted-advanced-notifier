@@ -221,7 +221,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         await this.plugin.timelapseRuleStarted({
                             rule,
                             device,
-                            logger
+                            logger,
                         })
                     }
                 }

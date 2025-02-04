@@ -41,7 +41,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     private videocameraDevicesMap: Record<string, string[]> = {};
     public deviceRoomMap: Record<string, string> = {}
     private doorbellDevices: string[] = [];
-    private firstCheckAlwaysActiveDevices = false;
     public currentMixinsMap: Record<string, AdvancedNotifierCameraMixin | AdvancedNotifierSensorMixin> = {};
     private haProviderId: string;
     private pushoverProviderId: string;
@@ -150,14 +149,18 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             title: '',
             subgroup: 'Entities',
             multiple: true,
-            defaultValue: []
+            defaultValue: [],
+            choices: [],
+            combobox: true,
         },
         fetchedRooms: {
             group: 'Metadata',
             title: '',
             subgroup: 'Rooms',
             multiple: true,
-            defaultValue: []
+            defaultValue: [],
+            choices: [],
+            combobox: true,
         },
         notifiers: {
             group: 'Notifier',
@@ -176,6 +179,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             combobox: true,
             choices: [],
             defaultValue: [],
+        },
+        runningTimelapseRules: {
+            title: 'Running timelapses',
+            group: 'Detection rules',
+            readonly: true,
+            type: 'string',
+            multiple: true,
+            defaultValue: [],
+            choices: [],
+            combobox: true
         },
         activeDevicesForNotifications: {
             title: '"OnActive" devices',
@@ -237,6 +250,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 await this.executeNotificationTest();
             },
         },
+        checkConfigurations: {
+            group: 'Test',
+            title: 'Check configurations',
+            type: 'button',
+            onPut: async () => {
+                await this.checkPluginConfigurations(true);
+            },
+        },
     });
 
 
@@ -285,6 +306,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     async stop() {
         this.refreshDeviceLinksInterval && clearInterval(this.refreshDeviceLinksInterval);
+        this.checkExistingDevicesInterval && clearInterval(this.checkExistingDevicesInterval);
         await this.mqttClient?.disconnect();
     }
 
@@ -296,9 +318,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             this.refreshDeviceLinksInterval = setInterval(async () => {
                 await this.refreshDevicesLinks();
-                // await this.checkExistingDevices();
             }, 10000);
-            this.checkExistingDevicesInterval = setInterval(async () => await this.checkExistingDevices(), 60 * 60 * 1000);
+            this.checkExistingDevicesInterval = setInterval(async () => await this.checkPluginConfigurations(false), 60 * 60 * 1000);
         } catch (e) {
             this.getLogger().log(`Error in initFLow`, e);
         }
@@ -308,10 +329,19 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const logger = this.getLogger();
         const url = new URL(`http://localhost${request.url}`);
         const [_, __, ___, ____, _____, webhook, ...rest] = url.pathname.split('/');
-        const [deviceNameOrAction, ruleName, timelapseName] = rest
+        const [deviceNameOrActionRaw, ruleName, timelapseName] = rest
+        const deviceNameOrAction = decodeURIComponent(deviceNameOrActionRaw);
+        logger.log(`Webhook request: ${JSON.stringify({
+            url: request.url,
+            webhook,
+            deviceNameOrActionRaw,
+            deviceNameOrAction,
+            ruleName,
+            timelapseName
+        })}`);
+
         try {
             const { lastSnapshot, haAction, timelapseDownload, timelapseStream } = await getWebooks();
-
             if (webhook === haAction) {
                 const { url, accessToken } = await this.getHaApiUrl();
 
@@ -330,6 +360,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             } else if (webhook === lastSnapshot) {
                 const device = this.currentMixinsMap[deviceNameOrAction] as AdvancedNotifierCameraMixin;
                 const isWebhookEnabled = device?.storageSettings.getItem('lastSnapshotWebhook');
+                logger.log(`lastSnapshotWebhook: ${isWebhookEnabled}`);
 
                 if (isWebhookEnabled) {
                     const { snapshotsFolder } = await getFolderPaths(device.id);
@@ -613,7 +644,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.videocameraDevicesMap = videocameraDevicesMap;
             this.deviceRoomMap = deviceRoomMap;
             this.doorbellDevices = doorbellDevices;
-            this.firstCheckAlwaysActiveDevices = true;
 
             if (this.storageSettings.values.mqttEnabled) {
                 await this.sendAutoDiscovery();
@@ -623,7 +653,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
     }
 
-    private async checkExistingDevices() {
+    private async checkPluginConfigurations(manual: boolean) {
         const logger = this.getLogger();
         try {
             const notifiersRegex = new RegExp('(rule|occupancyRule|timelapseRule):(.*):notifiers');
@@ -675,13 +705,46 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 device => !this.deviceHaEntityMap[device.id] || !this.storageSettings.values.fetchedEntities.includes(this.deviceHaEntityMap[device.id])
             ).map(sensor => sensor.name);
 
-            logger.debug(`Results: ${JSON.stringify({
-                missingNotifiersOfDeviceRules,
-                missingNotifiersOfPluginRules,
-                missingDevicesOfPluginRules,
-                sensorsNotLinkedToAnyCamera,
-                entitiesWithWrongEntityId,
-            })}`);
+            const { devNotifier, imagesPath, activeDevicesForReporting, scryptedToken, nvrUrl, objectDetectionDevice } = this.storageSettings.values;
+            let storagePathError;
+
+            try {
+                await fs.promises.access(imagesPath);
+            } catch (e) {
+                storagePathError = e;
+            }
+
+            const body = JSON.stringify({
+                missingNotifiersOfDeviceRules: missingNotifiersOfDeviceRules.length ? missingNotifiersOfDeviceRules : undefined,
+                missingNotifiersOfPluginRules: missingNotifiersOfPluginRules.length ? missingNotifiersOfPluginRules : undefined,
+                missingDevicesOfPluginRules: missingDevicesOfPluginRules.length ? missingDevicesOfPluginRules : undefined,
+                sensorsNotLinkedToAnyCamera: sensorsNotLinkedToAnyCamera.length ? sensorsNotLinkedToAnyCamera : undefined,
+                entitiesWithWrongEntityId: entitiesWithWrongEntityId.length ? entitiesWithWrongEntityId : undefined,
+                storagePathError: storagePathError ?? 'No error',
+                activeDevicesForReporting: `${activeDevicesForReporting.length} devices`,
+                scryptedToken: scryptedToken ? 'Set' : 'Not set',
+                nvrUrl: nvrUrl ? 'Set' : 'Not set',
+                objectDetectionDevice: objectDetectionDevice ? objectDetectionDevice.name : 'Not set',
+            });
+
+            if (manual) {
+                logger.log(`checkPluginConfigurations results: ${body}`);
+            } else {
+                logger.debug(`Results: ${body}`);
+
+                if (
+                    missingNotifiersOfDeviceRules.length ||
+                    missingNotifiersOfPluginRules.length ||
+                    missingDevicesOfPluginRules.length ||
+                    sensorsNotLinkedToAnyCamera.length ||
+                    entitiesWithWrongEntityId.length ||
+                    !!storagePathError
+                ) {
+                    (devNotifier as Notifier).sendNotification('Advanced notifier not correctly configured', {
+                        body
+                    });
+                }
+            }
         } catch (e) {
             logger.log('Error in checkExistingDevices', e);
         }
@@ -1487,15 +1550,23 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     public timelapseRuleStarted = async (props: {
         rule: TimelapseRule,
         logger: Console,
-        device: ScryptedDeviceBase
+        device: ScryptedDeviceBase,
     }) => {
         const { device, rule, logger } = props;
 
-        this.clearFramesData({
-            device,
-            logger,
-            rule,
-        }).catch(logger.log);
+        const { runningTimelapseRules } = this.storageSettings.values;
+        const isAlreadyRunning = runningTimelapseRules.includes(rule.name);
+
+        if (!isAlreadyRunning) {
+            logger.log(`Clearing frames for rule ${rule.name}.`);
+            this.clearFramesData({
+                device,
+                logger,
+                rule,
+            }).catch(logger.log);
+
+            this.putSetting('runningTimelapseRules', [...runningTimelapseRules, rule.name]);
+        }
     }
 
     public clearFramesData = async (props: {
@@ -1564,32 +1635,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     timelapseName,
                     rule
                 });
-
             } catch (e) {
                 logger.log('Error generating timelapse', e);
             }
-        }
-    }
-
-    async notifyNotExistingDevices(props: {
-        notExistingDevices: string[],
-        notExistingNotifiers: string[]
-    }) {
-        const now = Date.now();
-        const { notExistingDevices, notExistingNotifiers } = props;
-        const { devNotifier } = this.storageSettings.values;
-        if (
-            devNotifier &&
-            (notExistingDevices.length || notExistingNotifiers.length) &&
-            (!this.lastNotExistingNotifier || now - this.lastNotExistingNotifier < (60 * 60 * 1000))
-        ) {
-            this.lastNotExistingNotifier = now;
-            (devNotifier as Notifier).sendNotification('Not existing devices in use', {
-                body: JSON.stringify({
-                    notExistingDevices,
-                    notExistingNotifiers,
-                })
-            });
         }
     }
 }
