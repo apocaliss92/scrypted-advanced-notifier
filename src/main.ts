@@ -2,7 +2,7 @@ import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpR
 import axios from "axios";
 import { isEqual, keyBy, sortBy } from 'lodash';
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, parseNvrNotificationMessage, NotificationPriority, getFolderPaths, getDeviceRules, NvrEvent, ParseNotificationMessageResult, getPushoverPriority, getDetectionRuleKeys, detectRuleEnabledRegex, OccupancyRule, occupancyRuleEnabledRegex, nvrAcceleratedMotionSensorId, StoreImageFn, TimelapseRule, RuleType, getNowFriendlyDate } from "./utils";
+import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, detectionRulesKey, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, parseNvrNotificationMessage, NotificationPriority, getFolderPaths, getDeviceRules, NvrEvent, ParseNotificationMessageResult, getPushoverPriority, getDetectionRuleKeys, detectRuleEnabledRegex, OccupancyRule, occupancyRuleEnabledRegex, nvrAcceleratedMotionSensorId, StoreImageFn, TimelapseRule, RuleType, getNowFriendlyDate, DetectionRuleActivation, getTimelapseRuleKeys } from "./utils";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
@@ -179,16 +179,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             combobox: true,
             choices: [],
             defaultValue: [],
-        },
-        runningTimelapseRules: {
-            title: 'Running timelapses',
-            group: 'Detection rules',
-            readonly: true,
-            type: 'string',
-            multiple: true,
-            defaultValue: [],
-            choices: [],
-            combobox: true
         },
         activeDevicesForNotifications: {
             title: '"OnActive" devices',
@@ -581,7 +571,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 try {
                     const settings = await device.getSettings();
                     const haEntityId = settings.find(setting => setting.key === 'homeassistantMetadata:entityId')?.value as string;
-                    const room = settings.find(setting => setting.key === 'homeassistantMetadata:room')?.value as string;
+                    // const room = settings.find(setting => setting.key === 'homeassistantMetadata:room')?.value as string;
+                    const room = device.room;
                     const linkedCamera = settings.find(setting => setting.key === 'homeassistantMetadata:linkedCamera')?.value as string;
                     const nearbySensors = (settings.find(setting => setting.key === 'recording:nearbySensors')?.value as string[]) ?? [];
                     const nearbyLocks = (settings.find(setting => setting.key === 'recording:nearbyLocks')?.value as string[]) ?? [];
@@ -658,15 +649,20 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         try {
             const notifiersRegex = new RegExp('(rule|occupancyRule|timelapseRule):(.*):notifiers');
             const devicesRegex = new RegExp('(rule|occupancyRule|timelapseRule):(.*):devices');
+            const activationTypeRegex = new RegExp('rule:(.*):activation');
             const allDevices = getElegibleDevices();
 
             const missingNotifiersOfDeviceRules: { deviceName: string, ruleName: string, notifierIds: string[] }[] = [];
             const missingNotifiersOfPluginRules: { ruleName: string, notifierIds: string[] }[] = [];
             const missingDevicesOfPluginRules: { ruleName: string, deviceIds: string[] }[] = [];
+            const devicesWithoutRoom: string[] = [];
 
             for (const device of allDevices) {
                 const settings = await this.currentMixinsMap[device.name].getMixinSettings();
                 const relevantRules = settings.filter(setting => setting.key?.match(notifiersRegex));
+                if (!device.room) {
+                    devicesWithoutRoom.push(device.name);
+                }
 
                 for (const rule of relevantRules) {
                     const [_, type, name] = rule.key.match(notifiersRegex);
@@ -696,6 +692,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     missingDevicesOfPluginRules.push({ deviceIds: missingDevices, ruleName: `${type}_${name}` });
                 }
             }
+            const anyActiveOnRules = settings.filter(setting => setting.key?.match(activationTypeRegex))
+                .filter(setting => setting.value === DetectionRuleActivation.OnActive);
 
             const sensorsNotLinkedToAnyCamera = allDevices.filter(
                 device => device.type === ScryptedDeviceType.Sensor && !this.deviceVideocameraMap[device.id]
@@ -705,7 +703,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 device => !this.deviceHaEntityMap[device.id] || !this.storageSettings.values.fetchedEntities.includes(this.deviceHaEntityMap[device.id])
             ).map(sensor => sensor.name);
 
-            const { devNotifier, imagesPath, activeDevicesForReporting, scryptedToken, nvrUrl, objectDetectionDevice } = this.storageSettings.values;
+            const {
+                devNotifier,
+                imagesPath,
+                activeDevicesForReporting,
+                scryptedToken,
+                nvrUrl,
+                objectDetectionDevice,
+                haEnabled,
+            } = this.storageSettings.values;
             let storagePathError;
 
             try {
@@ -714,12 +720,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 storagePathError = e;
             }
 
+            const alertHaIssues = haEnabled && anyActiveOnRules;
+
             const body = JSON.stringify({
                 missingNotifiersOfDeviceRules: missingNotifiersOfDeviceRules.length ? missingNotifiersOfDeviceRules : undefined,
                 missingNotifiersOfPluginRules: missingNotifiersOfPluginRules.length ? missingNotifiersOfPluginRules : undefined,
                 missingDevicesOfPluginRules: missingDevicesOfPluginRules.length ? missingDevicesOfPluginRules : undefined,
                 sensorsNotLinkedToAnyCamera: sensorsNotLinkedToAnyCamera.length ? sensorsNotLinkedToAnyCamera : undefined,
                 entitiesWithWrongEntityId: entitiesWithWrongEntityId.length ? entitiesWithWrongEntityId : undefined,
+                devicesWithoutRoom: devicesWithoutRoom.length ? devicesWithoutRoom : undefined,
                 storagePathError: storagePathError ?? 'No error',
                 activeDevicesForReporting: `${activeDevicesForReporting.length} devices`,
                 scryptedToken: scryptedToken ? 'Set' : 'Not set',
@@ -737,7 +746,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     missingNotifiersOfPluginRules.length ||
                     missingDevicesOfPluginRules.length ||
                     sensorsNotLinkedToAnyCamera.length ||
-                    entitiesWithWrongEntityId.length ||
+                    devicesWithoutRoom.length ||
+                    (alertHaIssues && entitiesWithWrongEntityId.length) ||
                     !!storagePathError
                 ) {
                     (devNotifier as Notifier).sendNotification('Advanced notifier not correctly configured', {
@@ -1554,8 +1564,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }) => {
         const { device, rule, logger } = props;
 
-        const { runningTimelapseRules } = this.storageSettings.values;
-        const isAlreadyRunning = runningTimelapseRules.includes(rule.name);
+        const isAlreadyRunning = rule.currentlyActive;
 
         if (!isAlreadyRunning) {
             logger.log(`Clearing frames for rule ${rule.name}.`);
@@ -1565,7 +1574,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 rule,
             }).catch(logger.log);
 
-            this.putSetting('runningTimelapseRules', [...runningTimelapseRules, rule.name]);
+            const { currentlyActiveKey } = getTimelapseRuleKeys(rule.name);
+            this.currentMixinsMap[device.name].putMixinSetting(currentlyActiveKey, 'true');
         }
     }
 
@@ -1585,9 +1595,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         rule: TimelapseRule,
         device: ScryptedDeviceBase,
         logger: Console,
-        manual?: boolean,
     }) => {
-        const { device, rule, logger, manual } = props;
+        const { device, rule, logger } = props;
+        const { currentlyActiveKey } = getTimelapseRuleKeys(rule.name);
+        this.currentMixinsMap[device.name].putMixinSetting(currentlyActiveKey, 'false');
         const { imagesPath } = this.storageSettings.values;
 
         if (imagesPath) {

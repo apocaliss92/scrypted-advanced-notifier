@@ -500,10 +500,12 @@ export const getMixinBaseSettings = (name: string, withOccupancy: boolean, withT
             defaultValue: false,
             immediate: true,
         },
+        // To delete in some weeks
         room: {
             title: 'Room',
             type: 'string',
             immediate: true,
+            hide: true,
         },
         entityId: {
             title: 'EntityID',
@@ -786,6 +788,7 @@ export const timelapseRulesKey = 'timelapseRules';
 
 export const getTimelapseRuleKeys = (timelapseRuleName: string) => {
     const enabledKey = `timelapseRule:${timelapseRuleName}:enabled`;
+    const currentlyActiveKey = `timelapseRule:${timelapseRuleName}:currentlyActive`;
     const textKey = `timelapseRule:${timelapseRuleName}:text`;
     const notifiersKey = `timelapseRule:${timelapseRuleName}:notifiers`;
     const dayKey = `timelapseRule:${timelapseRuleName}:day`;
@@ -802,6 +805,7 @@ export const getTimelapseRuleKeys = (timelapseRuleName: string) => {
 
     return {
         enabledKey,
+        currentlyActiveKey,
         textKey,
         notifiersKey,
         framesAcquisitionDelayKey,
@@ -1330,6 +1334,7 @@ export const getTimelapseRulesSettings = async (props: {
     for (const timelapseRuleName of currentTimelapseRules) {
         const {
             enabledKey,
+            currentlyActiveKey,
             textKey,
             notifiersKey,
             dayKey,
@@ -1354,6 +1359,15 @@ export const getTimelapseRulesSettings = async (props: {
                 subgroup: timelapseRuleName,
                 value: storage.getItem(enabledKey as any) as boolean ?? true,
                 immediate: true,
+            },
+            {
+                key: currentlyActiveKey,
+                title: 'Currently active',
+                type: 'boolean',
+                group: groupName,
+                subgroup: timelapseRuleName,
+                value: storage.getItem(currentlyActiveKey as any) as boolean ?? false,
+                readonly: true
             },
             {
                 key: textKey,
@@ -1501,6 +1515,7 @@ export enum RuleType {
 }
 
 export interface BaseRule {
+    currentlyActive?: boolean;
     ruleType: RuleType;
     name: string;
     notifiers: string[];
@@ -1911,9 +1926,11 @@ export const getDeviceTimelapseRules = (
                 timelapseFramerateKey,
                 additionalFfmpegParametersKey,
                 regularSnapshotIntervalKey,
+                currentlyActiveKey,
             } = getTimelapseRuleKeys(timelapseRuleName);
 
             const isEnabled = JSON.parse(storage[enabledKey]?.value as string ?? 'false');
+            const currentlyActive = JSON.parse(storage[currentlyActiveKey]?.value as string ?? 'false');
 
             const notifiers = storage[notifiersKey]?.value as string[] ?? [];
             const notifiersTouse = notifiers.filter(notifierId => activeNotifiers.includes(notifierId));
@@ -1929,6 +1946,7 @@ export const getDeviceTimelapseRules = (
             const regularSnapshotInterval = Number(storage[regularSnapshotIntervalKey]?.value || 15);
 
             const timelapseRule: TimelapseRule = {
+                currentlyActive,
                 ruleType: RuleType.Timelapse,
                 name: timelapseRuleName,
                 notifiers: notifiersTouse,

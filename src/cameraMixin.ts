@@ -508,7 +508,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 rule,
                 device,
                 logger,
-                manual: true,
             });
         } else if (cleanupData?.[1]) {
             const ruleName = cleanupData[1];
