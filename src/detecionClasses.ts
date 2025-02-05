@@ -10,6 +10,16 @@ export enum DetectionClass {
     DoorLock = 'lock_open',
 }
 
+export const classnamePrio: Partial<Record<DetectionClass, number>> = {
+    [DetectionClass.Face]: 1,
+    [DetectionClass.Plate]: 1,
+    [DetectionClass.Person]: 2,
+    [DetectionClass.Vehicle]: 3,
+    [DetectionClass.Animal]: 4,
+    [DetectionClass.Package]: 5,
+    [DetectionClass.Motion]: 6,
+}
+
 export const defaultDetectionClasses = Object.values(DetectionClass);
 
 export const animalClasses = [
@@ -18,7 +28,7 @@ export const animalClasses = [
 
     // Camera specific
     'dog_cat',
-    
+
     // Mammals
     'dog',
     'cat',

@@ -3,7 +3,7 @@ import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/
 import { cloneDeep, keyBy, sortBy, uniq, uniqBy } from "lodash";
 const { endpointManager } = sdk;
 import { scrypted, name } from '../package.json';
-import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detecionClasses";
+import { classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detecionClasses";
 import sharp from 'sharp';
 import path from 'path';
 import fs from 'fs';
@@ -262,15 +262,7 @@ export enum NotificationSource {
     TIMELAPSE = 'TIMELAPSE',
 }
 
-const classnamePrio = {
-    face: 1,
-    plate: 2,
-    person: 3,
-    vehicle: 4,
-    animal: 5,
-    package: 6,
-    motion: 7,
-}
+
 
 export const filterAndSortValidDetections = (detections: ObjectDetectionResult[], logger: Console) => {
     const sortedByPriorityAndScore = sortBy(detections,
