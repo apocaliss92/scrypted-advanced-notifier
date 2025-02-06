@@ -1,7 +1,7 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ObjectDetection, Image, ScryptedMimeTypes, Notifier } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DetectionRule, RuleSource, DeviceInterface, detectRuleEnabledRegex, occupancyRuleEnabledRegex, EventType, filterAndSortValidDetections, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getWebookUrls, isDeviceEnabled, ObserveZoneData, OccupancyRule, ZoneMatchType, TimelapseRule, getTimelapseRulesSettings, RuleType, getWebooks, timelapseRuleGenerateRegex, BaseRule, timelapseRuleCleanRegex, getRuleKeys } from "./utils";
+import { DetectionRule, RuleSource, DeviceInterface, detectRuleEnabledRegex, occupancyRuleEnabledRegex, EventType, filterAndSortValidDetections, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getWebookUrls, isDeviceEnabled, ObserveZoneData, OccupancyRule, ZoneMatchType, TimelapseRule, getTimelapseRulesSettings, RuleType, getWebooks, timelapseRuleGenerateRegex, BaseRule, timelapseRuleCleanRegex, getRuleKeys, convertSettingsToStorageSettings } from "./utils";
 import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoverDetectionRules, discoverOccupancyRules, getDetectionRuleId, getOccupancyRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
@@ -90,6 +90,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     });
 
+    storageSettingsUpdated:StorageSettings<string>;
     detectionListener: EventListenerRegister;
     mqttDetectionMotionTimeout: NodeJS.Timeout;
     mainLoopListener: NodeJS.Timeout;
@@ -171,7 +172,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const funct = async () => {
             try {
-                const deviceSettings = await this.getMixinSettings();
                 const {
                     isActiveForMqttReporting,
                     isPluginEnabled,
@@ -187,11 +187,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     timelapseRules,
                     skippedTimelapseRules,
                 } = await isDeviceEnabled({
-                    deviceId: this.id,
-                    deviceSettings,
+                    device: this,
                     console: logger,
                     plugin: this.plugin,
-                    deviceType: this.type,
+                    deviceStorage: this.storageSettingsUpdated
                 });
 
                 const timelapseRulesToEnable = (timelapseRules || []).filter(newRule => !this.timelapseRules?.some(currentRule => currentRule.name === newRule.name));
@@ -444,8 +443,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             const res: ObserveZoneData[] = [];
             const settings = await this.mixinDevice.getSettings();
-            // const deviceSettings = await device.getSettings();
-            // this.getLogger().log(JSON.stringify({ deviceSettings, settings }));
             const zonesSetting = settings.find((setting: { key: string; }) => new RegExp('objectdetectionplugin:.*:zones').test(setting.key))?.value ?? [];
 
             const zoneNames = zonesSetting.filter(zone => {
@@ -501,9 +498,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 ruleSource: RuleSource.Device
             });
             settings.push(...timelapseRulesSettings);
+            
+            this.storageSettingsUpdated = convertSettingsToStorageSettings({
+                device: this,
+                settings,
+            });
 
             return settings;
-            return []
         } catch (e) {
             this.getLogger().log('Error in getMixinSettings', e);
             return [];
@@ -559,7 +560,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }).catch(logger.log);
         }
 
-        this.storage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
+        this.storageSettings.putSetting(key, value);
+        // this.storage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
     }
 
     async release() {

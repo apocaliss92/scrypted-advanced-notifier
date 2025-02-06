@@ -1,5 +1,5 @@
-import sdk, { Camera, LockState, MediaObject, Notifier, NotifierOptions, ObjectDetectionResult, ObjectsDetected, Point, ScryptedDeviceBase, ScryptedDeviceType, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Setting, Settings } from "@scrypted/sdk"
-import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
+import sdk, { Camera, DeviceBase, LockState, MediaObject, MixinDeviceBase, Notifier, NotifierOptions, ObjectDetectionResult, ObjectsDetected, Point, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Setting, Settings } from "@scrypted/sdk"
+import { StorageSetting, StorageSettings, StorageSettingsDevice, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep, keyBy, sortBy, uniq, uniqBy } from "lodash";
 const { endpointManager } = sdk;
 import { scrypted, name } from '../package.json';
@@ -597,18 +597,15 @@ export const mainPluginName = scrypted.name;
 
 export const isDeviceEnabled = async (
     props: {
-        deviceId: string,
-        deviceSettings: Setting[],
+        device: StorageSettingsDevice & DeviceBase,
+        deviceStorage: StorageSettings<any>,
         plugin: AdvancedNotifierPlugin,
         console: Console,
-        deviceType?: ScryptedDeviceType
     },
 ) => {
-    const { console, deviceId, deviceSettings, plugin, deviceType } = props;
-    const mainSettings = await plugin.getSettings();
-    const mainSettingsByKey = keyBy(mainSettings, 'key');
+    const { console, device, deviceStorage, plugin } = props;
+    const pluginStorage = plugin.storageSettingsUpdated;
 
-    const deviceSettingsByKey = keyBy(deviceSettings, 'key');
     const {
         detectionRules,
         skippedRules,
@@ -617,30 +614,31 @@ export const isDeviceEnabled = async (
         allPluginRules,
         allPossibleRules,
     } = getDeviceRules({
-        deviceId,
-        deviceType,
-        deviceStorage: deviceSettingsByKey,
-        mainPluginStorage: mainSettingsByKey,
+        device,
         console,
+        deviceStorage,
+        pluginStorage,
     });
 
     const { occupancyRules, skippedOccupancyRules, allOccupancyRules } = getDeviceOccupancyRules({
-        deviceStorage: deviceSettingsByKey,
-        mainPluginStorage: mainSettingsByKey,
+        deviceStorage,
+        pluginStorage,
+        device,
     });
 
     const { skippedRules: skippedTimelapseRules, timelapseRules } = getDeviceTimelapseRules({
-        deviceStorage: deviceSettingsByKey,
-        mainPluginStorage: mainSettingsByKey,
+        deviceStorage,
+        pluginStorage,
         console,
-        deviceId,
+        device,
     });
 
-    const isPluginEnabled = mainSettingsByKey.pluginEnabled.value as boolean;
-    const isMqttActive = mainSettingsByKey.mqttEnabled.value as boolean;
+    const activeDevicesForReporting = pluginStorage.getItem('activeDevicesForReporting');
+    const isPluginEnabled = pluginStorage.getItem('pluginEnabled');
+    const isMqttActive = pluginStorage.getItem('mqttEnabled');
     const isActiveForNotifications = isPluginEnabled && (!!occupancyRules.length || !!detectionRules.length || !!timelapseRules.length);
     const isActiveForNvrNotifications = isPluginEnabled && !!nvrRules.length;
-    const isActiveForMqttReporting = isPluginEnabled && isMqttActive && (mainSettingsByKey.activeDevicesForReporting?.value as string || []).includes(deviceId);
+    const isActiveForMqttReporting = isPluginEnabled && isMqttActive && activeDevicesForReporting.includes(device.id);
 
     return {
         isPluginEnabled,
@@ -836,8 +834,7 @@ export const getRuleSettings = (props: {
     const settings: Setting[] = [];
     const { rulesKey, subgroupPrefix } = ruleTypeMetadataMap[ruleType];
 
-    const rulesRaw = storage.getItem(rulesKey);
-    const rules = (typeof rulesRaw === 'string' ? JSON.parse(rulesRaw) : rulesRaw) || [];
+    const rules = storage.getItem(rulesKey);
     for (const ruleName of rules) {
         const subgroup = `${subgroupPrefix}: ${ruleName}`;
         const {
@@ -846,7 +843,7 @@ export const getRuleSettings = (props: {
                 currentlyActiveKey,
                 activationKey,
                 notifiersKey,
-                showMoreConfigurationsKey,
+                // showMoreConfigurationsKey,
                 actionsKey,
                 priorityKey,
                 dayKey,
@@ -860,7 +857,7 @@ export const getRuleSettings = (props: {
 
         const currentActivation = storage.getItem(activationKey as any) as DetectionRuleActivation;
         const showMoreConfigurations = true;
-        // const showMoreConfigurations = JSON.parse(storage.getItem(showMoreConfigurationsKey as any) ?? 'false');
+        // const showMoreConfigurations = storage.getItem(showMoreConfigurationsKey) as boolean;
 
         settings.push(
             {
@@ -880,17 +877,6 @@ export const getRuleSettings = (props: {
                 subgroup,
                 value: storage.getItem(currentlyActiveKey as any) as boolean ?? false,
                 readonly: true
-            },
-            {
-                key: notifiersKey,
-                title: 'Notifiers',
-                group,
-                subgroup,
-                type: 'device',
-                multiple: true,
-                combobox: true,
-                deviceFilter: notifierFilter,
-                value: JSON.parse(storage.getItem(notifiersKey as any) as string ?? '[]')
             }
         );
 
@@ -911,6 +897,20 @@ export const getRuleSettings = (props: {
             });
         }
 
+        settings.push(
+            {
+                key: notifiersKey,
+                title: 'Notifiers',
+                group,
+                subgroup,
+                type: 'device',
+                multiple: true,
+                combobox: true,
+                deviceFilter: notifierFilter,
+                value: storage.getItem(notifiersKey)
+            }
+        );
+
         if (currentActivation === DetectionRuleActivation.Schedule && ruleType !== RuleType.Timelapse) {
             settings.push(
                 {
@@ -921,7 +921,7 @@ export const getRuleSettings = (props: {
                     subgroup,
                     type: 'day',
                     multiple: true,
-                    value: JSON.parse(storage.getItem(dayKey as any) as string ?? '[]'),
+                    value: storage.getItem(dayKey)
                 },
                 {
                     key: startTimeKey,
@@ -929,7 +929,7 @@ export const getRuleSettings = (props: {
                     group,
                     subgroup,
                     type: 'time',
-                    value: storage.getItem(startTimeKey),
+                    value: storage.getItem(startTimeKey)
                 },
                 {
                     key: endTimeKey,
@@ -942,7 +942,7 @@ export const getRuleSettings = (props: {
             );
         }
 
-        settings.push(...getSpecificRules({ ruleName, subgroup, group }))
+        settings.push(...getSpecificRules({ ruleName, subgroup, group }));
 
         // settings.push(
         //     {
@@ -968,7 +968,7 @@ export const getRuleSettings = (props: {
                     combobox: true,
                     type: 'device',
                     deviceFilter: `(type === '${ScryptedDeviceType.Sensor}')`,
-                    value: JSON.parse(storage.getItem(enabledSensorsKey as any) as string ?? '[]'),
+                    value: storage.getItem(enabledSensorsKey)
                 },
                 {
                     key: disabledSensorsKey,
@@ -980,7 +980,7 @@ export const getRuleSettings = (props: {
                     combobox: true,
                     type: 'device',
                     deviceFilter: `(type === '${ScryptedDeviceType.Sensor}')`,
-                    value: JSON.parse(storage.getItem(disabledSensorsKey as any) as string ?? '[]'),
+                    value: storage.getItem(disabledSensorsKey)
                 },
                 {
                     key: securitySystemModesKey,
@@ -997,7 +997,7 @@ export const getRuleSettings = (props: {
                         SecuritySystemMode.NightArmed,
                         SecuritySystemMode.AwayArmed,
                     ],
-                    value: JSON.parse(storage.getItem(securitySystemModesKey as any) as string ?? '[]'),
+                    value: storage.getItem(securitySystemModesKey)
                 },
                 {
                     key: priorityKey,
@@ -1006,9 +1006,9 @@ export const getRuleSettings = (props: {
                     group,
                     subgroup,
                     choices: [NotificationPriority.VeryLow, NotificationPriority.Low, NotificationPriority.Normal, NotificationPriority.High],
-                    value: storage.getItem(priorityKey as any) as DetectionRuleActivation ?? NotificationPriority.Normal,
                     immediate: true,
-                    combobox: true
+                    combobox: true,
+                    value: storage.getItem(priorityKey as any)
                 },
                 {
                     key: actionsKey,
@@ -1018,7 +1018,7 @@ export const getRuleSettings = (props: {
                     multiple: true,
                     group,
                     subgroup,
-                    value: JSON.parse(storage.getItem(actionsKey as any) as string ?? '[]'),
+                    value: storage.getItem(actionsKey)
                 },
             );
         }
@@ -1040,7 +1040,7 @@ export const getDetectionRulesSettings = async (props: {
 
         const { detection, common, } = getRuleKeys({ ruleName, ruleType: RuleType.Detection });
 
-        const { textKey, scoreThresholdKey } = common;
+        const { textKey, scoreThresholdKey, activationKey } = common;
         const {
             blacklistedZonesKey,
             minDelayKey,
@@ -1052,7 +1052,8 @@ export const getDetectionRulesSettings = async (props: {
             detectionClassesKey,
         } = detection;
 
-        const useNvrDetections = storage.getItem(useNvrDetectionsKey as any) as boolean ?? false;
+        const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean ?? false;
+        const activationType = storage.getItem(activationKey) as DetectionRuleActivation;
 
         settings.push(
             {
@@ -1081,7 +1082,7 @@ export const getDetectionRulesSettings = async (props: {
                 multiple: true,
                 combobox: true,
                 choices: defaultDetectionClasses,
-                value: JSON.parse(storage.getItem(detectionClassesKey as any) as string ?? '[]')
+                value: storage.getItem(detectionClassesKey),
             }
         );
 
@@ -1095,12 +1096,12 @@ export const getDetectionRulesSettings = async (props: {
                     multiple: true,
                     combobox: true,
                     choices: Object.values(NvrEvent),
-                    value: JSON.parse(storage.getItem(nvrEventsKey as any) as string ?? '[]')
+                    value: storage.getItem(nvrEventsKey),
                 }
             );
         }
 
-        if (ruleSource === RuleSource.Plugin) {
+        if (ruleSource === RuleSource.Plugin && activationType !== DetectionRuleActivation.OnActive) {
             settings.push({
                 key: devicesKey,
                 title: 'Devices',
@@ -1109,8 +1110,8 @@ export const getDetectionRulesSettings = async (props: {
                 type: 'device',
                 multiple: true,
                 combobox: true,
-                value: JSON.parse(storage.getItem(devicesKey) as string ?? '[]'),
-                deviceFilter
+                deviceFilter,
+                value: storage.getItem(devicesKey),
             });
         }
 
@@ -1124,7 +1125,7 @@ export const getDetectionRulesSettings = async (props: {
                     subgroup,
                     type: 'number',
                     placeholder: '-',
-                    value: storage.getItem(recordingTriggerSecondsKey as any) as string,
+                    value: storage.getItem(recordingTriggerSecondsKey),
                 },
                 {
                     key: minDelayKey,
@@ -1134,7 +1135,7 @@ export const getDetectionRulesSettings = async (props: {
                     subgroup,
                     type: 'number',
                     placeholder: '-',
-                    value: storage.getItem(minDelayKey as any) as string,
+                    value: storage.getItem(minDelayKey),
                 }
             );
 
@@ -1160,8 +1161,8 @@ export const getDetectionRulesSettings = async (props: {
                         multiple: true,
                         combobox: true,
                         choices: zones,
-                        value: JSON.parse(storage.getItem(whitelistedZonesKey as any) as string ?? '[]'),
-                        readonly: !zones.length
+                        readonly: !zones.length,
+                        value: storage.getItem(whitelistedZonesKey),
                     },
                     {
                         key: blacklistedZonesKey,
@@ -1171,8 +1172,8 @@ export const getDetectionRulesSettings = async (props: {
                         multiple: true,
                         combobox: true,
                         choices: zones,
-                        value: JSON.parse(storage.getItem(blacklistedZonesKey as any) as string ?? '[]'),
-                        readonly: !zones.length
+                        readonly: !zones.length,
+                        value: storage.getItem(blacklistedZonesKey),
                     },
                 )
             }
@@ -1408,7 +1409,7 @@ export const getTimelapseRulesSettings = async (props: {
                 subgroup,
                 type: 'day',
                 multiple: true,
-                value: JSON.parse(storage.getItem(dayKey as any) as string ?? '[]'),
+                value: storage.getItem(dayKey),
             },
             {
                 key: startTimeKey,
@@ -1494,7 +1495,7 @@ export interface DetectionRule extends BaseRule {
 
 const initBasicRule = (props: {
     ruleType: RuleType,
-    storage?: Record<string, StorageSetting>,
+    storage?: StorageSettings<string>,
     ruleName: string,
     ruleSource: RuleSource,
     activeNotifiers: string[]
@@ -1520,14 +1521,15 @@ const initBasicRule = (props: {
         ruleName,
     });
 
-    const isEnabled = JSON.parse(storage[enabledKey]?.value as string ?? 'false');
-    const currentlyActive = JSON.parse(storage[currentlyActiveKey]?.value as string ?? 'false');
-    const priority = storage[priorityKey]?.value as NotificationPriority;
-    const actions = storage[actionsKey]?.value as string[];
-    const customText = storage[textKey]?.value as string || undefined;
-    const activationType = storage[activationKey]?.value as DetectionRuleActivation;
-    const securitySystemModes = storage[securitySystemModesKey]?.value as SecuritySystemMode[] ?? [];
-    const notifiers = storage[notifiersKey]?.value as string[] ?? [];
+    const isEnabled = storage.getItem(enabledKey);
+    const currentlyActive = storage.getItem(currentlyActiveKey);
+    const priority = storage.getItem(priorityKey) as NotificationPriority;
+    const actions = storage.getItem(actionsKey) as string[];
+    const customText = storage.getItem(textKey);
+    const activationType = storage.getItem(activationKey) as DetectionRuleActivation;
+    const securitySystemModes = storage.getItem(securitySystemModesKey) as SecuritySystemMode[];
+    const notifiers = storage.getItem(notifiersKey) as string[] ?? [];
+
     const notifiersTouse = notifiers.filter(notifierId => activeNotifiers.includes(notifierId));
 
     const rule: BaseRule = {
@@ -1621,14 +1623,13 @@ const initBasicRule = (props: {
 
 export const getDeviceRules = (
     props: {
-        deviceStorage?: Record<string, StorageSetting>,
-        mainPluginStorage: Record<string, StorageSetting>,
-        deviceId?: string,
-        deviceType?: ScryptedDeviceType,
+        deviceStorage?: StorageSettings<any>,
+        pluginStorage: StorageSettings<any>,
+        device?: DeviceBase & StorageSettingsDevice,
         console: Console,
     }
 ) => {
-    const { deviceId, deviceStorage, mainPluginStorage, deviceType, console } = props;
+    const { device, pluginStorage, deviceStorage, console } = props;
     const detectionRules: DetectionRule[] = [];
     const nvrRules: DetectionRule[] = [];
     const skippedRules: DetectionRule[] = [];
@@ -1636,16 +1637,16 @@ export const getDeviceRules = (
     const allDeviceRules: DetectionRule[] = [];
     const allPossibleRules: DetectionRule[] = [];
     const pluginActiveRules: DetectionRule[] = [];
+    const deviceId = device?.id;
+    const deviceType = device?.type;
 
-    const activeNotifiers = mainPluginStorage['notifiers']?.value as string[] ?? [];
-    const onActiveDevices = mainPluginStorage['activeDevicesForNotifications']?.value as string[] ?? [];
+    const { notifiers: activeNotifiers, activeDevicesForNotifications: onActiveDevices } = pluginStorage.values;
 
     const { rulesKey } = ruleTypeMetadataMap[RuleType.Detection];
 
-    const processRules = (storage: Record<string, StorageSetting>, ruleSource: RuleSource) => {
-        const detectionRuleNames = storage[rulesKey]?.value as string[] ??
-            storage[`homeassistantMetadata:${rulesKey}`]?.value as string[] ??
-            [];
+    const processRules = (storage: StorageSettings<any>, ruleSource: RuleSource) => {
+        const detectionRuleNames = storage.getItem(rulesKey) ?? [];
+
         for (const detectionRuleName of detectionRuleNames) {
             const {
                 common: {
@@ -1667,18 +1668,19 @@ export const getDeviceRules = (
                     ruleName: detectionRuleName,
                 });
 
-            const useNvrDetections = JSON.parse(storage[useNvrDetectionsKey]?.value as string ?? 'false');
-            const activationType = storage[activationKey]?.value as DetectionRuleActivation;
-            const customText = storage[textKey]?.value as string || undefined;
-            const mainDevices = storage[devicesKey]?.value as string[] ?? [];
+            const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean;
+            const activationType = storage.getItem(activationKey) as DetectionRuleActivation;
+            const customText = storage.getItem(textKey) as string || undefined;
+            const mainDevices = storage.getItem(devicesKey) as string[] ?? [];
+
             const devices = ruleSource === RuleSource.Device ? [deviceId] : mainDevices;
             const devicesToUse = activationType === DetectionRuleActivation.OnActive ? onActiveDevices : devices;
 
-            const detectionClasses = storage[detectionClassesKey]?.value as DetectionClass[] ?? [];
-            const nvrEvents = storage[nvrEventsKey]?.value as NvrEvent[] ?? [];
-            const scoreThreshold = Number(storage[scoreThresholdKey]?.value || 0.7);
-            const minDelay = storage[minDelayKey]?.value ? Number(storage[minDelayKey]?.value) : undefined;
-            const disableNvrRecordingSeconds = storage[recordingTriggerSecondsKey]?.value ? Number(storage[recordingTriggerSecondsKey]?.value) : undefined;
+            const detectionClasses = storage.getItem(detectionClassesKey) as DetectionClass[] ?? [];
+            const nvrEvents = storage.getItem(nvrEventsKey) as NvrEvent[] ?? [];
+            const scoreThreshold = storage.getItem(scoreThresholdKey) as number;
+            const minDelay = storage.getItem(minDelayKey) as number;
+            const disableNvrRecordingSeconds = storage.getItem(recordingTriggerSecondsKey) as number;
 
             const { rule, basicRuleAllowed, ...restCriterias } = initBasicRule({
                 activeNotifiers,
@@ -1762,7 +1764,7 @@ export const getDeviceRules = (
         }
     };
 
-    processRules(mainPluginStorage, RuleSource.Plugin);
+    processRules(pluginStorage, RuleSource.Plugin);
 
     if (deviceStorage) {
         processRules(deviceStorage, RuleSource.Device);
@@ -1795,22 +1797,19 @@ export interface OccupancyRule extends BaseRule {
 
 export const getDeviceOccupancyRules = (
     props: {
-        mainPluginStorage?: Record<string, StorageSetting>,
-        deviceStorage?: Record<string, StorageSetting>,
+        deviceStorage?: StorageSettings<any>,
+        pluginStorage?: StorageSettings<any>,
+        device: DeviceBase,
     }
 ) => {
-    const { deviceStorage, mainPluginStorage } = props;
+    const { deviceStorage, pluginStorage } = props;
     const allOccupancyRules: OccupancyRule[] = [];
     const occupancyRules: OccupancyRule[] = [];
     const skippedOccupancyRules: OccupancyRule[] = [];
 
-    const activeNotifiers = mainPluginStorage['notifiers']?.value as string[] ?? [];
-
+    const { notifiers: activeNotifiers } = pluginStorage.values;
     const { rulesKey } = ruleTypeMetadataMap[RuleType.Occupancy];
-
-    const occupancyRuleNames = deviceStorage[rulesKey]?.value as string[] ??
-        deviceStorage[`homeassistantMetadata:${rulesKey}`]?.value as string[] ??
-        [];
+    const occupancyRuleNames = deviceStorage.getItem(rulesKey) ?? [];
 
     for (const occupancyRuleName of occupancyRuleNames) {
         const {
@@ -1842,21 +1841,21 @@ export const getDeviceOccupancyRules = (
             storage: deviceStorage
         });
 
-        const zoneOccupiedText = deviceStorage[zoneOccupiedTextKey]?.value as string || undefined;
-        const zoneNotOccupiedText = deviceStorage[zoneNotOccupiedTextKey]?.value as string || undefined;
-        const objectDetector = deviceStorage[objectDetectorKey]?.value as string;
-        const detectionClass = deviceStorage[detectionClassKey]?.value as DetectionClass;
-        const scoreThreshold = Number(deviceStorage[scoreThresholdKey]?.value || 0.5);
-        const changeStateConfirm = Number(deviceStorage[changeStateConfirmKey]?.value || 30) || 30;
-        const forceUpdate = Number(deviceStorage[forceUpdateKey]?.value || 30) || 30;
-        const maxObjects = Number(deviceStorage[maxObjectsKey]?.value || 1);
-        const observeZone = deviceStorage[zoneKey]?.value as string;
-        const zoneMatchType = deviceStorage[zoneMatchTypeKey]?.value as ZoneMatchType ?? ZoneMatchType.Intersect;
-        const captureZone = JSON.parse(deviceStorage[captureZoneKey]?.value as string ?? '[]') as Point[];
+        const zoneOccupiedText = deviceStorage.getItem(zoneOccupiedTextKey) as string;
+        const zoneNotOccupiedText = deviceStorage.getItem(zoneNotOccupiedTextKey) as string;
+        const objectDetector = deviceStorage.getItem(objectDetectorKey) as ScryptedDevice;
+        const detectionClass = deviceStorage.getItem(detectionClassKey) as DetectionClass;
+        const scoreThreshold = deviceStorage.getItem(scoreThresholdKey) as number || 0.5;
+        const changeStateConfirm = deviceStorage.getItem(changeStateConfirmKey) as number || 30;
+        const forceUpdate = deviceStorage.getItem(forceUpdateKey) as number || 30;
+        const maxObjects = deviceStorage.getItem(maxObjectsKey) as number || 1;
+        const observeZone = deviceStorage.getItem(zoneKey) as string;
+        const zoneMatchType = deviceStorage.getItem(zoneMatchTypeKey) as ZoneMatchType ?? ZoneMatchType.Intersect;
+        const captureZone = deviceStorage.getItem(captureZoneKey) as Point[]
 
         const occupancyRule: OccupancyRule = {
             ...rule,
-            objectDetector,
+            objectDetector: objectDetector?.id,
             zoneNotOccupiedText,
             zoneOccupiedText,
             detectionClass,
@@ -1866,7 +1865,7 @@ export const getDeviceOccupancyRules = (
             forceUpdate,
             zoneType: zoneMatchType,
             maxObjects,
-            captureZone
+            captureZone,
         };
 
         const ruleAllowed = basicRuleAllowed && !!detectionClass && !!observeZone;
@@ -1887,7 +1886,6 @@ export const getDeviceOccupancyRules = (
 }
 
 export interface TimelapseRule extends BaseRule {
-    deviceId?: string;
     timelapseFramerate?: number;
     regularSnapshotInterval?: number;
     minDelay?: number;
@@ -1897,81 +1895,71 @@ export interface TimelapseRule extends BaseRule {
 
 export const getDeviceTimelapseRules = (
     props: {
-        mainPluginStorage?: Record<string, StorageSetting>,
-        deviceStorage: Record<string, StorageSetting>,
+        deviceStorage?: StorageSettings<any>,
+        pluginStorage?: StorageSettings<any>,
         console: Console
-        deviceId: string,
+        device: DeviceBase,
     }
 ) => {
-    const { deviceStorage, console, mainPluginStorage, deviceId } = props;
+    const { deviceStorage, console, device, pluginStorage } = props;
     const timelapseRules: TimelapseRule[] = [];
     const skippedRules: TimelapseRule[] = [];
 
-    const activeNotifiers = mainPluginStorage['notifiers']?.value as string[] ?? [];
+    const { notifiers: activeNotifiers } = pluginStorage.values;
+    const { rulesKey } = ruleTypeMetadataMap[RuleType.Occupancy];
 
-    const { rulesKey } = ruleTypeMetadataMap[RuleType.Timelapse];
-
-    const processRules = (storage: Record<string, StorageSetting>, source: RuleSource) => {
-        const timelapseRuleNames = storage[rulesKey]?.value as string[] ??
-            storage[`homeassistantMetadata:${rulesKey}`]?.value as string[] ??
-            [];
-        for (const timelapseRuleName of timelapseRuleNames) {
-            const {
-                common: {
-                    textKey
-                },
-                timelapse: {
-                    additionalFfmpegParametersKey,
-                    framesAcquisitionDelayKey,
-                    regularSnapshotIntervalKey,
-                    timelapseFramerateKey,
-                }
-            } = getRuleKeys({
-                ruleType: RuleType.Timelapse,
-                ruleName: timelapseRuleName,
-            });
-
-            const { rule, basicRuleAllowed } = initBasicRule({
-                activeNotifiers,
-                ruleName: timelapseRuleName,
-                ruleSource: RuleSource.Device,
-                ruleType: RuleType.Timelapse,
-                storage: deviceStorage
-            });
-
-            const customText = storage[textKey]?.value as string || undefined;
-            const additionalFfmpegParameters = storage[additionalFfmpegParametersKey]?.value as string || undefined;
-            const minDelay = Number(storage[framesAcquisitionDelayKey]?.value || 5);
-            const timelapseFramerate = Number(storage[timelapseFramerateKey]?.value || 10);
-            const regularSnapshotInterval = Number(storage[regularSnapshotIntervalKey]?.value || 15);
-
-            const timelapseRule: TimelapseRule = {
-                ...rule,
-                customText,
-                deviceId,
-                minDelay,
-                timelapseFramerate,
-                additionalFfmpegParameters,
-                regularSnapshotInterval
-            };
-
-            const ruleAllowed = basicRuleAllowed;
-
-            console.debug(`Timelapse rule processed: ${JSON.stringify({
-                timelapseRule,
-                ruleAllowed,
-                basicRuleAllowed,
-            })}`);
-
-            if (!ruleAllowed) {
-                skippedRules.push(timelapseRule);
-            } else {
-                timelapseRules.push(timelapseRule);
+    const timelapseRuleNames = deviceStorage.getItem(rulesKey) ?? [];
+    for (const timelapseRuleName of timelapseRuleNames) {
+        const {
+            common: {
+                textKey
+            },
+            timelapse: {
+                additionalFfmpegParametersKey,
+                framesAcquisitionDelayKey,
+                regularSnapshotIntervalKey,
+                timelapseFramerateKey,
             }
-        }
-    };
+        } = getRuleKeys({
+            ruleType: RuleType.Timelapse,
+            ruleName: timelapseRuleName,
+        });
 
-    processRules(deviceStorage, RuleSource.Device);
+        const { rule, basicRuleAllowed } = initBasicRule({
+            activeNotifiers,
+            ruleName: timelapseRuleName,
+            ruleSource: RuleSource.Device,
+            ruleType: RuleType.Timelapse,
+            storage: deviceStorage
+        });
+
+        const customText = deviceStorage.getItem(textKey) as string;
+        const additionalFfmpegParameters = deviceStorage.getItem(additionalFfmpegParametersKey) as string;
+        const minDelay = deviceStorage.getItem(framesAcquisitionDelayKey) as number;
+        const timelapseFramerate = deviceStorage.getItem(timelapseFramerateKey) as number || 10;
+        const regularSnapshotInterval = deviceStorage.getItem(regularSnapshotIntervalKey) as number || 15;
+
+        const timelapseRule: TimelapseRule = {
+            ...rule,
+            customText,
+            minDelay,
+            timelapseFramerate,
+            additionalFfmpegParameters,
+            regularSnapshotInterval
+        };
+
+
+        console.debug(`Timelapse rule processed: ${JSON.stringify({
+            timelapseRule,
+            basicRuleAllowed,
+        })}`);
+
+        if (!basicRuleAllowed) {
+            skippedRules.push(timelapseRule);
+        } else {
+            timelapseRules.push(timelapseRule);
+        }
+    }
 
     return {
         timelapseRules,
@@ -2050,4 +2038,21 @@ export const getNowFriendlyDate = () => {
 
 export function getAllDevices() {
     return Object.keys(sdk.systemManager.getSystemState()).map(id => sdk.systemManager.getDeviceById(id));
+}
+
+export const convertSettingsToStorageSettings = (props: {
+    device: StorageSettingsDevice,
+    settings: Setting[]
+}) => {
+    const { device, settings } = props;
+    const deviceSettings: StorageSettingsDict<string> = {};
+
+    for (const setting of settings) {
+        const { value, key, ...rest } = setting;
+        deviceSettings[key] = {
+            ...rest
+        };
+    }
+
+    return new StorageSettings(device, deviceSettings);
 }

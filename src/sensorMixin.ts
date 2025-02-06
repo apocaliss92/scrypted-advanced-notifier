@@ -1,7 +1,7 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ScryptedDeviceBase, ScryptedDeviceType, MediaObject, LockState, ScryptedDevice } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DetectionRule, detectRuleEnabledRegex, EventType, getDetectionRulesSettings, getMixinBaseSettings, getRuleKeys, isDeviceEnabled, RuleSource, RuleType } from "./utils";
+import { convertSettingsToStorageSettings, DetectionRule, detectRuleEnabledRegex, EventType, getDetectionRulesSettings, getMixinBaseSettings, getRuleKeys, isDeviceEnabled, RuleSource, RuleType } from "./utils";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoverDetectionRules, getDetectionRuleId, publishDeviceState, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 
@@ -30,6 +30,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         },
     });
 
+    storageSettingsUpdated: StorageSettings<string>;
     detectionListener: EventListenerRegister;
     mainLoopListener: NodeJS.Timeout;
     isActiveForNotifications: boolean;
@@ -80,7 +81,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
 
         const funct = async () => {
-            const deviceSettings = await this.getMixinSettings();
             const {
                 isActiveForMqttReporting,
                 isPluginEnabled,
@@ -91,11 +91,10 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 nvrRules,
                 allDeviceRules,
             } = await isDeviceEnabled({
-                deviceId: this.id,
-                deviceSettings,
+                device: this,
                 console: logger,
                 plugin: this.plugin,
-                deviceType: this.type,
+                deviceStorage: this.storageSettingsUpdated
             });
 
             const detectionRulesToEnable = (detectionRules || []).filter(newRule => !this.detectionRules?.some(currentRule => currentRule.name === newRule.name));
@@ -221,6 +220,11 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             ruleSource: RuleSource.Device,
         });
         settings.push(...detectionRulesSettings);
+
+        this.storageSettingsUpdated = convertSettingsToStorageSettings({
+            device: this,
+            settings,
+        });
 
         return settings;
     }

@@ -2,7 +2,7 @@ import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpR
 import axios from "axios";
 import { isEqual, keyBy, sortBy } from 'lodash';
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, parseNvrNotificationMessage, NotificationPriority, getFolderPaths, getDeviceRules, NvrEvent, ParseNotificationMessageResult, getPushoverPriority, detectRuleEnabledRegex, OccupancyRule, nvrAcceleratedMotionSensorId, StoreImageFn, TimelapseRule, RuleType, getNowFriendlyDate, DetectionRuleActivation, getRuleKeys, RuleSource, ruleTypeMetadataMap, pluginRulesGroup } from "./utils";
+import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, parseNvrNotificationMessage, NotificationPriority, getFolderPaths, getDeviceRules, NvrEvent, ParseNotificationMessageResult, getPushoverPriority, detectRuleEnabledRegex, OccupancyRule, nvrAcceleratedMotionSensorId, StoreImageFn, TimelapseRule, RuleType, getNowFriendlyDate, DetectionRuleActivation, getRuleKeys, RuleSource, ruleTypeMetadataMap, pluginRulesGroup, convertSettingsToStorageSettings } from "./utils";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
@@ -50,6 +50,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     nvrRules: DetectionRule[] = [];
     lastNotExistingNotifier: number;
     private checkExistingDevicesInterval: NodeJS.Timeout;
+    storageSettingsUpdated: StorageSettings<string>;
 
     storageSettings = new StorageSettings(this, {
         ...getBaseSettings({
@@ -425,9 +426,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             ?.filter(choice => !!choice)
             .map(person => person.trim());
 
-        const mainSettings = await this.getSettings();
-        const mainSettingsByKey = keyBy(mainSettings, 'key');
-        const { allPluginRules } = getDeviceRules({ mainPluginStorage: mainSettingsByKey, console: logger });
+        const { allPluginRules } = getDeviceRules({ pluginStorage: this.storageSettingsUpdated, console: logger });
 
         await setupPluginAutodiscovery({
             mqttClient,
@@ -631,9 +630,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 }
             }
 
-            const mainSettings = await this.getSettings();
-            const mainSettingsByKey = keyBy(mainSettings, 'key');
-            const { nvrRules, detectionRules, allPluginRules } = getDeviceRules({ mainPluginStorage: mainSettingsByKey, console: logger });
+            const { nvrRules, detectionRules, allPluginRules } = getDeviceRules({ pluginStorage: this.storageSettingsUpdated, console: logger });
 
             const rulesToEnable = [...detectionRules, ...nvrRules];
             const rulesToDisable = (allPluginRules || []).filter(currentRule => !detectionRules?.some(newRule => newRule.name === currentRule.name));
@@ -685,14 +682,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const devicesWithoutRoom: string[] = [];
 
             for (const device of allDevices) {
-                const settings = await this.currentMixinsMap[device.name].getMixinSettings();
-                const relevantRules = settings.filter(setting => setting.key?.match(notifiersRegex));
                 if (!device.room) {
                     devicesWithoutRoom.push(device.name);
                 }
 
-                for (const rule of relevantRules) {
-                    const [_, type, name] = rule.key.match(notifiersRegex);
+                const relevantRules = Object.entries(this.currentMixinsMap[device.name].storageSettingsUpdated)
+                    .filter(([key]) => key?.match(notifiersRegex));
+
+                for (const [ruleName, rule] of relevantRules) {
+                    const [_, type, name] = ruleName.match(notifiersRegex);
                     const missingNotifiers = (rule.value as string[])?.filter(notifierId => !sdk.systemManager.getDeviceById(notifierId));
                     if (missingNotifiers.length) {
                         missingNotifiersOfDeviceRules.push({ deviceName: device.name, notifierIds: missingNotifiers, ruleName: `${type}_${name}` });
@@ -700,27 +698,30 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 }
             }
 
-            const settings = await this.getSettings();
-            const relevantNotifierRules = settings.filter(setting => setting.key?.match(notifiersRegex));
+            const relevantNotifierRules = Object.entries(this.storageSettingsUpdated)
+                .filter(([key]) => key?.match(notifiersRegex));
 
-            for (const rule of relevantNotifierRules) {
-                const [_, type, name] = rule.key.match(notifiersRegex);
+            for (const [ruleName, rule] of relevantNotifierRules) {
+                const [_, type, name] = ruleName.match(notifiersRegex);
                 const missingNotifiers = (rule.value as string[])?.filter(notifierId => !sdk.systemManager.getDeviceById(notifierId));
                 if (missingNotifiers.length) {
                     missingNotifiersOfPluginRules.push({ notifierIds: missingNotifiers, ruleName: `${type}_${name}` });
                 }
             }
-            const relevantdeviceRules = settings.filter(setting => setting.key?.match(devicesRegex));
 
-            for (const rule of relevantdeviceRules) {
-                const [_, type, name] = rule.key.match(devicesRegex);
+            const relevantdeviceRules = Object.entries(this.storageSettingsUpdated)
+                .filter(([key]) => key?.match(devicesRegex));
+
+            for (const [ruleName, rule] of relevantdeviceRules) {
+                const [_, type, name] = ruleName.match(notifiersRegex);
                 const missingDevices = (rule.value as string[])?.filter(notifierId => !sdk.systemManager.getDeviceById(notifierId));
                 if (missingDevices.length) {
                     missingDevicesOfPluginRules.push({ deviceIds: missingDevices, ruleName: `${type}_${name}` });
                 }
             }
-            const anyActiveOnRules = settings.filter(setting => setting.key?.match(activationTypeRegex))
-                .filter(setting => setting.value === DetectionRuleActivation.OnActive);
+
+            const anyActiveOnRules = Object.entries(this.storageSettingsUpdated)
+                .filter(([key, setting]) => key?.match(activationTypeRegex) && setting.value === DetectionRuleActivation.OnActive);
 
             const sensorsNotLinkedToAnyCamera = allDevices.filter(
                 device => device.type === ScryptedDeviceType.Sensor && !this.deviceVideocameraMap[device.id]
@@ -803,6 +804,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             });
 
             settings.push(...detectionRulesSettings);
+
+            this.storageSettingsUpdated = convertSettingsToStorageSettings({
+                device: this,
+                settings,
+            });
 
             return settings;
         } catch (e) {
