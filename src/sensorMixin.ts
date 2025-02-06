@@ -1,7 +1,7 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ScryptedDeviceBase, ScryptedDeviceType, MediaObject, LockState, ScryptedDevice } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DetectionRule, detectRuleEnabledRegex, EventType, getDetectionRuleKeys, getDetectionRulesSettings, getMixinBaseSettings, isDeviceEnabled } from "./utils";
+import { DetectionRule, detectRuleEnabledRegex, EventType, getDetectionRulesSettings, getMixinBaseSettings, getRuleKeys, isDeviceEnabled, RuleSource, RuleType } from "./utils";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoverDetectionRules, getDetectionRuleId, publishDeviceState, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 
@@ -90,7 +90,32 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 isActiveForNvrNotifications,
                 nvrRules,
                 allDeviceRules,
-            } = await isDeviceEnabled(this.id, deviceSettings, this.plugin, logger, this.type);
+            } = await isDeviceEnabled({
+                deviceId: this.id,
+                deviceSettings,
+                console: logger,
+                plugin: this.plugin,
+                deviceType: this.type,
+            });
+
+            const detectionRulesToEnable = (detectionRules || []).filter(newRule => !this.detectionRules?.some(currentRule => currentRule.name === newRule.name));
+            const detectionRulesToDisable = (this.detectionRules || []).filter(currentRule => !detectionRules?.some(newRule => newRule.name === currentRule.name));
+
+            if (detectionRulesToEnable?.length) {
+                for (const rule of detectionRulesToEnable) {
+                    const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
+                    this.putMixinSetting(currentlyActiveKey, 'true');
+                }
+                logger.log(`Detection rules started: ${detectionRulesToEnable.map(rule => rule.name).join(', ')}`);
+            }
+
+            if (detectionRulesToDisable?.length) {
+                for (const rule of detectionRulesToEnable) {
+                    const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
+                    this.putMixinSetting(currentlyActiveKey, 'false');
+                }
+                logger.log(`Detection rules stopped: ${detectionRulesToDisable.map(rule => rule.name).join(', ')}`);
+            }
 
             logger.debug(`Detected rules: ${JSON.stringify({ detectionRules, skippedRules })}`);
             this.detectionRules = detectionRules || [];
@@ -122,7 +147,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                             detectionRules: allDeviceRules,
                             device,
                             detectionRuleCb: async ({ active, ruleName }) => {
-                                const { enabledKey } = getDetectionRuleKeys(ruleName);
+                                const { common: { enabledKey } } = getRuleKeys({ ruleName, ruleType: RuleType.Detection });
                                 logger.log(`Setting rule ${ruleName} for device ${device.name} to ${active}`);
                                 await device.putSetting(`homeassistantMetadata:${enabledKey}`, active);
                             },
@@ -192,8 +217,8 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
         const detectionRulesSettings = await getDetectionRulesSettings({
             storage: this.storageSettings,
-            groupName: 'Advanced notifier detection rules',
-            enabledRules: [...this.detectionRules, ...this.nvrDetectionRules]
+            isCamera: false,
+            ruleSource: RuleSource.Device,
         });
         settings.push(...detectionRulesSettings);
 
