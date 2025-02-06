@@ -1498,9 +1498,10 @@ const initBasicRule = (props: {
     storage?: StorageSettings<string>,
     ruleName: string,
     ruleSource: RuleSource,
-    activeNotifiers: string[]
+    activeNotifiers: string[],
+    securitySystem?: ScryptedDeviceBase,
 }) => {
-    const { storage, ruleType, ruleName, ruleSource, activeNotifiers } = props;
+    const { storage, ruleType, ruleName, ruleSource, activeNotifiers, securitySystem } = props;
 
     const { common: {
         currentlyActiveKey,
@@ -1547,9 +1548,9 @@ const initBasicRule = (props: {
     let timeAllowed = true;
 
     if (activationType === DetectionRuleActivation.Schedule || ruleType === RuleType.Timelapse) {
-        const days = storage[dayKey]?.value as number[] ?? [];
-        const startTime = Number(storage[startTimeKey]?.value);
-        const endTime = Number(storage[endTimeKey]?.value);
+        const days = storage.getItem(dayKey) as number[] ?? [];
+        const startTime = storage.getItem(startTimeKey) as number;
+        const endTime = storage.getItem(endTimeKey) as number;
 
         const currentDate = new Date();
         const currentDay = currentDate.getDay();
@@ -1582,8 +1583,8 @@ const initBasicRule = (props: {
     }
 
     let sensorsOk = true;
-    const enabledSensors = storage[enabledSensorsKey]?.value as string[] ?? [];
-    const disabledSensors = storage[disabledSensorsKey]?.value as string[] ?? [];
+    const enabledSensors = storage.getItem(enabledSensorsKey) as string[] ?? [];
+    const disabledSensors = storage.getItem(disabledSensorsKey) as string[] ?? [];
 
     if (!!enabledSensors.length || !!disabledSensors.length) {
         const systemState = sdk.systemManager.getSystemState();
@@ -1596,7 +1597,7 @@ const initBasicRule = (props: {
     }
 
     let isSecuritySystemEnabled = true;
-    const securitySystemDeviceId = storage['securitySystem']?.value as string;
+    const securitySystemDeviceId = securitySystem?.id;
     if (securitySystemDeviceId) {
         const securitySystemDevice = sdk.systemManager.getDeviceById<SecuritySystem>(securitySystemDeviceId);
         if (securitySystemDevice) {
@@ -1640,7 +1641,7 @@ export const getDeviceRules = (
     const deviceId = device?.id;
     const deviceType = device?.type;
 
-    const { notifiers: activeNotifiers, activeDevicesForNotifications: onActiveDevices } = pluginStorage.values;
+    const { notifiers: activeNotifiers, activeDevicesForNotifications: onActiveDevices, securitySystem } = pluginStorage.values;
 
     const { rulesKey } = ruleTypeMetadataMap[RuleType.Detection];
 
@@ -1687,7 +1688,8 @@ export const getDeviceRules = (
                 ruleName: detectionRuleName,
                 ruleSource,
                 ruleType: RuleType.Detection,
-                storage
+                storage,
+                securitySystem
             });
 
             const detectionRule: DetectionRule = {
@@ -1807,7 +1809,7 @@ export const getDeviceOccupancyRules = (
     const occupancyRules: OccupancyRule[] = [];
     const skippedOccupancyRules: OccupancyRule[] = [];
 
-    const { notifiers: activeNotifiers } = pluginStorage.values;
+    const { notifiers: activeNotifiers, securitySystem } = pluginStorage.values;
     const { rulesKey } = ruleTypeMetadataMap[RuleType.Occupancy];
     const occupancyRuleNames = deviceStorage.getItem(rulesKey) ?? [];
 
@@ -1838,7 +1840,8 @@ export const getDeviceOccupancyRules = (
             ruleName: occupancyRuleName,
             ruleSource: RuleSource.Device,
             ruleType: RuleType.Occupancy,
-            storage: deviceStorage
+            storage: deviceStorage,
+            securitySystem
         });
 
         const zoneOccupiedText = deviceStorage.getItem(zoneOccupiedTextKey) as string;
@@ -1905,7 +1908,7 @@ export const getDeviceTimelapseRules = (
     const timelapseRules: TimelapseRule[] = [];
     const skippedRules: TimelapseRule[] = [];
 
-    const { notifiers: activeNotifiers } = pluginStorage.values;
+    const { notifiers: activeNotifiers, securitySystem } = pluginStorage.values;
     const { rulesKey } = ruleTypeMetadataMap[RuleType.Occupancy];
 
     const timelapseRuleNames = deviceStorage.getItem(rulesKey) ?? [];
@@ -1930,7 +1933,8 @@ export const getDeviceTimelapseRules = (
             ruleName: timelapseRuleName,
             ruleSource: RuleSource.Device,
             ruleType: RuleType.Timelapse,
-            storage: deviceStorage
+            storage: deviceStorage,
+            securitySystem
         });
 
         const customText = deviceStorage.getItem(textKey) as string;

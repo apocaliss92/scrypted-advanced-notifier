@@ -90,7 +90,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     });
 
-    storageSettingsUpdated:StorageSettings<string>;
+    storageSettingsUpdated: StorageSettings<string>;
     detectionListener: EventListenerRegister;
     mqttDetectionMotionTimeout: NodeJS.Timeout;
     mainLoopListener: NodeJS.Timeout;
@@ -498,13 +498,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 ruleSource: RuleSource.Device
             });
             settings.push(...timelapseRulesSettings);
-            
+
             this.storageSettingsUpdated = convertSettingsToStorageSettings({
                 device: this,
                 settings,
             });
 
-            return settings;
+            return this.storageSettingsUpdated.getSettings();
         } catch (e) {
             this.getLogger().log('Error in getMixinSettings', e);
             return [];
@@ -561,7 +561,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
 
         this.storageSettings.putSetting(key, value);
-        // this.storage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
     }
 
     async release() {

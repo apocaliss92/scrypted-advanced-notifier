@@ -226,7 +226,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             settings,
         });
 
-        return settings;
+        return this.storageSettingsUpdated.getSettings();
     }
 
     async putMixinSetting(key: string, value: string, skipMqtt?: boolean) {

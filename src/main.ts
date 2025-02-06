@@ -810,7 +810,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 settings,
             });
 
-            return settings;
+            return this.storageSettingsUpdated.getSettings();
         } catch (e) {
             this.getLogger().log('Error in getSettings', e);
             return [];
