@@ -190,7 +190,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     device: this,
                     console: logger,
                     plugin: this.plugin,
-                    deviceStorage: this.storageSettingsUpdated
+                    deviceStorage: await this.getMixinSettingsInternal()
                 });
 
                 const timelapseRulesToEnable = (timelapseRules || []).filter(newRule => !this.timelapseRules?.some(currentRule => currentRule.name === newRule.name));
@@ -278,7 +278,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 this.nvrDetectionRules = cloneDeep(nvrRules || []);
                 this.occupancyRules = cloneDeep(occupancyRules || []);
                 this.timelapseRules = cloneDeep(timelapseRules || []);
-                this.allTimelapseRules = [...skippedTimelapseRules, ...timelapseRules];
+                this.allTimelapseRules = [...skippedTimelapseRules ?? [], ...timelapseRules ?? []];
 
                 this.isActiveForNotifications = isActiveForNotifications;
                 this.isActiveForMqttReporting = isActiveForMqttReporting;
@@ -465,6 +465,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             this.getLogger().log('Error in getObserveZones', e);
             return [];
         }
+    }
+
+    async getMixinSettingsInternal() {
+        this.getMixinSettings();
+
+        return this.storageSettingsUpdated;
     }
 
     async getMixinSettings(): Promise<Setting[]> {

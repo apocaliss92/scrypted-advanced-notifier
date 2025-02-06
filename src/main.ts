@@ -426,7 +426,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             ?.filter(choice => !!choice)
             .map(person => person.trim());
 
-        const { allPluginRules } = getDeviceRules({ pluginStorage: this.storageSettingsUpdated, console: logger });
+        const pluginStorage = await this.getSettingsInternal();
+        const { allPluginRules } = getDeviceRules({ pluginStorage, console: logger });
 
         await setupPluginAutodiscovery({
             mqttClient,
@@ -630,7 +631,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 }
             }
 
-            const { nvrRules, detectionRules, allPluginRules } = getDeviceRules({ pluginStorage: this.storageSettingsUpdated, console: logger });
+            const pluginStorage = await this.getSettingsInternal();
+            const { nvrRules, detectionRules, allPluginRules } = getDeviceRules({ pluginStorage, console: logger });
 
             const rulesToEnable = [...detectionRules, ...nvrRules];
             const rulesToDisable = (allPluginRules || []).filter(currentRule => !detectionRules?.some(newRule => newRule.name === currentRule.name));
@@ -698,7 +700,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 }
             }
 
-            const relevantNotifierRules = Object.entries(this.storageSettingsUpdated)
+            const pluginStorage = await this.getSettingsInternal();
+            const relevantNotifierRules = Object.entries(pluginStorage)
                 .filter(([key]) => key?.match(notifiersRegex));
 
             for (const [ruleName, rule] of relevantNotifierRules) {
@@ -709,7 +712,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 }
             }
 
-            const relevantdeviceRules = Object.entries(this.storageSettingsUpdated)
+            const relevantdeviceRules = Object.entries(pluginStorage)
                 .filter(([key]) => key?.match(devicesRegex));
 
             for (const [ruleName, rule] of relevantdeviceRules) {
@@ -720,7 +723,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 }
             }
 
-            const anyActiveOnRules = Object.entries(this.storageSettingsUpdated)
+            const anyActiveOnRules = Object.entries(pluginStorage)
                 .filter(([key, setting]) => key?.match(activationTypeRegex) && setting.value === DetectionRuleActivation.OnActive);
 
             const sensorsNotLinkedToAnyCamera = allDevices.filter(
@@ -760,6 +763,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 storagePathError: storagePathError ?? 'No error',
                 activeDevicesForReporting: `${activeDevicesForReporting.length} devices`,
                 scryptedToken: scryptedToken ? 'Set' : 'Not set',
+                serverId: this.storageSettings.getItem('serverId') ? 'Found' : 'Not found',
                 nvrUrl: nvrUrl ? 'Set' : 'Not set',
                 objectDetectionDevice: objectDetectionDevice ? objectDetectionDevice.name : 'Not set',
             });
@@ -786,6 +790,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         } catch (e) {
             logger.log('Error in checkExistingDevices', e);
         }
+    }
+
+
+    async getSettingsInternal() {
+        await this.getSettings();
+
+        return this.storageSettingsUpdated;
     }
 
     async getSettings() {

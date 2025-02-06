@@ -94,7 +94,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 device: this,
                 console: logger,
                 plugin: this.plugin,
-                deviceStorage: this.storageSettingsUpdated
+                deviceStorage: await this.getMixinSettingsInternal()
             });
 
             const detectionRulesToEnable = (detectionRules || []).filter(newRule => !this.detectionRules?.some(currentRule => currentRule.name === newRule.name));
@@ -208,6 +208,12 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
         this.detectionListener && this.detectionListener.removeListener();
         this.detectionListener = undefined;
+    }
+
+    async getMixinSettingsInternal() {
+        this.getMixinSettings();
+
+        return this.storageSettingsUpdated;
     }
 
     async getMixinSettings(): Promise<Setting[]> {
