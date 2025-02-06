@@ -469,6 +469,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async getMixinSettings(): Promise<Setting[]> {
         try {
+            const logger = this.getLogger();
             this.storageSettings.settings.ignoreCameraDetections.hide = !this.nvrEnabled;
 
             const lastSnapshotWebhook = this.storageSettings.values.lastSnapshotWebhook;
@@ -495,7 +496,27 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             const timelapseRulesSettings = await getTimelapseRulesSettings({
                 storage: this.storageSettings,
-                ruleSource: RuleSource.Device
+                ruleSource: RuleSource.Device,
+                // onCleanDataTimelapse: async (ruleName) => {
+                //     const rule = this.allTimelapseRules?.find(rule => rule.name === ruleName);
+                //     const device = systemManager.getDeviceById<DeviceInterface>(this.id);
+
+                //     this.plugin.clearFramesData({
+                //         rule,
+                //         device,
+                //         logger,
+                //     }).catch(logger.log)
+                // },
+                // onGenerateTimelapse: async (ruleName) => {
+                //     const rule = this.allTimelapseRules?.find(rule => rule.name === ruleName);
+                //     const device = systemManager.getDeviceById<DeviceInterface>(this.id);
+
+                //     this.plugin.timelapseRuleEnded({
+                //         rule,
+                //         device,
+                //         logger,
+                //     }).catch(logger.log)
+                // }
             });
             settings.push(...timelapseRulesSettings);
 

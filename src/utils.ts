@@ -606,6 +606,10 @@ export const isDeviceEnabled = async (
     const { console, device, deviceStorage, plugin } = props;
     const pluginStorage = plugin.storageSettingsUpdated;
 
+    if (!pluginStorage) {
+        return {};
+    }
+
     const {
         detectionRules,
         skippedRules,
@@ -866,7 +870,7 @@ export const getRuleSettings = (props: {
                 type: 'boolean',
                 group,
                 subgroup,
-                value: storage.getItem(enabledKey as any) as boolean ?? true,
+                // value: storage.getItem(enabledKey as any) as boolean ?? true,
                 immediate: true,
             },
             {
@@ -875,7 +879,7 @@ export const getRuleSettings = (props: {
                 type: 'boolean',
                 group,
                 subgroup,
-                value: storage.getItem(currentlyActiveKey as any) as boolean ?? false,
+                // value: storage.getItem(currentlyActiveKey as any) as boolean ?? false,
                 readonly: true
             }
         );
@@ -891,7 +895,7 @@ export const getRuleSettings = (props: {
                     DetectionRuleActivation.OnActive,
                     DetectionRuleActivation.Schedule,
                 ],
-                value: currentActivation,
+                // value: currentActivation,
                 immediate: true,
                 combobox: true
             });
@@ -907,7 +911,7 @@ export const getRuleSettings = (props: {
                 multiple: true,
                 combobox: true,
                 deviceFilter: notifierFilter,
-                value: storage.getItem(notifiersKey)
+                // value: storage.getItem(notifiersKey)
             }
         );
 
@@ -921,7 +925,7 @@ export const getRuleSettings = (props: {
                     subgroup,
                     type: 'day',
                     multiple: true,
-                    value: storage.getItem(dayKey)
+                    // value: storage.getItem(dayKey)
                 },
                 {
                     key: startTimeKey,
@@ -929,7 +933,7 @@ export const getRuleSettings = (props: {
                     group,
                     subgroup,
                     type: 'time',
-                    value: storage.getItem(startTimeKey)
+                    // value: storage.getItem(startTimeKey)
                 },
                 {
                     key: endTimeKey,
@@ -937,7 +941,7 @@ export const getRuleSettings = (props: {
                     group,
                     subgroup,
                     type: 'time',
-                    value: storage.getItem(endTimeKey),
+                    // value: storage.getItem(endTimeKey),
                 }
             );
         }
@@ -968,7 +972,7 @@ export const getRuleSettings = (props: {
                     combobox: true,
                     type: 'device',
                     deviceFilter: `(type === '${ScryptedDeviceType.Sensor}')`,
-                    value: storage.getItem(enabledSensorsKey)
+                    // value: storage.getItem(enabledSensorsKey)
                 },
                 {
                     key: disabledSensorsKey,
@@ -980,7 +984,7 @@ export const getRuleSettings = (props: {
                     combobox: true,
                     type: 'device',
                     deviceFilter: `(type === '${ScryptedDeviceType.Sensor}')`,
-                    value: storage.getItem(disabledSensorsKey)
+                    // value: storage.getItem(disabledSensorsKey)
                 },
                 {
                     key: securitySystemModesKey,
@@ -997,7 +1001,7 @@ export const getRuleSettings = (props: {
                         SecuritySystemMode.NightArmed,
                         SecuritySystemMode.AwayArmed,
                     ],
-                    value: storage.getItem(securitySystemModesKey)
+                    // value: storage.getItem(securitySystemModesKey)
                 },
                 {
                     key: priorityKey,
@@ -1008,7 +1012,7 @@ export const getRuleSettings = (props: {
                     choices: [NotificationPriority.VeryLow, NotificationPriority.Low, NotificationPriority.Normal, NotificationPriority.High],
                     immediate: true,
                     combobox: true,
-                    value: storage.getItem(priorityKey as any)
+                    // value: storage.getItem(priorityKey as any)
                 },
                 {
                     key: actionsKey,
@@ -1018,7 +1022,7 @@ export const getRuleSettings = (props: {
                     multiple: true,
                     group,
                     subgroup,
-                    value: storage.getItem(actionsKey)
+                    // value: storage.getItem(actionsKey)
                 },
             );
         }
@@ -1062,7 +1066,7 @@ export const getDetectionRulesSettings = async (props: {
                 type: 'boolean',
                 group,
                 subgroup,
-                value: useNvrDetections,
+                // value: useNvrDetections,
                 immediate: true
             },
             {
@@ -1071,7 +1075,7 @@ export const getDetectionRulesSettings = async (props: {
                 description: 'Available arguments ${room} $[time} ${nvrLink} ${zone} ${class} ${label}',
                 group,
                 subgroup,
-                value: storage.getItem(textKey),
+                // value: storage.getItem(textKey),
                 type: 'string',
             },
             {
@@ -1082,7 +1086,7 @@ export const getDetectionRulesSettings = async (props: {
                 multiple: true,
                 combobox: true,
                 choices: defaultDetectionClasses,
-                value: storage.getItem(detectionClassesKey),
+                // value: storage.getItem(detectionClassesKey),
             }
         );
 
@@ -1096,7 +1100,7 @@ export const getDetectionRulesSettings = async (props: {
                     multiple: true,
                     combobox: true,
                     choices: Object.values(NvrEvent),
-                    value: storage.getItem(nvrEventsKey),
+                    // value: storage.getItem(nvrEventsKey),
                 }
             );
         }
@@ -1111,7 +1115,7 @@ export const getDetectionRulesSettings = async (props: {
                 multiple: true,
                 combobox: true,
                 deviceFilter,
-                value: storage.getItem(devicesKey),
+                // value: storage.getItem(devicesKey),
             });
         }
 
@@ -1125,7 +1129,7 @@ export const getDetectionRulesSettings = async (props: {
                     subgroup,
                     type: 'number',
                     placeholder: '-',
-                    value: storage.getItem(recordingTriggerSecondsKey),
+                    // value: storage.getItem(recordingTriggerSecondsKey),
                 },
                 {
                     key: minDelayKey,
@@ -1135,7 +1139,7 @@ export const getDetectionRulesSettings = async (props: {
                     subgroup,
                     type: 'number',
                     placeholder: '-',
-                    value: storage.getItem(minDelayKey),
+                    // value: storage.getItem(minDelayKey),
                 }
             );
 
@@ -1147,7 +1151,7 @@ export const getDetectionRulesSettings = async (props: {
                     subgroup,
                     type: 'number',
                     placeholder: '0.7',
-                    value: storage.getItem(scoreThresholdKey as any) as string
+                    // value: storage.getItem(scoreThresholdKey as any) as string
                 }
             );
 
@@ -1162,7 +1166,7 @@ export const getDetectionRulesSettings = async (props: {
                         combobox: true,
                         choices: zones,
                         readonly: !zones.length,
-                        value: storage.getItem(whitelistedZonesKey),
+                        // value: storage.getItem(whitelistedZonesKey),
                     },
                     {
                         key: blacklistedZonesKey,
@@ -1173,7 +1177,7 @@ export const getDetectionRulesSettings = async (props: {
                         combobox: true,
                         choices: zones,
                         readonly: !zones.length,
-                        value: storage.getItem(blacklistedZonesKey),
+                        // value: storage.getItem(blacklistedZonesKey),
                     },
                 )
             }
@@ -1225,7 +1229,7 @@ export const getOccupancyRulesSettings = async (props: {
                 group,
                 subgroup,
                 choices: defaultDetectionClasses,
-                value: storage.getItem(detectionClassKey),
+                // value: storage.getItem(detectionClassKey),
             },
             {
                 key: zoneKey,
@@ -1233,7 +1237,7 @@ export const getOccupancyRulesSettings = async (props: {
                 group,
                 subgroup,
                 choices: zones,
-                value: storage.getItem(zoneKey),
+                // value: storage.getItem(zoneKey),
                 readonly: !zones.length
             },
             {
@@ -1241,7 +1245,7 @@ export const getOccupancyRulesSettings = async (props: {
                 title: 'Capture zone',
                 group,
                 subgroup,
-                value: storage.getItem(captureZoneKey),
+                // value: storage.getItem(captureZoneKey),
                 type: 'clippath'
             },
             {
@@ -1250,7 +1254,7 @@ export const getOccupancyRulesSettings = async (props: {
                 group,
                 subgroup,
                 choices: Object.values(ZoneMatchType),
-                value: storage.getItem(zoneMatchTypeKey) ?? ZoneMatchType.Intersect,
+                // value: storage.getItem(zoneMatchTypeKey) ?? ZoneMatchType.Intersect,
             },
             {
                 key: scoreThresholdKey,
@@ -1259,7 +1263,7 @@ export const getOccupancyRulesSettings = async (props: {
                 subgroup,
                 type: 'number',
                 placeholder: '0.5',
-                value: storage.getItem(scoreThresholdKey as any) as string
+                // value: storage.getItem(scoreThresholdKey as any) as string
             },
             {
                 key: changeStateConfirmKey,
@@ -1269,7 +1273,7 @@ export const getOccupancyRulesSettings = async (props: {
                 subgroup,
                 type: 'number',
                 placeholder: '30',
-                value: storage.getItem(changeStateConfirmKey as any) as number
+                // value: storage.getItem(changeStateConfirmKey as any) as number
             },
             {
                 key: forceUpdateKey,
@@ -1279,7 +1283,7 @@ export const getOccupancyRulesSettings = async (props: {
                 subgroup,
                 type: 'number',
                 placeholder: '30',
-                value: storage.getItem(forceUpdateKey as any) as number
+                // value: storage.getItem(forceUpdateKey as any) as number
             },
             {
                 key: maxObjectsKey,
@@ -1289,7 +1293,7 @@ export const getOccupancyRulesSettings = async (props: {
                 subgroup,
                 type: 'number',
                 placeholder: '1',
-                value: storage.getItem(maxObjectsKey as any) as number
+                // value: storage.getItem(maxObjectsKey as any) as number
             },
             {
                 key: zoneOccupiedTextKey,
@@ -1297,7 +1301,7 @@ export const getOccupancyRulesSettings = async (props: {
                 description: 'Text to use for the notification when the rule gets activated (zone occupied). Available arguments ${detectedObjects} ${maxObjects}',
                 group,
                 subgroup,
-                value: storage.getItem(zoneOccupiedTextKey),
+                // value: storage.getItem(zoneOccupiedTextKey),
                 type: 'string',
             },
             {
@@ -1306,7 +1310,7 @@ export const getOccupancyRulesSettings = async (props: {
                 description: 'Text to use for the notification when the rule gets deactivated (zone not occupied). Available arguments ${detectedObjects} ${maxObjects}',
                 group,
                 subgroup,
-                value: storage.getItem(zoneNotOccupiedTextKey),
+                // value: storage.getItem(zoneNotOccupiedTextKey),
                 type: 'string',
             },
             {
@@ -1318,7 +1322,7 @@ export const getOccupancyRulesSettings = async (props: {
                 subgroup,
                 deviceFilter: `interfaces.includes('ObjectDetectionPreview') && id !== '${nvrAcceleratedMotionSensorId}'`,
                 immediate: true,
-                value: storage.getItem(objectDetectorKey)
+                // value: storage.getItem(objectDetectorKey)
             },
         );
 
@@ -1335,12 +1339,14 @@ export const getOccupancyRulesSettings = async (props: {
 
 export const getTimelapseRulesSettings = async (props: {
     storage: StorageSettings<any>,
-    ruleSource: RuleSource
+    ruleSource: RuleSource,
+    // onGenerateTimelapse: (ruleName: string) => Promise<void>
+    // onCleanDataTimelapse: (ruleName: string) => Promise<void>
 }) => {
     const { storage, ruleSource } = props;
 
     const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup }) => {
-        const settings: Setting[] = [];
+        const settings: StorageSetting[] = [];
 
         const { timelapse, common } = getRuleKeys({ ruleName, ruleType: RuleType.Timelapse });
 
@@ -1391,7 +1397,7 @@ export const getTimelapseRulesSettings = async (props: {
                 subgroup,
                 type: 'number',
                 placeholder: '15',
-                value: storage.getItem(regularSnapshotIntervalKey as any) as string,
+                // value: storage.getItem(regularSnapshotIntervalKey as any) as string,
             },
             // {
             //     key: additionalFfmpegParametersKey,
@@ -1409,7 +1415,7 @@ export const getTimelapseRulesSettings = async (props: {
                 subgroup,
                 type: 'day',
                 multiple: true,
-                value: storage.getItem(dayKey),
+                // value: storage.getItem(dayKey),
             },
             {
                 key: startTimeKey,
@@ -1417,8 +1423,7 @@ export const getTimelapseRulesSettings = async (props: {
                 group,
                 subgroup,
                 type: 'time',
-                multiple: true,
-                value: storage.getItem(startTimeKey),
+                // value: storage.getItem(startTimeKey),
             },
             {
                 key: endTimeKey,
@@ -1426,8 +1431,7 @@ export const getTimelapseRulesSettings = async (props: {
                 group,
                 subgroup,
                 type: 'time',
-                multiple: true,
-                value: storage.getItem(endTimeKey),
+                // value: storage.getItem(endTimeKey),
             },
             {
                 key: generateKey,
@@ -1435,7 +1439,10 @@ export const getTimelapseRulesSettings = async (props: {
                 group,
                 subgroup,
                 type: 'button',
-                multiple: true,
+                // onPut: async (_, __) => {
+                //     console.log(_, __);
+                //     onGenerateTimelapse(ruleName);
+                // }
             },
             {
                 key: cleanDataKey,
@@ -1443,7 +1450,7 @@ export const getTimelapseRulesSettings = async (props: {
                 group,
                 subgroup,
                 type: 'button',
-                multiple: true,
+                // onPut: async () => onCleanDataTimelapse(ruleName)
             }
         );
 
@@ -2046,16 +2053,19 @@ export function getAllDevices() {
 
 export const convertSettingsToStorageSettings = (props: {
     device: StorageSettingsDevice,
-    settings: Setting[]
+    settings: StorageSetting[]
 }) => {
     const { device, settings } = props;
     const deviceSettings: StorageSettingsDict<string> = {};
 
     for (const setting of settings) {
-        const { value, key, ...rest } = setting;
+        const { value, key, onPut, ...rest } = setting;
         deviceSettings[key] = {
             ...rest
         };
+        if (setting.onPut) {
+            deviceSettings[key].onPut = setting.onPut.bind(device)
+        }
     }
 
     return new StorageSettings(device, deviceSettings);
