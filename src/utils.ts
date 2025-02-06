@@ -1559,8 +1559,8 @@ const initBasicRule = (props: {
         if (!dayOk) {
             timeAllowed = false;
         } else {
-            const referenceStart = moment(startTime);
-            const referenceEnd = moment(endTime);
+            const referenceStart = moment(Number(startTime));
+            const referenceEnd = moment(Number(endTime));
             const now = moment();
 
             const getMinutes = (date: Moment) => date.minutes() + (date.hours() * 60);
