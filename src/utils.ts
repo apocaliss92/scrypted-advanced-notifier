@@ -826,8 +826,9 @@ export enum ZoneMatchType {
 
 export const deviceFilter = `(interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && (type === '${ScryptedDeviceType.Camera}' || type === '${ScryptedDeviceType.Doorbell}' || type === '${ScryptedDeviceType.Sensor}' || type === '${ScryptedDeviceType.Lock}'))`;
 export const notifierFilter = `(type === '${ScryptedDeviceType.Notifier}' && interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}'))`;
-type GetSpecificRules = (props: { group: string, subgroup: string, ruleName: string }) => Setting[];
+type GetSpecificRules = (props: { group: string, subgroup: string, ruleName: string, showMore: boolean }) => Setting[];
 type OnRuleToggle = (ruleName: string, enabled: boolean) => Promise<void>
+type OnShowMore = (showMore: boolean) => Promise<void>
 
 export const getRuleSettings = (props: {
     ruleType: RuleType,
@@ -835,8 +836,9 @@ export const getRuleSettings = (props: {
     ruleSource: RuleSource,
     getSpecificRules: GetSpecificRules,
     onRuleToggle: OnRuleToggle,
+    onShowMore: OnShowMore,
 }) => {
-    const { ruleType, storage, ruleSource, getSpecificRules, onRuleToggle } = props;
+    const { ruleType, storage, ruleSource, getSpecificRules, onRuleToggle, onShowMore } = props;
     const group = ruleSource === RuleSource.Device ? mixinRulesGroup : pluginRulesGroup;
     const settings: StorageSetting[] = [];
     const { rulesKey, subgroupPrefix } = ruleTypeMetadataMap[ruleType];
@@ -846,6 +848,7 @@ export const getRuleSettings = (props: {
         const subgroup = `${subgroupPrefix}: ${ruleName}`;
         const {
             common: {
+                textKey,
                 enabledKey,
                 currentlyActiveKey,
                 activationKey,
@@ -863,8 +866,8 @@ export const getRuleSettings = (props: {
         } = getRuleKeys({ ruleName, ruleType });
 
         const currentActivation = storage.getItem(activationKey as any) as DetectionRuleActivation;
-        const showMoreConfigurations = true;
-        // const showMoreConfigurations = storage.getItem(showMoreConfigurationsKey) as boolean;
+        const showMoreConfigurationsRaw = storage.getItem(showMoreConfigurationsKey) as boolean;
+        const showMoreConfigurations = typeof showMoreConfigurationsRaw === 'string' ? JSON.parse(showMoreConfigurationsRaw) : showMoreConfigurationsRaw;
 
         settings.push(
             {
@@ -899,6 +902,7 @@ export const getRuleSettings = (props: {
                     DetectionRuleActivation.OnActive,
                     DetectionRuleActivation.Schedule,
                 ],
+                placeholder: DetectionRuleActivation.Always,
                 immediate: true,
                 combobox: true
             });
@@ -945,19 +949,33 @@ export const getRuleSettings = (props: {
             );
         }
 
-        settings.push(...getSpecificRules({ ruleName, subgroup, group }));
+        settings.push(...getSpecificRules({ ruleName, subgroup, group, showMore: showMoreConfigurations }));
 
-        // settings.push(
-        //     {
-        //         key: showMoreConfigurationsKey,
-        //         title: 'Show more configurations',
-        //         type: 'boolean',
-        //         group,
-        //         subgroup,
-        //         value: showMoreConfigurations,
-        //         immediate: true,
-        //     },
-        // );
+        settings.push(
+            {
+                key: showMoreConfigurationsKey,
+                title: 'Show more configurations',
+                type: 'boolean',
+                group,
+                subgroup,
+                immediate: true,
+                onPut: async (_, showMore) => {
+                    await onShowMore(showMore)
+                },
+            },
+        );
+
+        if (ruleType !== RuleType.Occupancy) {
+            settings.push({
+                key: textKey,
+                title: 'Custom text',
+                description: 'Available arguments ${room} $[time} ${nvrLink} ${zone} ${class} ${label}',
+                group,
+                subgroup,
+                type: 'string',
+                hide: ruleType === RuleType.Detection && !showMoreConfigurations
+            });
+        }
 
         settings.push(
             {
@@ -1033,16 +1051,17 @@ export const getDetectionRulesSettings = async (props: {
     zones?: string[],
     ruleSource: RuleSource,
     isCamera?: boolean,
-    onRuleToggle: OnRuleToggle
+    onRuleToggle: OnRuleToggle,
+    onShowMore: OnShowMore,
 }) => {
-    const { storage, zones, isCamera, ruleSource, onRuleToggle } = props;
+    const { storage, zones, isCamera, ruleSource, onRuleToggle, onShowMore } = props;
 
-    const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup }) => {
-        const settings: Setting[] = [];
+    const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup, showMore }) => {
+        const settings: StorageSetting[] = [];
 
         const { detection, common, } = getRuleKeys({ ruleName, ruleType: RuleType.Detection });
 
-        const { textKey, scoreThresholdKey, activationKey } = common;
+        const { scoreThresholdKey, activationKey } = common;
         const {
             blacklistedZonesKey,
             minDelayKey,
@@ -1065,14 +1084,6 @@ export const getDetectionRulesSettings = async (props: {
                 group,
                 subgroup,
                 immediate: true
-            },
-            {
-                key: textKey,
-                title: 'Custom text',
-                description: 'Available arguments ${room} $[time} ${nvrLink} ${zone} ${class} ${label}',
-                group,
-                subgroup,
-                type: 'string',
             },
             {
                 key: detectionClassesKey,
@@ -1112,16 +1123,41 @@ export const getDetectionRulesSettings = async (props: {
             });
         }
 
+        if (isCamera && zones) {
+            settings.push(
+                {
+                    key: whitelistedZonesKey,
+                    title: 'Whitelisted zones',
+                    group,
+                    subgroup,
+                    multiple: true,
+                    combobox: true,
+                    choices: zones,
+                    readonly: !zones.length,
+                },
+                {
+                    key: blacklistedZonesKey,
+                    title: 'Blacklisted zones',
+                    group,
+                    subgroup,
+                    multiple: true,
+                    combobox: true,
+                    choices: zones,
+                    readonly: !zones.length,
+                },
+            )
+        }
+
         if (isCamera) {
             settings.push(
                 {
-                    key: recordingTriggerSecondsKey,
-                    title: 'Disable recording in seconds',
-                    description: '[DEPRECATED] Set a value here in seconds to enable the camera recording when the rule is triggered. After the seconds specified, recording will be disabled',
+                    key: scoreThresholdKey,
+                    title: 'Score threshold',
                     group,
                     subgroup,
                     type: 'number',
-                    placeholder: '-',
+                    placeholder: '0.7',
+                    hide: !showMore
                 },
                 {
                     key: minDelayKey,
@@ -1131,44 +1167,19 @@ export const getDetectionRulesSettings = async (props: {
                     subgroup,
                     type: 'number',
                     placeholder: '-',
-                }
-            );
-
-            settings.push(
+                    hide: !showMore
+                },
                 {
-                    key: scoreThresholdKey,
-                    title: 'Score threshold',
+                    key: recordingTriggerSecondsKey,
+                    title: 'Disable recording in seconds',
+                    description: '[DEPRECATED] Set a value here in seconds to enable the camera recording when the rule is triggered. After the seconds specified, recording will be disabled',
                     group,
                     subgroup,
                     type: 'number',
-                    placeholder: '0.7',
-                }
-            );
-
-            if (isCamera && zones) {
-                settings.push(
-                    {
-                        key: whitelistedZonesKey,
-                        title: 'Whitelisted zones',
-                        group,
-                        subgroup,
-                        multiple: true,
-                        combobox: true,
-                        choices: zones,
-                        readonly: !zones.length,
-                    },
-                    {
-                        key: blacklistedZonesKey,
-                        title: 'Blacklisted zones',
-                        group,
-                        subgroup,
-                        multiple: true,
-                        combobox: true,
-                        choices: zones,
-                        readonly: !zones.length,
-                    },
-                )
-            }
+                    placeholder: '-',
+                    hide: !showMore
+                },
+            )
         }
 
         return settings;
@@ -1179,7 +1190,8 @@ export const getDetectionRulesSettings = async (props: {
         ruleSource,
         ruleType: RuleType.Detection,
         storage,
-        onRuleToggle
+        onRuleToggle,
+        onShowMore
     });
 }
 
@@ -1189,12 +1201,13 @@ export const getOccupancyRulesSettings = async (props: {
     storage: StorageSettings<any>,
     zones?: string[],
     ruleSource: RuleSource,
-    onRuleToggle: OnRuleToggle
+    onRuleToggle: OnRuleToggle,
+    onShowMore: OnShowMore,
 }) => {
-    const { storage, zones, ruleSource, onRuleToggle } = props;
+    const { storage, zones, ruleSource, onRuleToggle, onShowMore } = props;
 
-    const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup }) => {
-        const settings: Setting[] = [];
+    const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup, showMore }) => {
+        const settings: StorageSetting[] = [];
 
         const { occupancy, common } = getRuleKeys({ ruleName, ruleType: RuleType.Occupancy });
 
@@ -1233,7 +1246,8 @@ export const getOccupancyRulesSettings = async (props: {
                 title: 'Capture zone',
                 group,
                 subgroup,
-                type: 'clippath'
+                type: 'clippath',
+                hide: !showMore
             },
             {
                 key: zoneMatchTypeKey,
@@ -1241,6 +1255,7 @@ export const getOccupancyRulesSettings = async (props: {
                 group,
                 subgroup,
                 choices: Object.values(ZoneMatchType),
+                defaultValue: ZoneMatchType.Intersect
             },
             {
                 key: scoreThresholdKey,
@@ -1276,6 +1291,7 @@ export const getOccupancyRulesSettings = async (props: {
                 subgroup,
                 type: 'number',
                 placeholder: '1',
+                hide: !showMore
             },
             {
                 key: zoneOccupiedTextKey,
@@ -1302,6 +1318,7 @@ export const getOccupancyRulesSettings = async (props: {
                 subgroup,
                 deviceFilter: `interfaces.includes('ObjectDetectionPreview') && id !== '${nvrAcceleratedMotionSensorId}'`,
                 immediate: true,
+                hide: !showMore
             },
         );
 
@@ -1313,7 +1330,8 @@ export const getOccupancyRulesSettings = async (props: {
         ruleSource,
         ruleType: RuleType.Occupancy,
         storage,
-        onRuleToggle
+        onRuleToggle,
+        onShowMore,
     });
 }
 
@@ -1322,11 +1340,12 @@ export const getTimelapseRulesSettings = async (props: {
     ruleSource: RuleSource,
     onGenerateTimelapse: (ruleName: string) => Promise<void>,
     onCleanDataTimelapse: (ruleName: string) => Promise<void>,
-    onRuleToggle: OnRuleToggle
+    onRuleToggle: OnRuleToggle,
+    onShowMore: OnShowMore,
 }) => {
-    const { storage, ruleSource, onCleanDataTimelapse, onGenerateTimelapse, onRuleToggle } = props;
+    const { storage, ruleSource, onCleanDataTimelapse, onGenerateTimelapse, onRuleToggle, onShowMore } = props;
 
-    const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup }) => {
+    const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup, showMore }) => {
         const settings: StorageSetting[] = [];
 
         const { timelapse, common } = getRuleKeys({ ruleName, ruleType: RuleType.Timelapse });
@@ -1349,26 +1368,6 @@ export const getTimelapseRulesSettings = async (props: {
                 subgroup,
                 value: storage.getItem(textKey),
                 type: 'string',
-            },
-            {
-                key: framesAcquisitionDelayKey,
-                title: 'Frames acquisition delay',
-                description: 'Minimum amount of seconds to wait until a new frame is recorded',
-                group,
-                subgroup,
-                type: 'number',
-                placeholder: '5',
-                value: storage.getItem(framesAcquisitionDelayKey as any) as string,
-            },
-            {
-                key: timelapseFramerateKey,
-                title: 'Timelapse framerate',
-                description: 'Minimum amount of seconds to wait until a new frame is recorded',
-                group,
-                subgroup,
-                type: 'number',
-                placeholder: '10',
-                value: storage.getItem(timelapseFramerateKey as any) as string,
             },
             {
                 key: regularSnapshotIntervalKey,
@@ -1411,12 +1410,33 @@ export const getTimelapseRulesSettings = async (props: {
                 type: 'time',
             },
             {
+                key: framesAcquisitionDelayKey,
+                title: 'Frames acquisition delay',
+                description: 'Minimum amount of seconds to wait until a new frame is recorded',
+                group,
+                subgroup,
+                type: 'number',
+                placeholder: '5',
+                hide: !showMore
+            },
+            {
+                key: timelapseFramerateKey,
+                title: 'Timelapse framerate',
+                description: 'Minimum amount of seconds to wait until a new frame is recorded',
+                group,
+                subgroup,
+                type: 'number',
+                placeholder: '10',
+                hide: !showMore
+            },
+            {
                 key: generateKey,
                 title: 'Generate now',
                 group,
                 subgroup,
                 type: 'button',
-                onPut: async () => onGenerateTimelapse(ruleName)
+                onPut: async () => onGenerateTimelapse(ruleName),
+                hide: !showMore
             },
             {
                 key: cleanDataKey,
@@ -1424,7 +1444,8 @@ export const getTimelapseRulesSettings = async (props: {
                 group,
                 subgroup,
                 type: 'button',
-                onPut: async () => onCleanDataTimelapse(ruleName)
+                onPut: async () => onCleanDataTimelapse(ruleName),
+                hide: !showMore
             }
         );
 
@@ -1437,6 +1458,7 @@ export const getTimelapseRulesSettings = async (props: {
         ruleType: RuleType.Timelapse,
         storage,
         onRuleToggle,
+        onShowMore
     });
 }
 
@@ -1509,7 +1531,7 @@ const initBasicRule = (props: {
     const priority = storage.getItem(priorityKey) as NotificationPriority;
     const actions = storage.getItem(actionsKey) as string[];
     const customText = storage.getItem(textKey);
-    const activationType = storage.getItem(activationKey) as DetectionRuleActivation;
+    const activationType = storage.getItem(activationKey) as DetectionRuleActivation ?? DetectionRuleActivation.Always;
     const securitySystemModes = storage.getItem(securitySystemModesKey) as SecuritySystemMode[];
     const notifiers = storage.getItem(notifiersKey) as string[] ?? [];
 
@@ -1652,7 +1674,7 @@ export const getDeviceRules = (
                 });
 
             const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean;
-            const activationType = storage.getItem(activationKey) as DetectionRuleActivation;
+            const activationType = storage.getItem(activationKey) as DetectionRuleActivation ?? DetectionRuleActivation.Always;
             const customText = storage.getItem(textKey) as string || undefined;
             const mainDevices = storage.getItem(devicesKey) as string[] ?? [];
 
@@ -1919,7 +1941,7 @@ export const getDeviceTimelapseRules = (
 
         const customText = deviceStorage.getItem(textKey) as string;
         const additionalFfmpegParameters = deviceStorage.getItem(additionalFfmpegParametersKey) as string;
-        const minDelay = deviceStorage.getItem(framesAcquisitionDelayKey) as number;
+        const minDelay = deviceStorage.getItem(framesAcquisitionDelayKey) as number ?? 5;
         const timelapseFramerate = deviceStorage.getItem(timelapseFramerateKey) as number || 10;
         const regularSnapshotInterval = deviceStorage.getItem(regularSnapshotIntervalKey) as number || 15;
 
@@ -2046,23 +2068,3 @@ export const convertSettingsToStorageSettings = (props: {
 
     return new StorageSettings(device, deviceSettings);
 }
-
-// export const convertStorageSettingsToSettings = (props: {
-//     device: StorageSettingsDevice,
-//     storageSettings: StorageSettingsDict<string>
-// }) => {
-//     const { device, storageSettings } = props;
-//     const deviceSettings: Setting[] = [];
-
-//     for (const [key, setting] of Object.entries(storageSettings)) {
-//         const { value, key, onPut, ...rest } = setting;
-//         deviceSettings[key] = {
-//             ...rest
-//         };
-//         if (setting.onPut) {
-//             deviceSettings[key].onPut = setting.onPut.bind(device)
-//         }
-//     }
-
-//     return new StorageSettings(device, deviceSettings);
-// }

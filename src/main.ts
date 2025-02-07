@@ -35,7 +35,7 @@ interface NotifyCameraProps {
 }
 
 export default class AdvancedNotifierPlugin extends BasePlugin implements MixinProvider, HttpRequestHandler, DeviceProvider {
-    initSettings: StorageSettingsDict<string> = {
+    initStorage: StorageSettingsDict<string> = {
         ...getBaseSettings({
             onPluginSwitch: (_, enabled) => this.startStop(enabled),
             hideHa: false,
@@ -209,6 +209,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             title: 'Message key',
             type: 'string',
             immediate: true,
+            choices: Object.keys(getTextSettings(false)).map(key => key)
         },
         testPriority: {
             group: 'Test',
@@ -235,7 +236,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             },
         },
     };
-    storageSettings = new StorageSettings(this, this.initSettings);
+    storageSettings = new StorageSettings(this, this.initStorage);
 
     private deviceHaEntityMap: Record<string, string> = {};
     private haEntityDeviceMap: Record<string, string> = {};
@@ -353,33 +354,29 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 return;
             } else if (webhook === lastSnapshot) {
                 const device = this.currentMixinsMap[deviceNameOrAction] as AdvancedNotifierCameraMixin;
-                const isWebhookEnabled = device?.storageSettings.getItem('lastSnapshotWebhook');
-                logger.log(`lastSnapshotWebhook: ${isWebhookEnabled}`);
 
-                if (isWebhookEnabled) {
-                    const { snapshotsFolder } = await getFolderPaths(device.id);
+                const { snapshotsFolder } = await getFolderPaths(device.id);
 
-                    const lastSnapshotFilePath = path.join(snapshotsFolder, `${webhook}.jpg`);
+                const lastSnapshotFilePath = path.join(snapshotsFolder, `${webhook}.jpg`);
 
-                    if (lastSnapshotFilePath) {
-                        const mo = await sdk.mediaManager.createFFmpegMediaObject({
-                            inputArguments: [
-                                '-i', lastSnapshotFilePath,
-                            ]
-                        });
-                        const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
-                        response.send(jpeg, {
-                            headers: {
-                                'Content-Type': 'image/jpeg',
-                            }
-                        });
-                        return;
-                    } else {
-                        response.send(`Last snapshot not found for device ${deviceNameOrAction}`, {
-                            code: 404,
-                        });
-                        return;
-                    }
+                if (lastSnapshotFilePath) {
+                    const mo = await sdk.mediaManager.createFFmpegMediaObject({
+                        inputArguments: [
+                            '-i', lastSnapshotFilePath,
+                        ]
+                    });
+                    const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
+                    response.send(jpeg, {
+                        headers: {
+                            'Content-Type': 'image/jpeg',
+                        }
+                    });
+                    return;
+                } else {
+                    response.send(`Last snapshot not found for device ${deviceNameOrAction}`, {
+                        code: 404,
+                    });
+                    return;
                 }
             } else if (webhook === timelapseDownload) {
                 const decodedTimelapseName = decodeURIComponent(timelapseName);
@@ -777,11 +774,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     async refreshSettings() {
         const logger = this.getLogger();
-        const settings: Setting[] = await super.getSettings();
+        const newStorageSettings = new StorageSettings(this, this.initStorage);
+        // super.applySettingsShow(newStorageSettings);
+        const settings = await newStorageSettings.getSettings();
 
         const detectionRulesSettings = await getDetectionRulesSettings({
             storage: this.storageSettings,
             ruleSource: RuleSource.Plugin,
+            onShowMore: async () => await this.refreshSettings(),
             onRuleToggle: async (ruleName: string, active: boolean) => {
                 await this.updateActivationRuleOnMqtt({
                     active,
@@ -805,8 +805,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const { haEnabled } = this.storageSettings.values;
             this.storageSettings.settings.domains.hide = !haEnabled;
             this.storageSettings.settings.fetchHaEntities.hide = !haEnabled;
-
-            this.storageSettings.settings.testMessage.choices = Object.keys(getTextSettings(false)).map(key => key);
 
             return this.storageSettings.getSettings();
         } catch (e) {

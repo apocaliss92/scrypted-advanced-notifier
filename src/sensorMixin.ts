@@ -214,6 +214,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             storage: this.storageSettings,
             isCamera: false,
             ruleSource: RuleSource.Device,
+            onShowMore: async () => await this.refreshSettings(),
             onRuleToggle: async (ruleName: string, active: boolean) => {
                 await this.plugin.updateActivationRuleOnMqtt({
                     active,
@@ -295,7 +296,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         try {
             if (minDelayTime) {
                 if (this.lastDetection && (triggerTime - this.lastDetection) < 1000 * minDelayTime) {
-                    logger.debug(`Waiting for delay: ${(triggerTime - this.lastDetection) / 1000}s`);
+                    logger.debug(`Waiting for delay: ${minDelayTime - ((triggerTime - this.lastDetection) / 1000)}s`);
                     return;
                 }
 

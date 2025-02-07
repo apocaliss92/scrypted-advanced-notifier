@@ -67,12 +67,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             subgroup: 'Notifier',
         },
         // WEBHOOKS
-        lastSnapshotWebhook: {
-            subgroup: 'Webhooks',
-            title: 'Last snapshot webhook',
-            type: 'boolean',
-            immediate: true,
-        },
         lastSnapshotWebhookCloudUrl: {
             subgroup: 'Webhooks',
             type: 'string',
@@ -429,6 +423,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             zones,
             isCamera: true,
             ruleSource: RuleSource.Device,
+            onShowMore: async () => await this.refreshSettings(),
             onRuleToggle: async (ruleName: string, active: boolean) => {
                 await this.plugin.updateActivationRuleOnMqtt({
                     active,
@@ -445,6 +440,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             storage: this.storageSettings,
             zones,
             ruleSource: RuleSource.Device,
+            onShowMore: async () => await this.refreshSettings(),
             onRuleToggle: async (ruleName: string, active: boolean) => {
                 await this.plugin.updateActivationRuleOnMqtt({
                     active,
@@ -460,6 +456,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const timelapseRulesSettings = await getTimelapseRulesSettings({
             storage: this.storageSettings,
             ruleSource: RuleSource.Device,
+            onShowMore: async () => await this.refreshSettings(),
             onCleanDataTimelapse: async (ruleName) => {
                 const rule = this.allTimelapseRules?.find(rule => rule.name === ruleName);
 
@@ -540,10 +537,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     async getMixinSettings(): Promise<Setting[]> {
         try {
             this.storageSettings.settings.ignoreCameraDetections.hide = !this.nvrEnabled;
-
-            const lastSnapshotWebhook = this.storageSettings.values.lastSnapshotWebhook;
-            this.storageSettings.settings.lastSnapshotWebhookCloudUrl.hide = !lastSnapshotWebhook;
-            this.storageSettings.settings.lastSnapshotWebhookLocalUrl.hide = !lastSnapshotWebhook;
 
             return this.storageSettings.getSettings();
         } catch (e) {
@@ -1278,8 +1271,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     const { match, rule } = matchRule;
                     const lastDetectionkey = this.getLastDetectionkey(matchRule);
                     const lastDetection = this.lastDetectionMap[lastDetectionkey];
-                    if (lastDetection && (now - lastDetection) < 1000 * (rule.minDelay ?? minDelayTime)) {
-                        logger.debug(`Waiting for delay: ${(now - lastDetection) / 1000}s`);
+                    const delay = rule.minDelay ?? minDelayTime;
+                    if (lastDetection && (now - lastDetection) < 1000 * delay) {
+                        logger.debug(`Waiting for delay: ${delay - ((now - lastDetection) / 1000)}s`);
                         return false;
                     }
                     this.lastDetectionMap[this.getLastDetectionkey(matchRule)] = now;
