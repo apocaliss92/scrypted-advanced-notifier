@@ -438,7 +438,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         return { allPluginRules };
     }
 
-    async putSetting(key: string, value: SettingValue, skipMqtt?: boolean): Promise<void> {
+    async putSetting(key: string, value: SettingValue): Promise<void> {
         return this.storageSettings.putSetting(key, value);
     }
 
@@ -473,7 +473,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     ruleCb: async ({ active, ruleName }) => {
                         const { common: { enabledKey } } = getRuleKeys({ ruleName, ruleType: RuleType.Detection });
                         logger.log(`Setting rule ${ruleName} to ${active}`);
-                        await this.putSetting(enabledKey, active, true);
+                        await this.putSetting(enabledKey, active);
                     },
                 });
             } catch (e) {
@@ -774,6 +774,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     async refreshSettings() {
         const logger = this.getLogger();
+        const onPutToRestore: Record<string, any> = {};
+        Object.entries(this.initStorage).forEach(([key, setting]) => {
+            if (setting.onPut) {
+                onPutToRestore[key] = setting.onPut;
+            }
+        });
         const newStorageSettings = new StorageSettings(this, this.initStorage);
         // super.applySettingsShow(newStorageSettings);
         const settings = await newStorageSettings.getSettings();
@@ -798,6 +804,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             device: this,
             settings,
         });
+
+        Object.entries(onPutToRestore).forEach(([key, onPut]) => {
+            this.storageSettings.settings[key].onPut = onPut;
+        });
     }
 
     async getSettings() {
@@ -821,7 +831,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         let entityIds: string[] = [];
 
         try {
-            logger.debug(`Fetching homeasisstant data`);
+            logger.log(`Fetching homeasisstant data`);
             const haApi = await this.getHaApi();
             const roomsResponse = await haApi.getTemplateData("{{ areas() }}");
 
@@ -849,6 +859,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger.debug(`Rooms found: ${JSON.stringify(rooms)}`);
             await this.putSetting('fetchedEntities', entityIds);
             await this.putSetting('fetchedRooms', rooms);
+
+            logger.log(`HA data fetched`);
         }
     }
 
@@ -1133,7 +1145,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             image,
             rule,
         } = props;
-        this.console.log(JSON.stringify(props));
         const triggerDevice = systemManager.getDeviceById(triggerDeviceId) as unknown as DeviceInterface;
         const cameraDevice = await this.getCameraDevice(triggerDevice);
 

@@ -415,6 +415,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async refreshSettings() {
         const logger = this.getLogger();
+        const onPutToRestore: Record<string, any> = {};
+        Object.entries(this.initStorage).forEach(([key, setting]) => {
+            if (setting.onPut) {
+                onPutToRestore[key] = setting.onPut;
+            }
+        });
         const settings: Setting[] = await new StorageSettings(this, this.initStorage).getSettings();
         const zones = (await this.getObserveZones()).map(item => item.name);
 
@@ -497,6 +503,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.storageSettings = convertSettingsToStorageSettings({
             device: this,
             settings,
+        });
+
+        Object.entries(onPutToRestore).forEach(([key, onPut]) => {
+            this.storageSettings.settings[key].onPut = onPut;
         });
     }
 

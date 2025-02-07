@@ -93,7 +93,7 @@ export const storeWebhookImage = async (props: {
     const { snapshotsFolder } = await getFolderPaths(deviceId);
     const lastSnapshotFilePath = path.join(snapshotsFolder, `${webhook}.jpg`);
     const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpg');
-    logger.debug(`Storing image, size is ${jpeg.byteLength}`);
+    logger.debug(`Storing image for webhook ${webhook}, size is ${jpeg.byteLength}`);
     await fs.promises.writeFile(lastSnapshotFilePath, jpeg).catch(e => logger.log(`Error saving webhook ${webhook} image`, e));
 }
 
@@ -880,6 +880,7 @@ export const getRuleSettings = (props: {
                 onPut: async (_, active) => {
                     await onRuleToggle(ruleName, active)
                 },
+                defaultValue: true,
             },
             {
                 key: currentlyActiveKey,
@@ -1526,7 +1527,7 @@ const initBasicRule = (props: {
         ruleName,
     });
 
-    const isEnabled = storage.getItem(enabledKey);
+    const isEnabled = storage.getItem(enabledKey) ?? true;
     const currentlyActive = storage.getItem(currentlyActiveKey);
     const priority = storage.getItem(priorityKey) as NotificationPriority;
     const actions = storage.getItem(actionsKey) as string[];
