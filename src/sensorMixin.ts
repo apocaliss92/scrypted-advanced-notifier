@@ -1,9 +1,9 @@
-import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ScryptedDeviceBase, ScryptedDeviceType, MediaObject, LockState, ScryptedDevice } from "@scrypted/sdk";
+import sdk, { EventListenerRegister, LockState, MediaObject, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
-import { convertSettingsToStorageSettings, DetectionRule, detectRuleEnabledRegex, EventType, getDetectionRulesSettings, getMixinBaseSettings, getRuleKeys, isDeviceEnabled, RuleSource, RuleType } from "./utils";
 import HomeAssistantUtilitiesProvider from "./main";
-import { discoverDetectionRules, getDetectionRuleId, publishDeviceState, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
+import { discoveryRuleTopics, getDetectionRuleId, publishDeviceState, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
+import { convertSettingsToStorageSettings, DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, getRuleKeys, isDeviceEnabled, RuleSource, RuleType } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -146,10 +146,10 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                             mqttClient,
                             detectionRules: allDeviceRules,
                             device,
-                            detectionRuleCb: async ({ active, ruleName }) => {
-                                const { common: { enabledKey } } = getRuleKeys({ ruleName, ruleType: RuleType.Detection });
-                                logger.log(`Setting rule ${ruleName} for device ${device.name} to ${active}`);
-                                await device.putSetting(`homeassistantMetadata:${enabledKey}`, active);
+                            activationRuleCb: async ({ active, ruleName, ruleType }) => {
+                                const { common: { enabledKey } } = getRuleKeys({ ruleName, ruleType });
+                                logger.log(`Setting ${ruleType} rule ${ruleName} for device ${device.name} to ${active}`);
+                                await this.storageSettings.putSetting(`${enabledKey}`, active);
                             },
                         });
 
@@ -158,12 +158,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
                     const missingRules = detectionRules.filter(rule => !this.rulesDiscovered.includes(getDetectionRuleId(rule)));
                     if (missingRules.length) {
-                        await discoverDetectionRules({
-                            mqttClient,
-                            console: logger,
-                            device,
-                            rules: missingRules
-                        });
+                        await discoveryRuleTopics({ mqttClient, console: logger, device, rules: missingRules });
                         this.rulesDiscovered.push(...missingRules.map(rule => getDetectionRuleId(rule)))
                     }
                 }
@@ -212,12 +207,22 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async refreshSettings() {
+        const logger = this.getLogger();
         const settings: Setting[] = await new StorageSettings(this, this.initStorage).getSettings();
 
         const detectionRulesSettings = await getDetectionRulesSettings({
             storage: this.storageSettings,
             isCamera: false,
             ruleSource: RuleSource.Device,
+            onRuleToggle: async (ruleName: string, active: boolean) => {
+                await this.plugin.updateActivationRuleOnMqtt({
+                    active,
+                    logger,
+                    ruleName,
+                    deviceId: this.id,
+                    ruleType: RuleType.Detection
+                });
+            },
         });
         settings.push(...detectionRulesSettings);
 
@@ -231,20 +236,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         return this.storageSettings.getSettings();
     }
 
-    async putMixinSetting(key: string, value: string, skipMqtt?: boolean) {
-        if (!skipMqtt) {
-            const enabledResult = detectRuleEnabledRegex.exec(key);
-            if (enabledResult) {
-                const ruleName = enabledResult[1];
-                await this.plugin.updateDetectionRuleOnMqtt({
-                    active: JSON.parse(value as string ?? 'false'),
-                    logger: this.getLogger(),
-                    ruleName,
-                    deviceId: this.id
-                })
-            }
-        }
-
+    async putMixinSetting(key: string, value: string) {
         this.storage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
     }
 

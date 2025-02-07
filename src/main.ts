@@ -1,20 +1,20 @@
 import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
+import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
 import { isEqual, keyBy, sortBy } from 'lodash';
-import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
-import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, parseNvrNotificationMessage, NotificationPriority, getFolderPaths, getDeviceRules, NvrEvent, ParseNotificationMessageResult, getPushoverPriority, detectRuleEnabledRegex, OccupancyRule, nvrAcceleratedMotionSensorId, StoreImageFn, TimelapseRule, RuleType, getNowFriendlyDate, DetectionRuleActivation, getRuleKeys, RuleSource, ruleTypeMetadataMap, pluginRulesGroup, convertSettingsToStorageSettings } from "./utils";
-import { AdvancedNotifierCameraMixin } from "./cameraMixin";
-import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
-import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
-import { BasePlugin, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
-import { getMqttTopics, getOccupancyRuleStrings, getRuleStrings, setupPluginAutodiscovery, subscribeToMainMqttTopics } from "./mqtt-utils";
 import path from 'path';
+import { BasePlugin, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { AdvancedNotifierCameraMixin } from "./cameraMixin";
+import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
+import { getMqttTopics, getRuleStrings, setupPluginAutodiscovery, subscribeToMainMqttTopics } from "./mqtt-utils";
 import { AdvancedNotifierNotifier } from "./notifier";
+import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
+import { AdvancedNotifierSensorMixin } from "./sensorMixin";
+import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getDetectionRulesSettings, getDeviceRules, getElegibleDevices, getFolderPaths, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, RuleSource, RuleType, ruleTypeMetadataMap, StoreImageFn, TimelapseRule } from "./utils";
 // import { version } from '../package.json';
-import fs from 'fs';
 import child_process from 'child_process';
 import { once } from "events";
+import fs from 'fs';
 
 const { systemManager, mediaManager } = sdk;
 const defaultNotifierNativeId = 'advancedNotifierDefaultNotifier';
@@ -442,36 +442,17 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     async putSetting(key: string, value: SettingValue, skipMqtt?: boolean): Promise<void> {
-        if (!skipMqtt) {
-            const enabledResultDetected = detectRuleEnabledRegex.exec(key);
-            if (enabledResultDetected) {
-                const ruleName = enabledResultDetected[1];
-                this.updateDetectionRuleOnMqtt({ active: value as boolean, ruleName, logger: this.getLogger() });
-            }
-        }
-
         return this.storageSettings.putSetting(key, value);
     }
 
-    async updateDetectionRuleOnMqtt(props: { deviceId?: string, active: boolean, ruleName: string, logger: Console }) {
-        const { active, ruleName, deviceId, logger } = props;
+    async updateActivationRuleOnMqtt(props: { deviceId?: string, active: boolean, ruleName: string, logger: Console, ruleType: RuleType }) {
+        const { active, ruleName, deviceId, logger, ruleType } = props;
         const mqttClient = await this.getMqttClient();
-        const { entityId, ruleDeviceId } = getRuleStrings({ name: ruleName, deviceId } as DetectionRule);
+        const { entityId, ruleDeviceId } = getRuleStrings({ name: ruleName, ruleType } as BaseRule);
 
         const { getEntityTopic } = getMqttTopics(ruleDeviceId);
         const stateTopic = getEntityTopic(entityId);
-        logger.log(`Setting detection rule ${ruleName} to ${active} for device ${deviceId}`);
-        await mqttClient.publish(stateTopic, active ? 'ON' : 'OFF');
-    }
-
-    async updateOccupancyRuleOnMqtt(props: { deviceId?: string, active: boolean, ruleName: string, logger: Console }) {
-        const { active, ruleName, deviceId, logger } = props;
-        const mqttClient = await this.getMqttClient();
-        const { entityId, ruleDeviceId } = getOccupancyRuleStrings({ name: ruleName } as OccupancyRule);
-
-        const { getEntityTopic } = getMqttTopics(ruleDeviceId);
-        const stateTopic = getEntityTopic(entityId);
-        logger.log(`Setting occupancy rule ${ruleName} to ${active} for device ${deviceId}`);
+        logger.log(`Setting ${ruleType} rule ${ruleName} to ${active} for device ${deviceId}`);
         await mqttClient.publish(stateTopic, active ? 'ON' : 'OFF');
     }
 
@@ -795,11 +776,20 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     async refreshSettings() {
+        const logger = this.getLogger();
         const settings: Setting[] = await super.getSettings();
 
         const detectionRulesSettings = await getDetectionRulesSettings({
             storage: this.storageSettings,
             ruleSource: RuleSource.Plugin,
+            onRuleToggle: async (ruleName: string, active: boolean) => {
+                await this.updateActivationRuleOnMqtt({
+                    active,
+                    logger,
+                    ruleName,
+                    ruleType: RuleType.Detection
+                });
+            },
         });
 
         settings.push(...detectionRulesSettings);

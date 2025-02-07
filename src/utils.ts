@@ -13,10 +13,6 @@ import { SettingsMixinDeviceBase } from "@scrypted/sdk/settings-mixin";
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Settings;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
-export const detectRuleEnabledRegex = new RegExp('rule:(.*):enabled');
-export const occupancyRuleEnabledRegex = new RegExp('occupancyRule:(.*):enabled');
-export const timelapseRuleGenerateRegex = new RegExp('timelapseRule:(.*):generate');
-export const timelapseRuleCleanRegex = new RegExp('timelapseRule:(.*):clenup');
 
 export interface ObserveZoneData {
     name: string;
@@ -634,7 +630,7 @@ export const isDeviceEnabled = async (
         device,
     });
 
-    const { skippedRules: skippedTimelapseRules, timelapseRules } = getDeviceTimelapseRules({
+    const { skippedRules: skippedTimelapseRules, timelapseRules, allTimelapseRules } = getDeviceTimelapseRules({
         deviceStorage,
         pluginStorage,
         console,
@@ -664,6 +660,7 @@ export const isDeviceEnabled = async (
         allPossibleRules,
         timelapseRules,
         skippedTimelapseRules,
+        allTimelapseRules,
     }
 }
 
@@ -830,14 +827,16 @@ export enum ZoneMatchType {
 export const deviceFilter = `(interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && (type === '${ScryptedDeviceType.Camera}' || type === '${ScryptedDeviceType.Doorbell}' || type === '${ScryptedDeviceType.Sensor}' || type === '${ScryptedDeviceType.Lock}'))`;
 export const notifierFilter = `(type === '${ScryptedDeviceType.Notifier}' && interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}'))`;
 type GetSpecificRules = (props: { group: string, subgroup: string, ruleName: string }) => Setting[];
+type OnRuleToggle = (ruleName: string, enabled: boolean) => Promise<void>
 
 export const getRuleSettings = (props: {
     ruleType: RuleType,
     storage: StorageSettings<any>,
     ruleSource: RuleSource,
     getSpecificRules: GetSpecificRules,
+    onRuleToggle: OnRuleToggle,
 }) => {
-    const { ruleType, storage, ruleSource, getSpecificRules } = props;
+    const { ruleType, storage, ruleSource, getSpecificRules, onRuleToggle } = props;
     const group = ruleSource === RuleSource.Device ? mixinRulesGroup : pluginRulesGroup;
     const settings: StorageSetting[] = [];
     const { rulesKey, subgroupPrefix } = ruleTypeMetadataMap[ruleType];
@@ -875,6 +874,9 @@ export const getRuleSettings = (props: {
                 group,
                 subgroup,
                 immediate: true,
+                onPut: async (_, active) => {
+                    await onRuleToggle(ruleName, active)
+                },
             },
             {
                 key: currentlyActiveKey,
@@ -1031,8 +1033,9 @@ export const getDetectionRulesSettings = async (props: {
     zones?: string[],
     ruleSource: RuleSource,
     isCamera?: boolean,
+    onRuleToggle: OnRuleToggle
 }) => {
-    const { storage, zones, isCamera, ruleSource } = props;
+    const { storage, zones, isCamera, ruleSource, onRuleToggle } = props;
 
     const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup }) => {
         const settings: Setting[] = [];
@@ -1176,6 +1179,7 @@ export const getDetectionRulesSettings = async (props: {
         ruleSource,
         ruleType: RuleType.Detection,
         storage,
+        onRuleToggle
     });
 }
 
@@ -1185,8 +1189,9 @@ export const getOccupancyRulesSettings = async (props: {
     storage: StorageSettings<any>,
     zones?: string[],
     ruleSource: RuleSource,
+    onRuleToggle: OnRuleToggle
 }) => {
-    const { storage, zones, ruleSource } = props;
+    const { storage, zones, ruleSource, onRuleToggle } = props;
 
     const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup }) => {
         const settings: Setting[] = [];
@@ -1308,16 +1313,18 @@ export const getOccupancyRulesSettings = async (props: {
         ruleSource,
         ruleType: RuleType.Occupancy,
         storage,
+        onRuleToggle
     });
 }
 
 export const getTimelapseRulesSettings = async (props: {
     storage: StorageSettings<any>,
     ruleSource: RuleSource,
-    onGenerateTimelapse: (ruleName: string) => Promise<void>
-    onCleanDataTimelapse: (ruleName: string) => Promise<void>
+    onGenerateTimelapse: (ruleName: string) => Promise<void>,
+    onCleanDataTimelapse: (ruleName: string) => Promise<void>,
+    onRuleToggle: OnRuleToggle
 }) => {
-    const { storage, ruleSource, onCleanDataTimelapse, onGenerateTimelapse } = props;
+    const { storage, ruleSource, onCleanDataTimelapse, onGenerateTimelapse, onRuleToggle } = props;
 
     const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup }) => {
         const settings: StorageSetting[] = [];
@@ -1429,6 +1436,7 @@ export const getTimelapseRulesSettings = async (props: {
         ruleSource,
         ruleType: RuleType.Timelapse,
         storage,
+        onRuleToggle,
     });
 }
 
@@ -1449,6 +1457,7 @@ export interface BaseRule {
     currentlyActive?: boolean;
     ruleType: RuleType;
     name: string;
+    deviceId?: string;
     notifiers: string[];
     customText?: string;
     priority: NotificationPriority;
@@ -1462,7 +1471,6 @@ export interface DetectionRule extends BaseRule {
     scoreThreshold?: number;
     whitelistedZones?: string[];
     blacklistedZones?: string[];
-    deviceId?: string;
     disableNvrRecordingSeconds?: number;
     minDelay?: number;
 }
@@ -1878,6 +1886,7 @@ export const getDeviceTimelapseRules = (
     const { deviceStorage, console, device, pluginStorage } = props;
     const timelapseRules: TimelapseRule[] = [];
     const skippedRules: TimelapseRule[] = [];
+    const allTimelapseRules: TimelapseRule[] = [];
 
     const { notifiers: activeNotifiers, securitySystem } = pluginStorage.values;
     const { rulesKey } = ruleTypeMetadataMap[RuleType.Timelapse];
@@ -1929,6 +1938,8 @@ export const getDeviceTimelapseRules = (
             basicRuleAllowed,
         })}`);
 
+        allTimelapseRules.push(cloneDeep(timelapseRule));
+
         if (!basicRuleAllowed) {
             skippedRules.push(timelapseRule);
         } else {
@@ -1939,6 +1950,7 @@ export const getDeviceTimelapseRules = (
     return {
         timelapseRules,
         skippedRules,
+        allTimelapseRules,
     };
 }
 

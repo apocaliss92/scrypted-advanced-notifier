@@ -1,12 +1,12 @@
-import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ObjectDetection, Image, ScryptedMimeTypes, SettingValue } from "@scrypted/sdk";
+import sdk, { Camera, EventListenerRegister, Image, MediaObject, MotionSensor, ObjectDetection, ObjectDetectionResult, ObjectDetector, ObjectsDetected, ScryptedDevice, ScryptedDeviceBase, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
-import { DetectionRule, RuleSource, DeviceInterface, detectRuleEnabledRegex, occupancyRuleEnabledRegex, EventType, filterAndSortValidDetections, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getWebookUrls, isDeviceEnabled, ObserveZoneData, OccupancyRule, ZoneMatchType, TimelapseRule, getTimelapseRulesSettings, RuleType, getWebooks, getRuleKeys, convertSettingsToStorageSettings } from "./utils";
+import { cloneDeep } from "lodash";
 import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
-import { discoverDetectionRules, discoverOccupancyRules, getDetectionRuleId, getOccupancyRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
+import { discoveryRuleTopics, getDetectionRuleId, getOccupancyRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { cloneDeep } from "lodash";
+import { DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, isDeviceEnabled } from "./utils";
 
 const { systemManager } = sdk;
 const secondsPerPicture = 5;
@@ -187,6 +187,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     allPossibleRules,
                     timelapseRules,
                     skippedTimelapseRules,
+                    allTimelapseRules,
                 } = await isDeviceEnabled({
                     device: this,
                     console: logger,
@@ -220,34 +221,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 })}`);
 
                 if (detectionRulesToEnable?.length) {
-                    for (const rule of detectionRulesToEnable) {
-                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
-                        this.putMixinSetting(currentlyActiveKey, 'true');
-                    }
                     logger.log(`Detection rules started: ${detectionRulesToEnable.map(rule => rule.name).join(', ')}`);
                 }
 
                 if (detectionRulesToDisable?.length) {
-                    for (const rule of detectionRulesToEnable) {
-                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
-                        this.putMixinSetting(currentlyActiveKey, 'false');
-                    }
                     logger.log(`Detection rules stopped: ${detectionRulesToDisable.map(rule => rule.name).join(', ')}`);
                 }
 
                 if (occupancyRulesToEnable?.length) {
-                    for (const rule of occupancyRulesToEnable) {
-                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Occupancy });
-                        this.putMixinSetting(currentlyActiveKey, 'true');
-                    }
                     logger.log(`Detection rules started: ${occupancyRulesToEnable.map(rule => rule.name).join(', ')}`);
                 }
 
                 if (occupancyRulesToDisable?.length) {
-                    for (const rule of occupancyRulesToDisable) {
-                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Occupancy });
-                        this.putMixinSetting(currentlyActiveKey, 'false');
-                    }
                     logger.log(`Detection rules stopped: ${occupancyRulesToDisable.map(rule => rule.name).join(', ')}`);
                 }
 
@@ -279,7 +264,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 this.nvrDetectionRules = cloneDeep(nvrRules || []);
                 this.occupancyRules = cloneDeep(occupancyRules || []);
                 this.timelapseRules = cloneDeep(timelapseRules || []);
-                this.allTimelapseRules = [...skippedTimelapseRules ?? [], ...timelapseRules ?? []];
+                this.allTimelapseRules = cloneDeep(allTimelapseRules || []);
 
                 this.isActiveForNotifications = isActiveForNotifications;
                 this.isActiveForMqttReporting = isActiveForMqttReporting;
@@ -299,6 +284,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 deviceClass: 'motion',
                                 detectionRules: allPossibleRules,
                                 occupancyRules: allOccupancyRules,
+                                timelapseRules: allTimelapseRules,
                             });
 
                             logger.log(`Subscribing to mqtt topics`);
@@ -306,16 +292,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 mqttClient,
                                 detectionRules: allPossibleRules,
                                 occupancyRules: allOccupancyRules,
+                                timelapseRules: allTimelapseRules,
                                 device,
-                                detectionRuleCb: async ({ active, ruleName }) => {
-                                    const { common: { enabledKey } } = getRuleKeys({ ruleName, ruleType: RuleType.Detection });
-                                    logger.log(`Setting detection rule ${ruleName} to ${active}`);
-                                    await device.putSetting(`homeassistantMetadata:${enabledKey}`, active);
-                                },
-                                occupancyRuleCb: async ({ active, ruleName }) => {
-                                    const { common: { enabledKey } } = getRuleKeys({ ruleName, ruleType: RuleType.Occupancy });
-                                    logger.log(`Setting occupancy rule ${ruleName} to ${active}`);
-                                    await device.putSetting(`homeassistantMetadata:${enabledKey}`, active);
+                                activationRuleCb: async ({ active, ruleName, ruleType }) => {
+                                    const { common: { enabledKey } } = getRuleKeys({ ruleName, ruleType });
+                                    logger.log(`Setting ${ruleType} rule ${ruleName} to ${active}`);
+                                    await this.storageSettings.putSetting(`${enabledKey}`, active);
                                 },
                                 switchRecordingCb: async (active) => {
                                     logger.log(`Setting NVR privacy mode to ${!active}`);
@@ -334,13 +316,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         })}`);
 
                         if (missingRules.length) {
-                            await discoverDetectionRules({ mqttClient, console: logger, device, rules: missingRules });
+                            await discoveryRuleTopics({ mqttClient, console: logger, device, rules: missingRules });
                             this.rulesDiscovered.push(...missingRules.map(rule => getDetectionRuleId(rule)))
                         }
 
                         const missingOccupancyRules = occupancyRules.filter(rule => !this.occupancyRulesDiscovered.includes(getOccupancyRuleId(rule)));
                         if (missingOccupancyRules.length) {
-                            await discoverOccupancyRules({ mqttClient, console: logger, device, rules: missingOccupancyRules });
+                            await discoveryRuleTopics({ mqttClient, console: logger, device, rules: missingOccupancyRules });
                             this.occupancyRulesDiscovered.push(...missingOccupancyRules.map(rule => getOccupancyRuleId(rule)))
                         }
 
@@ -447,13 +429,31 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             zones,
             isCamera: true,
             ruleSource: RuleSource.Device,
+            onRuleToggle: async (ruleName: string, active: boolean) => {
+                await this.plugin.updateActivationRuleOnMqtt({
+                    active,
+                    logger,
+                    ruleName,
+                    deviceId: this.id,
+                    ruleType: RuleType.Detection
+                });
+            },
         });
         settings.push(...detectionRulesSettings);
 
         const occupancyRulesSettings = await getOccupancyRulesSettings({
             storage: this.storageSettings,
             zones,
-            ruleSource: RuleSource.Device
+            ruleSource: RuleSource.Device,
+            onRuleToggle: async (ruleName: string, active: boolean) => {
+                await this.plugin.updateActivationRuleOnMqtt({
+                    active,
+                    logger,
+                    ruleName,
+                    deviceId: this.id,
+                    ruleType: RuleType.Occupancy
+                });
+            },
         });
         settings.push(...occupancyRulesSettings);
 
@@ -484,7 +484,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         logger,
                     }).catch(logger.log);
                 }
-            }
+            },
+            onRuleToggle: async (ruleName: string, active: boolean) => {
+                await this.plugin.updateActivationRuleOnMqtt({
+                    active,
+                    logger,
+                    ruleName,
+                    deviceId: this.id,
+                    ruleType: RuleType.Timelapse
+                });
+            },
         });
         settings.push(...timelapseRulesSettings);
 
@@ -552,31 +561,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    async putMixinSetting(key: string, value: string, skipMqtt?: boolean) {
-        const logger = this.getLogger();
-        const enabledResultDetected = detectRuleEnabledRegex.exec(key);
-        const enabledResultOccupancy = occupancyRuleEnabledRegex.exec(key);
-
-        if (!skipMqtt) {
-            if (enabledResultDetected) {
-                const ruleName = enabledResultDetected[1];
-                await this.plugin.updateDetectionRuleOnMqtt({
-                    active: JSON.parse(value as string ?? 'false'),
-                    logger,
-                    ruleName,
-                    deviceId: this.id,
-                });
-            } else if (enabledResultOccupancy) {
-                const ruleName = enabledResultOccupancy[1];
-                await this.plugin.updateOccupancyRuleOnMqtt({
-                    active: JSON.parse(value as string ?? 'false'),
-                    logger,
-                    ruleName,
-                    deviceId: this.id
-                });
-            }
-        }
-
+    async putMixinSetting(key: string, value: string) {
         this.storageSettings.putSetting(key, value);
     }
 
