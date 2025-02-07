@@ -498,10 +498,11 @@ export enum NotificationPriority {
 export const getMixinBaseSettings = (props: {
     mixin: SettingsMixinDeviceBase<any>,
     plugin: AdvancedNotifierPlugin,
-    isCamera: boolean
+    isCamera: boolean,
+    refreshSettings: () => Promise<void>
 }) => {
     try {
-        const { mixin, isCamera } = props;
+        const { mixin, isCamera, refreshSettings } = props;
         const device = sdk.systemManager.getDeviceById<ScryptedDeviceBase>(mixin.id);
         const defaultEntityId = !isCamera ? device.nativeId.split(':')[1] : getDefaultEntityId(device.name);
 
@@ -563,6 +564,7 @@ export const getMixinBaseSettings = (props: {
                 combobox: true,
                 defaultValue: [],
                 choices: [],
+                onPut: async () => await refreshSettings()
             },
         } as StorageSettingsDict<MixinBaseSettingKey>;
 
@@ -575,6 +577,7 @@ export const getMixinBaseSettings = (props: {
                 combobox: true,
                 defaultValue: [],
                 choices: [],
+                onPut: async () => await refreshSettings()
             };
             settings[ruleTypeMetadataMap[RuleType.Timelapse].rulesKey] = {
                 title: 'Timelapse rules',
@@ -584,6 +587,7 @@ export const getMixinBaseSettings = (props: {
                 combobox: true,
                 defaultValue: [],
                 choices: [],
+                onPut: async () => await refreshSettings()
             };
         }
 
@@ -604,7 +608,7 @@ export const isDeviceEnabled = async (
     },
 ) => {
     const { console, device, deviceStorage, plugin } = props;
-    const pluginStorage = plugin.storageSettingsUpdated;
+    const pluginStorage = plugin.storageSettings;
 
     if (!pluginStorage || !deviceStorage) {
         return {};
@@ -1310,10 +1314,10 @@ export const getOccupancyRulesSettings = async (props: {
 export const getTimelapseRulesSettings = async (props: {
     storage: StorageSettings<any>,
     ruleSource: RuleSource,
-    // onGenerateTimelapse: (ruleName: string) => Promise<void>
-    // onCleanDataTimelapse: (ruleName: string) => Promise<void>
+    onGenerateTimelapse: (ruleName: string) => Promise<void>
+    onCleanDataTimelapse: (ruleName: string) => Promise<void>
 }) => {
-    const { storage, ruleSource } = props;
+    const { storage, ruleSource, onCleanDataTimelapse, onGenerateTimelapse } = props;
 
     const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup }) => {
         const settings: StorageSetting[] = [];
@@ -1405,10 +1409,7 @@ export const getTimelapseRulesSettings = async (props: {
                 group,
                 subgroup,
                 type: 'button',
-                // onPut: async (_, __) => {
-                //     console.log(_, __);
-                //     onGenerateTimelapse(ruleName);
-                // }
+                onPut: async () => onGenerateTimelapse(ruleName)
             },
             {
                 key: cleanDataKey,
@@ -1416,7 +1417,7 @@ export const getTimelapseRulesSettings = async (props: {
                 group,
                 subgroup,
                 type: 'button',
-                // onPut: async () => onCleanDataTimelapse(ruleName)
+                onPut: async () => onCleanDataTimelapse(ruleName)
             }
         );
 
@@ -1618,7 +1619,7 @@ export const getDeviceRules = (
 
     const { rulesKey } = ruleTypeMetadataMap[RuleType.Detection];
 
-    const processRules = (storage: StorageSettings<any>, ruleSource: RuleSource) => {
+    const processDetectionRules = (storage: StorageSettings<any>, ruleSource: RuleSource) => {
         const detectionRuleNames = storage.getItem(rulesKey) ?? [];
 
         for (const detectionRuleName of detectionRuleNames) {
@@ -1652,7 +1653,7 @@ export const getDeviceRules = (
 
             const detectionClasses = storage.getItem(detectionClassesKey) as DetectionClass[] ?? [];
             const nvrEvents = storage.getItem(nvrEventsKey) as NvrEvent[] ?? [];
-            const scoreThreshold = storage.getItem(scoreThresholdKey) as number;
+            const scoreThreshold = storage.getItem(scoreThresholdKey) as number || 0.7;
             const minDelay = storage.getItem(minDelayKey) as number;
             const disableNvrRecordingSeconds = storage.getItem(recordingTriggerSecondsKey) as number;
 
@@ -1678,11 +1679,8 @@ export const getDeviceRules = (
             };
 
             if (ruleSource === RuleSource.Device) {
-                const whitelistedZones = storage[whitelistedZonesKey]?.value as string[] ?? [];
-                const blacklistedZones = storage[blacklistedZonesKey]?.value as string[] ?? [];
-
-                detectionRule.whitelistedZones = whitelistedZones;
-                detectionRule.blacklistedZones = blacklistedZones;
+                detectionRule.whitelistedZones = storage.getItem(whitelistedZonesKey) as string[] ?? [];
+                detectionRule.blacklistedZones = storage.getItem(blacklistedZonesKey) as string[] ?? [];
             }
 
             let isSensorEnabled = true;
@@ -1739,10 +1737,10 @@ export const getDeviceRules = (
         }
     };
 
-    processRules(pluginStorage, RuleSource.Plugin);
+    processDetectionRules(pluginStorage, RuleSource.Plugin);
 
     if (deviceStorage) {
-        processRules(deviceStorage, RuleSource.Device);
+        processDetectionRules(deviceStorage, RuleSource.Device);
     }
 
     return {
@@ -1882,7 +1880,7 @@ export const getDeviceTimelapseRules = (
     const skippedRules: TimelapseRule[] = [];
 
     const { notifiers: activeNotifiers, securitySystem } = pluginStorage.values;
-    const { rulesKey } = ruleTypeMetadataMap[RuleType.Occupancy];
+    const { rulesKey } = ruleTypeMetadataMap[RuleType.Timelapse];
 
     const timelapseRuleNames = deviceStorage.getItem(rulesKey) ?? [];
     for (const timelapseRuleName of timelapseRuleNames) {
@@ -2036,3 +2034,23 @@ export const convertSettingsToStorageSettings = (props: {
 
     return new StorageSettings(device, deviceSettings);
 }
+
+// export const convertStorageSettingsToSettings = (props: {
+//     device: StorageSettingsDevice,
+//     storageSettings: StorageSettingsDict<string>
+// }) => {
+//     const { device, storageSettings } = props;
+//     const deviceSettings: Setting[] = [];
+
+//     for (const [key, setting] of Object.entries(storageSettings)) {
+//         const { value, key, onPut, ...rest } = setting;
+//         deviceSettings[key] = {
+//             ...rest
+//         };
+//         if (setting.onPut) {
+//             deviceSettings[key].onPut = setting.onPut.bind(device)
+//         }
+//     }
+
+//     return new StorageSettings(device, deviceSettings);
+// }

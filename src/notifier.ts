@@ -33,7 +33,7 @@ export class AdvancedNotifierNotifier extends ScryptedDeviceBase implements Noti
                     .filter(device => device.interfaces.includes(ScryptedInterface.ScryptedUser));
 
                 await thisDevice.putSetting('nvr:userId', allUsers[0].id);
-                this.plugin.getLogger().log(`Default notifier initialized to all notification types and user ${allUsers[0].name}. The user should be most likely be enabled to all cameras to proxy them on the plugin`);
+                this.plugin.getLogger().log(`Default notifier initialized to all notification types and user ${allUsers[0].name}. The user should be enabled to all cameras to proxy them on the plugin`);
             }, 2000);
         })();
     }

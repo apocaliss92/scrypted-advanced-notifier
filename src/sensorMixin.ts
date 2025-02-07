@@ -1,6 +1,6 @@
 import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ScryptedDeviceBase, ScryptedDeviceType, MediaObject, LockState, ScryptedDevice } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
-import { StorageSettings } from "@scrypted/sdk/storage-settings";
+import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { convertSettingsToStorageSettings, DetectionRule, detectRuleEnabledRegex, EventType, getDetectionRulesSettings, getMixinBaseSettings, getRuleKeys, isDeviceEnabled, RuleSource, RuleType } from "./utils";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoverDetectionRules, getDetectionRuleId, publishDeviceState, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
@@ -8,11 +8,12 @@ import { discoverDetectionRules, getDetectionRuleId, publishDeviceState, setupDe
 const { systemManager } = sdk;
 
 export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> implements Settings {
-    storageSettings = new StorageSettings(this, {
+    initStorage: StorageSettingsDict<string> = {
         ...getMixinBaseSettings({
             plugin: this.plugin,
             mixin: this,
             isCamera: false,
+            refreshSettings: this.refreshSettings
         }),
         minDelayTime: {
             subgroup: 'Notifier',
@@ -28,9 +29,9 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             deviceFilter: `(type === '${ScryptedDeviceType.Camera}' || type === '${ScryptedDeviceType.Doorbell}')`,
             immediate: true,
         },
-    });
+    };
+    storageSettings = new StorageSettings(this, this.initStorage);
 
-    storageSettingsUpdated: StorageSettings<string>;
     detectionListener: EventListenerRegister;
     mainLoopListener: NodeJS.Timeout;
     isActiveForNotifications: boolean;
@@ -94,7 +95,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 device: this,
                 console: logger,
                 plugin: this.plugin,
-                deviceStorage: await this.getMixinSettingsInternal()
+                deviceStorage: this.storageSettings
             });
 
             const detectionRulesToEnable = (detectionRules || []).filter(newRule => !this.detectionRules?.some(currentRule => currentRule.name === newRule.name));
@@ -210,15 +211,8 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         this.detectionListener = undefined;
     }
 
-    async getMixinSettingsInternal() {
-        this.getMixinSettings();
-
-        return this.storageSettingsUpdated;
-    }
-
-    async getMixinSettings(): Promise<Setting[]> {
-        const settings: Setting[] = await this.storageSettings.getSettings();
-
+    async refreshSettings() {
+        const settings: Setting[] = await new StorageSettings(this, this.initStorage).getSettings();
 
         const detectionRulesSettings = await getDetectionRulesSettings({
             storage: this.storageSettings,
@@ -227,12 +221,14 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         });
         settings.push(...detectionRulesSettings);
 
-        this.storageSettingsUpdated = convertSettingsToStorageSettings({
+        this.storageSettings = convertSettingsToStorageSettings({
             device: this,
             settings,
         });
+    }
 
-        return this.storageSettingsUpdated.getSettings();
+    async getMixinSettings(): Promise<Setting[]> {
+        return this.storageSettings.getSettings();
     }
 
     async putMixinSetting(key: string, value: string, skipMqtt?: boolean) {
@@ -362,7 +358,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                         });
                     }
                 } catch (e) {
-                    logger.log('Error taking a picture', e);
+                    logger.log('Error taking a picture in sensor mixin', e);
                 }
 
                 const eventType = isDoorbell ? EventType.Doorbell : isDoorlock ? EventType.Doorlock : EventType.Contact;

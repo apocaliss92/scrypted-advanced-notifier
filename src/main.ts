@@ -1,7 +1,7 @@
 import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import axios from "axios";
 import { isEqual, keyBy, sortBy } from 'lodash';
-import { StorageSettings } from "@scrypted/sdk/storage-settings";
+import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { DeviceInterface, NotificationSource, getWebooks, getTextSettings, getTextKey, EventType, getDetectionRulesSettings, DetectionRule, getElegibleDevices, deviceFilter, notifierFilter, ADVANCED_NOTIFIER_INTERFACE, parseNvrNotificationMessage, NotificationPriority, getFolderPaths, getDeviceRules, NvrEvent, ParseNotificationMessageResult, getPushoverPriority, detectRuleEnabledRegex, OccupancyRule, nvrAcceleratedMotionSensorId, StoreImageFn, TimelapseRule, RuleType, getNowFriendlyDate, DetectionRuleActivation, getRuleKeys, RuleSource, ruleTypeMetadataMap, pluginRulesGroup, convertSettingsToStorageSettings } from "./utils";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
@@ -35,24 +35,7 @@ interface NotifyCameraProps {
 }
 
 export default class AdvancedNotifierPlugin extends BasePlugin implements MixinProvider, HttpRequestHandler, DeviceProvider {
-    private deviceHaEntityMap: Record<string, string> = {};
-    private haEntityDeviceMap: Record<string, string> = {};
-    private deviceVideocameraMap: Record<string, string> = {};
-    private videocameraDevicesMap: Record<string, string[]> = {};
-    public deviceRoomMap: Record<string, string> = {}
-    private doorbellDevices: string[] = [];
-    public currentMixinsMap: Record<string, AdvancedNotifierCameraMixin | AdvancedNotifierSensorMixin> = {};
-    public haNotifiersProviderId: string;
-    public haDevicesProviderId: string;
-    private pushoverProviderId: string;
-    private refreshDeviceLinksInterval: NodeJS.Timeout;
-    defaultNotifier: AdvancedNotifierNotifier;
-    nvrRules: DetectionRule[] = [];
-    lastNotExistingNotifier: number;
-    private checkExistingDevicesInterval: NodeJS.Timeout;
-    storageSettingsUpdated: StorageSettings<string>;
-
-    storageSettings = new StorageSettings(this, {
+    initSettings: StorageSettingsDict<string> = {
         ...getBaseSettings({
             onPluginSwitch: (_, enabled) => this.startStop(enabled),
             hideHa: false,
@@ -181,6 +164,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             combobox: true,
             choices: [],
             defaultValue: [],
+            onPut: async () => await this.refreshSettings()
         },
         activeDevicesForNotifications: {
             title: '"OnActive" devices',
@@ -250,8 +234,24 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 await this.checkPluginConfigurations(true);
             },
         },
-    });
+    };
+    storageSettings = new StorageSettings(this, this.initSettings);
 
+    private deviceHaEntityMap: Record<string, string> = {};
+    private haEntityDeviceMap: Record<string, string> = {};
+    private deviceVideocameraMap: Record<string, string> = {};
+    private videocameraDevicesMap: Record<string, string[]> = {};
+    public deviceRoomMap: Record<string, string> = {}
+    private doorbellDevices: string[] = [];
+    public currentMixinsMap: Record<string, AdvancedNotifierCameraMixin | AdvancedNotifierSensorMixin> = {};
+    public haNotifiersProviderId: string;
+    public haDevicesProviderId: string;
+    private pushoverProviderId: string;
+    private refreshDeviceLinksInterval: NodeJS.Timeout;
+    defaultNotifier: AdvancedNotifierNotifier;
+    nvrRules: DetectionRule[] = [];
+    lastNotExistingNotifier: number;
+    private checkExistingDevicesInterval: NodeJS.Timeout;
 
     constructor(nativeId: string) {
         super(nativeId, {
@@ -275,6 +275,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             if (this.storageSettings.values.haEnabled) {
                 await this.fetchHomeassistantData();
             }
+
+            await this.refreshSettings();
         })();
 
         this.start().then().catch(this.getLogger().log);
@@ -426,7 +428,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             ?.filter(choice => !!choice)
             .map(person => person.trim());
 
-        const pluginStorage = await this.getSettingsInternal();
+        const pluginStorage = this.storageSettings;
         const { allPluginRules } = getDeviceRules({ pluginStorage, console: logger });
 
         await setupPluginAutodiscovery({
@@ -631,7 +633,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 }
             }
 
-            const pluginStorage = await this.getSettingsInternal();
+            const pluginStorage = this.storageSettings;
             const { nvrRules, detectionRules, allPluginRules } = getDeviceRules({ pluginStorage, console: logger });
 
             const rulesToEnable = [...detectionRules, ...nvrRules];
@@ -688,7 +690,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     devicesWithoutRoom.push(device.name);
                 }
 
-                const relevantRules = Object.entries(this.currentMixinsMap[device.name].storageSettingsUpdated)
+                const relevantRules = Object.entries(this.currentMixinsMap[device.name].storageSettings)
                     .filter(([key]) => key?.match(notifiersRegex));
 
                 for (const [ruleName, rule] of relevantRules) {
@@ -700,7 +702,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 }
             }
 
-            const pluginStorage = await this.getSettingsInternal();
+            const pluginStorage = this.storageSettings;
             const relevantNotifierRules = Object.entries(pluginStorage)
                 .filter(([key]) => key?.match(notifiersRegex));
 
@@ -792,11 +794,20 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
     }
 
+    async refreshSettings() {
+        const settings: Setting[] = await super.getSettings();
 
-    async getSettingsInternal() {
-        await this.getSettings();
+        const detectionRulesSettings = await getDetectionRulesSettings({
+            storage: this.storageSettings,
+            ruleSource: RuleSource.Plugin,
+        });
 
-        return this.storageSettingsUpdated;
+        settings.push(...detectionRulesSettings);
+
+        this.storageSettings = convertSettingsToStorageSettings({
+            device: this,
+            settings,
+        });
     }
 
     async getSettings() {
@@ -807,21 +818,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             this.storageSettings.settings.testMessage.choices = Object.keys(getTextSettings(false)).map(key => key);
 
-            const settings: Setting[] = await super.getSettings();
-
-            const detectionRulesSettings = await getDetectionRulesSettings({
-                storage: this.storageSettings,
-                ruleSource: RuleSource.Plugin,
-            });
-
-            settings.push(...detectionRulesSettings);
-
-            this.storageSettingsUpdated = convertSettingsToStorageSettings({
-                device: this,
-                settings,
-            });
-
-            return this.storageSettingsUpdated.getSettings();
+            return this.storageSettings.getSettings();
         } catch (e) {
             this.getLogger().log('Error in getSettings', e);
             return [];
@@ -1148,6 +1145,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             image,
             rule,
         } = props;
+        this.console.log(JSON.stringify(props));
         const triggerDevice = systemManager.getDeviceById(triggerDeviceId) as unknown as DeviceInterface;
         const cameraDevice = await this.getCameraDevice(triggerDevice);
 
@@ -1505,7 +1503,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     },
                 });
             } catch (e) {
-                this.getLogger().log('Error taking a picture', e);
+                this.getLogger().log('Error taking a picture in plugin', e);
             }
         }
 

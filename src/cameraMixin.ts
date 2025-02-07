@@ -1,7 +1,7 @@
-import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ObjectDetection, Image, ScryptedMimeTypes, Notifier } from "@scrypted/sdk";
+import sdk, { ScryptedInterface, Setting, Settings, EventListenerRegister, ObjectDetector, MotionSensor, ScryptedDevice, ObjectsDetected, Camera, MediaObject, ObjectDetectionResult, ScryptedDeviceBase, ObjectDetection, Image, ScryptedMimeTypes, SettingValue } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
-import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DetectionRule, RuleSource, DeviceInterface, detectRuleEnabledRegex, occupancyRuleEnabledRegex, EventType, filterAndSortValidDetections, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getWebookUrls, isDeviceEnabled, ObserveZoneData, OccupancyRule, ZoneMatchType, TimelapseRule, getTimelapseRulesSettings, RuleType, getWebooks, timelapseRuleGenerateRegex, BaseRule, timelapseRuleCleanRegex, getRuleKeys, convertSettingsToStorageSettings } from "./utils";
+import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
+import { DetectionRule, RuleSource, DeviceInterface, detectRuleEnabledRegex, occupancyRuleEnabledRegex, EventType, filterAndSortValidDetections, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getWebookUrls, isDeviceEnabled, ObserveZoneData, OccupancyRule, ZoneMatchType, TimelapseRule, getTimelapseRulesSettings, RuleType, getWebooks, getRuleKeys, convertSettingsToStorageSettings } from "./utils";
 import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoverDetectionRules, discoverOccupancyRules, getDetectionRuleId, getOccupancyRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
@@ -32,11 +32,12 @@ export type OccupancyRuleData = {
 };
 
 export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> implements Settings {
-    storageSettings = new StorageSettings(this, {
+    initStorage: StorageSettingsDict<string> = {
         ...getMixinBaseSettings({
             plugin: this.plugin,
             mixin: this,
             isCamera: true,
+            refreshSettings: this.refreshSettings
         }),
         minDelayTime: {
             subgroup: 'Notifier',
@@ -88,9 +89,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             json: true,
             hide: true,
         }
-    });
+    };
+    storageSettings = new StorageSettings(this, this.initStorage);
 
-    storageSettingsUpdated: StorageSettings<string>;
     detectionListener: EventListenerRegister;
     mqttDetectionMotionTimeout: NodeJS.Timeout;
     mainLoopListener: NodeJS.Timeout;
@@ -190,7 +191,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     device: this,
                     console: logger,
                     plugin: this.plugin,
-                    deviceStorage: await this.getMixinSettingsInternal()
+                    deviceStorage: this.storageSettings
                 });
 
                 const timelapseRulesToEnable = (timelapseRules || []).filter(newRule => !this.timelapseRules?.some(currentRule => currentRule.name === newRule.name));
@@ -342,11 +343,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             await discoverOccupancyRules({ mqttClient, console: logger, device, rules: missingOccupancyRules });
                             this.occupancyRulesDiscovered.push(...missingOccupancyRules.map(rule => getOccupancyRuleId(rule)))
                         }
-                    }
-                    const settings = await this.mixinDevice.getSettings();
-                    const isRecording = !settings.find(setting => setting.key === 'recording:privacyMode')?.value;
 
-                    reportDeviceValues({ console: logger, device, mqttClient, isRecording });
+                        const settings = await this.mixinDevice.getSettings();
+                        const isRecording = !settings.find(setting => setting.key === 'recording:privacyMode')?.value;
+
+                        reportDeviceValues({ console: logger, device, mqttClient, isRecording });
+                    }
                 }
 
                 if (isCurrentlyRunning && !shouldRun) {
@@ -431,6 +433,65 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { lastSnapshotCloudUrl, lastSnapshotLocalUrl } = await getWebookUrls(this.name, console);
         this.storageSettings.putSetting('lastSnapshotWebhookCloudUrl', lastSnapshotCloudUrl);
         this.storageSettings.putSetting('lastSnapshotWebhookLocalUrl', lastSnapshotLocalUrl);
+
+        await this.refreshSettings();
+    }
+
+    async refreshSettings() {
+        const logger = this.getLogger();
+        const settings: Setting[] = await new StorageSettings(this, this.initStorage).getSettings();
+        const zones = (await this.getObserveZones()).map(item => item.name);
+
+        const detectionRulesSettings = await getDetectionRulesSettings({
+            storage: this.storageSettings,
+            zones,
+            isCamera: true,
+            ruleSource: RuleSource.Device,
+        });
+        settings.push(...detectionRulesSettings);
+
+        const occupancyRulesSettings = await getOccupancyRulesSettings({
+            storage: this.storageSettings,
+            zones,
+            ruleSource: RuleSource.Device
+        });
+        settings.push(...occupancyRulesSettings);
+
+        const timelapseRulesSettings = await getTimelapseRulesSettings({
+            storage: this.storageSettings,
+            ruleSource: RuleSource.Device,
+            onCleanDataTimelapse: async (ruleName) => {
+                const rule = this.allTimelapseRules?.find(rule => rule.name === ruleName);
+
+                if (rule) {
+                    const device = systemManager.getDeviceById<DeviceInterface>(this.id);
+                    this.plugin.clearFramesData({
+                        rule,
+                        device,
+                        logger,
+                    }).catch(logger.log);
+                }
+            },
+            onGenerateTimelapse: async (ruleName) => {
+                this.console.log(ruleName, this.allTimelapseRules);
+                const rule = this.allTimelapseRules?.find(rule => rule.name === ruleName);
+
+                if (rule) {
+                    const device = systemManager.getDeviceById<DeviceInterface>(this.id);
+                    this.plugin.timelapseRuleEnded({
+                        rule,
+                        device,
+                        logger,
+                    }).catch(logger.log);
+                }
+            }
+        });
+        settings.push(...timelapseRulesSettings);
+
+        this.storageSettings = convertSettingsToStorageSettings({
+            device: this,
+            settings,
+        });
     }
 
     async getObserveZones() {
@@ -467,81 +528,32 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    async getMixinSettingsInternal() {
-        this.getMixinSettings();
-
-        return this.storageSettingsUpdated;
-    }
-
     async getMixinSettings(): Promise<Setting[]> {
         try {
-            const logger = this.getLogger();
             this.storageSettings.settings.ignoreCameraDetections.hide = !this.nvrEnabled;
 
             const lastSnapshotWebhook = this.storageSettings.values.lastSnapshotWebhook;
             this.storageSettings.settings.lastSnapshotWebhookCloudUrl.hide = !lastSnapshotWebhook;
             this.storageSettings.settings.lastSnapshotWebhookLocalUrl.hide = !lastSnapshotWebhook;
 
-            const settings: Setting[] = await this.storageSettings.getSettings();
-            const zones = (await this.getObserveZones()).map(item => item.name);
-
-            const detectionRulesSettings = await getDetectionRulesSettings({
-                storage: this.storageSettings,
-                zones,
-                isCamera: true,
-                ruleSource: RuleSource.Device
-            });
-            settings.push(...detectionRulesSettings);
-
-            const occupancyRulesSettings = await getOccupancyRulesSettings({
-                storage: this.storageSettings,
-                zones,
-                ruleSource: RuleSource.Device
-            });
-            settings.push(...occupancyRulesSettings);
-
-            const timelapseRulesSettings = await getTimelapseRulesSettings({
-                storage: this.storageSettings,
-                ruleSource: RuleSource.Device,
-                // onCleanDataTimelapse: async (ruleName) => {
-                //     const rule = this.allTimelapseRules?.find(rule => rule.name === ruleName);
-                //     const device = systemManager.getDeviceById<DeviceInterface>(this.id);
-
-                //     this.plugin.clearFramesData({
-                //         rule,
-                //         device,
-                //         logger,
-                //     }).catch(logger.log)
-                // },
-                // onGenerateTimelapse: async (ruleName) => {
-                //     const rule = this.allTimelapseRules?.find(rule => rule.name === ruleName);
-                //     const device = systemManager.getDeviceById<DeviceInterface>(this.id);
-
-                //     this.plugin.timelapseRuleEnded({
-                //         rule,
-                //         device,
-                //         logger,
-                //     }).catch(logger.log)
-                // }
-            });
-            settings.push(...timelapseRulesSettings);
-
-            this.storageSettingsUpdated = convertSettingsToStorageSettings({
-                device: this,
-                settings,
-            });
-
-            return this.storageSettingsUpdated.getSettings();
+            return this.storageSettings.getSettings();
         } catch (e) {
             this.getLogger().log('Error in getMixinSettings', e);
             return [];
         }
     }
 
+    async putSetting(key: string, value: SettingValue): Promise<void> {
+        const [group, ...rest] = key.split(':');
+        if (group === 'homeassistantMetadata') {
+            this.storageSettings.putSetting(rest.join(':'), value);
+        } else {
+            super.putSetting(key, value);
+        }
+    }
+
     async putMixinSetting(key: string, value: string, skipMqtt?: boolean) {
         const logger = this.getLogger();
-        const generateTimelapse = timelapseRuleGenerateRegex.exec(key);
-        const cleanupData = timelapseRuleCleanRegex.exec(key);
         const enabledResultDetected = detectRuleEnabledRegex.exec(key);
         const enabledResultOccupancy = occupancyRuleEnabledRegex.exec(key);
 
@@ -563,28 +575,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     deviceId: this.id
                 });
             }
-        }
-
-        if (generateTimelapse?.[1]) {
-            const ruleName = generateTimelapse[1];
-            const rule = this.allTimelapseRules?.find(rule => rule.name === ruleName);
-            const device = systemManager.getDeviceById<DeviceInterface>(this.id);
-
-            await this.plugin.timelapseRuleEnded({
-                rule,
-                device,
-                logger,
-            });
-        } else if (cleanupData?.[1]) {
-            const ruleName = cleanupData[1];
-            const rule = this.allTimelapseRules?.find(rule => rule.name === ruleName);
-            const device = systemManager.getDeviceById<DeviceInterface>(this.id);
-
-            this.plugin.clearFramesData({
-                rule,
-                device,
-                logger,
-            }).catch(logger.log);
         }
 
         this.storageSettings.putSetting(key, value);
@@ -780,7 +770,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             return { image, b64Image };
         } catch (e) {
-            this.getLogger().log('Error taking a picture', e);
+            this.getLogger().log('Error taking a picture in camera mixin', e);
             return {};
         }
     }
@@ -1194,7 +1184,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         let dataToReport = {};
         try {
-            logger.debug(`Detections incoming ${JSON.stringify(candidates)}`);
+            logger.debug(`Detections incoming ${JSON.stringify({
+                candidates, detections, minDelayTime,
+                ignoreCameraDetections
+            })}`);
 
             const matchRules: MatchRule[] = [];
 
