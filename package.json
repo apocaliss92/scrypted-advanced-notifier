@@ -1,11 +1,11 @@
 {
   "name": "@apocaliss92/scrypted-advanced-notifier",
-  "description": "Advanced notifier rule based with connections to MQTT and Homeassistant",
+  "description": "Advanced notifier rule based with connections to MQTT and Homeassistant. Allows customized detections, occupancy and timelapses",
   "repository": {
     "type": "git",
     "url": "https://github.com/apocaliss92/scrypted-advanced-notifier"
   },
-  "version": "2.0.3",
+  "version": "2.1.0",
   "scripts": {
     "scrypted-setup-project": "scrypted-setup-project",
     "prescrypted-setup-project": "scrypted-package-json",
