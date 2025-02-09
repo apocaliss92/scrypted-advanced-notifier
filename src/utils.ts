@@ -1,18 +1,20 @@
-import sdk, { Camera, DeviceBase, LockState, MediaObject, MixinDeviceBase, Notifier, NotifierOptions, ObjectDetectionResult, ObjectsDetected, Point, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Setting, Settings } from "@scrypted/sdk"
-import { StorageSetting, StorageSettings, StorageSettingsDevice, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
-import { cloneDeep, keyBy, sortBy, uniq, uniqBy } from "lodash";
-const { endpointManager } = sdk;
-import { scrypted, name } from '../package.json';
-import { classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detecionClasses";
-import sharp from 'sharp';
-import path from 'path';
-import fs from 'fs';
-import AdvancedNotifierPlugin from "./main";
-import moment, { Moment } from "moment";
+import sdk, { Camera, DeviceBase, LockState, MediaObject, NotifierOptions, ObjectDetectionResult, Point, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Setting, Settings } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase } from "@scrypted/sdk/settings-mixin";
+import { StorageSetting, StorageSettings, StorageSettingsDevice, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
+import fs from 'fs';
+import { cloneDeep, sortBy, uniq, uniqBy } from "lodash";
+import moment, { Moment } from "moment";
+import path from 'path';
+import sharp from 'sharp';
+import { name, scrypted } from '../package.json';
+import { classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detecionClasses";
+import AdvancedNotifierPlugin from "./main";
+const { endpointManager } = sdk;
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Settings;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
+export const PUSHOVER_PLUGIN_ID = '@scrypted/pushover';
+export const HOMEASSISTANT_PLUGIN_ID = '@scrypted/homeassistant';
 
 export interface ObserveZoneData {
     name: string;
@@ -1536,7 +1538,7 @@ const initBasicRule = (props: {
     const securitySystemModes = storage.getItem(securitySystemModesKey) as SecuritySystemMode[];
     const notifiers = storage.getItem(notifiersKey) as string[] ?? [];
 
-    const notifiersTouse = notifiers.filter(notifierId => activeNotifiers.includes(notifierId));
+    const notifiersTouse = notifiers?.filter(notifierId => activeNotifiers.includes(notifierId));
 
     const rule: BaseRule = {
         ruleType,
@@ -2050,11 +2052,24 @@ export function getAllDevices() {
     return Object.keys(sdk.systemManager.getSystemState()).map(id => sdk.systemManager.getDeviceById(id));
 }
 
-export const convertSettingsToStorageSettings = (props: {
+export const convertSettingsToStorageSettings = async (props: {
     device: StorageSettingsDevice,
-    settings: StorageSetting[]
+    dynamicSettings: StorageSetting[],
+    initStorage: StorageSettingsDict<string>
 }) => {
-    const { device, settings } = props;
+    const { device, dynamicSettings, initStorage } = props;
+
+    const onPutToRestore: Record<string, any> = {};
+    Object.entries(initStorage).forEach(([key, setting]) => {
+        if (setting.onPut) {
+            onPutToRestore[key] = setting.onPut;
+        }
+    });
+
+    const settings: StorageSetting[] = await new StorageSettings(device, initStorage).getSettings();
+
+    settings.push(...dynamicSettings);
+
     const deviceSettings: StorageSettingsDict<string> = {};
 
     for (const setting of settings) {
@@ -2067,5 +2082,11 @@ export const convertSettingsToStorageSettings = (props: {
         }
     }
 
-    return new StorageSettings(device, deviceSettings);
+    const updateStorageSettings = new StorageSettings(device, deviceSettings);
+
+    Object.entries(onPutToRestore).forEach(([key, onPut]) => {
+        updateStorageSettings.settings[key].onPut = onPut;
+    });
+
+    return updateStorageSettings;
 }

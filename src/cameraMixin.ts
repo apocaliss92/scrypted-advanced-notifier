@@ -67,6 +67,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             subgroup: 'Notifier',
         },
         // WEBHOOKS
+        lastSnapshotWebhook: {
+            subgroup: 'Webhooks',
+            title: 'Last snapshot webhook',
+            type: 'boolean',
+            immediate: true,
+        },
         lastSnapshotWebhookCloudUrl: {
             subgroup: 'Webhooks',
             type: 'string',
@@ -415,13 +421,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async refreshSettings() {
         const logger = this.getLogger();
-        const onPutToRestore: Record<string, any> = {};
-        Object.entries(this.initStorage).forEach(([key, setting]) => {
-            if (setting.onPut) {
-                onPutToRestore[key] = setting.onPut;
-            }
-        });
-        const settings: Setting[] = await new StorageSettings(this, this.initStorage).getSettings();
+        const dynamicSettings: Setting[] = [];
         const zones = (await this.getObserveZones()).map(item => item.name);
 
         const detectionRulesSettings = await getDetectionRulesSettings({
@@ -440,7 +440,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 });
             },
         });
-        settings.push(...detectionRulesSettings);
+        dynamicSettings.push(...detectionRulesSettings);
 
         const occupancyRulesSettings = await getOccupancyRulesSettings({
             storage: this.storageSettings,
@@ -457,7 +457,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 });
             },
         });
-        settings.push(...occupancyRulesSettings);
+        dynamicSettings.push(...occupancyRulesSettings);
 
         const timelapseRulesSettings = await getTimelapseRulesSettings({
             storage: this.storageSettings,
@@ -498,16 +498,27 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 });
             },
         });
-        settings.push(...timelapseRulesSettings);
+        dynamicSettings.push(...timelapseRulesSettings);
 
-        this.storageSettings = convertSettingsToStorageSettings({
+        this.storageSettings = await convertSettingsToStorageSettings({
             device: this,
-            settings,
+            dynamicSettings,
+            initStorage: this.initStorage
         });
 
-        Object.entries(onPutToRestore).forEach(([key, onPut]) => {
-            this.storageSettings.settings[key].onPut = onPut;
-        });
+        if (this.storageSettings.settings.ignoreCameraDetections) {
+            this.storageSettings.settings.ignoreCameraDetections.hide = !this.nvrEnabled;
+        }
+
+        const lastSnapshotWebhook = this.storageSettings.values.lastSnapshotWebhook;
+
+        if (this.storageSettings.settings.lastSnapshotWebhookCloudUrl) {
+            this.storageSettings.settings.lastSnapshotWebhookCloudUrl.hide = !lastSnapshotWebhook;
+        }
+        if (this.storageSettings.settings.lastSnapshotWebhookLocalUrl) {
+            this.storageSettings.settings.lastSnapshotWebhookLocalUrl.hide = !lastSnapshotWebhook;
+        }
+
     }
 
     async getObserveZones() {
@@ -546,8 +557,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async getMixinSettings(): Promise<Setting[]> {
         try {
-            // this.storageSettings.settings.ignoreCameraDetections.hide = !this.nvrEnabled;
-
             return this.storageSettings.getSettings();
         } catch (e) {
             this.getLogger().log('Error in getMixinSettings', e);

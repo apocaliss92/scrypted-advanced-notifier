@@ -188,7 +188,10 @@ export const licensePlateClasses = [
 
 export const motionClasses = [
     DetectionClass.Motion,
-    'movement'
+    'movement',
+
+    // Reolink battery cams
+    'other',
 ]
 
 export const packageClasses = [

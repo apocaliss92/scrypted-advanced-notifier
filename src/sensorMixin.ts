@@ -208,13 +208,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
     async refreshSettings() {
         const logger = this.getLogger();
-        const onPutToRestore: Record<string, any> = {};
-        Object.entries(this.initStorage).forEach(([key, setting]) => {
-            if (setting.onPut) {
-                onPutToRestore[key] = setting.onPut;
-            }
-        });
-        const settings: Setting[] = await new StorageSettings(this, this.initStorage).getSettings();
+        const dynamicSettings: Setting[] = [];
 
         const detectionRulesSettings = await getDetectionRulesSettings({
             storage: this.storageSettings,
@@ -231,15 +225,12 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 });
             },
         });
-        settings.push(...detectionRulesSettings);
+        dynamicSettings.push(...detectionRulesSettings);
 
-        this.storageSettings = convertSettingsToStorageSettings({
+        this.storageSettings = await convertSettingsToStorageSettings({
             device: this,
-            settings,
-        });
-
-        Object.entries(onPutToRestore).forEach(([key, onPut]) => {
-            this.storageSettings.settings[key].onPut = onPut;
+            dynamicSettings,
+            initStorage: this.initStorage
         });
     }
 

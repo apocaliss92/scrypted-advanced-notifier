@@ -1,5 +1,5 @@
 import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
-import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
+import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
 import { isEqual, keyBy, sortBy } from 'lodash';
 import path from 'path';
@@ -10,7 +10,7 @@ import { getMqttTopics, getRuleStrings, setupPluginAutodiscovery, subscribeToMai
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getDetectionRulesSettings, getDeviceRules, getElegibleDevices, getFolderPaths, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, RuleSource, RuleType, ruleTypeMetadataMap, StoreImageFn, TimelapseRule } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getDetectionRulesSettings, getDeviceRules, getElegibleDevices, getFolderPaths, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, HOMEASSISTANT_PLUGIN_ID, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, StoreImageFn, TimelapseRule } from "./utils";
 // import { version } from '../package.json';
 import child_process from 'child_process';
 import { once } from "events";
@@ -245,9 +245,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     public deviceRoomMap: Record<string, string> = {}
     private doorbellDevices: string[] = [];
     public currentMixinsMap: Record<string, AdvancedNotifierCameraMixin | AdvancedNotifierSensorMixin> = {};
-    public haNotifiersProviderId: string;
-    public haDevicesProviderId: string;
-    private pushoverProviderId: string;
     private refreshDeviceLinksInterval: NodeJS.Timeout;
     defaultNotifier: AdvancedNotifierNotifier;
     nvrRules: DetectionRule[] = [];
@@ -354,29 +351,33 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 return;
             } else if (webhook === lastSnapshot) {
                 const device = this.currentMixinsMap[deviceNameOrAction] as AdvancedNotifierCameraMixin;
+                const isWebhookEnabled = device?.storageSettings.getItem('lastSnapshotWebhook');
+                logger.log(`lastSnapshotWebhook: ${isWebhookEnabled}`);
 
-                const { snapshotsFolder } = await getFolderPaths(device.id);
+                if (isWebhookEnabled) {
+                    const { snapshotsFolder } = await getFolderPaths(device.id);
 
-                const lastSnapshotFilePath = path.join(snapshotsFolder, `${webhook}.jpg`);
+                    const lastSnapshotFilePath = path.join(snapshotsFolder, `${webhook}.jpg`);
 
-                if (lastSnapshotFilePath) {
-                    const mo = await sdk.mediaManager.createFFmpegMediaObject({
-                        inputArguments: [
-                            '-i', lastSnapshotFilePath,
-                        ]
-                    });
-                    const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
-                    response.send(jpeg, {
-                        headers: {
-                            'Content-Type': 'image/jpeg',
-                        }
-                    });
-                    return;
-                } else {
-                    response.send(`Last snapshot not found for device ${deviceNameOrAction}`, {
-                        code: 404,
-                    });
-                    return;
+                    if (lastSnapshotFilePath) {
+                        const mo = await sdk.mediaManager.createFFmpegMediaObject({
+                            inputArguments: [
+                                '-i', lastSnapshotFilePath,
+                            ]
+                        });
+                        const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
+                        response.send(jpeg, {
+                            headers: {
+                                'Content-Type': 'image/jpeg',
+                            }
+                        });
+                        return;
+                    } else {
+                        response.send(`Last snapshot not found for device ${deviceNameOrAction}`, {
+                            code: 404,
+                        });
+                        return;
+                    }
                 }
             } else if (webhook === timelapseDownload) {
                 const decodedTimelapseName = decodeURIComponent(timelapseName);
@@ -525,17 +526,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const localIp = (await sdk.endpointManager.getLocalAddresses())?.[0];
         this.putSetting('localIp', localIp);
         logger.log(`Local IP found: ${localIp}`);
-
-        const haNotifiersPlugin = systemManager.getDeviceByName('Notify Service') as unknown as ScryptedDeviceBase;
-        this.haNotifiersProviderId = haNotifiersPlugin?.id
-
-        const haDevicesPlugin = systemManager.getDeviceByName('Homeassistant devices') as unknown as ScryptedDeviceBase;
-        this.haDevicesProviderId = haDevicesPlugin?.id
-
-        const pushoverPlugin = systemManager.getDeviceByName('Pushover Plugin') as unknown as ScryptedDeviceBase;
-        this.pushoverProviderId = pushoverPlugin?.id
-
-        logger.log(`HA providerIds: ${this.haNotifiersProviderId},${this.haDevicesProviderId} and Pushover providerId: ${this.pushoverProviderId}`);
 
         if (this.storageSettings.values.haEnabled) {
             await this.fetchHomeassistantData();
@@ -774,15 +764,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     async refreshSettings() {
         const logger = this.getLogger();
-        const onPutToRestore: Record<string, any> = {};
-        Object.entries(this.initStorage).forEach(([key, setting]) => {
-            if (setting.onPut) {
-                onPutToRestore[key] = setting.onPut;
-            }
-        });
-        const newStorageSettings = new StorageSettings(this, this.initStorage);
-        // super.applySettingsShow(newStorageSettings);
-        const settings = await newStorageSettings.getSettings();
+        const dynamicSettings: StorageSetting[] = [];
 
         const detectionRulesSettings = await getDetectionRulesSettings({
             storage: this.storageSettings,
@@ -798,15 +780,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             },
         });
 
-        settings.push(...detectionRulesSettings);
+        dynamicSettings.push(...detectionRulesSettings);
 
-        this.storageSettings = convertSettingsToStorageSettings({
+        this.storageSettings = await convertSettingsToStorageSettings({
             device: this,
-            settings,
-        });
-
-        Object.entries(onPutToRestore).forEach(([key, onPut]) => {
-            this.storageSettings.settings[key].onPut = onPut;
+            dynamicSettings,
+            initStorage: this.initStorage
         });
     }
 
@@ -1323,7 +1302,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
         let data: any = {};
 
-        if (notifier.providerId === this.pushoverProviderId) {
+        if (notifier.pluginId === PUSHOVER_PLUGIN_ID) {
             // message += '\n';
             // for (const stringifiedAction of haActions) {
             //     const { action, title } = JSON.parse(stringifiedAction);
@@ -1337,7 +1316,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 html: 1,
                 priority: getPushoverPriority(priority)
             };
-        } else if (notifier.providerId === this.haNotifiersProviderId) {
+        } else if (notifier.pluginId === HOMEASSISTANT_PLUGIN_ID) {
             data.ha = {
                 url: videoUrl ?? haUrl,
                 clickAction: videoUrl ?? haUrl,
