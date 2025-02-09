@@ -546,7 +546,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async getMixinSettings(): Promise<Setting[]> {
         try {
-            this.storageSettings.settings.ignoreCameraDetections.hide = !this.nvrEnabled;
+            // this.storageSettings.settings.ignoreCameraDetections.hide = !this.nvrEnabled;
 
             return this.storageSettings.getSettings();
         } catch (e) {
