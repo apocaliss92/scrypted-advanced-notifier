@@ -156,8 +156,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         this.plugin.currentMixinsMap[this.name] = this;
 
-        this.occupancyState = this.storageSettings.values.occupancyState ?? {};
-
         if (this.storageSettings.values.room && !this.room) {
             sdk.systemManager.getDeviceById<ScryptedDevice>(this.id).setRoom(this.storageSettings.values.room);
         }
@@ -519,6 +517,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             this.storageSettings.settings.lastSnapshotWebhookLocalUrl.hide = !lastSnapshotWebhook;
         }
 
+        this.occupancyState = this.storageSettings.values.occupancyState ?? {};
     }
 
     async getObserveZones() {
