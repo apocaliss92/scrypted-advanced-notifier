@@ -739,11 +739,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     getLastDetectionkey(matchRule: MatchRule) {
         const { match, rule } = matchRule;
+        let key = `rule-${rule.name}`;
         if (rule.ruleType === RuleType.Timelapse) {
-            return `rule_${rule.name}`;
+            return key;
         } else {
             const { className, label } = match;
-            let key = className;
+            key = `${key}-${className}`;
             if (label) {
                 key += `-${label}`;
             }
@@ -1294,7 +1295,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         logger.debug(`Waiting for delay: ${delay - ((now - lastDetection) / 1000)}s`);
                         return false;
                     }
-                    this.lastDetectionMap[this.getLastDetectionkey(matchRule)] = now;
+                    this.lastDetectionMap[lastDetectionkey] = now;
 
                     logger.debug(`Matching detections found: ${JSON.stringify({
                         matchRulesMap: matchRules,

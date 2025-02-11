@@ -1060,6 +1060,7 @@ export const getDetectionRulesSettings = async (props: {
     onShowMore: OnShowMore,
 }) => {
     const { storage, zones, isCamera, ruleSource, onRuleToggle, onShowMore } = props;
+    const isPlugin = ruleSource === RuleSource.Plugin;
 
     const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup, showMore }) => {
         const settings: StorageSetting[] = [];
@@ -1102,7 +1103,7 @@ export const getDetectionRulesSettings = async (props: {
             }
         );
 
-        if (useNvrDetections && ruleSource === RuleSource.Plugin) {
+        if (useNvrDetections && isPlugin) {
             settings.push(
                 {
                     key: nvrEventsKey,
@@ -1117,7 +1118,7 @@ export const getDetectionRulesSettings = async (props: {
             );
         }
 
-        if (ruleSource === RuleSource.Plugin && activationType !== DetectionRuleActivation.OnActive) {
+        if (isPlugin && activationType !== DetectionRuleActivation.OnActive) {
             settings.push({
                 key: devicesKey,
                 title: 'Devices',
@@ -1158,7 +1159,12 @@ export const getDetectionRulesSettings = async (props: {
             )
         }
 
-        if (isCamera) {
+        if (isCamera || isPlugin) {
+            let minDelayDescription = 'Minimum amount of seconds to wait until a notification is sent for the same detection type.';
+            if (isPlugin) {
+                minDelayDescription += ' Overrides the device setting';
+            }
+
             settings.push(
                 {
                     key: scoreThresholdKey,
@@ -1172,7 +1178,7 @@ export const getDetectionRulesSettings = async (props: {
                 {
                     key: minDelayKey,
                     title: 'Minimum notification delay',
-                    description: 'Minimum amount of seconds to wait until a notification is sent for the same detection type',
+                    description: minDelayDescription,
                     group,
                     subgroup,
                     type: 'number',
