@@ -2094,6 +2094,7 @@ export const convertSettingsToStorageSettings = async (props: {
         deviceSettings[key] = {
             ...rest
         };
+
         if (setting.onPut) {
             deviceSettings[key].onPut = setting.onPut.bind(device)
         }

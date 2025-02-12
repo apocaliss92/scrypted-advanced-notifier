@@ -9,8 +9,6 @@ import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox 
 import { DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, isDeviceEnabled } from "./utils";
 
 const { systemManager } = sdk;
-const secondsPerPicture = 5;
-const motionDuration = 10;
 
 interface MatchRule { match: ObjectDetectionResult, rule: (DetectionRule | TimelapseRule), dataToReport: any }
 interface OccupancyData {
@@ -46,6 +44,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             type: 'number',
             defaultValue: 15,
         },
+        minSnapshotDelay: {
+            subgroup: 'Notifier',
+            title: 'Minimum snapshot acquisition delay',
+            description: 'Minimum amount of seconds to wait until a new snapshot is taken from the camera',
+            type: 'number',
+            defaultValue: 5
+        },
+        motionDuration: {
+            title: 'Off motion duration',
+            type: 'number',
+            defaultValue: 10
+        },
         snapshotWidth: {
             subgroup: 'Notifier',
             title: 'Snapshot width',
@@ -62,9 +72,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         },
         ignoreCameraDetections: {
             title: 'Ignore camera detections',
-            description: 'If checked, only the detections coming from NVR will be used',
+            description: 'If checked, the detections reported by the camera will be ignored. Make sure to have an object detector mixin enabled',
             type: 'boolean',
             subgroup: 'Notifier',
+            immediate: true,
         },
         // WEBHOOKS
         lastSnapshotWebhook: {
@@ -103,8 +114,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     lastDetectionMap: Record<string, number> = {};
     logger: Console;
     killed: boolean;
-    nvrEnabled: boolean = true;
-    nvrMixinId: string;
     occupancyRules: OccupancyRule[] = [];
     detectionRules: DetectionRule[] = [];
     timelapseRules: TimelapseRule[] = [];
@@ -145,11 +154,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 choices: entities ?? []
             }
         }
-
-        this.nvrMixinId = systemManager.getDeviceByName('Scrypted NVR Object Detection')?.id;
-
-        const canUseNvr = this.nvrMixinId && this.mixins.includes(this.nvrMixinId);
-        this.nvrEnabled = canUseNvr;
 
         this.initValues().then().catch(logger.log);
         this.startCheckInterval().then().catch(logger.log);
@@ -504,10 +508,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             initStorage: this.initStorage
         });
 
-        if (this.storageSettings.settings.ignoreCameraDetections) {
-            this.storageSettings.settings.ignoreCameraDetections.hide = !this.nvrEnabled;
-        }
-
         const lastSnapshotWebhook = this.storageSettings.values.lastSnapshotWebhook;
 
         if (this.storageSettings.settings.lastSnapshotWebhookCloudUrl) {
@@ -565,7 +565,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async putSetting(key: string, value: SettingValue): Promise<void> {
         const [group, ...rest] = key.split(':');
-        if (group === 'homeassistantMetadata') {
+        if (group === this.settingsGroupKey) {
             this.storageSettings.putSetting(rest.join(':'), value);
         } else {
             super.putSetting(key, value);
@@ -611,6 +611,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         image?: MediaObject
     }) {
         const { detections, device, logger, triggerTime, b64Image, image } = props;
+        const { room, motionDuration } = this.storageSettings.values;
         if (!this.mqttReportInProgress) {
 
             this.mqttDetectionMotionTimeout && clearTimeout(this.mqttDetectionMotionTimeout);
@@ -628,7 +629,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         triggerTime,
                         b64Image,
                         image,
-                        room: this.storageSettings.values.room,
+                        room,
                         storeImageFn: this.plugin.storeImage
                     }).finally(() => this.mqttReportInProgress = false);
                 } catch (e) {
@@ -719,6 +720,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
             });
 
+            const motionDuration = this.storageSettings.values.motionDuration;
             const motionTimeout = setTimeout(async () => {
                 logger.debug(`Motion end triggered automatically after ${motionDuration}s.`);
                 await report(false);
@@ -743,7 +745,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         if (rule.ruleType === RuleType.Timelapse) {
             return key;
         } else {
-            const { className, label } = match;
+            const { label } = match;
+            const className = detectionClassesDefaultMap[match.className];
             key = `${key}-${className}`;
             if (label) {
                 key += `-${label}`;
@@ -758,6 +761,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         try {
             const image = await objectDetector.takePicture({
                 reason: 'event',
+                timeout: 5000,
                 picture: {
                     height: this.storageSettings.values.snapshotHeight,
                     width: this.storageSettings.values.snapshotWidth,
@@ -1146,6 +1150,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const {
             minDelayTime,
             ignoreCameraDetections,
+            minSnapshotDelay
         } = this.storageSettings.values;
 
         const { candidates, hasLabel } = filterAndSortValidDetections(detections ?? [], logger);
@@ -1155,7 +1160,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         if (this.isActiveForMqttReporting) {
             const { useNvrDetectionsForMqtt } = this.plugin.storageSettings.values;
-            const timePassed = (now - this.lastPictureTaken) >= 1000 * secondsPerPicture;
+            const timePassed = (now - this.lastPictureTaken) >= 1000 * minSnapshotDelay;
             if (isFromNvr && parentImage && useNvrDetectionsForMqtt) {
                 b64Image = (await sdk.mediaManager.convertMediaObjectToBuffer(parentImage, 'image/jpeg'))?.toString('base64');
                 this.lastPictureTaken = now;
