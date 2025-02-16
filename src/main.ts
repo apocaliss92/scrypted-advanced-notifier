@@ -98,7 +98,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             description: 'Regex to filter out entities fetched',
             type: 'string',
             multiple: true,
-            defaultValue: ['binary_sensor.(.*)_triggered']
+            defaultValue: ['binary_sensor.(.*)_triggered'],
         },
         fetchHaEntities: {
             group: 'Base',
@@ -122,6 +122,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             multiple: true,
             combobox: true,
             deviceFilter: deviceFilter,
+            defaultValue: [],
         },
         useNvrDetectionsForMqtt: {
             group: 'MQTT',
@@ -154,6 +155,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             multiple: true,
             combobox: true,
             deviceFilter: notifierFilter,
+            defaultValue: [],
         },
         ...getTextSettings(false),
         [ruleTypeMetadataMap[RuleType.Detection].rulesKey]: {
@@ -173,6 +175,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             multiple: true,
             combobox: true,
             deviceFilter: deviceFilter,
+            defaultValue: [],
         },
         objectDetectionDevice: {
             title: 'Object Detector',
@@ -791,11 +794,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     async getSettings() {
         try {
-            const { haEnabled } = this.storageSettings.values;
+            const { haEnabled, useMqttPluginCredentials, useHaPluginCredentials } = this.storageSettings.values;
             this.storageSettings.settings.domains.hide = !haEnabled;
-            this.storageSettings.settings.fetchHaEntities.hide = !haEnabled;
 
-            return this.storageSettings.getSettings();
+            return super.getSettings();
         } catch (e) {
             this.getLogger().log('Error in getSettings', e);
             return [];
