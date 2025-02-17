@@ -58,6 +58,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             defaultValue: false,
             immediate: true,
         },
+        sendDevNotifications: {
+            title: 'Send notifications on config errors',
+            description: 'Uses the devNotifier',
+            type: 'boolean',
+            defaultValue: false,
+            immediate: true,
+            group: 'Base'
+        },
         serverId: {
             title: 'Server identifier',
             type: 'string',
@@ -709,6 +717,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             const {
                 devNotifier,
+                sendDevNotifications,
                 imagesPath,
                 activeDevicesForReporting,
                 scryptedToken,
@@ -755,7 +764,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     (alertHaIssues && entitiesWithWrongEntityId.length) ||
                     !!storagePathError
                 ) {
-                    (devNotifier as Notifier).sendNotification('Advanced notifier not correctly configured', {
+                    sendDevNotifications && (devNotifier as Notifier).sendNotification('Advanced notifier not correctly configured', {
                         body
                     });
                 }
