@@ -727,10 +727,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             } = this.storageSettings.values;
             let storagePathError;
 
-            try {
-                await fs.promises.access(imagesPath);
-            } catch (e) {
-                storagePathError = e;
+            const imagesPathSet = imagesPath && imagesPath !== '';
+
+            if (imagesPathSet) {
+                try {
+                    await fs.promises.access(imagesPath);
+                } catch (e) {
+                    storagePathError = e;
+                }
             }
 
             const alertHaIssues = haEnabled && anyActiveOnRules;
@@ -742,7 +746,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 sensorsNotLinkedToAnyCamera: sensorsNotLinkedToAnyCamera.length ? sensorsNotLinkedToAnyCamera : undefined,
                 entitiesWithWrongEntityId: entitiesWithWrongEntityId.length ? entitiesWithWrongEntityId : undefined,
                 devicesWithoutRoom: devicesWithoutRoom.length ? devicesWithoutRoom : undefined,
-                storagePathError: storagePathError ?? 'No error',
+                storagePathError: storagePathError ?? (imagesPathSet ? 'No error' : 'Not set'),
                 activeDevicesForReporting: `${activeDevicesForReporting.length} devices`,
                 scryptedToken: scryptedToken ? 'Set' : 'Not set',
                 serverId: this.storageSettings.getItem('serverId') ? 'Found' : 'Not found',
