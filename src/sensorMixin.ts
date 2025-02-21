@@ -13,7 +13,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             plugin: this.plugin,
             mixin: this,
             isCamera: false,
-            refreshSettings: this.refreshSettings
+            refreshSettings: this.refreshSettings.bind(this)
         }),
         minDelayTime: {
             subgroup: 'Notifier',
@@ -214,7 +214,8 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             storage: this.storageSettings,
             isCamera: false,
             ruleSource: RuleSource.Device,
-            onShowMore: async () => await this.refreshSettings(),
+            logger,
+            onShowMore: this.refreshSettings.bind(this),
             onRuleToggle: async (ruleName: string, active: boolean) => {
                 await this.plugin.updateActivationRuleOnMqtt({
                     active,
@@ -230,7 +231,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         this.storageSettings = await convertSettingsToStorageSettings({
             device: this,
             dynamicSettings,
-            initStorage: this.initStorage
+            initStorage: this.initStorage,
         });
     }
 

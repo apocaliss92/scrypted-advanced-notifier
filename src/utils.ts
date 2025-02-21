@@ -587,7 +587,10 @@ export const getMixinBaseSettings = (props: {
                 combobox: true,
                 defaultValue: [],
                 choices: [],
-                onPut: async () => await refreshSettings()
+                onPut: async () => {
+                    console.log('put')
+                    await refreshSettings()
+                }
             };
         }
 
@@ -841,8 +844,9 @@ export const getRuleSettings = (props: {
     getSpecificRules: GetSpecificRules,
     onRuleToggle: OnRuleToggle,
     onShowMore: OnShowMore,
+    logger: Console
 }) => {
-    const { ruleType, storage, ruleSource, getSpecificRules, onRuleToggle, onShowMore } = props;
+    const { ruleType, storage, ruleSource, getSpecificRules, onRuleToggle, onShowMore, logger } = props;
     const group = ruleSource === RuleSource.Device ? mixinRulesGroup : pluginRulesGroup;
     const settings: StorageSetting[] = [];
     const { rulesKey, subgroupPrefix } = ruleTypeMetadataMap[ruleType];
@@ -1060,8 +1064,9 @@ export const getDetectionRulesSettings = async (props: {
     isCamera?: boolean,
     onRuleToggle: OnRuleToggle,
     onShowMore: OnShowMore,
+    logger: Console
 }) => {
-    const { storage, zones, isCamera, ruleSource, onRuleToggle, onShowMore } = props;
+    const { storage, zones, isCamera, ruleSource, onRuleToggle, onShowMore, logger } = props;
     const isPlugin = ruleSource === RuleSource.Plugin;
 
     const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup, showMore }) => {
@@ -1209,7 +1214,8 @@ export const getDetectionRulesSettings = async (props: {
         ruleType: RuleType.Detection,
         storage,
         onRuleToggle,
-        onShowMore
+        onShowMore,
+        logger,
     });
 }
 
@@ -1221,8 +1227,9 @@ export const getOccupancyRulesSettings = async (props: {
     ruleSource: RuleSource,
     onRuleToggle: OnRuleToggle,
     onShowMore: OnShowMore,
+    logger: Console
 }) => {
-    const { storage, zones, ruleSource, onRuleToggle, onShowMore } = props;
+    const { storage, zones, ruleSource, onRuleToggle, onShowMore, logger } = props;
 
     const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup, showMore }) => {
         const settings: StorageSetting[] = [];
@@ -1350,6 +1357,7 @@ export const getOccupancyRulesSettings = async (props: {
         storage,
         onRuleToggle,
         onShowMore,
+        logger
     });
 }
 
@@ -1360,8 +1368,9 @@ export const getTimelapseRulesSettings = async (props: {
     onCleanDataTimelapse: (ruleName: string) => Promise<void>,
     onRuleToggle: OnRuleToggle,
     onShowMore: OnShowMore,
+    logger: Console
 }) => {
-    const { storage, ruleSource, onCleanDataTimelapse, onGenerateTimelapse, onRuleToggle, onShowMore } = props;
+    const { storage, ruleSource, onCleanDataTimelapse, onGenerateTimelapse, onRuleToggle, onShowMore, logger } = props;
 
     const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup, showMore }) => {
         const settings: StorageSetting[] = [];
@@ -1480,7 +1489,8 @@ export const getTimelapseRulesSettings = async (props: {
         ruleType: RuleType.Timelapse,
         storage,
         onRuleToggle,
-        onShowMore
+        onShowMore,
+        logger
     });
 }
 
@@ -2094,9 +2104,9 @@ export const convertSettingsToStorageSettings = async (props: {
     for (const setting of settings) {
         const { value, key, onPut, ...rest } = setting;
         deviceSettings[key] = {
-            ...rest
+            ...rest,
+            value: rest.type === 'html' ? value : undefined
         };
-
         if (setting.onPut) {
             deviceSettings[key].onPut = setting.onPut.bind(device)
         }

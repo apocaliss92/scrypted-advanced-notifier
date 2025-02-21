@@ -872,6 +872,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const detectionRulesSettings = await getDetectionRulesSettings({
             storage: this.storageSettings,
             ruleSource: RuleSource.Plugin,
+            logger,
             onShowMore: async () => await this.refreshSettings(),
             onRuleToggle: async (ruleName: string, active: boolean) => {
                 await this.updateActivationRuleOnMqtt({

@@ -35,7 +35,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             plugin: this.plugin,
             mixin: this,
             isCamera: true,
-            refreshSettings: this.refreshSettings
+            refreshSettings: this.refreshSettings.bind(this)
         }),
         minDelayTime: {
             subgroup: 'Notifier',
@@ -430,8 +430,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             storage: this.storageSettings,
             zones,
             isCamera: true,
+            logger,
             ruleSource: RuleSource.Device,
-            onShowMore: async () => await this.refreshSettings(),
+            onShowMore: this.refreshSettings.bind(this),
             onRuleToggle: async (ruleName: string, active: boolean) => {
                 await this.plugin.updateActivationRuleOnMqtt({
                     active,
@@ -448,7 +449,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             storage: this.storageSettings,
             zones,
             ruleSource: RuleSource.Device,
-            onShowMore: async () => await this.refreshSettings(),
+            logger,
+            onShowMore: this.refreshSettings.bind(this),
             onRuleToggle: async (ruleName: string, active: boolean) => {
                 await this.plugin.updateActivationRuleOnMqtt({
                     active,
@@ -464,7 +466,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const timelapseRulesSettings = await getTimelapseRulesSettings({
             storage: this.storageSettings,
             ruleSource: RuleSource.Device,
-            onShowMore: async () => await this.refreshSettings(),
+            logger,
+            onShowMore: this.refreshSettings.bind(this),
             onCleanDataTimelapse: async (ruleName) => {
                 const rule = this.allTimelapseRules?.find(rule => rule.name === ruleName);
 
