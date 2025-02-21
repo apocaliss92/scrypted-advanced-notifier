@@ -78,8 +78,10 @@ export const getFolderPaths = async (deviceId: string) => {
     const basePath = process.env.SCRYPTED_PLUGIN_VOLUME;
     const snapshotsFolder = path.join(basePath, 'snapshots', deviceId);
 
-    if (!fs.existsSync(snapshotsFolder)) {
-        fs.mkdirSync(snapshotsFolder, { recursive: true });
+    try {
+        await fs.promises.access(snapshotsFolder);
+    } catch {
+        await fs.promises.mkdir(snapshotsFolder, { recursive: true });
     }
 
     return { snapshotsFolder };
