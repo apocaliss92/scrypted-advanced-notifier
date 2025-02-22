@@ -7,8 +7,10 @@ import { Destroyable, RtspSmartCamera, UrlMediaStreamOptions } from '../../scryp
 import { ffmpegFilterImage, ffmpegFilterImageBuffer } from '../../scrypted/plugins/snapshot/src/ffmpeg-image-filter';
 import AdvancedNotifierPlugin from './main';
 import { getWebooks } from './utils';
+import { CameraBase } from '../../scrypted/plugins/ffmpeg-camera/src/common';
 
-export class AdvancedNotifierCamera extends RtspSmartCamera implements Camera, VideoCamera, VideoClips {
+export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> implements Camera, VideoCamera, VideoClips {
+
     picture: Promise<MediaObject>;
 
     constructor(nativeId: string, private plugin: AdvancedNotifierPlugin) {
@@ -59,22 +61,11 @@ export class AdvancedNotifierCamera extends RtspSmartCamera implements Camera, V
         return this.picture;
     }
 
-    async getConstructedVideoStreamOptions(): Promise<UrlMediaStreamOptions[]> {
+    getRawVideoStreamOptions(): UrlMediaStreamOptions[] {
         return [];
     }
-
-    async listenEvents(): Promise<Destroyable> {
-        const ret: Destroyable = {
-            on: function (eventName: string | symbol, listener: (...args: any[]) => void): void {
-            },
-            destroy: async () => {
-            },
-            emit: function (eventName: string | symbol, ...args: any[]): boolean {
-                return false;
-            }
-        };
-
-        return ret;
+    createVideoStream(options?: UrlMediaStreamOptions): Promise<MediaObject> {
+        return null;
     }
 
     async getVideoClips(options?: VideoClipOptions): Promise<VideoClip[]> {
