@@ -292,10 +292,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 },
             );
 
-            if (this.storageSettings.values.haEnabled) {
-                await this.fetchHomeassistantData();
-            }
-
             await this.refreshSettings();
         })();
 

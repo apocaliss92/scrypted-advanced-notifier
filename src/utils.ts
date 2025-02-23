@@ -1110,15 +1110,6 @@ export const getDetectionRulesSettings = async (props: {
                     choices: defaultDetectionClasses,
                     defaultValue: []
                 },
-                {
-                    key: scoreThresholdKey,
-                    title: 'Score threshold',
-                    group,
-                    subgroup,
-                    type: 'number',
-                    placeholder: '0.7',
-                    hide: !showMore
-                },
             );
         }
 
