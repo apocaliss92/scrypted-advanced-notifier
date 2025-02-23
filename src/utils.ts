@@ -893,7 +893,18 @@ export const getRuleSettings = (props: {
                 group,
                 subgroup,
                 readonly: true
-            }
+            },
+            {
+                key: showMoreConfigurationsKey,
+                title: 'Show more configurations',
+                type: 'boolean',
+                group,
+                subgroup,
+                immediate: true,
+                onPut: async (_, showMore) => {
+                    await onShowMore(showMore)
+                },
+            },
         );
 
         if (ruleType !== RuleType.Timelapse) {
@@ -956,20 +967,6 @@ export const getRuleSettings = (props: {
         }
 
         settings.push(...getSpecificRules({ ruleName, subgroup, group, showMore: showMoreConfigurations }));
-
-        settings.push(
-            {
-                key: showMoreConfigurationsKey,
-                title: 'Show more configurations',
-                type: 'boolean',
-                group,
-                subgroup,
-                immediate: true,
-                onPut: async (_, showMore) => {
-                    await onShowMore(showMore)
-                },
-            },
-        );
 
         if (ruleType !== RuleType.Occupancy) {
             settings.push({
