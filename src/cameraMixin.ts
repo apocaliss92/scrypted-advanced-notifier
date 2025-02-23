@@ -1,6 +1,6 @@
 import sdk, { Camera, EventListenerRegister, Image, MediaObject, MotionSensor, ObjectDetection, ObjectDetectionResult, ObjectDetector, ObjectsDetected, ScryptedDevice, ScryptedDeviceBase, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
-import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
+import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep } from "lodash";
 import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
@@ -441,7 +441,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async refreshSettings() {
         const logger = this.getLogger();
-        const dynamicSettings: Setting[] = [];
+        const dynamicSettings: StorageSetting[] = [];
         const zones = (await this.getObserveZones()).map(item => item.name);
 
         const detectionRulesSettings = await getDetectionRulesSettings({

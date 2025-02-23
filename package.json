@@ -45,7 +45,7 @@
   },
   "dependencies": {
     "@scrypted/common": "file:../scrypted/common",
-    "@scrypted/sdk": "^0.3.106",
+    "@scrypted/sdk": "^0.3.124",
     "axios": "^0.23.0",
     "lodash": "^4.17.21",
     "moment": "^2.30.1",

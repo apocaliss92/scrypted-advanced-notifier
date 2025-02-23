@@ -1,4 +1,4 @@
-import sdk, { Camera, DeviceBase, LockState, MediaObject, NotifierOptions, ObjectDetectionResult, Point, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Setting, Settings } from "@scrypted/sdk";
+import sdk, { Camera, DeviceBase, LockState, MediaObject, NotifierOptions, ObjectDetectionResult, Point, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Setting, Settings } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDevice, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import fs from 'fs';
@@ -29,16 +29,11 @@ export type StoreImageFn = (props: {
 }) => Promise<void>
 
 export const getElegibleDevices = () => {
-    const allDevices = Object.keys(sdk.systemManager.getSystemState()).map(deviceId => sdk.systemManager.getDeviceById(deviceId) as unknown as DeviceInterface);
+    const allDevices = Object.keys(sdk.systemManager.getSystemState()).map(deviceId => sdk.systemManager.getDeviceById<DeviceInterface>(deviceId));
 
-    return allDevices.filter(device => {
-        return eval(
-            `(function() { var interfaces = ${JSON.stringify(
-                device.interfaces
-            )}; var type='${device.type}'; var id = '${device.id}'; return ${deviceFilter} })`
-        )()
-    })
-
+    return allDevices
+        .filter(d => (deviceFilter as (d: any) => boolean)(d))
+        .map(device => sdk.systemManager.getDeviceById<DeviceInterface>(device.id));
 }
 
 export enum EventType {
@@ -831,9 +826,10 @@ export enum ZoneMatchType {
     Contain = 'Contain',
 }
 
-export const deviceFilter = `(interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && (type === '${ScryptedDeviceType.Camera}' || type === '${ScryptedDeviceType.Doorbell}' || type === '${ScryptedDeviceType.Sensor}' || type === '${ScryptedDeviceType.Lock}'))`;
-export const notifierFilter = `(type === '${ScryptedDeviceType.Notifier}' && interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}'))`;
-type GetSpecificRules = (props: { group: string, subgroup: string, ruleName: string, showMore: boolean }) => Setting[];
+export const deviceFilter: StorageSetting['deviceFilter'] = d => d.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE) && [ScryptedDeviceType.Camera, ScryptedDeviceType.Doorbell, ScryptedDeviceType.Sensor, ScryptedDeviceType.Lock].includes(d.type);
+export const notifierFilter: StorageSetting['deviceFilter'] = d => d.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE) && d.type === ScryptedDeviceType.Notifier;
+
+type GetSpecificRules = (props: { group: string, subgroup: string, ruleName: string, showMore: boolean }) => StorageSetting[];
 type OnRuleToggle = (ruleName: string, enabled: boolean) => Promise<void>
 type OnShowMore = (showMore: boolean) => Promise<void>
 
@@ -997,7 +993,7 @@ export const getRuleSettings = (props: {
                 multiple: true,
                 combobox: true,
                 type: 'device',
-                deviceFilter: `(type === '${ScryptedDeviceType.Sensor}')`,
+                deviceFilter: d => d.type === ScryptedDeviceType.Sensor,
                 hide: !showMoreConfigurations
             },
             {
@@ -1009,7 +1005,7 @@ export const getRuleSettings = (props: {
                 multiple: true,
                 combobox: true,
                 type: 'device',
-                deviceFilter: `(type === '${ScryptedDeviceType.Sensor}')`,
+                deviceFilter: d => d.type === ScryptedDeviceType.Sensor,
                 hide: !showMoreConfigurations
             },
             {
@@ -1341,7 +1337,7 @@ export const getOccupancyRulesSettings = async (props: {
                 type: 'device',
                 group,
                 subgroup,
-                deviceFilter: `interfaces.includes('ObjectDetectionPreview') && id !== '${nvrAcceleratedMotionSensorId}'`,
+                deviceFilter: d => d.interfaces.includes(ScryptedInterface.ObjectDetectionPreview) && d.id !== nvrAcceleratedMotionSensorId,
                 immediate: true,
                 hide: !showMore
             },

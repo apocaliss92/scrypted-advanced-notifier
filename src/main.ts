@@ -1278,7 +1278,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             mixinDeviceState,
             mixinProviderNativeId: this.nativeId,
             group: 'Advanced notifier',
-            groupKey: 'homeassistantMetadata'
+            groupKey: 'homeassistantMetadata',
         };
 
         if (
@@ -1457,7 +1457,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
 
             const deviceSettings = await device.getSettings();
-            const notifier = systemManager.getDeviceById(notifierId) as unknown as (Notifier & ScryptedDevice);
+            const notifier = systemManager.getDeviceById<Notifier & ScryptedDevice & DeviceBase>(notifierId);
 
             const { externalUrl } = this.getUrls(device.id, time);
 
