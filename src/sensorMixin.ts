@@ -86,11 +86,12 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 isActiveForMqttReporting,
                 isPluginEnabled,
                 detectionRules,
-                skippedRules,
+                skippedDetectionRules,
                 isActiveForNotifications,
                 isActiveForNvrNotifications,
                 nvrRules,
-                allDeviceRules,
+                allDeviceDetectionRules,
+                allDetectionRules,
             } = await isDeviceEnabled({
                 device: this,
                 console: logger,
@@ -98,15 +99,14 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 deviceStorage: this.storageSettings
             });
 
-            const detectionRulesToEnable = (detectionRules || []).filter(newRule => !this.detectionRules?.some(currentRule => currentRule.name === newRule.name));
-            const detectionRulesToDisable = (this.detectionRules || []).filter(currentRule => !detectionRules?.some(newRule => newRule.name === currentRule.name));
+            const detectionRulesToEnable = (detectionRules || []).filter(newRule => !allDetectionRules?.some(currentRule => currentRule.name === newRule.name));
+            const detectionRulesToDisable = (allDetectionRules || []).filter(currentRule => !detectionRules?.some(newRule => newRule.name === currentRule.name));
 
             if (detectionRulesToEnable?.length) {
                 for (const rule of detectionRulesToEnable) {
                     const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
                     this.putMixinSetting(currentlyActiveKey, 'true');
                 }
-                logger.log(`Detection rules started: ${detectionRulesToEnable.map(rule => rule.name).join(', ')}`);
             }
 
             if (detectionRulesToDisable?.length) {
@@ -114,10 +114,9 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                     const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
                     this.putMixinSetting(currentlyActiveKey, 'false');
                 }
-                logger.log(`Detection rules stopped: ${detectionRulesToDisable.map(rule => rule.name).join(', ')}`);
             }
 
-            logger.debug(`Detected rules: ${JSON.stringify({ detectionRules, skippedRules })}`);
+            logger.debug(`Detected rules: ${JSON.stringify({ detectionRules, skippedDetectionRules })}`);
             this.detectionRules = detectionRules || [];
             this.nvrDetectionRules = nvrRules || [];
 
@@ -138,13 +137,13 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                             console: logger,
                             withDetections: true,
                             deviceClass: this.storageSettings.values.haDeviceClass || 'window',
-                            detectionRules: allDeviceRules,
+                            detectionRules: allDeviceDetectionRules,
                         });
 
                         this.getLogger().log(`Subscribing to mqtt topics`);
                         await subscribeToDeviceMqttTopics({
                             mqttClient,
-                            detectionRules: allDeviceRules,
+                            detectionRules: allDeviceDetectionRules,
                             device,
                             activationRuleCb: async ({ active, ruleName, ruleType }) => {
                                 const { common: { enabledKey } } = getRuleKeys({ ruleName, ruleType });

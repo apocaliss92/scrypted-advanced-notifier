@@ -619,11 +619,11 @@ export const isDeviceEnabled = async (
 
     const {
         detectionRules,
-        skippedRules,
+        skippedDetectionRules,
         nvrRules,
-        allDeviceRules,
-        allPluginRules,
-        allPossibleRules,
+        allDeviceDetectionRules,
+        allPluginDetectionRules,
+        allDetectionRules,
     } = getDeviceRules({
         device,
         console,
@@ -657,14 +657,14 @@ export const isDeviceEnabled = async (
         isActiveForNvrNotifications,
         isActiveForMqttReporting,
         detectionRules,
-        skippedRules,
+        skippedDetectionRules,
         nvrRules,
-        allDeviceRules,
-        allPluginRules,
+        allDeviceDetectionRules,
+        allPluginDetectionRules,
         skippedOccupancyRules,
         occupancyRules,
         allOccupancyRules,
-        allPossibleRules,
+        allDetectionRules,
         timelapseRules,
         skippedTimelapseRules,
         allTimelapseRules,
@@ -1669,11 +1669,10 @@ export const getDeviceRules = (
     const { device, pluginStorage, deviceStorage, console } = props;
     const detectionRules: DetectionRule[] = [];
     const nvrRules: DetectionRule[] = [];
-    const skippedRules: DetectionRule[] = [];
-    const allPluginRules: DetectionRule[] = [];
-    const allDeviceRules: DetectionRule[] = [];
-    const allPossibleRules: DetectionRule[] = [];
-    const pluginActiveRules: DetectionRule[] = [];
+    const skippedDetectionRules: DetectionRule[] = [];
+    const allPluginDetectionRules: DetectionRule[] = [];
+    const allDeviceDetectionRules: DetectionRule[] = [];
+    const allDetectionRules: DetectionRule[] = [];
     const deviceId = device?.id;
     const deviceType = device?.type;
 
@@ -1776,19 +1775,18 @@ export const getDeviceRules = (
             })}`);
 
             if (deviceOk || activationType === DetectionRuleActivation.OnActive) {
-                allPossibleRules.push(cloneDeep(detectionRule));
+                allDetectionRules.push(cloneDeep(detectionRule));
             }
 
             if (ruleSource === RuleSource.Plugin) {
-                allPluginRules.push(cloneDeep(detectionRule));
+                allPluginDetectionRules.push(cloneDeep(detectionRule));
             } else if (ruleSource === RuleSource.Device) {
-                allDeviceRules.push(cloneDeep(detectionRule));
+                allDeviceDetectionRules.push(cloneDeep(detectionRule));
             }
 
             if (!ruleAllowed) {
-                skippedRules.push(cloneDeep(detectionRule));
+                skippedDetectionRules.push(cloneDeep(detectionRule));
             } else {
-                pluginActiveRules.push(cloneDeep(detectionRule));
                 if (useNvrDetections) {
                     nvrRules.push(cloneDeep(detectionRule));
                 } else {
@@ -1807,12 +1805,11 @@ export const getDeviceRules = (
 
     return {
         detectionRules,
-        skippedRules,
+        skippedDetectionRules,
         nvrRules,
-        allPluginRules,
-        allDeviceRules,
-        allPossibleRules,
-        pluginActiveRules,
+        allPluginDetectionRules,
+        allDeviceDetectionRules,
+        allDetectionRules,
     };
 }
 

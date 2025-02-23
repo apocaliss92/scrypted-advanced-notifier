@@ -525,16 +525,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             .map(person => person.trim());
 
         const pluginStorage = this.storageSettings;
-        const { allPluginRules } = getDeviceRules({ pluginStorage, console: logger });
+        const { allPluginDetectionRules } = getDeviceRules({ pluginStorage, console: logger });
 
         await setupPluginAutodiscovery({
             mqttClient,
             people: knownPeople,
             console: logger,
-            detectionRules: allPluginRules,
+            detectionRules: allPluginDetectionRules,
         });
 
-        return { allPluginRules };
+        return { allPluginDetectionRules };
     }
 
     async putSetting(key: string, value: SettingValue): Promise<void> {
@@ -557,14 +557,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if (mqttEnabled) {
             try {
                 const mqttClient = await this.getMqttClient();
-                const { allPluginRules } = await this.sendAutoDiscovery();
+                const { allPluginDetectionRules } = await this.sendAutoDiscovery();
                 const logger = this.getLogger();
 
                 this.getLogger().log(`Subscribing to mqtt topics`);
                 await subscribeToMainMqttTopics({
                     entitiesActiveTopic: mqttActiveEntitiesTopic,
                     mqttClient,
-                    detectionRules: allPluginRules,
+                    detectionRules: allPluginDetectionRules,
                     activeEntitiesCb: async (message) => {
                         logger.log(`Received update for ${mqttActiveEntitiesTopic} topic: ${JSON.stringify(message)}`);
                         await this.syncHaEntityIds(message);
@@ -700,10 +700,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
 
             const pluginStorage = this.storageSettings;
-            const { nvrRules, detectionRules, allPluginRules } = getDeviceRules({ pluginStorage, console: logger });
+            const { nvrRules, detectionRules, allPluginDetectionRules } = getDeviceRules({ pluginStorage, console: logger });
 
             const rulesToEnable = [...detectionRules, ...nvrRules];
-            const rulesToDisable = (allPluginRules || []).filter(currentRule => !detectionRules?.some(newRule => newRule.name === currentRule.name));
+            const rulesToDisable = (allPluginDetectionRules || []).filter(currentRule => !detectionRules?.some(newRule => newRule.name === currentRule.name));
 
             if (rulesToEnable?.length) {
                 for (const rule of rulesToEnable) {
@@ -1699,9 +1699,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 logger,
                 rule,
             }).catch(logger.log);
-
-            const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Timelapse });
-            this.currentMixinsMap[device.name].putMixinSetting(currentlyActiveKey, 'true');
         }
     }
 
@@ -1723,8 +1720,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         logger: Console,
     }) => {
         const { device, rule, logger } = props;
-        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Timelapse });
-        this.currentMixinsMap[device.name].putMixinSetting(currentlyActiveKey, 'false');
         const { imagesPath } = this.storageSettings.values;
 
         if (imagesPath) {

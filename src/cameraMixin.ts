@@ -180,13 +180,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     isPluginEnabled,
                     detectionRules,
                     nvrRules,
-                    skippedRules,
+                    skippedDetectionRules,
                     isActiveForNotifications,
                     isActiveForNvrNotifications,
                     occupancyRules,
                     skippedOccupancyRules,
                     allOccupancyRules,
-                    allPossibleRules,
+                    allDetectionRules,
                     timelapseRules,
                     skippedTimelapseRules,
                     allTimelapseRules,
@@ -200,20 +200,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const timelapseRulesToEnable = (timelapseRules || []).filter(newRule => !this.timelapseRules?.some(currentRule => currentRule.name === newRule.name));
                 const timelapseRulesToDisable = (this.timelapseRules || []).filter(currentRule => !timelapseRules?.some(newRule => newRule.name === currentRule.name));
 
-                const detectionRulesToEnable = (detectionRules || []).filter(newRule => !this.detectionRules?.some(currentRule => currentRule.name === newRule.name));
-                const detectionRulesToDisable = (this.detectionRules || []).filter(currentRule => !detectionRules?.some(newRule => newRule.name === currentRule.name));
+                const detectionRulesToEnable = (detectionRules || []).filter(newRule => !allDetectionRules?.some(currentRule => currentRule.name === newRule.name));
+                const detectionRulesToDisable = (allDetectionRules || []).filter(currentRule => !detectionRules?.some(newRule => newRule.name === currentRule.name));
 
-                const occupancyRulesToEnable = (occupancyRules || []).filter(newRule => !this.occupancyRules?.some(currentRule => currentRule.name === newRule.name));
-                const occupancyRulesToDisable = (this.occupancyRules || []).filter(currentRule => !occupancyRules?.some(newRule => newRule.name === currentRule.name));
+                const occupancyRulesToEnable = (occupancyRules || []).filter(newRule => !allOccupancyRules?.some(currentRule => currentRule.name === newRule.name));
+                const occupancyRulesToDisable = (allOccupancyRules || []).filter(currentRule => !occupancyRules?.some(newRule => newRule.name === currentRule.name));
 
                 logger.debug(`Detected rules: ${JSON.stringify({
                     detectionRules,
-                    skippedRules,
+                    skippedDetectionRules,
                     occupancyRules,
                     skippedOccupancyRules,
                     nvrRules,
                     isActiveForMqttReporting,
-                    allPossibleRules,
+                    allDetectionRules,
                     timelapseRules,
                     skippedTimelapseRules,
                     timelapseRulesToEnable,
@@ -223,19 +223,31 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 })}`);
 
                 if (detectionRulesToEnable?.length) {
-                    logger.log(`Detection rules started: ${detectionRulesToEnable.map(rule => rule.name).join(', ')}`);
+                    for (const rule of detectionRulesToEnable) {
+                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
+                        this.putMixinSetting(currentlyActiveKey, 'true');
+                    }
                 }
 
                 if (detectionRulesToDisable?.length) {
-                    logger.log(`Detection rules stopped: ${detectionRulesToDisable.map(rule => rule.name).join(', ')}`);
+                    for (const rule of detectionRulesToDisable) {
+                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
+                        this.putMixinSetting(currentlyActiveKey, 'false');
+                    }
                 }
 
                 if (occupancyRulesToEnable?.length) {
-                    logger.log(`Detection rules started: ${occupancyRulesToEnable.map(rule => rule.name).join(', ')}`);
+                    for (const rule of occupancyRulesToEnable) {
+                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Occupancy });
+                        this.putMixinSetting(currentlyActiveKey, 'true');
+                    }
                 }
 
                 if (occupancyRulesToDisable?.length) {
-                    logger.log(`Detection rules stopped: ${occupancyRulesToDisable.map(rule => rule.name).join(', ')}`);
+                    for (const rule of occupancyRulesToEnable) {
+                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Occupancy });
+                        this.putMixinSetting(currentlyActiveKey, 'false');
+                    }
                 }
 
                 if (timelapseRulesToEnable?.length) {
@@ -246,7 +258,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             rule,
                             device,
                             logger,
-                        })
+                        });
+
+                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Timelapse });
+                        this.putMixinSetting(currentlyActiveKey, 'true');
                     }
                 }
 
@@ -259,6 +274,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             device,
                             logger,
                         }).catch(logger.log);
+
+                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Timelapse });
+                        this.putMixinSetting(currentlyActiveKey, 'false');
                     }
                 }
 
@@ -284,7 +302,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 console: logger,
                                 withDetections: true,
                                 deviceClass: 'motion',
-                                detectionRules: allPossibleRules,
+                                detectionRules: allDetectionRules,
                                 occupancyRules: allOccupancyRules,
                                 timelapseRules: allTimelapseRules,
                             });
@@ -292,7 +310,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             logger.log(`Subscribing to mqtt topics`);
                             await subscribeToDeviceMqttTopics({
                                 mqttClient,
-                                detectionRules: allPossibleRules,
+                                detectionRules: allDetectionRules,
                                 occupancyRules: allOccupancyRules,
                                 timelapseRules: allTimelapseRules,
                                 device,
@@ -310,10 +328,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             this.mainAutodiscoveryDone = true;
                         }
 
-                        const missingRules = allPossibleRules.filter(rule => !this.rulesDiscovered.includes(getDetectionRuleId(rule)));
+                        const missingRules = allDetectionRules.filter(rule => !this.rulesDiscovered.includes(getDetectionRuleId(rule)));
                         logger.debug(`Processing missing rules: ${JSON.stringify({
                             missingRules,
-                            allPossibleRules,
+                            allDetectionRules,
                             nvrRules,
                         })}`);
 
