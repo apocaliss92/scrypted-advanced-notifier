@@ -1080,7 +1080,12 @@ export const getDetectionRulesSettings = async (props: {
         } = detection;
 
         const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean ?? false;
+        const devicesRaw = storage.getItem(devicesKey);
+        const devices = typeof devicesRaw === 'string' ? JSON.parse(storage.getItem(devicesKey) ?? '[]') : devicesRaw;
         const activationType = storage.getItem(activationKey) as DetectionRuleActivation ?? DetectionRuleActivation.Always;
+        const anyCameraDevice = (isPlugin && devices
+            .some(deviceId => [ScryptedDeviceType.Camera, ScryptedDeviceType.Doorbell].includes(sdk.systemManager.getDeviceById(deviceId)?.type))
+        ) || isCamera || activationType === DetectionRuleActivation.OnActive;
 
         settings.push(
             {
@@ -1090,18 +1095,32 @@ export const getDetectionRulesSettings = async (props: {
                 group,
                 subgroup,
                 immediate: true
-            },
-            {
-                key: detectionClassesKey,
-                title: 'Detection classes',
-                group,
-                subgroup,
-                multiple: true,
-                combobox: true,
-                choices: defaultDetectionClasses,
-                defaultValue: []
             }
         );
+
+        if (anyCameraDevice) {
+            settings.push(
+                {
+                    key: detectionClassesKey,
+                    title: 'Detection classes',
+                    group,
+                    subgroup,
+                    multiple: true,
+                    combobox: true,
+                    choices: defaultDetectionClasses,
+                    defaultValue: []
+                },
+                {
+                    key: scoreThresholdKey,
+                    title: 'Score threshold',
+                    group,
+                    subgroup,
+                    type: 'number',
+                    placeholder: '0.7',
+                    hide: !showMore
+                },
+            );
+        }
 
         if (useNvrDetections && isPlugin) {
             settings.push(
@@ -1166,15 +1185,6 @@ export const getDetectionRulesSettings = async (props: {
             }
 
             settings.push(
-                {
-                    key: scoreThresholdKey,
-                    title: 'Score threshold',
-                    group,
-                    subgroup,
-                    type: 'number',
-                    placeholder: '0.7',
-                    hide: !showMore
-                },
                 {
                     key: minDelayKey,
                     title: 'Minimum notification delay',
