@@ -832,8 +832,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             const alertHaIssues = haEnabled && anyActiveOnRules;
 
-            this.console.log(securitySystem);
-
             const securitySystemDevice: SecuritySystem = typeof securitySystem === 'string' ? sdk.systemManager.getDeviceById<SecuritySystem>(securitySystem) : securitySystem;
             const securitySyetemState = securitySystemDevice?.securitySystemState;
             const securitySystemCorrectMode = securitySyetemState ? Object.keys(SecuritySystemMode).includes(securitySyetemState.mode) : undefined;
