@@ -204,10 +204,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const detectionRulesToDisable = (this.detectionRules || []).filter(currentRule => !detectionRules?.some(newRule => newRule.name === currentRule.name));
 
                 const nvrDetectionRulesToEnable = (nvrRules || []).filter(newRule => !this.nvrDetectionRules?.some(currentRule => currentRule.name === newRule.name));
-                const nvrDetectionRulesToDisable = (this.nvrDetectionRules || []).filter(currentRule => !detectionRules?.some(newRule => newRule.name === currentRule.name));
+                const nvrDetectionRulesToDisable = (this.nvrDetectionRules || []).filter(currentRule => !nvrRules?.some(newRule => newRule.name === currentRule.name));
 
-                const occupancyRulesToEnable = (occupancyRules || []).filter(newRule => !allOccupancyRules?.some(currentRule => currentRule.name === newRule.name));
-                const occupancyRulesToDisable = (allOccupancyRules || []).filter(currentRule => !occupancyRules?.some(newRule => newRule.name === currentRule.name));
+                const occupancyRulesToEnable = (occupancyRules || []).filter(newRule => !this.occupancyRules?.some(currentRule => currentRule.name === newRule.name));
+                const occupancyRulesToDisable = (this.occupancyRules || []).filter(currentRule => !occupancyRules?.some(newRule => newRule.name === currentRule.name));
 
                 logger.debug(`Detected rules: ${JSON.stringify({
                     detectionRules,
@@ -225,74 +225,41 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     detectionRulesToDisable,
                 })}`);
 
-                if (detectionRulesToEnable?.length) {
-                    for (const rule of detectionRulesToEnable) {
-                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
+                const rulesToEnable = [...detectionRulesToEnable, ...nvrDetectionRulesToEnable, ...occupancyRulesToEnable, ...timelapseRulesToEnable];
+                const rulesToDisable = [...detectionRulesToDisable, ...nvrDetectionRulesToDisable, ...occupancyRulesToDisable, ...timelapseRulesToDisable];
+
+                if (rulesToEnable?.length) {
+                    for (const rule of rulesToEnable) {
+                        const { ruleType, name } = rule;
+                        logger.log(`${ruleType} rule started: ${name}`);
+
+                        if (ruleType === RuleType.Timelapse) {
+                            await this.plugin.timelapseRuleStarted({
+                                rule,
+                                device,
+                                logger,
+                            });
+                        }
+
+                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: name, ruleType });
                         this.putMixinSetting(currentlyActiveKey, 'true');
                     }
                 }
 
-                if (detectionRulesToDisable?.length) {
-                    for (const rule of detectionRulesToDisable) {
-                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
-                        this.putMixinSetting(currentlyActiveKey, 'false');
-                    }
-                }
+                if (rulesToDisable?.length) {
+                    for (const rule of rulesToDisable) {
+                        const { ruleType, name } = rule;
+                        logger.log(`${ruleType} rule stopped: ${name}`);
 
-                if (nvrDetectionRulesToEnable?.length) {
-                    for (const rule of nvrDetectionRulesToEnable) {
-                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
-                        this.putMixinSetting(currentlyActiveKey, 'true');
-                    }
-                }
+                        if (ruleType === RuleType.Timelapse) {
+                            this.plugin.timelapseRuleEnded({
+                                rule,
+                                device,
+                                logger,
+                            }).catch(logger.log);
+                        }
 
-                if (nvrDetectionRulesToDisable?.length) {
-                    for (const rule of nvrDetectionRulesToDisable) {
-                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
-                        this.putMixinSetting(currentlyActiveKey, 'false');
-                    }
-                }
-
-                if (occupancyRulesToEnable?.length) {
-                    for (const rule of occupancyRulesToEnable) {
-                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Occupancy });
-                        this.putMixinSetting(currentlyActiveKey, 'true');
-                    }
-                }
-
-                if (occupancyRulesToDisable?.length) {
-                    for (const rule of occupancyRulesToEnable) {
-                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Occupancy });
-                        this.putMixinSetting(currentlyActiveKey, 'false');
-                    }
-                }
-
-                if (timelapseRulesToEnable?.length) {
-                    for (const rule of timelapseRulesToEnable) {
-                        logger.log(`Timelapse rule started: ${rule.name}`);
-
-                        await this.plugin.timelapseRuleStarted({
-                            rule,
-                            device,
-                            logger,
-                        });
-
-                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Timelapse });
-                        this.putMixinSetting(currentlyActiveKey, 'true');
-                    }
-                }
-
-                if (timelapseRulesToDisable?.length) {
-                    for (const rule of timelapseRulesToDisable) {
-                        logger.log(`Timelapse rule stopped: ${rule.name}`);
-
-                        this.plugin.timelapseRuleEnded({
-                            rule,
-                            device,
-                            logger,
-                        }).catch(logger.log);
-
-                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Timelapse });
+                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: name, ruleType });
                         this.putMixinSetting(currentlyActiveKey, 'false');
                     }
                 }

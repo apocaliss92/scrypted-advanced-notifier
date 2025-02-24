@@ -1,4 +1,4 @@
-import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SecuritySystem, SecuritySystemMode, Setting, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
 import { isEqual, keyBy, sortBy } from 'lodash';
@@ -704,33 +704,23 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const detectionRulesToDisable = (this.detectionRules || []).filter(currentRule => !detectionRules?.some(newRule => newRule.name === currentRule.name));
 
             const nvrDetectionRulesToEnable = (nvrRules || []).filter(newRule => !this.nvrRules?.some(currentRule => currentRule.name === newRule.name));
-            const nvrDetectionRulesToDisable = (this.nvrRules || []).filter(currentRule => !detectionRules?.some(newRule => newRule.name === currentRule.name));
+            const nvrDetectionRulesToDisable = (this.nvrRules || []).filter(currentRule => !nvrRules?.some(newRule => newRule.name === currentRule.name));
 
+            const rulesToEnable = [...detectionRulesToEnable, ...nvrDetectionRulesToEnable];
+            const rulesToDisable = [...detectionRulesToDisable, ...nvrDetectionRulesToDisable];
 
-            if (detectionRulesToEnable?.length) {
-                for (const rule of detectionRulesToEnable) {
-                    const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
+            if (rulesToEnable?.length) {
+                for (const rule of rulesToEnable) {
+                    logger.log(`${rule.ruleType} rule started: ${rule.name}`);
+                    const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: rule.ruleType });
                     this.putSetting(currentlyActiveKey, 'true');
                 }
             }
 
-            if (detectionRulesToDisable?.length) {
-                for (const rule of detectionRulesToDisable) {
-                    const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
-                    this.putSetting(currentlyActiveKey, 'false');
-                }
-            }
-
-            if (nvrDetectionRulesToEnable?.length) {
-                for (const rule of nvrDetectionRulesToEnable) {
-                    const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
-                    this.putSetting(currentlyActiveKey, 'true');
-                }
-            }
-
-            if (nvrDetectionRulesToDisable?.length) {
-                for (const rule of nvrDetectionRulesToDisable) {
-                    const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
+            if (rulesToDisable?.length) {
+                for (const rule of rulesToDisable) {
+                    logger.log(`${rule.ruleType} rule stopped: ${rule.name}`);
+                    const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: rule.ruleType });
                     this.putSetting(currentlyActiveKey, 'false');
                 }
             }
@@ -826,6 +816,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 nvrUrl,
                 objectDetectionDevice,
                 haEnabled,
+                securitySystem,
             } = this.storageSettings.values;
             let storagePathError;
 
@@ -841,6 +832,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             const alertHaIssues = haEnabled && anyActiveOnRules;
 
+            this.console.log(securitySystem);
+
+            const securitySystemDevice: SecuritySystem = typeof securitySystem === 'string' ? sdk.systemManager.getDeviceById<SecuritySystem>(securitySystem) : securitySystem;
+            const securitySyetemState = securitySystemDevice?.securitySystemState;
+            const securitySystemCorrectMode = securitySyetemState ? Object.keys(SecuritySystemMode).includes(securitySyetemState.mode) : undefined;
+
             const body = JSON.stringify({
                 missingNotifiersOfDeviceRules: missingNotifiersOfDeviceRules.length ? missingNotifiersOfDeviceRules : undefined,
                 missingNotifiersOfPluginRules: missingNotifiersOfPluginRules.length ? missingNotifiersOfPluginRules : undefined,
@@ -854,6 +851,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 serverId: this.storageSettings.getItem('serverId') ? 'Found' : 'Not found',
                 nvrUrl: nvrUrl ? 'Set' : 'Not set',
                 objectDetectionDevice: objectDetectionDevice ? objectDetectionDevice.name : 'Not set',
+                securitySystemSet: securitySystemDevice ? 'Set' : 'Not set',
+                securitySystemState: securitySystemDevice ? securitySystemCorrectMode ? 'Ok' : `Wrong: ${securitySyetemState?.mode}` : undefined
             });
 
             if (manual) {
@@ -910,7 +909,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     async getSettings() {
         try {
-            const { haEnabled, useMqttPluginCredentials, useHaPluginCredentials } = this.storageSettings.values;
+            const { haEnabled } = this.storageSettings.values;
             this.storageSettings.settings.domains.hide = !haEnabled;
 
             return super.getSettings();
