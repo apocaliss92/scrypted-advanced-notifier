@@ -200,8 +200,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const timelapseRulesToEnable = (timelapseRules || []).filter(newRule => !this.timelapseRules?.some(currentRule => currentRule.name === newRule.name));
                 const timelapseRulesToDisable = (this.timelapseRules || []).filter(currentRule => !timelapseRules?.some(newRule => newRule.name === currentRule.name));
 
-                const detectionRulesToEnable = (detectionRules || []).filter(newRule => !allDetectionRules?.some(currentRule => currentRule.name === newRule.name));
-                const detectionRulesToDisable = (allDetectionRules || []).filter(currentRule => !detectionRules?.some(newRule => newRule.name === currentRule.name));
+                const detectionRulesToEnable = (detectionRules || []).filter(newRule => !this.detectionRules?.some(currentRule => currentRule.name === newRule.name));
+                const detectionRulesToDisable = (this.detectionRules || []).filter(currentRule => !detectionRules?.some(newRule => newRule.name === currentRule.name));
+
+                const nvrDetectionRulesToEnable = (nvrRules || []).filter(newRule => !this.nvrDetectionRules?.some(currentRule => currentRule.name === newRule.name));
+                const nvrDetectionRulesToDisable = (this.nvrDetectionRules || []).filter(currentRule => !detectionRules?.some(newRule => newRule.name === currentRule.name));
 
                 const occupancyRulesToEnable = (occupancyRules || []).filter(newRule => !allOccupancyRules?.some(currentRule => currentRule.name === newRule.name));
                 const occupancyRulesToDisable = (allOccupancyRules || []).filter(currentRule => !occupancyRules?.some(newRule => newRule.name === currentRule.name));
@@ -231,6 +234,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 if (detectionRulesToDisable?.length) {
                     for (const rule of detectionRulesToDisable) {
+                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
+                        this.putMixinSetting(currentlyActiveKey, 'false');
+                    }
+                }
+
+                if (nvrDetectionRulesToEnable?.length) {
+                    for (const rule of nvrDetectionRulesToEnable) {
+                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
+                        this.putMixinSetting(currentlyActiveKey, 'true');
+                    }
+                }
+
+                if (nvrDetectionRulesToDisable?.length) {
+                    for (const rule of nvrDetectionRulesToDisable) {
                         const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
                         this.putMixinSetting(currentlyActiveKey, 'false');
                     }

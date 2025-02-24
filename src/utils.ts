@@ -707,6 +707,7 @@ export enum DetectionRuleActivation {
     Always = 'Always',
     OnActive = 'OnActive',
     Schedule = 'Schedule',
+    AlarmSystem = 'AlarmSystem',
 }
 
 export enum NvrEvent {
@@ -869,7 +870,10 @@ export const getRuleSettings = (props: {
             }
         } = getRuleKeys({ ruleName, ruleType });
 
-        const currentActivation = storage.getItem(activationKey as any) as DetectionRuleActivation;
+        let currentActivation = storage.getItem(activationKey as any) as DetectionRuleActivation;
+        if (currentActivation === DetectionRuleActivation.AlarmSystem) {
+            currentActivation = DetectionRuleActivation.Always;
+        }
         const showMoreConfigurationsRaw = storage.getItem(showMoreConfigurationsKey) as boolean;
         const showMoreConfigurations = typeof showMoreConfigurationsRaw === 'string' ? JSON.parse(showMoreConfigurationsRaw) : showMoreConfigurationsRaw;
 
@@ -1020,6 +1024,7 @@ export const getRuleSettings = (props: {
                     SecuritySystemMode.NightArmed,
                     SecuritySystemMode.AwayArmed,
                 ],
+                defaultValue: [],
                 hide: !showMoreConfigurations
             },
             {
@@ -1109,6 +1114,15 @@ export const getDetectionRulesSettings = async (props: {
                     combobox: true,
                     choices: defaultDetectionClasses,
                     defaultValue: []
+                },
+                {
+                    key: scoreThresholdKey,
+                    title: 'Score threshold',
+                    group,
+                    subgroup,
+                    type: 'number',
+                    placeholder: '0.7',
+                    hide: !showMore
                 },
             );
         }
@@ -1557,7 +1571,10 @@ const initBasicRule = (props: {
     const priority = storage.getItem(priorityKey) as NotificationPriority;
     const actions = storage.getItem(actionsKey) as string[];
     const customText = storage.getItem(textKey);
-    const activationType = storage.getItem(activationKey) as DetectionRuleActivation;
+    let activationType = storage.getItem(activationKey) as DetectionRuleActivation;
+    if (activationType === DetectionRuleActivation.AlarmSystem) {
+        activationType = DetectionRuleActivation.Always;
+    }
     const securitySystemModes = storage.getItem(securitySystemModesKey) as SecuritySystemMode[];
     const notifiers = storage.getItem(notifiersKey) as string[];
 
@@ -1628,7 +1645,7 @@ const initBasicRule = (props: {
 
     let isSecuritySystemEnabled = true;
     const securitySystemDeviceId = securitySystem?.id;
-    if (securitySystemDeviceId) {
+    if (securitySystemDeviceId && securitySystemModes.length) {
         const securitySystemDevice = sdk.systemManager.getDeviceById<SecuritySystem>(securitySystemDeviceId);
         if (securitySystemDevice) {
             const currentMode = securitySystemDevice.securitySystemState?.mode;
