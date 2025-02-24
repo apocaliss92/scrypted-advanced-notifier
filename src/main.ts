@@ -262,6 +262,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     defaultNotifier: AdvancedNotifierNotifier;
     camera: AdvancedNotifierCamera;
     nvrRules: DetectionRule[] = [];
+    detectionRules: DetectionRule[] = [];
     lastNotExistingNotifier: number;
     private checkExistingDevicesInterval: NodeJS.Timeout;
 
@@ -698,26 +699,44 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const pluginStorage = this.storageSettings;
             const { nvrRules, detectionRules, allPluginDetectionRules } = getDeviceRules({ pluginStorage, console: logger });
 
-            const rulesToEnable = [...detectionRules, ...nvrRules];
-            const rulesToDisable = (allPluginDetectionRules || []).filter(currentRule => !detectionRules?.some(newRule => newRule.name === currentRule.name));
 
-            if (rulesToEnable?.length) {
-                for (const rule of rulesToEnable) {
+            const detectionRulesToEnable = (detectionRules || []).filter(newRule => !this.detectionRules?.some(currentRule => currentRule.name === newRule.name));
+            const detectionRulesToDisable = (this.detectionRules || []).filter(currentRule => !detectionRules?.some(newRule => newRule.name === currentRule.name));
+
+            const nvrDetectionRulesToEnable = (nvrRules || []).filter(newRule => !this.nvrRules?.some(currentRule => currentRule.name === newRule.name));
+            const nvrDetectionRulesToDisable = (this.nvrRules || []).filter(currentRule => !detectionRules?.some(newRule => newRule.name === currentRule.name));
+
+
+            if (detectionRulesToEnable?.length) {
+                for (const rule of detectionRulesToEnable) {
                     const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
                     this.putSetting(currentlyActiveKey, 'true');
                 }
-                logger.debug(`Detection rules active: ${rulesToEnable.map(rule => rule.name).join(', ')}`);
             }
 
-            if (rulesToDisable?.length) {
-                for (const rule of rulesToDisable) {
+            if (detectionRulesToDisable?.length) {
+                for (const rule of detectionRulesToDisable) {
                     const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
                     this.putSetting(currentlyActiveKey, 'false');
                 }
-                logger.debug(`Detection rules not active: ${rulesToDisable.map(rule => rule.name).join(', ')}`);
+            }
+
+            if (nvrDetectionRulesToEnable?.length) {
+                for (const rule of nvrDetectionRulesToEnable) {
+                    const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
+                    this.putSetting(currentlyActiveKey, 'true');
+                }
+            }
+
+            if (nvrDetectionRulesToDisable?.length) {
+                for (const rule of nvrDetectionRulesToDisable) {
+                    const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
+                    this.putSetting(currentlyActiveKey, 'false');
+                }
             }
 
             this.nvrRules = nvrRules || [];
+            this.detectionRules = detectionRules || [];
 
             this.deviceHaEntityMap = deviceHaEntityMap;
             this.haEntityDeviceMap = haEntityDeviceMap;
