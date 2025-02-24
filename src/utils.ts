@@ -1718,7 +1718,7 @@ export const getDeviceRules = (
             const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean;
             const activationType = storage.getItem(activationKey) as DetectionRuleActivation;
             const customText = storage.getItem(textKey) as string || undefined;
-            const mainDevices = storage.getItem(devicesKey) as string[];
+            const mainDevices = storage.getItem(devicesKey) as string[] ?? [];
 
             const devices = ruleSource === RuleSource.Device ? [deviceId] : mainDevices;
             const devicesToUse = activationType === DetectionRuleActivation.OnActive ? onActiveDevices : devices;
@@ -1769,7 +1769,7 @@ export const getDeviceRules = (
                 }
             }
 
-            const deviceOk = !!devicesToUse.length && (deviceId ? devicesToUse.includes(deviceId) : true);
+            const deviceOk = !!devicesToUse?.length && (deviceId ? devicesToUse.includes(deviceId) : true);
             const ruleAllowed =
                 basicRuleAllowed &&
                 deviceOk &&
