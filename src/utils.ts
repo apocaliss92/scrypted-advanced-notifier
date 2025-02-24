@@ -1524,6 +1524,7 @@ export interface BaseRule {
     customText?: string;
     priority: NotificationPriority;
     actions?: string[];
+    securitySystemModes?: SecuritySystemMode[];
 }
 
 export interface DetectionRule extends BaseRule {
@@ -1589,7 +1590,8 @@ const initBasicRule = (props: {
         actions,
         customText,
         activationType,
-        source: ruleSource
+        source: ruleSource,
+        securitySystemModes,
     };
 
     let timeAllowed = true;
@@ -1644,11 +1646,13 @@ const initBasicRule = (props: {
     }
 
     let isSecuritySystemEnabled = true;
+    let securitySyetemState;
     const securitySystemDeviceId = securitySystem?.id;
     if (securitySystemDeviceId && securitySystemModes?.length) {
         const securitySystemDevice = sdk.systemManager.getDeviceById<SecuritySystem>(securitySystemDeviceId);
         if (securitySystemDevice) {
-            const currentMode = securitySystemDevice.securitySystemState?.mode;
+            securitySyetemState = securitySystemDevice.securitySystemState;
+            const currentMode = securitySyetemState?.mode;
             isSecuritySystemEnabled = currentMode ? securitySystemModes.includes(currentMode) : false;
         }
     }
@@ -1665,7 +1669,9 @@ const initBasicRule = (props: {
         isEnabled,
         timeAllowed,
         sensorsOk,
-        isSecuritySystemEnabled
+        isSecuritySystemEnabled,
+        securitySyetemState,
+        securitySystemModes: securitySystemModes ?? []
     };
 }
 
