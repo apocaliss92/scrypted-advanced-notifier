@@ -1575,7 +1575,7 @@ const initBasicRule = (props: {
     if (activationType === DetectionRuleActivation.AlarmSystem) {
         activationType = DetectionRuleActivation.Always;
     }
-    const securitySystemModes = storage.getItem(securitySystemModesKey) as SecuritySystemMode[];
+    const securitySystemModes = storage.getItem(securitySystemModesKey) as SecuritySystemMode[] ?? [];
     const notifiers = storage.getItem(notifiersKey) as string[];
 
     const notifiersTouse = notifiers?.filter(notifierId => activeNotifiers.includes(notifierId));
@@ -1645,7 +1645,7 @@ const initBasicRule = (props: {
 
     let isSecuritySystemEnabled = true;
     const securitySystemDeviceId = securitySystem?.id;
-    if (securitySystemDeviceId && securitySystemModes.length) {
+    if (securitySystemDeviceId && securitySystemModes?.length) {
         const securitySystemDevice = sdk.systemManager.getDeviceById<SecuritySystem>(securitySystemDeviceId);
         if (securitySystemDevice) {
             const currentMode = securitySystemDevice.securitySystemState?.mode;
