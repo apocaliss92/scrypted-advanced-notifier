@@ -233,7 +233,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         const { ruleType, name } = rule;
                         logger.log(`${ruleType} rule started: ${name}`);
 
-                        if (ruleType === RuleType.Timelapse) {
+                        if (ruleType === RuleType.Timelapse && !rule.currentlyActive) {
                             await this.plugin.timelapseRuleStarted({
                                 rule,
                                 device,

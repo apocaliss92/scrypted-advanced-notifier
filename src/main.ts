@@ -1,4 +1,4 @@
-import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SecuritySystem, SecuritySystemMode, Setting, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { DeviceBase, DeviceManifest, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SecuritySystem, SecuritySystemMode, Setting, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
 import { isEqual, keyBy, sortBy } from 'lodash';
@@ -100,6 +100,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             type: 'string',
             defaultValue: '${name}',
             placeholder: '${name}',
+        },
+        enableCameraDevice: {
+            title: 'Enable Camera',
+            description: 'Enable a camera device allowing to replay generated past timelapses generated',
+            type: 'boolean',
+            immediate: true,
+            onPut: async (_, active) => this.executeCameraDiscovery(active)
         },
         domains: {
             group: 'Base',
@@ -284,19 +291,28 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     type: ScryptedDeviceType.Notifier,
                 },
             );
-            await sdk.deviceManager.onDeviceDiscovered(
-                {
-                    name: 'Advanced notifier Camera',
-                    nativeId: cameraNativeId,
-                    interfaces: [ScryptedInterface.Camera, ScryptedInterface.VideoCamera, ScryptedInterface.VideoClips],
-                    type: ScryptedDeviceType.Camera,
-                },
-            );
 
+            await this.executeCameraDiscovery(this.storageSettings.values.enableCameraDevice);
             await this.refreshSettings();
         })();
 
         this.start().then().catch(this.getLogger().log);
+    }
+
+    async executeCameraDiscovery(active: boolean) {
+        const interfaces: ScryptedInterface[] = [ScryptedInterface.Camera, ScryptedInterface.VideoClips];
+        if (active) {
+            interfaces.push(ScryptedInterface.VideoCamera);
+        }
+
+        await sdk.deviceManager.onDeviceDiscovered(
+            {
+                name: 'Advanced notifier Camera',
+                nativeId: cameraNativeId,
+                interfaces,
+                type: ScryptedDeviceType.Camera,
+            }
+        );
     }
 
     async getDevice(nativeId: string) {
@@ -1702,16 +1718,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }) => {
         const { device, rule, logger } = props;
 
-        const isAlreadyRunning = rule.currentlyActive;
-
-        if (!isAlreadyRunning) {
-            logger.log(`Clearing frames for rule ${rule.name}.`);
-            this.clearFramesData({
-                device,
-                logger,
-                rule,
-            }).catch(logger.log);
-        }
+        logger.log(`Clearing frames for rule ${rule.name}.`);
+        this.clearFramesData({
+            device,
+            logger,
+            rule,
+        }).catch(logger.log);
     }
 
     public clearFramesData = async (props: {

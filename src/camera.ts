@@ -10,7 +10,6 @@ import { getWebooks } from './utils';
 import { CameraBase } from '../../scrypted/plugins/ffmpeg-camera/src/common';
 
 export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> implements Camera, VideoCamera, VideoClips {
-
     picture: Promise<MediaObject>;
 
     constructor(nativeId: string, private plugin: AdvancedNotifierPlugin) {
