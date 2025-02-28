@@ -10,12 +10,13 @@ import { getMqttTopics, getRuleStrings, setupPluginAutodiscovery, subscribeToMai
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getDetectionRulesSettings, getDeviceRules, getElegibleDevices, getFolderPaths, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, HOMEASSISTANT_PLUGIN_ID, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, StoreImageFn, TimelapseRule } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, AiPlatform, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getDetectionRulesSettings, getDeviceRules, getElegibleDevices, getFolderPaths, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, HOMEASSISTANT_PLUGIN_ID, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, StoreImageFn, TimelapseRule } from "./utils";
 // import { version } from '../package.json';
 import child_process from 'child_process';
 import { once } from "events";
 import fs from 'fs';
 import { AdvancedNotifierCamera } from "./camera";
+import { getAiMessage } from "./aiUtils";
 
 const { systemManager, mediaManager } = sdk;
 const defaultNotifierNativeId = 'advancedNotifierDefaultNotifier';
@@ -53,6 +54,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             type: 'boolean',
             defaultValue: true,
             immediate: true,
+        },
+        aiPlatform: {
+            title: 'AI Platform',
+            type: 'string',
+            immediate: true,
+            choices: Object.values(AiPlatform),
+            defaultValue: AiPlatform.Disabled,
+            onPut: async () => await this.refreshSettings()
         },
         debug: {
             title: 'Log debug messages',
@@ -147,24 +156,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             description: 'Use NVR detection to publish MQTT state messages',
             type: 'boolean',
         },
-        fetchedEntities: {
-            group: 'Metadata',
-            title: '',
-            subgroup: 'Entities',
-            multiple: true,
-            defaultValue: [],
-            choices: [],
-            combobox: true,
-        },
-        fetchedRooms: {
-            group: 'Metadata',
-            title: '',
-            subgroup: 'Rooms',
-            multiple: true,
-            defaultValue: [],
-            choices: [],
-            combobox: true,
-        },
         notifiers: {
             group: 'Notifier',
             title: 'Active notifiers',
@@ -239,6 +230,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             choices: [NotificationPriority.VeryLow, NotificationPriority.Low, NotificationPriority.Normal, NotificationPriority.High],
             defaultValue: NotificationPriority.Normal
         },
+        testUseAi: {
+            group: 'Test',
+            title: 'Use AI for descriptions',
+            type: 'boolean',
+            immediate: true,
+            defaultValue: false
+        },
         testButton: {
             group: 'Test',
             title: 'Send notification',
@@ -254,6 +252,24 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             onPut: async () => {
                 await this.checkPluginConfigurations(true);
             },
+        },
+        fetchedEntities: {
+            group: 'Metadata',
+            title: '',
+            subgroup: 'Entities',
+            multiple: true,
+            defaultValue: [],
+            choices: [],
+            combobox: true,
+        },
+        fetchedRooms: {
+            group: 'Metadata',
+            title: '',
+            subgroup: 'Rooms',
+            multiple: true,
+            defaultValue: [],
+            choices: [],
+            combobox: true,
         },
     };
     storageSettings = new StorageSettings(this, this.initStorage);
@@ -912,6 +928,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             },
         });
 
+        dynamicSettings.push(...getAiSettings({
+            aiPlatform: this.storageSettings.values.aiPlatform,
+            logger,
+        }));
+
         dynamicSettings.push(...detectionRulesSettings);
 
         this.storageSettings = await convertSettingsToStorageSettings({
@@ -1504,7 +1525,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const cameraSnapshotHeight = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:snapshotHeight')?.value as number) ?? 720;
             const cameraSnapshotWidth = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:snapshotWidth')?.value as number) ?? 1280;
 
-            const { image } = !skipImage ? await this.getCameraSnapshot({
+            const { image, b64Image } = !skipImage ? await this.getCameraSnapshot({
                 cameraDevice: device,
                 snapshotHeight: cameraSnapshotHeight * notifierSnapshotScale,
                 snapshotWidth: cameraSnapshotWidth * notifierSnapshotScale,
@@ -1517,6 +1538,20 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const zone = this.getTriggerZone(detection, rule);
             if (zone) {
                 title += ` (${zone})`;
+            }
+
+            const aiPlatform = this.storageSettings.getItem('aiPlatform') as AiPlatform;
+            if (aiPlatform !== AiPlatform.Disabled) {
+                const imageUrl = `data:image/jpeg;base64,${b64Image}`;
+                const aiResponse = await getAiMessage({
+                    imageUrl,
+                    logger,
+                    originalTitle: message,
+                    plugin: this,
+                });
+
+                message = aiResponse.message ?? message;
+                title = aiResponse.title ?? title;
             }
 
             const notifierData = await this.getNotifierData({
@@ -1554,6 +1589,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const testNotifier = this.storageSettings.getItem('testNotifier') as DeviceInterface;
             const textKey = this.storageSettings.getItem('testMessage') as string;
             const testPriority = this.storageSettings.getItem('testPriority') as NotificationPriority;
+            const testUseAi = this.storageSettings.getItem('testUseAi') as boolean;
 
             if (testDevice && textKey && testNotifier) {
                 const currentTime = new Date().getTime();
@@ -1571,7 +1607,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     source: NotificationSource.TEST,
                     logger,
                     notifierSettings,
-                    rule: { priority: testPriority } as DetectionRule
+                    rule: { priority: testPriority, useAi: testUseAi } as DetectionRule
                 })
             }
         } catch (e) {

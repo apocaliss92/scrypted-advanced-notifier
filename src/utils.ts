@@ -11,6 +11,12 @@ import { classnamePrio, defaultDetectionClasses, DetectionClass, detectionClasse
 import AdvancedNotifierPlugin from "./main";
 const { endpointManager } = sdk;
 
+export enum AiPlatform {
+    Disabled = 'Disabled',
+    // LmStudio = 'LmStudio',
+    OpenAi = 'OpenAi',
+}
+
 export type DeviceInterface = Camera & ScryptedDeviceBase & Settings;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
 export const PUSHOVER_PLUGIN_ID = '@scrypted/pushover';
@@ -29,11 +35,15 @@ export type StoreImageFn = (props: {
 }) => Promise<void>
 
 export const getElegibleDevices = () => {
-    const allDevices = Object.keys(sdk.systemManager.getSystemState()).map(deviceId => sdk.systemManager.getDeviceById<DeviceInterface>(deviceId));
+    const allDevices = Object.keys(sdk.systemManager.getSystemState()).map(deviceId => sdk.systemManager.getDeviceById(deviceId) as unknown as DeviceInterface);
 
-    return allDevices
-        .filter(d => (deviceFilter as (d: any) => boolean)(d))
-        .map(device => sdk.systemManager.getDeviceById<DeviceInterface>(device.id));
+    return allDevices.filter(device => {
+        return eval(
+            `(function() { var interfaces = ${JSON.stringify(
+                device.interfaces
+            )}; var type='${device.type}'; var id = '${device.id}'; return ${deviceFilter} })`
+        )()
+    })
 }
 
 export enum EventType {
@@ -739,6 +749,7 @@ export const getRuleKeys = (props: {
     const actionsKey = `${prefix}:${ruleName}:haActions`;
     const priorityKey = `${prefix}:${ruleName}:priority`;
     const securitySystemModesKey = `${prefix}:${ruleName}:securitySystemModes`;
+    const aiEnabledKey = `${prefix}:${ruleName}:aiEnabled`;
     const showMoreConfigurationsKey = `${prefix}:${ruleName}:showMoreConfigurations`;
 
     // Specific for detection rules
@@ -787,6 +798,7 @@ export const getRuleKeys = (props: {
             actionsKey,
             priorityKey,
             securitySystemModesKey,
+            aiEnabledKey,
             showMoreConfigurationsKey,
         },
         detection: {
@@ -827,8 +839,10 @@ export enum ZoneMatchType {
     Contain = 'Contain',
 }
 
-export const deviceFilter: StorageSetting['deviceFilter'] = d => d.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE) && [ScryptedDeviceType.Camera, ScryptedDeviceType.Doorbell, ScryptedDeviceType.Sensor, ScryptedDeviceType.Lock].includes(d.type);
-export const notifierFilter: StorageSetting['deviceFilter'] = d => d.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE) && d.type === ScryptedDeviceType.Notifier;
+export const deviceFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && ['${ScryptedDeviceType.Camera}', '${ScryptedDeviceType.Doorbell}', '${ScryptedDeviceType.Sensor}', '${ScryptedDeviceType.Lock}'].includes(type)`;
+export const notifierFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && ['${ScryptedDeviceType.Notifier}'].includes(type)`;
+// export const deviceFilter: StorageSetting['deviceFilter'] = d => d.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE) && [ScryptedDeviceType.Camera, ScryptedDeviceType.Doorbell, ScryptedDeviceType.Sensor, ScryptedDeviceType.Lock].includes(d.type);
+// export const notifierFilter: StorageSetting['deviceFilter'] = d => d.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE) && d.type === ScryptedDeviceType.Notifier;
 
 type GetSpecificRules = (props: { group: string, subgroup: string, ruleName: string, showMore: boolean }) => StorageSetting[];
 type OnRuleToggle = (ruleName: string, enabled: boolean) => Promise<void>
@@ -867,6 +881,7 @@ export const getRuleSettings = (props: {
                 enabledSensorsKey,
                 disabledSensorsKey,
                 securitySystemModesKey,
+                aiEnabledKey,
             }
         } = getRuleKeys({ ruleName, ruleType });
 
@@ -876,6 +891,8 @@ export const getRuleSettings = (props: {
         }
         const showMoreConfigurationsRaw = storage.getItem(showMoreConfigurationsKey) as boolean;
         const showMoreConfigurations = typeof showMoreConfigurationsRaw === 'string' ? JSON.parse(showMoreConfigurationsRaw) : showMoreConfigurationsRaw;
+        const aiEnabledRaw = storage.getItem(aiEnabledKey) as boolean;
+        const aiEnabled = typeof aiEnabledRaw === 'string' ? JSON.parse(aiEnabledRaw) : aiEnabledRaw;
 
         settings.push(
             {
@@ -908,6 +925,15 @@ export const getRuleSettings = (props: {
                 onPut: async (_, showMore) => {
                     await onShowMore(showMore)
                 },
+            },
+            {
+                key: aiEnabledKey,
+                title: 'Enable AI to generate descriptions',
+                type: 'boolean',
+                group,
+                subgroup,
+                immediate: true,
+                defaultValue: false,
             },
         );
 
@@ -1085,7 +1111,7 @@ export const getDetectionRulesSettings = async (props: {
         } = detection;
 
         const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean ?? false;
-        const devicesRaw = storage.getItem(devicesKey);
+        const devicesRaw = storage.getItem(devicesKey) ?? [];
         const devices = typeof devicesRaw === 'string' ? JSON.parse(storage.getItem(devicesKey) ?? '[]') : devicesRaw;
         const activationType = storage.getItem(activationKey) as DetectionRuleActivation ?? DetectionRuleActivation.Always;
         const anyCameraDevice = (isPlugin && devices
@@ -1225,6 +1251,71 @@ export const getDetectionRulesSettings = async (props: {
         onShowMore,
         logger,
     });
+}
+
+export const getAiSettingKeys = (aiPlatform: AiPlatform) => {
+    const apiKeyKey = `${aiPlatform}:aiApiKey`;
+    const apiUrlKey = `${aiPlatform}:aiApiUrl`;
+    const modelKey = `${aiPlatform}:aiModel`;
+    const systemPromptKey = `${aiPlatform}:aiSystemPrompt`;
+
+    return {
+        apiKeyKey,
+        apiUrlKey,
+        modelKey,
+        systemPromptKey
+    }
+}
+
+export const getAiSettings = (props: {
+    aiPlatform: AiPlatform,
+    logger: Console
+}) => {
+    const { aiPlatform } = props;
+
+    const { apiKeyKey, apiUrlKey, modelKey, systemPromptKey } = getAiSettingKeys(aiPlatform);
+    const settings: StorageSetting[] = [];
+
+    if (aiPlatform === AiPlatform.OpenAi) {
+        settings.push(
+            {
+                key: apiKeyKey,
+                title: 'API Key',
+                description: 'The API Key or token.',
+                group: 'AI',
+            }
+        );
+    }
+
+    if ([AiPlatform.OpenAi].includes(aiPlatform)) {
+        settings.push(
+            {
+                key: apiUrlKey,
+                group: 'AI',
+                title: 'API URL',
+                description: 'The API URL of the OpenAI compatible server.',
+                defaultValue: 'https://api.openai.com/v1/chat/completions',
+            },
+            {
+                key: modelKey,
+                group: 'AI',
+                title: 'Model',
+                description: 'The model to use to generate the image description. Must be vision capable.',
+                defaultValue: 'gpt-4o',
+            },
+            {
+                key: systemPromptKey,
+                group: 'AI',
+                title: 'System Prompt',
+                type: 'textarea',
+                description: 'The system prompt used to generate the notification.',
+                defaultValue: 'Create a notification suitable description of the image provided by the user. Describe the people, animals (coloring and breed), or vehicles (color and model) in the image. Do not describe scenery or static objects. Do not direct the user to click the notification. The original notification metadata may be provided and can be used to provide additional context for the new notification, but should not be used verbatim.',
+            }
+
+        );
+    }
+
+    return settings;
 }
 
 export const nvrAcceleratedMotionSensorId = sdk.systemManager.getDeviceById('@scrypted/nvr', 'motion')?.id;
@@ -1517,6 +1608,7 @@ export interface BaseRule {
     activationType: DetectionRuleActivation;
     source: RuleSource;
     currentlyActive?: boolean;
+    useAi: boolean;
     ruleType: RuleType;
     name: string;
     deviceId?: string;
@@ -1562,6 +1654,7 @@ const initBasicRule = (props: {
         notifiersKey,
         priorityKey,
         textKey,
+        aiEnabledKey
     } } = getRuleKeys({
         ruleType,
         ruleName,
@@ -1569,6 +1662,7 @@ const initBasicRule = (props: {
 
     const isEnabled = storage.getItem(enabledKey);
     const currentlyActive = storage.getItem(currentlyActiveKey);
+    const useAi = storage.getItem(aiEnabledKey);
     const priority = storage.getItem(priorityKey) as NotificationPriority;
     const actions = storage.getItem(actionsKey) as string[];
     const customText = storage.getItem(textKey);
@@ -1583,6 +1677,7 @@ const initBasicRule = (props: {
 
     const rule: BaseRule = {
         ruleType,
+        useAi,
         currentlyActive,
         name: ruleName,
         notifiers: notifiersTouse,
@@ -1729,8 +1824,8 @@ export const getDeviceRules = (
             const devices = ruleSource === RuleSource.Device ? [deviceId] : mainDevices;
             const devicesToUse = activationType === DetectionRuleActivation.OnActive ? onActiveDevices : devices;
 
-            const detectionClasses = storage.getItem(detectionClassesKey) as DetectionClass[];
-            const nvrEvents = storage.getItem(nvrEventsKey) as NvrEvent[];
+            const detectionClasses = storage.getItem(detectionClassesKey) as DetectionClass[] ?? [];
+            const nvrEvents = storage.getItem(nvrEventsKey) as NvrEvent[] ?? [];
             const scoreThreshold = storage.getItem(scoreThresholdKey) as number || 0.7;
             const minDelay = storage.getItem(minDelayKey) as number;
             const disableNvrRecordingSeconds = storage.getItem(recordingTriggerSecondsKey) as number;
