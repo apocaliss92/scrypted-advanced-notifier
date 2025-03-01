@@ -1,11 +1,23 @@
 import axios from "axios";
 import AdvancedNotifierPlugin from "./main";
 import { AiPlatform, getAiSettingKeys } from "./utils";
+import { ObjectDetectionResult } from "@scrypted/sdk";
 
 export const createOpenAiTemplate = (props: {
-    systemPrompt: string, model: string, imageUrl: string, originalTitle: string
+    systemPrompt: string,
+    model: string,
+    imageUrl: string,
+    originalTitle: string,
+    detection?: ObjectDetectionResult,
 }) => {
-    const { imageUrl, originalTitle, model, systemPrompt } = props;
+    const { imageUrl, originalTitle, model, systemPrompt, detection } = props;
+
+    let text = `Original notification message is ${originalTitle}}.`;
+
+    if (detection?.label) {
+        text += ` In the image is present a familiar person with name ${detection.label}`;
+    }
+
     const schema = "The response must be in JSON format with a message 'title', 'subtitle', and 'body'. The title and subtitle must not be more than 24 characters each. The body must not be more than 130 characters."
     return {
         model,
@@ -19,7 +31,7 @@ export const createOpenAiTemplate = (props: {
                 content: [
                     {
                         type: 'text',
-                        text: `Original notification metadata: ${originalTitle}}`,
+                        text,
                     },
                     {
                         type: "image_url",
@@ -59,10 +71,11 @@ export const createOpenAiTemplate = (props: {
 export const getAiMessage = async (props: {
     plugin: AdvancedNotifierPlugin,
     originalTitle: string,
+    detection?: ObjectDetectionResult,
     imageUrl: string,
     logger: Console
 }) => {
-    const { originalTitle, plugin, imageUrl, logger } = props;
+    const { originalTitle, detection, plugin, imageUrl, logger } = props;
 
     let title;
     let message;
@@ -92,6 +105,7 @@ export const getAiMessage = async (props: {
                 model,
                 originalTitle,
                 systemPrompt,
+                detection,
             });
 
             const response = await axios.post<any>(apiUrl, messageTemplate, {

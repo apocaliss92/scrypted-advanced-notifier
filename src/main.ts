@@ -1548,6 +1548,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     logger,
                     originalTitle: message,
                     plugin: this,
+                    detection,
                 });
 
                 message = aiResponse.message ?? message;
