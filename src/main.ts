@@ -1541,7 +1541,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
 
             const aiPlatform = this.storageSettings.getItem('aiPlatform') as AiPlatform;
-            if (aiPlatform !== AiPlatform.Disabled) {
+            if (aiPlatform !== AiPlatform.Disabled && rule.useAi) {
                 const imageUrl = `data:image/jpeg;base64,${b64Image}`;
                 const aiResponse = await getAiMessage({
                     imageUrl,
