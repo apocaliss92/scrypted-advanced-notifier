@@ -1,4 +1,4 @@
-import sdk, { Camera, EventListenerRegister, Image, MediaObject, MotionSensor, ObjectDetection, ObjectDetectionResult, ObjectDetector, ObjectsDetected, ScryptedDevice, ScryptedDeviceBase, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings } from "@scrypted/sdk";
+import sdk, { Camera, EventListenerRegister, Image, MediaObject, MediaStreamDestination, MotionSensor, ObjectDetection, ObjectDetectionResult, ObjectDetector, ObjectsDetected, ScryptedDevice, ScryptedDeviceBase, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoFrameGenerator, VideoFrame, VideoFrameGeneratorOptions } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep } from "lodash";
@@ -6,7 +6,7 @@ import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoveryRuleTopics, getDetectionRuleId, getOccupancyRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, isDeviceEnabled } from "./utils";
+import { DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, isDeviceEnabled } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -103,6 +103,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     };
     storageSettings = new StorageSettings(this, this.initStorage);
 
+    cameraDevice: DeviceInterface;
     detectionListener: EventListenerRegister;
     mqttDetectionMotionTimeout: NodeJS.Timeout;
     mainLoopListener: NodeJS.Timeout;
@@ -134,6 +135,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     observeZoneData: ObserveZoneData[];
     occupancyState: Record<string, OccupancyData> = {};
     timelapseLastCheck: Record<string, number> = {};
+    latestFrame?: Buffer;
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -155,8 +157,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }
         }
 
+        this.cameraDevice = systemManager.getDeviceById<DeviceInterface>(this.id);
+
         this.initValues().then().catch(logger.log);
         this.startCheckInterval().then().catch(logger.log);
+        this.initFrameGenerator().then().catch(logger.log);
 
         this.plugin.currentMixinsMap[this.name] = this;
 
@@ -167,6 +172,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async enableRecording(device: Settings, enabled: boolean) {
         await device.putSetting(`recording:privacyMode`, !enabled)
+    }
+
+    async initFrameGenerator() {
+        // const frameGenerator = await this.createFrameGenerator();
+        // for await (const frame of frameGenerator) {
+        //     if(frame.image) {
+        //         this.latestFrame = await sdk.mediaManager.convertMediaObjectToBuffer(frame.image, 'image/jpeg');
+        //         this.console.log(this.latestFrame);
+        //     }
+        // }
     }
 
     async startCheckInterval() {
@@ -416,6 +431,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async initValues() {
+        const logger = this.getLogger();
         const { lastSnapshotCloudUrl, lastSnapshotLocalUrl } = await getWebookUrls(this.name, console);
         this.storageSettings.putSetting('lastSnapshotWebhookCloudUrl', lastSnapshotCloudUrl);
         this.storageSettings.putSetting('lastSnapshotWebhookLocalUrl', lastSnapshotLocalUrl);
@@ -762,19 +778,30 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     private async getImage() {
-        const objectDetector = this.getObjectDetector();
         try {
+            const objectDetector = this.getObjectDetector();
             const image = await objectDetector.takePicture({
                 reason: 'event',
-                timeout: 5000,
+                timeout: 10000,
                 picture: {
                     height: this.storageSettings.values.snapshotHeight,
                     width: this.storageSettings.values.snapshotWidth,
                 },
             });
+
             const b64Image = (await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg'))?.toString('base64');
 
+
             return { image, b64Image };
+            // if (this.latestFrame) {
+            //     this.console.log(this.latestFrame);
+            //     const image = await sdk.mediaManager.createMediaObject(this.latestFrame, 'image/jpeg');
+            //     const b64Image = this.latestFrame?.toString('base64');
+
+            //     return { image, b64Image };
+            // } else {
+            //     return {};
+            // }
         } catch (e) {
             this.getLogger().log('Error taking a picture in camera mixin', e);
             return {};
@@ -857,7 +884,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         try {
             const now = new Date().getTime();
 
-            const device = systemManager.getDeviceById<DeviceInterface>(this.id);
             const mqttClient = await this.plugin.getMqttClient();
 
             const occupancyRulesDataMap: Record<string, OccupancyRuleData> = {};
@@ -1098,7 +1124,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             await publishOccupancy({
                 console: logger,
-                device,
+                device: this.cameraDevice,
                 mqttClient,
                 objectsDetected: detectedResultParent,
                 occupancyRulesData,
@@ -1121,7 +1147,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             .replace('${maxObjects}', String(rule.maxObjects) ?? '')
 
                         await this.plugin.notifyOccupancyEvent({
-                            cameraDevice: device,
+                            cameraDevice: this.cameraDevice,
                             message,
                             rule,
                             triggerTime: now,
@@ -1380,5 +1406,27 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const thumbnailUrl = `${endpoint}${timelapseThumbnail}/${encodedName}/${encodedRuleName}/${timelapseName}${paramString}`;
 
         return { streameUrl, downloadUrl, thumbnailUrl };
+    }
+
+    async createFrameGenerator(options?: VideoFrameGeneratorOptions): Promise<AsyncGenerator<VideoFrame, any, unknown>> {
+        const destination: MediaStreamDestination = 'local-recorder';
+        const model = this.plugin.storageSettings.values.objectDetectionDevice;
+        const stream = await this.cameraDevice.getVideoStream({
+            prebuffer: model.prebuffer,
+            destination,
+        });
+
+        const frameGenerator = getFrameGenerator();
+        const videoFrameGenerator = systemManager.getDeviceById<VideoFrameGenerator>(frameGenerator);
+        if (!videoFrameGenerator)
+            throw new Error('invalid VideoFrameGenerator');
+
+        try {
+            return await videoFrameGenerator.generateVideoFrames(stream, {
+                queue: 0,
+                ...options
+            });
+        }
+        finally { }
     }
 }

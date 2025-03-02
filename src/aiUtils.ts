@@ -3,6 +3,22 @@ import AdvancedNotifierPlugin from "./main";
 import { AiPlatform, getAiSettingKeys } from "./utils";
 import { ObjectDetectionResult } from "@scrypted/sdk";
 
+export enum AiPromptPreset {
+    Regular = 'Regular',
+    Mysterious = 'Mysterious',
+}
+
+export const promptPresets: Record<AiPromptPreset, string> = {
+    [AiPromptPreset.Regular]: 'Create a notification suitable description of the image provided by the user. Describe the people, animals (coloring and breed), or vehicles (color and model) in the image. Do not describe scenery or static objects. Do not direct the user to click the notification. The original notification metadata may be provided and can be used to provide additional context for the new notification, but should not be used verbatim.',
+    [AiPromptPreset.Mysterious]: `Create a fun and engaging notification based on the image provided by the user.  
+If the image contains a person, describe them in a lighthearted way (e.g., 'A mysterious visitor', 'A friendly neighbor', 'Someone looking suspiciously at the door').  
+If an animal is present, describe it with humor and personality. Include its type, color, and breed (if applicable). Example: 'A tiny, fluffy criminal (golden retriever) has been spotted near the snacks!'  
+If a vehicle is present, describe its type, color, and any visible branding. Prioritize delivery vehicles (e.g., 'A FedEx truck is here – package day! 🎁').  
+If the image includes text, extract key words that might be useful (e.g., 'A sign reads: Beware of dog!').  
+DO NOT describe static objects, backgrounds, or scenery.  
+The response must be humorous, engaging, and under 130 characters. Do not tell the user to click the notification. If multiple interesting things are in the image, describe the most notable one. OSD texts on the image should be ignored. Output language should be italian`,
+}
+
 export const createOpenAiTemplate = (props: {
     systemPrompt: string,
     model: string,

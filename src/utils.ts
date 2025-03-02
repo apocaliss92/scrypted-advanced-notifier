@@ -1,4 +1,4 @@
-import sdk, { Camera, DeviceBase, LockState, MediaObject, NotifierOptions, ObjectDetectionResult, Point, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Setting, Settings } from "@scrypted/sdk";
+import sdk, { Camera, DeviceBase, LockState, MediaObject, NotifierOptions, ObjectDetectionResult, ObjectDetector, Point, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Setting, Settings, VideoCamera } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDevice, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import fs from 'fs';
@@ -17,7 +17,7 @@ export enum AiPlatform {
     OpenAi = 'OpenAi',
 }
 
-export type DeviceInterface = Camera & ScryptedDeviceBase & Settings;
+export type DeviceInterface = Camera & ScryptedDeviceBase & Settings & ObjectDetector & VideoCamera;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
 export const PUSHOVER_PLUGIN_ID = '@scrypted/pushover';
 export const HOMEASSISTANT_PLUGIN_ID = '@scrypted/homeassistant';
@@ -2228,4 +2228,16 @@ export const convertSettingsToStorageSettings = async (props: {
     });
 
     return updateStorageSettings;
+}
+
+export const getFrameGenerator = () => {
+    const pipelines = Object.keys(sdk.systemManager.getSystemState())
+        .map(id => sdk.systemManager.getDeviceById(id))
+        .filter(d => d.interfaces.includes(ScryptedInterface.VideoFrameGenerator));
+    const webassembly = sdk.systemManager.getDeviceById('@scrypted/nvr', 'decoder') || undefined;
+    const gstreamer = sdk.systemManager.getDeviceById('@scrypted/python-codecs', 'gstreamer') || undefined;
+    const libav = sdk.systemManager.getDeviceById('@scrypted/python-codecs', 'libav') || undefined;
+    const ffmpeg = sdk.systemManager.getDeviceById('@scrypted/objectdetector', 'ffmpeg') || undefined;
+    const use = pipelines.find(p => p.name === 'Default') || webassembly || gstreamer || libav || ffmpeg;
+    return use.id;
 }

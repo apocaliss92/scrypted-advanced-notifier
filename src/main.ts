@@ -1685,7 +1685,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { device, name, timestamp, imageMo } = props;
         const { imagesPath, imagesRegex } = this.storageSettings.values;
 
-        if (imagesPath) {
+        if (imagesPath && imageMo) {
             const savePath = path.join(imagesPath, device.name);
 
             try {
