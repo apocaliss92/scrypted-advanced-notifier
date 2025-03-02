@@ -1682,10 +1682,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     public storeImage: StoreImageFn = async (props) => {
-        const { device, name, timestamp, imageMo } = props;
+        const { device, name, timestamp, imageMo, b64Image } = props;
         const { imagesPath, imagesRegex } = this.storageSettings.values;
 
-        if (imagesPath && imageMo) {
+        if (imagesPath && (imageMo || b64Image)) {
             const savePath = path.join(imagesPath, device.name);
 
             try {
@@ -1698,8 +1698,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 .replace('${name}', name)
                 .replace('${timestamp}', timestamp);
 
-            const jpeg = await mediaManager.convertMediaObjectToBuffer(imageMo, 'image/jpeg');
-            await fs.promises.writeFile(path.join(savePath, `${filename}.jpg`), jpeg);
+            if (imageMo) {
+                const jpeg = await mediaManager.convertMediaObjectToBuffer(imageMo, 'image/jpeg');
+                await fs.promises.writeFile(path.join(savePath, `${filename}.jpg`), jpeg);
+            } else if (b64Image) {
+                const base64Data = b64Image.replace(/^data:image\/png;base64,/, "");
+                await fs.promises.writeFile(path.join(savePath, `${filename}.jpg`), base64Data, 'base64');
+            }
         }
     }
 

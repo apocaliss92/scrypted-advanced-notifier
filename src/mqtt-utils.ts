@@ -602,7 +602,8 @@ export const publishRelevantDetections = async (props: {
                             device,
                             name: `object-detection-${entry.className}`,
                             imageMo: image,
-                            timestamp: triggerTime
+                            timestamp: triggerTime,
+                            b64Image
                         }).catch(console.log);
                     }
 
@@ -715,7 +716,8 @@ const publishRuleData = async (props: {
                 device,
                 name: `rule-${rule.name}`,
                 imageMo: image,
-                timestamp: triggerTime
+                timestamp: triggerTime,
+                b64Image
             }).catch(console.log);
         }
 
@@ -788,7 +790,8 @@ export const publishDeviceState = async (props: {
                     //     device,
                     //     name: `object-detection-${detectionClass}`,
                     //     imageMo: image,
-                    //     timestamp: triggerTime
+                    //     timestamp: triggerTime,
+                    //     b64Image
                     // }).catch(console.log);
                 } else if (entity.includes('LastLabel')) {
                     value = detection?.label || null;

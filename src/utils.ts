@@ -31,7 +31,8 @@ export type StoreImageFn = (props: {
     device: ScryptedDeviceBase,
     name: string,
     timestamp: number,
-    imageMo: MediaObject,
+    imageMo?: MediaObject,
+    b64Image?: string,
 }) => Promise<void>
 
 export const getElegibleDevices = () => {
