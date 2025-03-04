@@ -842,6 +842,7 @@ export enum ZoneMatchType {
 
 export const deviceFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && ['${ScryptedDeviceType.Camera}', '${ScryptedDeviceType.Doorbell}', '${ScryptedDeviceType.Sensor}', '${ScryptedDeviceType.Lock}'].includes(type)`;
 export const notifierFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && ['${ScryptedDeviceType.Notifier}'].includes(type)`;
+export const sensorsFilter: StorageSetting['deviceFilter'] = `['${ScryptedDeviceType.Sensor}'].includes(type)`;
 // export const deviceFilter: StorageSetting['deviceFilter'] = d => d.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE) && [ScryptedDeviceType.Camera, ScryptedDeviceType.Doorbell, ScryptedDeviceType.Sensor, ScryptedDeviceType.Lock].includes(d.type);
 // export const notifierFilter: StorageSetting['deviceFilter'] = d => d.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE) && d.type === ScryptedDeviceType.Notifier;
 
@@ -1021,7 +1022,7 @@ export const getRuleSettings = (props: {
                 multiple: true,
                 combobox: true,
                 type: 'device',
-                deviceFilter: d => d.type === ScryptedDeviceType.Sensor,
+                deviceFilter: sensorsFilter,
                 hide: !showMoreConfigurations
             },
             {
@@ -1033,7 +1034,7 @@ export const getRuleSettings = (props: {
                 multiple: true,
                 combobox: true,
                 type: 'device',
-                deviceFilter: d => d.type === ScryptedDeviceType.Sensor,
+                deviceFilter: sensorsFilter,
                 hide: !showMoreConfigurations
             },
             {
@@ -1441,7 +1442,7 @@ export const getOccupancyRulesSettings = async (props: {
                 type: 'device',
                 group,
                 subgroup,
-                deviceFilter: d => d.interfaces.includes(ScryptedInterface.ObjectDetectionPreview) && d.id !== nvrAcceleratedMotionSensorId,
+                deviceFilter: `interfaces.includes('${ScryptedInterface.ObjectDetectionPreview}') && id !== '${nvrAcceleratedMotionSensorId}'`,
                 immediate: true,
                 hide: !showMore
             },

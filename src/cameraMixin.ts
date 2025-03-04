@@ -160,28 +160,28 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.cameraDevice = systemManager.getDeviceById<DeviceInterface>(this.id);
 
         this.initValues().then().catch(logger.log);
-        this.startCheckInterval().then().catch(logger.log);
-        this.initFrameGenerator().then().catch(logger.log);
 
         this.plugin.currentMixinsMap[this.name] = this;
 
         if (this.storageSettings.values.room && !this.room) {
             sdk.systemManager.getDeviceById<ScryptedDevice>(this.id).setRoom(this.storageSettings.values.room);
         }
+
+        this.startStop(this.plugin.storageSettings.values.pluginEnabled).then().catch(logger.log);
+    }
+
+    public async startStop(enabled: boolean) {
+        const logger = this.getLogger();
+
+        if (enabled) {
+            await this.startCheckInterval();
+        } else {
+            await this.release();
+        }
     }
 
     async enableRecording(device: Settings, enabled: boolean) {
         await device.putSetting(`recording:privacyMode`, !enabled)
-    }
-
-    async initFrameGenerator() {
-        // const frameGenerator = await this.createFrameGenerator();
-        // for await (const frame of frameGenerator) {
-        //     if(frame.image) {
-        //         this.latestFrame = await sdk.mediaManager.convertMediaObjectToBuffer(frame.image, 'image/jpeg');
-        //         this.console.log(this.latestFrame);
-        //     }
-        // }
     }
 
     async startCheckInterval() {
@@ -793,15 +793,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
 
             return { image, b64Image };
-            // if (this.latestFrame) {
-            //     this.console.log(this.latestFrame);
-            //     const image = await sdk.mediaManager.createMediaObject(this.latestFrame, 'image/jpeg');
-            //     const b64Image = this.latestFrame?.toString('base64');
-
-            //     return { image, b64Image };
-            // } else {
-            //     return {};
-            // }
         } catch (e) {
             this.getLogger().log('Error taking a picture in camera mixin', e);
             return {};

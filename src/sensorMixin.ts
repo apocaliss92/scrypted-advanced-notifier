@@ -52,6 +52,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         public plugin: HomeAssistantUtilitiesProvider
     ) {
         super(options);
+        const logger = this.getLogger();
 
         const isLock = this.type === ScryptedDeviceType.Lock;
         this.event = isLock ? ScryptedInterface.Lock : ScryptedInterface.BinarySensor;
@@ -69,12 +70,23 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             }
         }
 
-        this.startCheckInterval().then().catch(this.console.log);
-
         this.plugin.currentMixinsMap[this.name] = this;
 
         if (this.storageSettings.values.room && !this.room) {
             sdk.systemManager.getDeviceById<ScryptedDevice>(this.id).setRoom(this.storageSettings.values.room);
+        }
+
+        this.startStop(this.plugin.storageSettings.values.pluginEnabled).then().catch(logger.log);
+    }
+
+
+    public async startStop(enabled: boolean) {
+        const logger = this.getLogger();
+
+        if (enabled) {
+            await this.startCheckInterval();
+        } else {
+            await this.release();
         }
     }
 

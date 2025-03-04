@@ -40,7 +40,10 @@ interface NotifyCameraProps {
 export default class AdvancedNotifierPlugin extends BasePlugin implements MixinProvider, HttpRequestHandler, DeviceProvider {
     initStorage: StorageSettingsDict<string> = {
         ...getBaseSettings({
-            onPluginSwitch: (_, enabled) => this.startStop(enabled),
+            onPluginSwitch: (_, enabled) => {
+                this.startStop(enabled);
+                this.startStopMixins(enabled);
+            },
             hideHa: false,
         }),
         pluginEnabled: {
@@ -309,10 +312,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             );
 
             await this.executeCameraDiscovery(this.storageSettings.values.enableCameraDevice);
-            await this.refreshSettings();
         })();
 
-        this.start().then().catch(this.getLogger().log);
+        this.startStop(this.storageSettings.values.pluginEnabled).then().catch(this.getLogger().log);
     }
 
     async executeCameraDiscovery(active: boolean) {
@@ -355,8 +357,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         await this.mqttClient?.disconnect();
     }
 
+    async startStopMixins(enabled: boolean) {
+        for (const mixin of Object.values(this.currentMixinsMap)) {
+            await mixin.startStop(enabled);
+        }
+    }
+
     async start() {
         try {
+            await this.refreshSettings();
             await this.initPluginSettings();
             await this.refreshDevicesLinks();
             await this.setupMqttEntities();
