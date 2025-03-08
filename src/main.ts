@@ -388,7 +388,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const [_, __, ___, ____, _____, webhook, ...rest] = url.pathname.split('/');
         const [deviceNameOrActionRaw, ruleName, timelapseName] = rest
         const deviceNameOrAction = decodeURIComponent(deviceNameOrActionRaw);
-        logger.log(`Webhook request: ${JSON.stringify({
+        logger.debug(`Webhook request: ${JSON.stringify({
             url: request.url,
             webhook,
             deviceNameOrActionRaw,
@@ -417,7 +417,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             } else if (webhook === lastSnapshot) {
                 const device = this.currentMixinsMap[deviceNameOrAction] as AdvancedNotifierCameraMixin;
                 const isWebhookEnabled = device?.storageSettings.getItem('lastSnapshotWebhook');
-                logger.log(`lastSnapshotWebhook: ${isWebhookEnabled}`);
 
                 if (isWebhookEnabled) {
                     const { snapshotsFolder } = await getFolderPaths(device.id);
@@ -452,7 +451,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 });
 
                 const timelapsePath = path.join(generatedPath, decodedTimelapseName);
-                logger.log(`Requesting timelapse ${decodedRuleName} for download: ${JSON.stringify({
+                logger.debug(`Requesting timelapse ${decodedRuleName} for download: ${JSON.stringify({
                     generatedPath,
                     timelapseName,
                     decodedTimelapseName,
@@ -1768,13 +1767,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         device: ScryptedDeviceBase,
     }) => {
         const { device, rule, logger } = props;
-
-        logger.log(`Clearing frames for rule ${rule.name}.`);
-        this.clearFramesData({
-            device,
-            logger,
-            rule,
-        }).catch(logger.log);
+        try {
+            logger.log(`Clearing frames for rule ${rule.name}.`);
+            this.clearFramesData({
+                device,
+                logger,
+                rule,
+            }).catch(logger.error);
+        } catch (e) {
+            logger.error(`Error starting timelapse rule ${rule.name}`, e);
+        }
     }
 
     public clearFramesData = async (props: {
@@ -1785,7 +1787,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { rule, logger } = props;
         const { framesPath } = this.getTimelapseFolder({ ruleName: rule.name });
 
-        await fs.promises.rm(framesPath, { recursive: true, force: true });
+        await fs.promises.rm(framesPath, { recursive: true, force: true, maxRetries: 10 });
         logger.log(`Folder ${framesPath} removed`);
     }
 

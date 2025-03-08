@@ -507,7 +507,7 @@ export const discoveryRuleTopics = async (
     const { id } = device;
     const mqttdevice = getMqttDevice(device);
 
-    const { getDiscoveryTopic, getEntityTopic } = getMqttTopics(device.id);
+    const { getDiscoveryTopic, getEntityTopic, } = getMqttTopics(device.id);
 
     console.debug(`Following rules will be discovered ${JSON.stringify({
         rules,
@@ -551,6 +551,10 @@ export const discoveryRuleTopics = async (
             })} `);
 
             await mqttClient.publish(discoveryTopic, JSON.stringify(config));
+
+            if (domain === 'binary_sensor' && rule.ruleType === RuleType.Detection) {
+                await mqttClient.publish(topic, JSON.stringify(false));
+            }
         }
     }
 }

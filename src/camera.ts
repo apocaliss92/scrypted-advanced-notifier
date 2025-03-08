@@ -149,7 +149,7 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
                 const stats = await fs.promises.stat(thumbnailPath);
                 if (stats.size === 0) {
                     logger.log(`Thumbnail ${thumbnailPath} corrupted, removing.`);
-                    await fs.promises.rm(thumbnailPath);
+                    await fs.promises.rm(thumbnailPath, { force: true, recursive: true, maxRetries: 10 });
                 }
             } catch {
                 logger.log(`Thumbnail not found in ${thumbnailPath}, generating.`);
@@ -193,7 +193,7 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
             logger.error(`Error retrieving thumbnail of videoclip ${videoclipUrl}`, e);
             try {
                 await fs.promises.access(thumbnailPath);
-                await fs.promises.rm(thumbnailPath);
+                await fs.promises.rm(thumbnailPath, { force: true, recursive: true, maxRetries: 10 });
             } catch { }
 
             return {};

@@ -1675,7 +1675,7 @@ const initBasicRule = (props: {
     const securitySystemModes = storage.getItem(securitySystemModesKey) as SecuritySystemMode[] ?? [];
     const notifiers = storage.getItem(notifiersKey) as string[];
 
-    const notifiersTouse = notifiers?.filter(notifierId => activeNotifiers.includes(notifierId));
+    const notifiersTouse = notifiers?.filter(notifierId => activeNotifiers?.includes(notifierId));
 
     const rule: BaseRule = {
         ruleType,

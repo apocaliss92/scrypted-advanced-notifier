@@ -1,7 +1,7 @@
 import sdk, { Camera, EventListenerRegister, Image, MediaObject, MediaStreamDestination, MotionSensor, ObjectDetection, ObjectDetectionResult, ObjectDetector, ObjectsDetected, ScryptedDevice, ScryptedDeviceBase, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoFrameGenerator, VideoFrame, VideoFrameGeneratorOptions } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
-import { cloneDeep } from "lodash";
+import { cloneDeep, uniq } from "lodash";
 import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoveryRuleTopics, getDetectionRuleId, getOccupancyRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
@@ -634,6 +634,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { detections, device, logger, triggerTime, b64Image, image } = props;
         const { room, motionDuration } = this.storageSettings.values;
         if (!this.mqttReportInProgress) {
+            // logger.log(`Detected: ${detections.map(det => `${det.className} (${det.score})`).join(', ')}`);
 
             this.mqttDetectionMotionTimeout && clearTimeout(this.mqttDetectionMotionTimeout);
 
