@@ -840,9 +840,9 @@ export enum ZoneMatchType {
     Contain = 'Contain',
 }
 
-export const deviceFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && ['${ScryptedDeviceType.Camera}', '${ScryptedDeviceType.Doorbell}', '${ScryptedDeviceType.Sensor}', '${ScryptedDeviceType.Lock}'].includes(type)`;
+export const deviceFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && ['${ScryptedDeviceType.Camera}', '${ScryptedDeviceType.Doorbell}', '${ScryptedDeviceType.Sensor}', '${ScryptedDeviceType.Lock}', '${ScryptedDeviceType.Entry}'].includes(type)`;
 export const notifierFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && ['${ScryptedDeviceType.Notifier}'].includes(type)`;
-export const sensorsFilter: StorageSetting['deviceFilter'] = `['${ScryptedDeviceType.Sensor}'].includes(type)`;
+export const sensorsFilter: StorageSetting['deviceFilter'] = `['${ScryptedDeviceType.Sensor}', '${ScryptedDeviceType.Entry}'].includes(type)`;
 // export const deviceFilter: StorageSetting['deviceFilter'] = d => d.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE) && [ScryptedDeviceType.Camera, ScryptedDeviceType.Doorbell, ScryptedDeviceType.Sensor, ScryptedDeviceType.Lock].includes(d.type);
 // export const notifierFilter: StorageSetting['deviceFilter'] = d => d.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE) && d.type === ScryptedDeviceType.Notifier;
 

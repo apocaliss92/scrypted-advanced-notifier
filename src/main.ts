@@ -807,12 +807,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     devicesWithoutRoom.push(device.name);
                 }
 
-                const relevantRules = Object.entries(this.currentMixinsMap[device.name].storageSettings)
-                    .filter(([key]) => key?.match(notifiersRegex));
+                const notifiersSettings = (await this.currentMixinsMap[device.name].storageSettings.getSettings())
+                    .filter((sett) => sett.key?.match(notifiersRegex));
 
-                for (const [ruleName, rule] of relevantRules) {
-                    const [_, type, name] = ruleName.match(notifiersRegex);
-                    const missingNotifiers = (rule.value as string[])?.filter(notifierId => !sdk.systemManager.getDeviceById(notifierId));
+                for (const notifiersSetting of notifiersSettings) {
+                    const [_, type, name] = notifiersSetting.key.match(notifiersRegex);
+                    const missingNotifiers = (notifiersSetting.value as string[])?.filter(notifierId => !sdk.systemManager.getDeviceById(notifierId));
                     if (missingNotifiers.length) {
                         missingNotifiersOfDeviceRules.push({ deviceName: device.name, notifierIds: missingNotifiers, ruleName: `${type}_${name}` });
                     }
@@ -820,23 +820,23 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
 
             const pluginStorage = this.storageSettings;
-            const relevantNotifierRules = Object.entries(pluginStorage)
-                .filter(([key]) => key?.match(notifiersRegex));
+            const notifiersSettings = (await this.storageSettings.getSettings())
+                .filter((sett) => sett.key?.match(notifiersRegex));
 
-            for (const [ruleName, rule] of relevantNotifierRules) {
-                const [_, type, name] = ruleName.match(notifiersRegex);
-                const missingNotifiers = (rule.value as string[])?.filter(notifierId => !sdk.systemManager.getDeviceById(notifierId));
+            for (const notifiersSetting of notifiersSettings) {
+                const [_, type, name] = notifiersSetting.key.match(notifiersRegex);
+                const missingNotifiers = (notifiersSetting.value as string[])?.filter(notifierId => !sdk.systemManager.getDeviceById(notifierId));
                 if (missingNotifiers.length) {
                     missingNotifiersOfPluginRules.push({ notifierIds: missingNotifiers, ruleName: `${type}_${name}` });
                 }
             }
 
-            const relevantdeviceRules = Object.entries(pluginStorage)
-                .filter(([key]) => key?.match(devicesRegex));
+            const devicesSettings = (await this.storageSettings.getSettings())
+                .filter((sett) => sett.key?.match(devicesRegex));
 
-            for (const [ruleName, rule] of relevantdeviceRules) {
-                const [_, type, name] = ruleName.match(notifiersRegex);
-                const missingDevices = (rule.value as string[])?.filter(notifierId => !sdk.systemManager.getDeviceById(notifierId));
+            for (const devicesSetting of devicesSettings) {
+                const [_, type, name] = devicesSetting.key.match(devicesRegex);
+                const missingDevices = (devicesSetting.value as string[])?.filter(deviceId => !sdk.systemManager.getDeviceById(deviceId));
                 if (missingDevices.length) {
                     missingDevicesOfPluginRules.push({ deviceIds: missingDevices, ruleName: `${type}_${name}` });
                 }
@@ -1016,6 +1016,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 ScryptedInterface.VideoCamera,
                 ScryptedInterface.BinarySensor,
                 ScryptedInterface.Lock,
+                ScryptedInterface.EntrySensor,
+                ScryptedInterface.Entry,
                 ScryptedInterface.Notifier,
             ].some(int => interfaces.includes(int))
         ) {
@@ -1352,7 +1354,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 this
             );
         } else if (
-            [ScryptedInterface.BinarySensor, ScryptedInterface.Lock].some(int => mixinDeviceInterfaces.includes(int))
+            [ScryptedInterface.BinarySensor, ScryptedInterface.Lock, ScryptedInterface.EntrySensor].some(int => mixinDeviceInterfaces.includes(int))
         ) {
             return new AdvancedNotifierSensorMixin(
                 props,
