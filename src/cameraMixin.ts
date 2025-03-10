@@ -27,6 +27,7 @@ export type OccupancyRuleData = {
     occupies: boolean;
     image?: MediaObject;
     b64Image?: string;
+    triggerTime: number;
 };
 
 export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> implements Settings {
@@ -995,6 +996,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     occupancyRulesDataMap[name] = {
                         rule: occupancyRule,
                         occupies,
+                        triggerTime: now
                     }
                 } else if (!existingRule.occupies && occupies) {
                     existingRule.occupies = true;
@@ -1027,6 +1029,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         ...occupancyRuleData,
                         image,
                         b64Image,
+                        triggerTime: now,
                     });
 
                     occupancyData = {
@@ -1065,6 +1068,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 ...occupancyRuleData,
                                 image,
                                 b64Image,
+                                triggerTime: occupancyData.confirmationStart,
                             });
 
                             occupancyData = {
@@ -1123,7 +1127,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 objectsDetected: detectedResultParent,
                 occupancyRulesData,
                 storeImageFn: this.plugin.storeImage,
-                triggerTime: now
             });
 
             for (const occupancyRuleData of occupancyRulesData) {
@@ -1144,7 +1147,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             cameraDevice: this.cameraDevice,
                             message,
                             rule,
-                            triggerTime: now,
+                            triggerTime: occupancyRuleData?.triggerTime ?? now,
                             image: currentState?.image ?? imageParent
                         });
                     }

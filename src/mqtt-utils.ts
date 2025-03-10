@@ -838,10 +838,9 @@ export const publishOccupancy = async (props: {
     console: Console,
     objectsDetected: ObjectsDetected,
     occupancyRulesData: OccupancyRuleData[],
-    triggerTime: number,
     storeImageFn: StoreImageFn
 }) => {
-    const { mqttClient, device, objectsDetected, occupancyRulesData, console, storeImageFn, triggerTime } = props;
+    const { mqttClient, device, objectsDetected, occupancyRulesData, console, storeImageFn } = props;
     try {
         const { getEntityTopic } = getMqttTopics(device.id);
 
@@ -853,7 +852,7 @@ export const publishOccupancy = async (props: {
         }
 
         for (const occupancyRuleData of occupancyRulesData) {
-            const { occupies, rule, b64Image, image } = occupancyRuleData;
+            const { occupies, rule, b64Image, image, triggerTime } = occupancyRuleData;
             await publishRuleData({
                 b64Image,
                 console,
