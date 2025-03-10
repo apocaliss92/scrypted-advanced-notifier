@@ -373,7 +373,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.refreshDeviceLinksInterval = setInterval(async () => {
                 await this.refreshDevicesLinks();
             }, 10000);
-            this.checkExistingDevicesInterval = setInterval(async () => await this.checkPluginConfigurations(false), 60 * 60 * 1000);
+            this.checkExistingDevicesInterval = setInterval(async () => {
+                await this.checkPluginConfigurations(false);
+
+                if (this.storageSettings.values.mqttEnabled) {
+                    await this.sendAutoDiscovery();
+                }
+            }, 60 * 60 * 1000);
         } catch (e) {
             this.getLogger().log(`Error in initFLow`, e);
         }

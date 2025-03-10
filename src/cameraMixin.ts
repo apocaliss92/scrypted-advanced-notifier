@@ -109,7 +109,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     mainLoopListener: NodeJS.Timeout;
     isActiveForNotifications: boolean;
     isActiveForMqttReporting: boolean;
-    mainAutodiscoveryDone: boolean;
+    lastAutoDiscovery: number;
     isActiveForNvrNotifications: boolean;
     mqttReportInProgress: boolean;
     lastDetectionMap: Record<string, number> = {};
@@ -294,7 +294,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 if (isActiveForMqttReporting) {
                     const mqttClient = await this.plugin.getMqttClient();
                     if (mqttClient) {
-                        if (!this.mainAutodiscoveryDone) {
+                        const now = Date.now();
+                        // Send autodiscovery every hour
+                        if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
                             await setupDeviceAutodiscovery({
                                 mqttClient,
                                 device,
@@ -324,7 +326,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 }
                             });
 
-                            this.mainAutodiscoveryDone = true;
+                            this.lastAutoDiscovery = now;
                         }
 
                         const missingRules = allDetectionRules.filter(rule => !this.rulesDiscovered.includes(getDetectionRuleId(rule)));
