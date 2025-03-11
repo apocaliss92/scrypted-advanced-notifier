@@ -868,6 +868,7 @@ export const publishOccupancy = async (props: {
     } catch (e) {
         console.log(`Error in publishOccupancy ${JSON.stringify({
             objectsDetected,
+            occupancyRulesData
         })}`, e);
     }
 }

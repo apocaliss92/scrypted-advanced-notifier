@@ -1053,7 +1053,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             logger.debug(`Confirmation time is not passed yet ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
                         } else {
                             // Reset confirmation data because the value changed before confirmation time passed
-                            logger.debug(`Confirmation failed, value changed during confirmation time ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
+                            logger.log(`Confirmation failed, value changed during confirmation time ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
 
                             occupancyData = {
                                 ...occupancyData,
@@ -1068,7 +1068,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 ...occupancyRuleData,
                                 image,
                                 b64Image,
-                                triggerTime: occupancyData.confirmationStart,
+                                triggerTime: currentState.confirmationStart,
                             });
 
                             occupancyData = {
@@ -1083,12 +1083,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                             if (!stateActuallyChanged) {
                                 rulesToNotNotify.push(occupancyRuleData.rule.name);
+                            } else {
+                                logger.log(`Confirming occupancy rule ${occupancyRuleData.rule.name}: ${JSON.stringify({
+                                    occupancyRuleData,
+                                    currentState,
+                                    logPayload,
+                                })}`);
                             }
-
-                            logger.debug(`Confirming occupancy rule ${occupancyRuleData.rule.name}: ${JSON.stringify({
-                                stateActuallyChanged,
-                                ...logPayload,
-                            })}`);
                         } else {
                             // Time is passed and value changed, restart confirmation flow
                             occupancyData = {
@@ -1143,11 +1144,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             .replace('${detectedObjects}', String(currentState.objectsDetected) ?? '')
                             .replace('${maxObjects}', String(rule.maxObjects) ?? '')
 
+                        const triggerTime = (occupancyRuleData?.triggerTime ?? now) - (5000);
+
                         await this.plugin.notifyOccupancyEvent({
                             cameraDevice: this.cameraDevice,
                             message,
                             rule,
-                            triggerTime: occupancyRuleData?.triggerTime ?? now,
+                            triggerTime,
                             image: currentState?.image ?? imageParent
                         });
                     }
