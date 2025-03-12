@@ -3,7 +3,7 @@ import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/s
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoveryRuleTopics, getDetectionRuleId, publishDeviceState, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
-import { convertSettingsToStorageSettings, DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, getRuleKeys, isDeviceEnabled, RuleSource, RuleType } from "./utils";
+import { BinarySensorMetadata, binarySensorMetadataMap, convertSettingsToStorageSettings, DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, getRuleKeys, isDeviceEnabled, RuleSource, RuleType } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -45,7 +45,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
     nvrDetectionRules: DetectionRule[] = [];
     rulesDiscovered: string[] = [];
     lastDetection: number;
-    event: ScryptedInterface;
+    metadata: BinarySensorMetadata;
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -54,8 +54,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         super(options);
         const logger = this.getLogger();
 
-        const isLock = this.type === ScryptedDeviceType.Lock;
-        this.event = isLock ? ScryptedInterface.Lock : ScryptedInterface.BinarySensor;
+        this.metadata = binarySensorMetadataMap[this.type];
 
         this.storageSettings.settings.room.onGet = async () => {
             const rooms = this.plugin.storageSettings.getItem('fetchedRooms');
@@ -179,7 +178,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 logger.log('Stopping and cleaning listeners.');
                 this.resetListeners();
             } else if (!isCurrentlyRunning && shouldRun) {
-                logger.log(`Starting ${this.event} listener: ${JSON.stringify({
+                logger.log(`Starting ${this.metadata.interface} listener: ${JSON.stringify({
                     notificationsActive: isActiveForNotifications,
                     mqttReportsActive: isActiveForMqttReporting,
                     isPluginEnabled,
@@ -281,11 +280,10 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async startListeners() {
-        this.detectionListener = systemManager.listenDevice(this.id, this.event, async (_, __, triggered) => {
+        this.detectionListener = systemManager.listenDevice(this.id, this.metadata.interface, async (_, __, data) => {
             const timestamp = new Date().getTime();
 
-            const isTriggered = triggered ===
-                (this.event === ScryptedInterface.Lock ? LockState.Unlocked : true);
+            const isTriggered = this.metadata.isActiveFn(this.mixinDevice, data);
             this.processEvent({ triggered: isTriggered, triggerTime: timestamp, isFromNvr: false })
         });
     }

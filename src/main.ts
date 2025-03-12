@@ -1,4 +1,4 @@
-import sdk, { DeviceBase, DeviceManifest, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SecuritySystem, SecuritySystemMode, Setting, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SecuritySystem, SecuritySystemMode, Setting, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
 import { isEqual, keyBy, sortBy } from 'lodash';
@@ -10,13 +10,13 @@ import { getMqttTopics, getRuleStrings, setupPluginAutodiscovery, subscribeToMai
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_INTERFACE, AiPlatform, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getDetectionRulesSettings, getDeviceRules, getElegibleDevices, getFolderPaths, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, HOMEASSISTANT_PLUGIN_ID, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, StoreImageFn, TimelapseRule } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, AiPlatform, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getDetectionRulesSettings, getDeviceRules, getElegibleDevices, getFolderPaths, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, HOMEASSISTANT_PLUGIN_ID, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, StoreImageFn, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TimelapseRule } from "./utils";
 // import { version } from '../package.json';
 import child_process from 'child_process';
 import { once } from "events";
 import fs from 'fs';
-import { AdvancedNotifierCamera } from "./camera";
 import { getAiMessage } from "./aiUtils";
+import { AdvancedNotifierCamera } from "./camera";
 
 const { systemManager, mediaManager } = sdk;
 const defaultNotifierNativeId = 'advancedNotifierDefaultNotifier';
@@ -1011,15 +1011,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     async canMixin(type: ScryptedDeviceType, interfaces: string[]): Promise<string[]> {
         if (
-            [
-                ScryptedInterface.Camera,
-                ScryptedInterface.VideoCamera,
-                ScryptedInterface.BinarySensor,
-                ScryptedInterface.Lock,
-                ScryptedInterface.EntrySensor,
-                ScryptedInterface.Entry,
-                ScryptedInterface.Notifier,
-            ].some(int => interfaces.includes(int))
+            supportedInterfaces.some(int => interfaces.includes(int))
         ) {
             return [ScryptedInterface.Settings, ADVANCED_NOTIFIER_INTERFACE]
         }
@@ -1347,14 +1339,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         };
 
         if (
-            [ScryptedInterface.Camera, ScryptedInterface.VideoCamera,].some(int => mixinDeviceInterfaces.includes(int))
+            supportedCameraInterfaces.some(int => mixinDeviceInterfaces.includes(int))
         ) {
             return new AdvancedNotifierCameraMixin(
                 props,
                 this
             );
         } else if (
-            [ScryptedInterface.BinarySensor, ScryptedInterface.Lock, ScryptedInterface.EntrySensor].some(int => mixinDeviceInterfaces.includes(int))
+            supportedSensorInterfaces.some(int => mixinDeviceInterfaces.includes(int))
         ) {
             return new AdvancedNotifierSensorMixin(
                 props,

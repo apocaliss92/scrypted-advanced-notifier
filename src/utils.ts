@@ -1,4 +1,4 @@
-import sdk, { Camera, DeviceBase, LockState, MediaObject, NotifierOptions, ObjectDetectionResult, ObjectDetector, Point, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Setting, Settings, VideoCamera } from "@scrypted/sdk";
+import sdk, { BinarySensor, Camera, DeviceBase, EntrySensor, LockState, MediaObject, NotifierOptions, ObjectDetectionResult, ObjectDetector, Point, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, VideoCamera } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDevice, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import fs from 'fs';
@@ -17,7 +17,7 @@ export enum AiPlatform {
     OpenAi = 'OpenAi',
 }
 
-export type DeviceInterface = Camera & ScryptedDeviceBase & Settings & ObjectDetector & VideoCamera;
+export type DeviceInterface = Camera & ScryptedDeviceBase & Settings & ObjectDetector & VideoCamera & EntrySensor & Lock & BinarySensor;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
 export const PUSHOVER_PLUGIN_ID = '@scrypted/pushover';
 export const HOMEASSISTANT_PLUGIN_ID = '@scrypted/homeassistant';
@@ -842,7 +842,7 @@ export enum ZoneMatchType {
 
 export const deviceFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && ['${ScryptedDeviceType.Camera}', '${ScryptedDeviceType.Doorbell}', '${ScryptedDeviceType.Sensor}', '${ScryptedDeviceType.Lock}', '${ScryptedDeviceType.Entry}'].includes(type)`;
 export const notifierFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && ['${ScryptedDeviceType.Notifier}'].includes(type)`;
-export const sensorsFilter: StorageSetting['deviceFilter'] = `['${ScryptedDeviceType.Sensor}', '${ScryptedDeviceType.Entry}'].includes(type)`;
+export const sensorsFilter: StorageSetting['deviceFilter'] = `['${ScryptedDeviceType.Sensor}', '${ScryptedDeviceType.Entry}', '${ScryptedDeviceType.Lock}'].includes(type)`;
 // export const deviceFilter: StorageSetting['deviceFilter'] = d => d.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE) && [ScryptedDeviceType.Camera, ScryptedDeviceType.Doorbell, ScryptedDeviceType.Sensor, ScryptedDeviceType.Lock].includes(d.type);
 // export const notifierFilter: StorageSetting['deviceFilter'] = d => d.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE) && d.type === ScryptedDeviceType.Notifier;
 
@@ -1733,12 +1733,27 @@ const initBasicRule = (props: {
     const disabledSensors = storage.getItem(disabledSensorsKey) as string[] ?? [];
 
     if (!!enabledSensors.length || !!disabledSensors.length) {
-        const systemState = sdk.systemManager.getSystemState();
         if (!!enabledSensors.length) {
-            sensorsOk = enabledSensors.every(sensorId => systemState[sensorId]?.binarySensor?.value === true);
+            sensorsOk = enabledSensors.every(sensorId => {
+                const sensorDevice = sdk.systemManager.getDeviceById<DeviceInterface>(sensorId);
+                if (sensorDevice) {
+                    return true;
+                }
+
+                const metadata = binarySensorMetadataMap[sensorDevice.type]
+                return metadata.isActiveFn(sensorDevice);
+            });
         }
         if (!!disabledSensors.length && sensorsOk) {
-            sensorsOk = disabledSensors.every(sensorId => systemState[sensorId]?.binarySensor?.value === false);
+            sensorsOk = enabledSensors.every(sensorId => {
+                const sensorDevice = sdk.systemManager.getDeviceById<DeviceInterface>(sensorId);
+                if (sensorDevice) {
+                    return true;
+                }
+
+                const metadata = binarySensorMetadataMap[sensorDevice.type]
+                return !metadata.isActiveFn(sensorDevice);
+            });
         }
     }
 
@@ -2243,3 +2258,39 @@ export const getFrameGenerator = () => {
     const use = pipelines.find(p => p.name === 'Default') || webassembly || gstreamer || libav || ffmpeg;
     return use.id;
 }
+
+export const supportedSensors: ScryptedDeviceType[] = [
+    ScryptedDeviceType.Sensor,
+    ScryptedDeviceType.Lock,
+    ScryptedDeviceType.Entry,
+];
+
+export type SupportedSensor = typeof supportedSensors[number];
+
+export interface BinarySensorMetadata {
+    isActiveFn: (device: ScryptedDeviceBase, value?: any) => boolean,
+    interface: ScryptedInterface
+};
+
+export const binarySensorMetadataMap: Partial<Record<SupportedSensor, BinarySensorMetadata>> = {
+    [ScryptedDeviceType.Sensor]: {
+        interface: ScryptedInterface.BinarySensor,
+        isActiveFn: (device, value) => !!(device?.binaryState ?? value),
+    },
+    [ScryptedDeviceType.Lock]: {
+        interface: ScryptedInterface.Lock,
+        isActiveFn: (device, value) => (device?.lockState ?? value) === LockState.Unlocked
+    },
+    [ScryptedDeviceType.Entry]: {
+        interface: ScryptedInterface.EntrySensor,
+        isActiveFn: (device, value) => !!(device?.entryOpen ?? value),
+    }
+}
+
+export const supportedCameraInterfaces: ScryptedInterface[] = [ScryptedInterface.Camera, ScryptedInterface.VideoCamera];
+export const supportedSensorInterfaces: ScryptedInterface[] = Object.values(binarySensorMetadataMap).flatMap(item => item.interface);
+export const supportedInterfaces = [
+    ...supportedCameraInterfaces,
+    ...supportedSensorInterfaces,
+    ScryptedInterface.Notifier
+];
