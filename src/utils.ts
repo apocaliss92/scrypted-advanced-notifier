@@ -225,10 +225,12 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
 
             const foundSensor = deviceSensors.find(deviceId => {
                 const device = sdk.systemManager.getDeviceById(deviceId);
-                if (device.type === ScryptedDeviceType.Lock) {
-                    return systemState[deviceId].lockState?.value === LockState.Unlocked;
-                } else {
-                    return systemState[deviceId].binaryState?.value === true;
+                if (device) {
+                    if (device.type === ScryptedDeviceType.Lock) {
+                        return systemState[deviceId].lockState?.value === LockState.Unlocked;
+                    } else {
+                        return systemState[deviceId].binaryState?.value === true;
+                    }
                 }
             })
 
@@ -256,7 +258,7 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
             label,
         }
     } catch (e) {
-        console.log(`Error parsing notification: ${JSON.stringify({ device: cameraDevice.name, options })}`, e);
+        console.log(`Error parsing notification: ${JSON.stringify({ device: cameraDevice.name, options, deviceSensors })}`, e);
         return {} as ParseNotificationMessageResult;
     }
 }

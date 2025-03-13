@@ -283,7 +283,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         this.detectionListener = systemManager.listenDevice(this.id, this.metadata.interface, async (_, __, data) => {
             const timestamp = new Date().getTime();
 
-            const isTriggered = this.metadata.isActiveFn(this.mixinDevice, data);
+            const isTriggered = this.metadata.isActiveFn(undefined, data);
             this.processEvent({ triggered: isTriggered, triggerTime: timestamp, isFromNvr: false })
         });
     }
@@ -314,7 +314,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 this.lastDetection = triggerTime;
             }
 
-            logger.log(`Sensor triggered: ${triggered}`);
+            logger.log(`Sensor triggered: ${JSON.stringify({ triggered })}`);
 
             const mqttClient = await this.plugin.getMqttClient();
 
