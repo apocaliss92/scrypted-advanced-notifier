@@ -1,14 +1,13 @@
-import { MediaObject, ObjectDetectionResult, ObjectsDetected, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface } from '@scrypted/sdk';
+import sdk, { MediaObject, ObjectDetectionResult, ObjectsDetected, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface } from '@scrypted/sdk';
 import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, parentDetectionClassMap } from './detecionClasses';
 import { BaseRule, DetectionRule, firstUpperCase, getWebooks, OccupancyRule, RuleType, StoreImageFn, storeWebhookImage, TimelapseRule } from './utils';
 import { cloneDeep, groupBy } from 'lodash';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 import { OccupancyRuleData } from './cameraMixin';
-import path from 'path';
 
 interface MqttEntity {
     entity: 'triggered' | 'lastImage' | 'lastClassname' | 'lastZones' | 'lastLabel' | string;
-    domain: 'sensor' | 'binary_sensor' | 'image' | 'switch';
+    domain: 'sensor' | 'binary_sensor' | 'image' | 'switch' | 'button';
     name: string;
     className?: DetectionClass,
     key?: string,
@@ -45,6 +44,12 @@ const recordingEntity: MqttEntity = {
     entity: 'recording',
     name: 'Recording',
     deviceClass: 'running'
+};
+const rebootEntity: MqttEntity = {
+    domain: 'button',
+    entity: 'reboot',
+    name: 'Reboot',
+    deviceClass: 'restart'
 };
 
 const deviceClassMqttEntities: MqttEntity[] = defaultDetectionClasses.flatMap(className => {
@@ -157,7 +162,7 @@ export const setupPluginAutodiscovery = async (props: {
     const { people, mqttClient, detectionRules } = props;
 
     const mqttPeopleTrackerDevice = {
-        ...getMqttDevice(),
+        ...(await getMqttDevice()),
         ids: `${idPrefix}-${peopleTrackerId}`,
         name: `${namePrefix} people tracker`
     };
@@ -249,6 +254,7 @@ export const subscribeToDeviceMqttTopics = async (
         timelapseRules?: TimelapseRule[],
         device: ScryptedDeviceBase,
         switchRecordingCb?: (active: boolean) => void,
+        rebootCb?: () => void,
         activationRuleCb: (props: {
             ruleName: string;
             active: boolean;
@@ -256,7 +262,16 @@ export const subscribeToDeviceMqttTopics = async (
         }) => void,
     }
 ) => {
-    const { mqttClient, detectionRules, occupancyRules, activationRuleCb, switchRecordingCb, timelapseRules, device } = props;
+    const {
+        mqttClient,
+        detectionRules,
+        occupancyRules,
+        activationRuleCb,
+        switchRecordingCb,
+        rebootCb,
+        timelapseRules,
+        device
+    } = props;
 
     for (const detectionRule of detectionRules) {
         const { entityId, ruleDeviceId } = getRuleStrings(detectionRule);
@@ -335,16 +350,28 @@ export const subscribeToDeviceMqttTopics = async (
             }
         });
     }
+
+    if (rebootCb) {
+        const commandTopic = getCommandTopic(rebootEntity.entity);
+        await mqttClient.subscribe([commandTopic], async (messageTopic, message) => {
+            if (messageTopic === commandTopic) {
+                rebootCb();
+            }
+        });
+    }
 }
 
-const getMqttDevice = (device?: ScryptedDeviceBase) => {
+const getMqttDevice = async (device?: ScryptedDeviceBase) => {
     if (device) {
+        const localEndpoint = await sdk.endpointManager.getLocalEndpoint();
+        const deviceConfigurationUrl = `${new URL(localEndpoint).origin}/endpoint/@scrypted/core/public/#/device/${device.id}`;
         return {
             ids: `${idPrefix}-${device.id}`,
             name: `${device.name}`,
             manufacturer: namePrefix,
             model: `${device?.info?.manufacturer ?? ''} ${device?.info?.model ?? ''}`,
-            via_device: mqttMainSettingsDevice.ids
+            via_device: mqttMainSettingsDevice.ids,
+            configuration_url: deviceConfigurationUrl
         }
     } else {
         return {
@@ -388,7 +415,7 @@ export const setupDeviceAutodiscovery = async (props: {
     const { device, withDetections, deviceClass, mqttClient, detectionRules, occupancyRules, timelapseRules } = props;
     const { id } = device;
 
-    const mqttdevice = getMqttDevice(device);
+    const mqttdevice = await getMqttDevice(device);
 
     const { getDiscoveryTopic, getEntityTopic, getCommandTopic } = getMqttTopics(device.id);
     const allEntities = [triggeredEntity, ...getDeviceClassEntities(device)];
@@ -460,6 +487,23 @@ export const setupDeviceAutodiscovery = async (props: {
         await mqttClient.publish(getDiscoveryTopic(recordingEntity.domain, recordingEntity.entity), JSON.stringify(config));
     }
 
+    if (device.interfaces.includes(ScryptedInterface.Reboot)) {
+        const commandTopic = getCommandTopic(rebootEntity.entity);
+
+        const config = {
+            dev: mqttdevice,
+            unique_id: `${idPrefix}-${id}-${rebootEntity.entity}`,
+            object_id: `${device.name}_${rebootEntity.entity}`,
+            name: `${rebootEntity.name}`,
+            platform: 'button',
+            command_topic: commandTopic,
+            device_class: rebootEntity.deviceClass,
+            qos: 0
+        };
+
+        await mqttClient.publish(getDiscoveryTopic(rebootEntity.domain, rebootEntity.entity), JSON.stringify(config));
+    }
+
     const publishRule = async (rule: BaseRule) => {
         const { entityId, ruleDeviceId } = getRuleStrings(rule);
         const { getCommandTopic, getEntityTopic } = getMqttTopics(ruleDeviceId);
@@ -505,7 +549,7 @@ export const discoveryRuleTopics = async (
 ) => {
     const { console, device, mqttClient, rules } = props;
     const { id } = device;
-    const mqttdevice = getMqttDevice(device);
+    const mqttdevice = await getMqttDevice(device);
 
     const { getDiscoveryTopic, getEntityTopic, } = getMqttTopics(device.id);
 

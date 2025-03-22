@@ -1,4 +1,4 @@
-import sdk, { Camera, EventListenerRegister, Image, MediaObject, MediaStreamDestination, MotionSensor, ObjectDetection, ObjectDetectionResult, ObjectDetector, ObjectsDetected, ScryptedDevice, ScryptedDeviceBase, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoFrame, VideoFrameGenerator, VideoFrameGeneratorOptions } from "@scrypted/sdk";
+import sdk, { Camera, EventListenerRegister, Image, MediaObject, MediaStreamDestination, MotionSensor, ObjectDetection, ObjectDetectionResult, ObjectDetector, ObjectsDetected, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoFrame, VideoFrameGenerator, VideoFrameGeneratorOptions } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep } from "lodash";
@@ -185,8 +185,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         await device.putSetting(`recording:privacyMode`, !enabled)
     }
 
+    async rebootCamera(device: Reboot) {
+        await device.reboot();
+    }
+
     async startCheckInterval() {
-        const device = sdk.systemManager.getDeviceById<ScryptedDeviceBase & Settings>(this.id);
+        const device = sdk.systemManager.getDeviceById<ScryptedDeviceBase & Settings & Reboot>(this.id);
         const logger = this.getLogger();
 
         const funct = async () => {
@@ -324,6 +328,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 switchRecordingCb: async (active) => {
                                     logger.log(`Setting NVR privacy mode to ${!active}`);
                                     await this.enableRecording(device, active);
+                                },
+                                rebootCb: async () => {
+                                    logger.log(`Rebooting camera`);
+                                    await this.rebootCamera(device);
                                 }
                             });
 
@@ -384,7 +392,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 const { entityId } = this.storageSettings.values;
                 if (this.plugin.storageSettings.values.haEnabled && entityId && !this.plugin.storageSettings.values.fetchedEntities.includes(entityId)) {
-                    logger.log(`Entity id ${entityId} does not exists on HA`);
+                    logger.debug(`Entity id ${entityId} does not exists on HA`);
                 }
             } catch (e) {
                 logger.log('Error in startCheckInterval funct', e);
@@ -968,16 +976,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     if (detection.score >= scoreThreshold && detectionClass === className) {
                         const boundingBoxInCoords = normalizeBox(detection.boundingBox, detectedResult.inputDimensions);
                         const zone = zonesData.find(zoneData => zoneData.name === observeZone);
-                        let zoneMatches = false;
+                        if (zone) {
+                            let zoneMatches = false;
 
-                        if (zoneType === ZoneMatchType.Intersect) {
-                            zoneMatches = polygonIntersectsBoundingBox(zone.path, boundingBoxInCoords);
-                        } else {
-                            zoneMatches = polygonContainsBoundingBox(zone.path, boundingBoxInCoords);
-                        }
+                            if (zoneType === ZoneMatchType.Intersect) {
+                                zoneMatches = polygonIntersectsBoundingBox(zone.path, boundingBoxInCoords);
+                            } else {
+                                zoneMatches = polygonContainsBoundingBox(zone.path, boundingBoxInCoords);
+                            }
 
-                        if (zoneMatches) {
-                            objectsDetected += 1;
+                            if (zoneMatches) {
+                                objectsDetected += 1;
+                            }
                         }
                     }
                 }
