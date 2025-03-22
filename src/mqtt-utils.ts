@@ -1,4 +1,4 @@
-import sdk, { MediaObject, ObjectDetectionResult, ObjectsDetected, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface } from '@scrypted/sdk';
+import sdk, { MediaObject, ObjectDetectionResult, ObjectsDetected, PanTiltZoomCommand, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface } from '@scrypted/sdk';
 import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, parentDetectionClassMap } from './detecionClasses';
 import { BaseRule, DetectionRule, firstUpperCase, getWebooks, OccupancyRule, RuleType, StoreImageFn, storeWebhookImage, TimelapseRule } from './utils';
 import { cloneDeep, groupBy } from 'lodash';
@@ -7,7 +7,7 @@ import { OccupancyRuleData } from './cameraMixin';
 
 interface MqttEntity {
     entity: 'triggered' | 'lastImage' | 'lastClassname' | 'lastZones' | 'lastLabel' | string;
-    domain: 'sensor' | 'binary_sensor' | 'image' | 'switch' | 'button';
+    domain: 'sensor' | 'binary_sensor' | 'image' | 'switch' | 'button' | 'select';
     name: string;
     className?: DetectionClass,
     key?: string,
@@ -50,6 +50,48 @@ const rebootEntity: MqttEntity = {
     entity: 'reboot',
     name: 'Reboot',
     deviceClass: 'restart'
+};
+const ptzPresetEntity: MqttEntity = {
+    domain: 'select',
+    entity: 'ptz_preset',
+    name: 'PTZ preset',
+    deviceClass: 'restart'
+};
+const ptzZoomInEntity: MqttEntity = {
+    domain: 'button',
+    entity: 'ptz_zoom_in',
+    name: 'Zoom in',
+    icon: 'mdi:magnify-plus',
+};
+const ptzZoomOutEntity: MqttEntity = {
+    domain: 'button',
+    entity: 'ptz_zoom_out',
+    name: 'Zoom out',
+    icon: 'mdi:magnify-minus'
+};
+const ptzUpEntity: MqttEntity = {
+    domain: 'button',
+    entity: 'ptz_move_up',
+    name: 'Move up',
+    icon: 'mdi:arrow-up-thick'
+};
+const ptzDownEntity: MqttEntity = {
+    domain: 'button',
+    entity: 'ptz_move_down',
+    name: 'Move down',
+    icon: 'mdi:arrow-down-thick'
+};
+const ptzLeftEntity: MqttEntity = {
+    domain: 'button',
+    entity: 'ptz_move_left',
+    name: 'Move left',
+    icon: 'mdi:arrow-left-thick'
+};
+const ptzRightEntity: MqttEntity = {
+    domain: 'button',
+    entity: 'ptz_move_right',
+    name: 'Move right',
+    icon: 'mdi:arrow-right-thick'
 };
 
 const deviceClassMqttEntities: MqttEntity[] = defaultDetectionClasses.flatMap(className => {
@@ -246,6 +288,22 @@ export const subscribeToMainMqttTopics = async (
     }
 }
 
+const getPtzCommandEntities = (device: ScryptedDeviceBase) => {
+    const commandEntities: MqttEntity[] = [];
+
+    if (device.ptzCapabilities?.zoom) {
+        commandEntities.push(ptzZoomInEntity, ptzZoomOutEntity)
+    }
+    if (device.ptzCapabilities?.pan) {
+        commandEntities.push(ptzLeftEntity, ptzRightEntity)
+    }
+    if (device.ptzCapabilities?.tilt) {
+        commandEntities.push(ptzUpEntity, ptzDownEntity)
+    }
+
+    return commandEntities;
+}
+
 export const subscribeToDeviceMqttTopics = async (
     props: {
         mqttClient: MqttClient,
@@ -255,6 +313,7 @@ export const subscribeToDeviceMqttTopics = async (
         device: ScryptedDeviceBase,
         switchRecordingCb?: (active: boolean) => void,
         rebootCb?: () => void,
+        ptzCommandCb?: (command: PanTiltZoomCommand) => void,
         activationRuleCb: (props: {
             ruleName: string;
             active: boolean;
@@ -269,6 +328,7 @@ export const subscribeToDeviceMqttTopics = async (
         activationRuleCb,
         switchRecordingCb,
         rebootCb,
+        ptzCommandCb,
         timelapseRules,
         device
     } = props;
@@ -358,6 +418,38 @@ export const subscribeToDeviceMqttTopics = async (
                 rebootCb();
             }
         });
+    }
+
+    if (ptzCommandCb) {
+        const commandEntities = getPtzCommandEntities(device);
+        commandEntities.push(ptzPresetEntity);
+
+        for (const commandEntity of commandEntities) {
+            const commandTopic = getCommandTopic(commandEntity.entity);
+            const stateTopic = getEntityTopic(commandEntity.entity);
+
+            await mqttClient.subscribe([commandTopic], async (messageTopic, message) => {
+                if (messageTopic === commandTopic) {
+                    if (commandEntity.entity === ptzPresetEntity.entity) {
+                        ptzCommandCb({ preset: message });
+
+                        await mqttClient.publish(stateTopic, 'None');
+                    } else if (commandEntity.entity === ptzZoomInEntity.entity) {
+                        ptzCommandCb({ zoom: 0.1 });
+                    } else if (commandEntity.entity === ptzZoomOutEntity.entity) {
+                        ptzCommandCb({ zoom: -0.1 });
+                    } else if (commandEntity.entity === ptzRightEntity.entity) {
+                        ptzCommandCb({ pan: 0.1 });
+                    } else if (commandEntity.entity === ptzLeftEntity.entity) {
+                        ptzCommandCb({ pan: -0.1 });
+                    } else if (commandEntity.entity === ptzDownEntity.entity) {
+                        ptzCommandCb({ tilt: -0.1 });
+                    } else if (commandEntity.entity === ptzUpEntity.entity) {
+                        ptzCommandCb({ tilt: 0.1 });
+                    }
+                }
+            });
+        }
     }
 }
 
@@ -502,6 +594,49 @@ export const setupDeviceAutodiscovery = async (props: {
         };
 
         await mqttClient.publish(getDiscoveryTopic(rebootEntity.domain, rebootEntity.entity), JSON.stringify(config));
+    }
+
+    if (device.interfaces.includes(ScryptedInterface.PanTiltZoom)) {
+        const presets = Object.values(device.ptzCapabilities.presets ?? {});
+        if (presets?.length) {
+            const commandTopic = getCommandTopic(ptzPresetEntity.entity);
+            const stateTopic = getEntityTopic(ptzPresetEntity.entity);
+
+            const config = {
+                dev: mqttdevice,
+                unique_id: `${idPrefix}-${id}-${ptzPresetEntity.entity}`,
+                object_id: `${device.name}_${ptzPresetEntity.entity}`,
+                name: `${ptzPresetEntity.name}`,
+                platform: 'select',
+                command_topic: commandTopic,
+                state_topic: stateTopic,
+                qos: 0,
+                optimistic: false,
+                options: presets
+            };
+
+            await mqttClient.publish(getDiscoveryTopic(ptzPresetEntity.domain, ptzPresetEntity.entity), JSON.stringify(config));
+        }
+
+        const commandEntities = getPtzCommandEntities(device);
+
+        for (const commandEntity of commandEntities) {
+            const commandTopic = getCommandTopic(commandEntity.entity);
+
+            const config = {
+                dev: mqttdevice,
+                unique_id: `${idPrefix}-${id}-${commandEntity.entity}`,
+                object_id: `${device.name}_${commandEntity.entity}`,
+                name: `${commandEntity.name}`,
+                platform: 'button',
+                command_topic: commandTopic,
+                device_class: commandEntity.deviceClass,
+                qos: 0,
+                icon: commandEntity.icon
+            };
+
+            await mqttClient.publish(getDiscoveryTopic(commandEntity.domain, commandEntity.entity), JSON.stringify(config));
+        }
     }
 
     const publishRule = async (rule: BaseRule) => {

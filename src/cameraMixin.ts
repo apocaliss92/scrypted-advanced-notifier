@@ -1,4 +1,4 @@
-import sdk, { Camera, EventListenerRegister, Image, MediaObject, MediaStreamDestination, MotionSensor, ObjectDetection, ObjectDetectionResult, ObjectDetector, ObjectsDetected, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoFrame, VideoFrameGenerator, VideoFrameGeneratorOptions } from "@scrypted/sdk";
+import sdk, { Camera, EventListenerRegister, Image, MediaObject, MediaStreamDestination, MotionSensor, ObjectDetection, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoom, PanTiltZoomCommand, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoFrame, VideoFrameGenerator, VideoFrameGeneratorOptions } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep } from "lodash";
@@ -185,12 +185,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         await device.putSetting(`recording:privacyMode`, !enabled)
     }
 
-    async rebootCamera(device: Reboot) {
-        await device.reboot();
-    }
-
     async startCheckInterval() {
-        const device = sdk.systemManager.getDeviceById<ScryptedDeviceBase & Settings & Reboot>(this.id);
+        const device = sdk.systemManager.getDeviceById<ScryptedDeviceBase & Settings & Reboot & PanTiltZoom>(this.id);
         const logger = this.getLogger();
 
         const funct = async () => {
@@ -329,10 +325,26 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                     logger.log(`Setting NVR privacy mode to ${!active}`);
                                     await this.enableRecording(device, active);
                                 },
-                                rebootCb: async () => {
-                                    logger.log(`Rebooting camera`);
-                                    await this.rebootCamera(device);
-                                }
+                                rebootCb: device.interfaces.includes(ScryptedInterface.Reboot) ?
+                                    async () => {
+                                        logger.log(`Rebooting camera`);
+                                        await device.reboot();
+                                    } :
+                                    undefined,
+                                ptzCommandCb: device.interfaces.includes(ScryptedInterface.PanTiltZoom) ?
+                                    (async (ptzCommand: PanTiltZoomCommand) => {
+                                        logger.log(`Executing ptz command: ${JSON.stringify(ptzCommand)}`);
+
+                                        if (ptzCommand.preset) {
+                                            const presetId = Object.entries(device.ptzCapabilities?.presets ?? {}).find(([id, name]) => name === ptzCommand.preset)?.[0];
+                                            if (presetId) {
+                                                await device.ptzCommand({ preset: presetId });
+                                            }
+                                        } else {
+                                            await device.ptzCommand(ptzCommand);
+                                        }
+                                    }) :
+                                    undefined
                             });
 
                             this.lastAutoDiscovery = now;

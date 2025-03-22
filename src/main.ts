@@ -115,7 +115,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         },
         enableCameraDevice: {
             title: 'Enable Camera',
-            description: 'Enable a camera device allowing to replay generated past timelapses generated',
+            description: 'Enable a camera device allowing to replay past timelapses generated',
             type: 'boolean',
             immediate: true,
             onPut: async (_, active) => this.executeCameraDiscovery(active)
