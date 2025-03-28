@@ -2,11 +2,12 @@ import sdk, { Camera, EventListenerRegister, Image, MediaObject, MediaStreamDest
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep } from "lodash";
-import { detectionClassesDefaultMap } from "./detecionClasses";
+import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoveryRuleTopics, getDetectionRuleId, getOccupancyRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, isDeviceEnabled } from "./utils";
+import { DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, addBoundingBoxes, addBoundingToImage, convertSettingsToStorageSettings, filterAndSortValidDetections, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, isDeviceEnabled } from "./utils";
+import { filterOverlappedDetections } from '../../scrypted-basic-object-detector/src/util';
 
 const { systemManager } = sdk;
 
@@ -106,6 +107,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     cameraDevice: DeviceInterface;
     detectionListener: EventListenerRegister;
+    motionListener: EventListenerRegister;
     mqttDetectionMotionTimeout: NodeJS.Timeout;
     mainLoopListener: NodeJS.Timeout;
     isActiveForNotifications: boolean;
@@ -193,7 +195,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             try {
                 const {
                     isActiveForMqttReporting,
-                    isPluginEnabled,
                     detectionRules,
                     nvrRules,
                     skippedDetectionRules,
@@ -379,12 +380,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     logger.log('Stopping and cleaning listeners.');
                     this.resetListeners();
                 } else if (!isCurrentlyRunning && shouldRun) {
-                    logger.log(`Starting ${ScryptedInterface.ObjectDetector} listener: ${JSON.stringify({
-                        notificationsActive: isActiveForNotifications,
-                        mqttReportsActive: isActiveForMqttReporting,
-                        isPluginEnabled,
-                        isActiveForNvrNotifications,
-                        detectionRules,
+                    logger.log(`Starting ${ScryptedInterface.ObjectDetector}/${ScryptedInterface.MotionSensor} listener: ${JSON.stringify({
+                        Notifications: isActiveForNotifications,
+                        MQTT: isActiveForMqttReporting,
                     })}`);
                     await this.startListeners();
                 }
@@ -813,10 +811,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 },
             });
 
-            const b64Image = (await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg'))?.toString('base64');
+            const bufferImage = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg');
+            const b64Image = bufferImage?.toString('base64');
 
-
-            return { image, b64Image };
+            return { image, b64Image, bufferImage };
         } catch (e) {
             this.getLogger().log('Error taking a picture in camera mixin', e);
             return {};
@@ -904,7 +902,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const occupancyRulesDataMap: Record<string, OccupancyRuleData> = {};
             const zonesData = await this.getObserveZones();
 
-            let objectDetectorParent: ObjectDetection = this.plugin.storageSettings.values.objectDetectionDevice;
+            let objectDetectorParent: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
 
             if (!objectDetectorParent) {
                 logger.log(`No detection plugin selected. skipping occupancy`);
@@ -924,7 +922,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 let detectedResult = detectedResultParent;
 
                 if (ruleObjectDetector) {
-                    objectDetector = systemManager.getDeviceById<ObjectDetection>(ruleObjectDetector);
+                    objectDetector = systemManager.getDeviceById<ObjectDetection & ScryptedDeviceBase>(ruleObjectDetector);
                 }
                 let imageToUse = imageParent;
 
@@ -970,6 +968,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     });
                     imageToUse = cropped;
                     detectedResult = await objectDetector.detectObjects(cropped);
+
+                    if (objectDetector.name !== 'Scrypted NVR Object Detection') {
+                        detectedResult.detections = filterOverlappedDetections(detectedResult.detections);
+                    }
 
                     // adjust the origin of the bounding boxes for the crop.
                     for (const d of detectedResult.detections) {
@@ -1244,7 +1246,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 ignoreCameraDetections
             })}`);
 
+            const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
+
             const matchRules: MatchRule[] = [];
+            let shouldMarkBoundaries = false;
 
             const rules: (DetectionRule | TimelapseRule)[] = cloneDeep((isFromNvr ? this.nvrDetectionRules : this.detectionRules) ?? []);
             rules.push(...cloneDeep(this.timelapseRules ?? []));
@@ -1296,8 +1301,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                         let zonesOk = true;
                         if (rule.source === RuleSource.Device) {
-                            const isIncluded = whitelistedZones.length ? zones.some(zone => whitelistedZones.includes(zone)) : true;
-                            const isExcluded = blacklistedZones.length ? zones.some(zone => blacklistedZones.includes(zone)) : false;
+                            const isIncluded = whitelistedZones?.length ? zones.some(zone => whitelistedZones.includes(zone)) : true;
+                            const isExcluded = blacklistedZones?.length ? zones.some(zone => blacklistedZones.includes(zone)) : false;
 
                             zonesOk = isIncluded && !isExcluded;
 
@@ -1319,6 +1324,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                     if (match) {
                         matchRules.push({ match, rule, dataToReport });
+                        if (rule.markDetections) {
+                            shouldMarkBoundaries = true;
+                        }
                     }
                 } else {
                     if (ruleParent.ruleType === RuleType.Timelapse) {
@@ -1329,17 +1337,35 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }
 
             let imageToNotify = parentImage ?? image;
+
+            let markedImage;
+            let markedb64Image;
             if (!!matchRules.length) {
+                let bufferImage: Buffer;
+
                 if (!imageToNotify) {
-                    const { b64Image: b64ImageNew, image: imageNew } = await this.getImage();
+                    const { b64Image: b64ImageNew, image: imageNew, bufferImage: bufferImageNew } = await this.getImage();
                     imageToNotify = imageNew;
                     b64Image = b64ImageNew;
+                    bufferImage = bufferImageNew;
                 }
 
                 if (imageToNotify) {
                     const imageUrl = await sdk.mediaManager.convertMediaObjectToLocalUrl(imageToNotify, 'image/jpg');
                     logger.debug(`Updating webook last image URL: ${imageUrl}`);
                     this.storageSettings.putSetting('lastSnapshotImageUrl', imageUrl);
+                }
+
+                if (shouldMarkBoundaries && !!objectDetector) {
+                    const detectionResult = await objectDetector.detectObjects(imageToNotify);
+
+                    if (objectDetector.name !== 'Scrypted NVR Object Detection') {
+                        detectionResult.detections = filterOverlappedDetections(detectionResult.detections);
+                    }
+
+                    const { newB64Image, newImage } = await addBoundingBoxes(b64Image, detectionResult.detections);
+                    markedb64Image = newB64Image;
+                    markedImage = newImage;
                 }
             }
 
@@ -1355,17 +1381,26 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
                     this.lastDetectionMap[lastDetectionkey] = now;
 
+                    let imageToUse = imageToNotify;
+                    let b64ImageToUse = b64Image;
+
+                    if (rule.ruleType === RuleType.Detection && (rule as DetectionRule).markDetections && markedImage) {
+                        imageToUse = markedImage;
+                        b64ImageToUse = markedb64Image;
+                    }
+
+
                     logger.debug(`Matching detections found: ${JSON.stringify({
                         matchRulesMap: matchRules,
                         candidates,
-                        b64Image,
-                        imageToNotify: !!imageToNotify,
+                        b64ImageToUse,
+                        imageToUse: !!imageToUse,
                         parentImage: !!parentImage
                     })}`);
 
                     if (rule.ruleType === RuleType.Detection) {
                         if (this.isActiveForMqttReporting) {
-                            this.triggerMotion({ matchRule, b64Image, device, triggerTime, image: imageToNotify });
+                            this.triggerMotion({ matchRule, b64Image: b64ImageToUse, device, triggerTime, image: imageToUse });
                         }
 
                         logger.log(`Starting notifiers: ${JSON.stringify({
@@ -1381,7 +1416,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         triggerDeviceId: this.id,
                         match,
                         rule,
-                        image: imageToNotify,
+                        image: imageToUse,
                         logger,
                         eventType: EventType.ObjectDetection,
                         triggerTime,
@@ -1404,6 +1439,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const { timestamp } = detection;
 
                 this.processDetections({ detections: detection.detections, triggerTime: timestamp, isFromNvr: false })
+            });
+            this.motionListener = systemManager.listenDevice(this.id, ScryptedInterface.MotionSensor, async (_, __, data) => {
+                if (data) {
+                    const timestamp = Date.now();
+                    const detection: ObjectDetectionResult = {
+                        className: 'motion',
+                        score: 1,
+                    }
+                    this.processDetections({ detections: [detection], triggerTime: timestamp, isFromNvr: false })
+                }
             });
         } catch (e) {
             this.getLogger().log('Error in startListeners', e);

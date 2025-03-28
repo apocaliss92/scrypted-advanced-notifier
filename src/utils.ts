@@ -6,10 +6,12 @@ import { cloneDeep, sortBy, uniq, uniqBy } from "lodash";
 import moment, { Moment } from "moment";
 import path from 'path';
 import sharp from 'sharp';
+import { Jimp, loadFont, rgbaToInt } from "jimp";
 import { name, scrypted } from '../package.json';
 import { classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detecionClasses";
 import AdvancedNotifierPlugin from "./main";
 const { endpointManager } = sdk;
+import { SANS_16_WHITE } from "jimp/fonts";
 
 export enum AiPlatform {
     Disabled = 'Disabled',
@@ -762,6 +764,7 @@ export const getRuleKeys = (props: {
     const useNvrDetectionsKey = `${prefix}:${ruleName}:useNvrDetections`;
     const whitelistedZonesKey = `${prefix}:${ruleName}:whitelistedZones`;
     const blacklistedZonesKey = `${prefix}:${ruleName}:blacklistedZones`;
+    const markDetectionsKey = `${prefix}:${ruleName}:markDetections`;
     // Deprecated, use events-recorder-plugin
     const recordingTriggerSecondsKey = `${prefix}:${ruleName}:recordingTriggerSeconds`;
 
@@ -813,6 +816,7 @@ export const getRuleKeys = (props: {
             nvrEventsKey,
             devicesKey,
             detectionClassesKey,
+            markDetectionsKey,
         },
         timelapse: {
             regularSnapshotIntervalKey,
@@ -1109,6 +1113,7 @@ export const getDetectionRulesSettings = async (props: {
             nvrEventsKey,
             recordingTriggerSecondsKey,
             useNvrDetectionsKey,
+            markDetectionsKey,
             whitelistedZonesKey,
             devicesKey,
             detectionClassesKey,
@@ -1168,6 +1173,20 @@ export const getDetectionRulesSettings = async (props: {
                     combobox: true,
                     choices: Object.values(NvrEvent),
                     defaultValue: []
+                }
+            );
+        }
+
+        if (!useNvrDetections) {
+            settings.push(
+                {
+                    key: markDetectionsKey,
+                    title: 'Mark detections',
+                    description: 'Add a coloured box around the detections',
+                    group,
+                    subgroup,
+                    type: 'boolean',
+                    immediate: true
                 }
             );
         }
@@ -1625,6 +1644,7 @@ export interface BaseRule {
 
 export interface DetectionRule extends BaseRule {
     devices: string[];
+    markDetections: boolean;
     detectionClasses?: DetectionClass[];
     nvrEvents?: NvrEvent[];
     scoreThreshold?: number;
@@ -1670,7 +1690,7 @@ const initBasicRule = (props: {
     const priority = storage.getItem(priorityKey) as NotificationPriority;
     const actions = storage.getItem(actionsKey) as string[];
     const customText = storage.getItem(textKey);
-    let activationType = storage.getItem(activationKey) as DetectionRuleActivation;
+    let activationType = storage.getItem(activationKey) as DetectionRuleActivation ?? DetectionRuleActivation.Always;
     if (activationType === DetectionRuleActivation.AlarmSystem) {
         activationType = DetectionRuleActivation.Always;
     }
@@ -1823,6 +1843,7 @@ export const getDeviceRules = (
                 },
                 detection: {
                     useNvrDetectionsKey,
+                    markDetectionsKey,
                     detectionClassesKey,
                     whitelistedZonesKey,
                     blacklistedZonesKey,
@@ -1836,6 +1857,7 @@ export const getDeviceRules = (
                 });
 
             const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean;
+            const markDetections = storage.getItem(markDetectionsKey) as boolean ?? false;
             const activationType = storage.getItem(activationKey) as DetectionRuleActivation;
             const customText = storage.getItem(textKey) as string || undefined;
             const mainDevices = storage.getItem(devicesKey) as string[] ?? [];
@@ -1862,6 +1884,7 @@ export const getDeviceRules = (
                 ...rule,
                 scoreThreshold,
                 detectionClasses,
+                markDetections,
                 nvrEvents,
                 devices: devicesToUse,
                 customText,
@@ -1871,8 +1894,8 @@ export const getDeviceRules = (
             };
 
             if (ruleSource === RuleSource.Device) {
-                detectionRule.whitelistedZones = storage.getItem(whitelistedZonesKey) as string[];
-                detectionRule.blacklistedZones = storage.getItem(blacklistedZonesKey) as string[];
+                detectionRule.whitelistedZones = storage.getItem(whitelistedZonesKey) as string[] ?? [];
+                detectionRule.blacklistedZones = storage.getItem(blacklistedZonesKey) as string[] ?? [];
             }
 
             let isSensorEnabled = true;
@@ -2147,7 +2170,7 @@ export const addBoundingToImage = async (boundingBox: number[], imageBuffer: Buf
                 create: {
                     width,
                     height,
-                    channels: 4,
+                    channels: 3,
                     background: { r: 255, g: 255, b: 255, alpha: 1 }, // Bianco
                 },
             })
@@ -2183,14 +2206,55 @@ export const addBoundingToImage = async (boundingBox: number[], imageBuffer: Buf
             .png()
             .toBuffer();
 
-        const b64Image = newImageBuffer.toString('base64');
+        const newB64Image = newImageBuffer.toString('base64');
         const newImage = await sdk.mediaManager.createMediaObject(imageBuffer, ScryptedMimeTypes.Image);
-        console.log(`Bounding box added ${boundingBox}: ${b64Image}`);
+        console.log(`Bounding box added ${boundingBox}: ${newB64Image}`);
 
-        return { newImageBuffer, newImage, b64Image };
+        return { newImageBuffer, newImage, newB64Image };
     } catch (e) {
         console.log('Error adding bounding box', e);
         return {}
+    }
+}
+
+export const addBoundingBoxes = async (base64Image: string, detections: ObjectDetectionResult[]) => {
+    try {
+
+        const imageBuffer = Buffer.from(base64Image, 'base64');
+        let image = await Jimp.read(imageBuffer);
+
+        const borderColor = rgbaToInt(255, 0, 0, 255); // Rosso
+        const font = await loadFont(SANS_16_WHITE);
+
+        detections.forEach(({ boundingBox, className }) => {
+            const text = detectionClassesDefaultMap[className];
+            const [x, y, width, height] = boundingBox;
+            // image.scan(x, y, width, height, function (dx, dy, idx) {
+            //     // Bordo rosso (RGB: 255, 0, 0)
+            //     this.bitmap.data[idx] = 255;   // Rosso
+            //     this.bitmap.data[idx + 1] = 0; // Verde
+            //     this.bitmap.data[idx + 2] = 0; // Blu
+            //     this.bitmap.data[idx + 3] = 255; // Alpha
+            // });
+            function iterator(x, y, offset) {
+                this.bitmap.data.writeUInt32BE(0x00000088, offset, true);
+            }
+
+            image.scan(236, 100, 240, 1, iterator);
+            image.scan(236, 100 + 110, 240, 1, iterator);
+            image.scan(236, 100, 1, 110, iterator);
+            image.scan(236 + 240, 100, 1, 110, iterator);
+        });
+        const outputBuffer = await image.getBuffer('image/jpeg');
+
+        const newB64Image = outputBuffer.toString('base64');
+        const newImage = await sdk.mediaManager.createMediaObject(imageBuffer, ScryptedMimeTypes.Image);
+
+        return { newB64Image, newImage };
+
+    } catch (error) {
+        console.error("Errore:", error.message);
+        return null;
     }
 }
 
