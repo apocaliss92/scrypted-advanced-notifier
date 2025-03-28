@@ -290,7 +290,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 this.isActiveForNotifications = isActiveForNotifications;
                 this.isActiveForMqttReporting = isActiveForMqttReporting;
 
-                const isCurrentlyRunning = !!this.detectionListener;
+                const isCurrentlyRunning = !!this.detectionListener || !!this.motionListener;
                 const shouldRun = this.isActiveForMqttReporting || this.isActiveForNotifications;
 
                 if (isActiveForMqttReporting) {
@@ -442,13 +442,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     resetListeners() {
-        if (this.detectionListener) {
+        if (this.detectionListener || this.motionListener) {
             this.getLogger().log('Resetting listeners.');
         }
 
         this.resetTimeouts();
         this.detectionListener?.removeListener && this.detectionListener.removeListener();
         this.detectionListener = undefined;
+        this.motionListener?.removeListener && this.motionListener.removeListener();
+        this.motionListener = undefined;
     }
 
     async initValues() {
