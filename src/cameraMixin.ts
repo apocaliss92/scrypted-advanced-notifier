@@ -6,7 +6,7 @@ import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoveryRuleTopics, getDetectionRuleId, getOccupancyRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, addBoundingBoxes, addBoundingToImage, convertSettingsToStorageSettings, filterAndSortValidDetections, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, isDeviceEnabled } from "./utils";
+import { AudioRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, addBoundingBoxes, addBoundingToImage, convertSettingsToStorageSettings, filterAndSortValidDetections, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, isDeviceEnabled } from "./utils";
 import { filterOverlappedDetections } from '../../scrypted-basic-object-detector/src/util';
 
 const { systemManager } = sdk;
@@ -121,6 +121,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     occupancyRules: OccupancyRule[] = [];
     detectionRules: DetectionRule[] = [];
     timelapseRules: TimelapseRule[] = [];
+    audioRules: AudioRule[] = [];
     allTimelapseRules: TimelapseRule[] = [];
     nvrDetectionRules: DetectionRule[] = [];
     rulesDiscovered: string[] = [];
@@ -207,6 +208,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     timelapseRules,
                     skippedTimelapseRules,
                     allTimelapseRules,
+                    allAudioRules,
+                    audioRules,
+                    skippedAudioRules,
                 } = await isDeviceEnabled({
                     device: this,
                     console: logger,
@@ -226,6 +230,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const occupancyRulesToEnable = (occupancyRules || []).filter(newRule => !this.occupancyRules?.some(currentRule => currentRule.name === newRule.name));
                 const occupancyRulesToDisable = (this.occupancyRules || []).filter(currentRule => !occupancyRules?.some(newRule => newRule.name === currentRule.name));
 
+                const audioRulesToEnable = (audioRules || []).filter(newRule => !this.audioRules?.some(currentRule => currentRule.name === newRule.name));
+                const audioRulesToDisable = (this.audioRules || []).filter(currentRule => !audioRules?.some(newRule => newRule.name === currentRule.name));
+
                 logger.debug(`Detected rules: ${JSON.stringify({
                     detectionRules,
                     skippedDetectionRules,
@@ -240,10 +247,24 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     timelapseRulesToDisable,
                     detectionRulesToEnable,
                     detectionRulesToDisable,
+                    audioRulesToEnable,
+                    audioRulesToDisable,
                 })}`);
 
-                const rulesToEnable = [...detectionRulesToEnable, ...nvrDetectionRulesToEnable, ...occupancyRulesToEnable, ...timelapseRulesToEnable];
-                const rulesToDisable = [...detectionRulesToDisable, ...nvrDetectionRulesToDisable, ...occupancyRulesToDisable, ...timelapseRulesToDisable];
+                const rulesToEnable = [
+                    ...detectionRulesToEnable,
+                    ...nvrDetectionRulesToEnable,
+                    ...occupancyRulesToEnable,
+                    ...timelapseRulesToEnable,
+                    ...audioRulesToEnable
+                ];
+                const rulesToDisable = [
+                    ...detectionRulesToDisable,
+                    ...nvrDetectionRulesToDisable,
+                    ...occupancyRulesToDisable,
+                    ...timelapseRulesToDisable,
+                    ...audioRulesToDisable,
+                ];
 
                 if (rulesToEnable?.length) {
                     for (const rule of rulesToEnable) {
@@ -286,6 +307,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 this.occupancyRules = cloneDeep(occupancyRules || []);
                 this.timelapseRules = cloneDeep(timelapseRules || []);
                 this.allTimelapseRules = cloneDeep(allTimelapseRules || []);
+                this.audioRules = cloneDeep(audioRules || []);
 
                 this.isActiveForNotifications = isActiveForNotifications;
                 this.isActiveForMqttReporting = isActiveForMqttReporting;
@@ -299,23 +321,26 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         const now = Date.now();
                         // Send autodiscovery every hour
                         if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
+                            const allRules = [
+                                ...allDetectionRules,
+                                ...allOccupancyRules,
+                                ...allTimelapseRules,
+                                ...allAudioRules,
+                            ];
+
                             await setupDeviceAutodiscovery({
                                 mqttClient,
                                 device,
                                 console: logger,
                                 withDetections: true,
                                 deviceClass: 'motion',
-                                detectionRules: allDetectionRules,
-                                occupancyRules: allOccupancyRules,
-                                timelapseRules: allTimelapseRules,
+                                rules: allRules
                             });
 
                             logger.log(`Subscribing to mqtt topics`);
                             await subscribeToDeviceMqttTopics({
                                 mqttClient,
-                                detectionRules: allDetectionRules,
-                                occupancyRules: allOccupancyRules,
-                                timelapseRules: allTimelapseRules,
+                                rules: allRules,
                                 device,
                                 activationRuleCb: async ({ active, ruleName, ruleType }) => {
                                     const { common: { enabledKey } } = getRuleKeys({ ruleName, ruleType });
@@ -545,6 +570,23 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             },
         });
         dynamicSettings.push(...timelapseRulesSettings);
+
+        const audioRulesSettings = await getAudioRulesSettings({
+            storage: this.storageSettings,
+            ruleSource: RuleSource.Device,
+            logger,
+            onShowMore: this.refreshSettings.bind(this),
+            onRuleToggle: async (ruleName: string, active: boolean) => {
+                await this.plugin.updateActivationRuleOnMqtt({
+                    active,
+                    logger,
+                    ruleName,
+                    deviceId: this.id,
+                    ruleType: RuleType.Audio
+                });
+            },
+        });
+        dynamicSettings.push(...audioRulesSettings);
 
         this.storageSettings = await convertSettingsToStorageSettings({
             device: this,

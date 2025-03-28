@@ -10,7 +10,7 @@ import { getMqttTopics, getRuleStrings, setupPluginAutodiscovery, subscribeToMai
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_INTERFACE, AiPlatform, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getDetectionRulesSettings, getDeviceRules, getElegibleDevices, getFolderPaths, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, HOMEASSISTANT_PLUGIN_ID, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, StoreImageFn, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TimelapseRule } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, AiPlatform, AudioRule, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getDetectionRulesSettings, getDeviceRules, getElegibleDevices, getFolderPaths, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, HOMEASSISTANT_PLUGIN_ID, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, StoreImageFn, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TimelapseRule } from "./utils";
 // import { version } from '../package.json';
 import child_process from 'child_process';
 import { once } from "events";
@@ -1050,6 +1050,45 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const title = cameraDevice.name;
 
             logger.log(`Finally sending Occupancy event notification ${triggerTime} to ${notifier.name}. ${JSON.stringify({
+                notifierOptions,
+                title,
+                message,
+            })}`);
+
+            await notifier.sendNotification(title, notifierOptions, image, undefined);
+        }
+    }
+
+    async notifyAudioEvent(props: {
+        cameraDevice: DeviceInterface,
+        triggerTime: number,
+        message: string,
+        rule: AudioRule,
+        image: MediaObject,
+    }) {
+        const { cameraDevice, rule, message, triggerTime, image } = props;
+        const logger = this.getLogger();
+
+        for (const notifierId of rule.notifiers) {
+            const notifier = systemManager.getDeviceById(notifierId) as unknown as Notifier & DeviceInterface;
+            const deviceSettings = await cameraDevice.getSettings();
+
+            const notifierData = await this.getNotifierData({
+                device: cameraDevice,
+                deviceSettings,
+                notifier,
+                triggerTime,
+                rule,
+            });
+
+            const notifierOptions: NotifierOptions = {
+                body: message,
+                data: notifierData
+            }
+
+            const title = cameraDevice.name;
+
+            logger.log(`Finally sending Audio event notification ${triggerTime} to ${notifier.name}. ${JSON.stringify({
                 notifierOptions,
                 title,
                 message,

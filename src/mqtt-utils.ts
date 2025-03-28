@@ -1,9 +1,9 @@
 import sdk, { MediaObject, ObjectDetectionResult, ObjectsDetected, PanTiltZoomCommand, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface } from '@scrypted/sdk';
-import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, parentDetectionClassMap } from './detecionClasses';
-import { BaseRule, DetectionRule, firstUpperCase, getWebooks, OccupancyRule, RuleType, StoreImageFn, storeWebhookImage, TimelapseRule } from './utils';
 import { cloneDeep, groupBy } from 'lodash';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 import { OccupancyRuleData } from './cameraMixin';
+import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, parentDetectionClassMap } from './detecionClasses';
+import { BaseRule, DetectionRule, firstUpperCase, getWebooks, OccupancyRule, RuleType, StoreImageFn, storeWebhookImage } from './utils';
 
 interface MqttEntity {
     entity: 'triggered' | 'lastImage' | 'lastClassname' | 'lastZones' | 'lastLabel' | string;
@@ -24,6 +24,7 @@ const mainRuleId = 'main-rule';
 const deviceRuleId = 'device-rule';
 const occupancyRuleId = 'occupancy-rule';
 const timelapseRuleId = 'timelapse-rule';
+const audioRuleId = 'audio-rule';
 
 const triggeredEntity: MqttEntity = { entity: 'triggered', name: 'Notification triggered', domain: 'binary_sensor' };
 
@@ -170,6 +171,7 @@ const ruleTypeIdMap: Record<RuleType, string> = {
     [RuleType.Detection]: deviceRuleId,
     [RuleType.Occupancy]: occupancyRuleId,
     [RuleType.Timelapse]: timelapseRuleId,
+    [RuleType.Audio]: audioRuleId,
 }
 
 export const getRuleStrings = (rule: BaseRule) => {
@@ -307,9 +309,7 @@ const getPtzCommandEntities = (device: ScryptedDeviceBase) => {
 export const subscribeToDeviceMqttTopics = async (
     props: {
         mqttClient: MqttClient,
-        detectionRules: DetectionRule[],
-        occupancyRules?: OccupancyRule[],
-        timelapseRules?: TimelapseRule[],
+        rules: BaseRule[],
         device: ScryptedDeviceBase,
         switchRecordingCb?: (active: boolean) => void,
         rebootCb?: () => void,
@@ -323,39 +323,17 @@ export const subscribeToDeviceMqttTopics = async (
 ) => {
     const {
         mqttClient,
-        detectionRules,
-        occupancyRules,
+        rules,
         activationRuleCb,
         switchRecordingCb,
         rebootCb,
         ptzCommandCb,
-        timelapseRules,
         device
     } = props;
 
-    for (const detectionRule of detectionRules) {
-        const { entityId, ruleDeviceId } = getRuleStrings(detectionRule);
-        const { getCommandTopic, getEntityTopic } = getMqttTopics(ruleDeviceId);
-
-        const commandTopic = getCommandTopic(entityId);
-        const stateTopic = getEntityTopic(entityId);
-
-        await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
-            if (messageTopic === commandTopic) {
-                activationRuleCb({
-                    active: message === 'ON',
-                    ruleName: detectionRule.name,
-                    ruleType: RuleType.Detection
-                });
-
-                await mqttClient.publish(stateTopic, message);
-            }
-        });
-    }
-
-    if (occupancyRules?.length) {
-        for (const occupancyRule of occupancyRules) {
-            const { entityId, ruleDeviceId } = getRuleStrings(occupancyRule);
+    const processRules = async (rules: BaseRule[]) => {
+        for (const rule of rules) {
+            const { entityId, ruleDeviceId } = getRuleStrings(rule);
             const { getCommandTopic, getEntityTopic } = getMqttTopics(ruleDeviceId);
 
             const commandTopic = getCommandTopic(entityId);
@@ -365,8 +343,8 @@ export const subscribeToDeviceMqttTopics = async (
                 if (messageTopic === commandTopic) {
                     activationRuleCb({
                         active: message === 'ON',
-                        ruleName: occupancyRule.name,
-                        ruleType: RuleType.Occupancy
+                        ruleName: rule.name,
+                        ruleType: rule.ruleType
                     });
 
                     await mqttClient.publish(stateTopic, message);
@@ -375,27 +353,7 @@ export const subscribeToDeviceMqttTopics = async (
         }
     }
 
-    if (timelapseRules?.length) {
-        for (const timelapseRule of timelapseRules) {
-            const { entityId, ruleDeviceId } = getRuleStrings(timelapseRule);
-            const { getCommandTopic, getEntityTopic } = getMqttTopics(ruleDeviceId);
-
-            const commandTopic = getCommandTopic(entityId);
-            const stateTopic = getEntityTopic(entityId);
-
-            await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
-                if (messageTopic === commandTopic) {
-                    activationRuleCb({
-                        active: message === 'ON',
-                        ruleName: timelapseRule.name,
-                        ruleType: RuleType.Timelapse
-                    });
-
-                    await mqttClient.publish(stateTopic, message);
-                }
-            });
-        }
-    }
+    await processRules(rules);
 
     const { getCommandTopic, getEntityTopic } = getMqttTopics(device.id);
 
@@ -500,11 +458,9 @@ export const setupDeviceAutodiscovery = async (props: {
     console: Console,
     withDetections?: boolean,
     deviceClass: string,
-    detectionRules: DetectionRule[],
-    occupancyRules?: OccupancyRule[],
-    timelapseRules?: TimelapseRule[],
+    rules: BaseRule[],
 }) => {
-    const { device, withDetections, deviceClass, mqttClient, detectionRules, occupancyRules, timelapseRules } = props;
+    const { device, withDetections, deviceClass, mqttClient, rules } = props;
     const { id } = device;
 
     const mqttdevice = await getMqttDevice(device);
@@ -661,16 +617,8 @@ export const setupDeviceAutodiscovery = async (props: {
         await mqttClient.publish(getDiscoveryTopic('switch', entityId), JSON.stringify(ruleEnabledConfig));
     }
 
-    for (const detectionRule of detectionRules) {
-        await publishRule(detectionRule);
-    }
-
-    for (const occupancyRule of occupancyRules) {
-        await publishRule(occupancyRule);
-    }
-
-    for (const timelapseRule of timelapseRules) {
-        await publishRule(timelapseRule);
+    for (const rule of rules) {
+        await publishRule(rule);
     }
 }
 

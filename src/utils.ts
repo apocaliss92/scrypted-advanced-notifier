@@ -322,6 +322,7 @@ export type TextSettingKey =
     | 'onlineText'
     | 'doorlockText'
     | 'offlineText'
+    | 'audioDetectedText'
     | 'streamInterruptedText';
 
 export const getTextSettings = (forMixin: boolean) => {
@@ -388,7 +389,7 @@ export const getTextSettings = (forMixin: boolean) => {
             [groupKey]: 'Texts',
             title: 'Doorbell ringing text',
             type: 'string',
-            description: 'Expression used to render the text when a vehicle is detected. Available arguments ${room} $[time}',
+            description: 'Expression used to render the text when a vehicle is detected. Available arguments ${room} ${time}',
             defaultValue: !forMixin ? 'Someone at the door' : undefined,
             placeholder: !forMixin ? 'Someone at the door' : undefined
         },
@@ -396,7 +397,7 @@ export const getTextSettings = (forMixin: boolean) => {
             [groupKey]: 'Texts',
             title: 'Door/Window open text',
             type: 'string',
-            description: 'Expression used to render the text when a binary sensor opens. Available arguments ${room} $[time} ${nvrLink}',
+            description: 'Expression used to render the text when a binary sensor opens. Available arguments ${room} ${time} ${nvrLink}',
             defaultValue: !forMixin ? 'Door/window opened in ${room}' : undefined,
             placeholder: !forMixin ? 'Door/window opened in ${room}' : undefined
         },
@@ -404,7 +405,7 @@ export const getTextSettings = (forMixin: boolean) => {
             [groupKey]: 'Texts',
             title: 'Doorlock sensor open text',
             type: 'string',
-            description: 'Expression used to render the text when a lock sensor opens. Available arguments ${room} $[time} ${nvrLink}',
+            description: 'Expression used to render the text when a lock sensor opens. Available arguments ${room} ${time} ${nvrLink}',
             defaultValue: !forMixin ? 'Door unlocked in ${room}' : undefined,
             placeholder: !forMixin ? 'Door unlocked in ${room}' : undefined
         },
@@ -412,7 +413,7 @@ export const getTextSettings = (forMixin: boolean) => {
             [groupKey]: 'Texts',
             title: 'Package text',
             type: 'string',
-            description: 'Expression used to render the text when a package is detected. Available arguments ${room} $[time} ${nvrLink}',
+            description: 'Expression used to render the text when a package is detected. Available arguments ${room} ${time} ${nvrLink}',
             defaultValue: !forMixin ? 'Package detected in ${room}' : undefined,
             placeholder: !forMixin ? 'Package detected in ${room}' : undefined
         },
@@ -420,7 +421,7 @@ export const getTextSettings = (forMixin: boolean) => {
             [groupKey]: 'Texts',
             title: 'Online device text',
             type: 'string',
-            description: 'Expression used to render the text when a device comes back online. Available arguments $[time}',
+            description: 'Expression used to render the text when a device comes back online. Available arguments ${time}',
             defaultValue: !forMixin ? 'Back online at ${time}' : undefined,
             placeholder: !forMixin ? 'Back online at ${time}' : undefined,
         },
@@ -428,15 +429,23 @@ export const getTextSettings = (forMixin: boolean) => {
             [groupKey]: 'Texts',
             title: 'Online device text',
             type: 'string',
-            description: 'Expression used to render the text when a device goes offline. Available arguments $[time}',
+            description: 'Expression used to render the text when a device goes offline. Available arguments ${time}',
             defaultValue: !forMixin ? 'Went offline at ${time}' : undefined,
             placeholder: !forMixin ? 'Went offline at ${time}' : undefined,
+        },
+        audioDetectedText: {
+            [groupKey]: 'Texts',
+            title: 'Audio detected text',
+            type: 'string',
+            description: 'Expression used to render the text when an audio rule is triggered. Available arguments ${time}',
+            defaultValue: !forMixin ? 'Audio detected at ${time}' : undefined,
+            placeholder: !forMixin ? 'Audio detected at ${time}' : undefined,
         },
         streamInterruptedText: {
             [groupKey]: 'Texts',
             title: 'Stream interrupted text',
             type: 'string',
-            description: 'Expression used to render the text when a streams gets interrupted. Available arguments $[time} ${streamName}',
+            description: 'Expression used to render the text when a streams gets interrupted. Available arguments ${time} ${streamName}',
             defaultValue: !forMixin ? 'Stream ${streamName} interrupted at ${time}' : undefined,
             placeholder: !forMixin ? 'Stream ${streamName} interrupted at ${time}' : undefined,
         },
@@ -476,12 +485,14 @@ export enum RuleType {
     Detection = 'Detection',
     Occupancy = 'Occupancy',
     Timelapse = 'Timelapse',
+    Audio = 'Audio',
 }
 
 export const ruleTypeMetadataMap: Record<RuleType, { rulesKey: string, rulePrefix: string, subgroupPrefix: string }> = {
     [RuleType.Detection]: { rulePrefix: 'rule', rulesKey: 'detectionRules', subgroupPrefix: 'DET' },
     [RuleType.Occupancy]: { rulePrefix: 'occupancyRule', rulesKey: 'occupancyRules', subgroupPrefix: 'OCC' },
     [RuleType.Timelapse]: { rulePrefix: 'timelapseRule', rulesKey: 'timelapseRules', subgroupPrefix: 'TIME' },
+    [RuleType.Audio]: { rulePrefix: 'audioRule', rulesKey: 'audioRules', subgroupPrefix: 'AUDIO' },
 }
 
 export const mixinRulesGroup = 'Advanced notifier rules';
@@ -602,6 +613,19 @@ export const getMixinBaseSettings = (props: {
                     await refreshSettings()
                 }
             };
+            settings[ruleTypeMetadataMap[RuleType.Audio].rulesKey] = {
+                title: 'Audio rules',
+                group: mixinRulesGroup,
+                type: 'string',
+                multiple: true,
+                combobox: true,
+                defaultValue: [],
+                choices: [],
+                onPut: async () => {
+                    console.log('put')
+                    await refreshSettings()
+                }
+            };
         }
 
         return settings;
@@ -654,10 +678,17 @@ export const isDeviceEnabled = async (
         device,
     });
 
+    const { skippedRules: skippedAudioRules, audioRules, allAudioRules } = getDeviceAudioRules({
+        deviceStorage,
+        pluginStorage,
+        console,
+        device,
+    });
+
     const activeDevicesForReporting = pluginStorage.getItem('activeDevicesForReporting');
     const isPluginEnabled = pluginStorage.getItem('pluginEnabled');
     const isMqttActive = pluginStorage.getItem('mqttEnabled');
-    const isActiveForNotifications = isPluginEnabled && (!!occupancyRules.length || !!detectionRules.length || !!timelapseRules.length);
+    const isActiveForNotifications = isPluginEnabled && (!!occupancyRules.length || !!detectionRules.length || !!timelapseRules.length || !!audioRules);
     const isActiveForNvrNotifications = isPluginEnabled && !!nvrRules.length;
     const isActiveForMqttReporting = isPluginEnabled && isMqttActive && activeDevicesForReporting.includes(device.id);
 
@@ -678,6 +709,9 @@ export const isDeviceEnabled = async (
         timelapseRules,
         skippedTimelapseRules,
         allTimelapseRules,
+        audioRules,
+        skippedAudioRules,
+        allAudioRules
     }
 }
 
@@ -736,7 +770,7 @@ export const getRuleKeys = (props: {
     ruleType: RuleType
 }) => {
     const { ruleName, ruleType } = props;
-    const prefix = ruleType === RuleType.Detection ? 'rule' : ruleType === RuleType.Occupancy ? 'occupancyRule' : 'timelapseRule';
+    const { rulePrefix: prefix } = ruleTypeMetadataMap[ruleType];
 
     // Common
     const activationKey = `${prefix}:${ruleName}:activation`;
@@ -788,6 +822,9 @@ export const getRuleKeys = (props: {
     const maxObjectsKey = `${prefix}:${ruleName}:maxObjects`;
     const forceUpdateKey = `${prefix}:${ruleName}:forceUpdate`;
 
+    // Specific for audio rules
+    const decibelThresholdKey = `${prefix}:${ruleName}:decibelThreshold`;
+
     return {
         common: {
             activationKey,
@@ -838,6 +875,9 @@ export const getRuleKeys = (props: {
             forceUpdateKey,
             detectionClassKey,
         },
+        audio: {
+            decibelThresholdKey,
+        }
     }
 }
 
@@ -934,16 +974,21 @@ export const getRuleSettings = (props: {
                     await onShowMore(showMore)
                 },
             },
-            {
-                key: aiEnabledKey,
-                title: 'Enable AI to generate descriptions',
-                type: 'boolean',
-                group,
-                subgroup,
-                immediate: true,
-                defaultValue: false,
-            },
         );
+
+        if (ruleType === RuleType.Detection) {
+            settings.push(
+                {
+                    key: aiEnabledKey,
+                    title: 'Enable AI to generate descriptions',
+                    type: 'boolean',
+                    group,
+                    subgroup,
+                    immediate: true,
+                    defaultValue: false,
+                }
+            );
+        }
 
         if (ruleType !== RuleType.Timelapse) {
             settings.push({
@@ -1010,7 +1055,9 @@ export const getRuleSettings = (props: {
             settings.push({
                 key: textKey,
                 title: 'Custom text',
-                description: 'Available arguments ${room} $[time} ${nvrLink} ${zone} ${class} ${label}',
+                description: ruleType === RuleType.Audio ?
+                    'Available arguments ${room} ${time} ${nvrLink}' :
+                    'Available arguments ${room} ${time} ${nvrLink} ${zone} ${class} ${label}',
                 group,
                 subgroup,
                 type: 'string',
@@ -1122,7 +1169,7 @@ export const getDetectionRulesSettings = async (props: {
         const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean ?? false;
         const devicesRaw = storage.getItem(devicesKey) ?? [];
         const devices = typeof devicesRaw === 'string' ? JSON.parse(storage.getItem(devicesKey) ?? '[]') : devicesRaw;
-        const activationType = storage.getItem(activationKey) as DetectionRuleActivation ?? DetectionRuleActivation.Always;
+        const activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
         const anyCameraDevice = (isPlugin && devices
             .some(deviceId => [ScryptedDeviceType.Camera, ScryptedDeviceType.Doorbell].includes(sdk.systemManager.getDeviceById(deviceId)?.type))
         ) || isCamera || activationType === DetectionRuleActivation.OnActive;
@@ -1616,6 +1663,58 @@ export const getTimelapseRulesSettings = async (props: {
     });
 }
 
+export const getAudioRulesSettings = async (props: {
+    storage: StorageSettings<any>,
+    ruleSource: RuleSource,
+    onRuleToggle: OnRuleToggle,
+    onShowMore: OnShowMore,
+    logger: Console
+}) => {
+    const { storage, ruleSource, onRuleToggle, onShowMore, logger } = props;
+
+    const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup, showMore }) => {
+        const settings: StorageSetting[] = [];
+
+        const { audio, common } = getRuleKeys({ ruleName, ruleType: RuleType.Audio });
+
+        const { textKey, dayKey, startTimeKey, endTimeKey } = common;
+        const { decibelThresholdKey } = audio;
+
+        settings.push(
+            {
+                key: textKey,
+                title: 'Notification message',
+                group,
+                subgroup,
+                value: storage.getItem(textKey),
+                type: 'string',
+            },
+            {
+                key: decibelThresholdKey,
+                title: 'Decibel threshold',
+                description: 'Decibel value to trigger the notification',
+                group,
+                subgroup,
+                type: 'number',
+                placeholder: '20',
+                defaultValue: 20
+            },
+        );
+
+        return settings;
+    };
+
+    return getRuleSettings({
+        getSpecificRules,
+        ruleSource,
+        ruleType: RuleType.Audio,
+        storage,
+        onRuleToggle,
+        onShowMore,
+        logger
+    });
+}
+
 export enum RuleSource {
     Plugin = 'Plugin',
     Device = 'Device',
@@ -1690,7 +1789,7 @@ const initBasicRule = (props: {
     const priority = storage.getItem(priorityKey) as NotificationPriority;
     const actions = storage.getItem(actionsKey) as string[];
     const customText = storage.getItem(textKey);
-    let activationType = storage.getItem(activationKey) as DetectionRuleActivation ?? DetectionRuleActivation.Always;
+    let activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
     if (activationType === DetectionRuleActivation.AlarmSystem) {
         activationType = DetectionRuleActivation.Always;
     }
@@ -1858,7 +1957,7 @@ export const getDeviceRules = (
 
             const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean;
             const markDetections = storage.getItem(markDetectionsKey) as boolean ?? false;
-            const activationType = storage.getItem(activationKey) as DetectionRuleActivation;
+            const activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
             const customText = storage.getItem(textKey) as string || undefined;
             const mainDevices = storage.getItem(devicesKey) as string[] ?? [];
 
@@ -2079,6 +2178,9 @@ export interface TimelapseRule extends BaseRule {
     additionalFfmpegParameters?: string;
 }
 
+export interface AudioRule extends BaseRule {
+    decibelThreshold: number;
+}
 
 export const getDeviceTimelapseRules = (
     props: {
@@ -2088,7 +2190,7 @@ export const getDeviceTimelapseRules = (
         device: DeviceBase,
     }
 ) => {
-    const { deviceStorage, console, device, pluginStorage } = props;
+    const { deviceStorage, console, pluginStorage } = props;
     const timelapseRules: TimelapseRule[] = [];
     const skippedRules: TimelapseRule[] = [];
     const allTimelapseRules: TimelapseRule[] = [];
@@ -2156,6 +2258,76 @@ export const getDeviceTimelapseRules = (
         timelapseRules,
         skippedRules,
         allTimelapseRules,
+    };
+}
+
+export const getDeviceAudioRules = (
+    props: {
+        deviceStorage?: StorageSettings<any>,
+        pluginStorage?: StorageSettings<any>,
+        console: Console
+        device: DeviceBase,
+    }
+) => {
+    const { deviceStorage, console, pluginStorage } = props;
+    const audioRules: AudioRule[] = [];
+    const skippedRules: AudioRule[] = [];
+    const allAudioRules: AudioRule[] = [];
+
+    const { notifiers: activeNotifiers, securitySystem } = pluginStorage.values;
+    const { rulesKey } = ruleTypeMetadataMap[RuleType.Audio];
+
+    const audioRuleNames = deviceStorage.getItem(rulesKey) ?? [];
+    for (const audioRuleName of audioRuleNames) {
+        const {
+            common: {
+                textKey
+            },
+            audio: {
+                decibelThresholdKey
+            }
+        } = getRuleKeys({
+            ruleType: RuleType.Audio,
+            ruleName: audioRuleName,
+        });
+
+        const { rule, basicRuleAllowed } = initBasicRule({
+            activeNotifiers,
+            ruleName: audioRuleName,
+            ruleSource: RuleSource.Device,
+            ruleType: RuleType.Audio,
+            storage: deviceStorage,
+            securitySystem
+        });
+
+        const customText = deviceStorage.getItem(textKey) as string;
+        const decibelThreshold = deviceStorage.getItem(decibelThresholdKey) as number || 20;
+
+        const audioRule: AudioRule = {
+            ...rule,
+            customText,
+            decibelThreshold,
+        };
+
+
+        console.debug(`Audio rule processed: ${JSON.stringify({
+            audioRule,
+            basicRuleAllowed,
+        })}`);
+
+        allAudioRules.push(cloneDeep(audioRule));
+
+        if (!basicRuleAllowed) {
+            skippedRules.push(audioRule);
+        } else {
+            audioRules.push(audioRule);
+        }
+    }
+
+    return {
+        audioRules,
+        skippedRules,
+        allAudioRules,
     };
 }
 

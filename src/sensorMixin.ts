@@ -148,13 +148,13 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                             console: logger,
                             withDetections: true,
                             deviceClass: this.storageSettings.values.haDeviceClass || 'window',
-                            detectionRules: allDeviceDetectionRules,
+                            rules: allDeviceDetectionRules,
                         });
 
                         this.getLogger().log(`Subscribing to mqtt topics`);
                         await subscribeToDeviceMqttTopics({
                             mqttClient,
-                            detectionRules: allDeviceDetectionRules,
+                            rules: allDeviceDetectionRules,
                             device,
                             activationRuleCb: async ({ active, ruleName, ruleType }) => {
                                 const { common: { enabledKey } } = getRuleKeys({ ruleName, ruleType });
