@@ -322,7 +322,6 @@ export type TextSettingKey =
     | 'onlineText'
     | 'doorlockText'
     | 'offlineText'
-    | 'audioDetectedText'
     | 'streamInterruptedText';
 
 export const getTextSettings = (forMixin: boolean) => {
@@ -432,14 +431,6 @@ export const getTextSettings = (forMixin: boolean) => {
             description: 'Expression used to render the text when a device goes offline. Available arguments ${time}',
             defaultValue: !forMixin ? 'Went offline at ${time}' : undefined,
             placeholder: !forMixin ? 'Went offline at ${time}' : undefined,
-        },
-        audioDetectedText: {
-            [groupKey]: 'Texts',
-            title: 'Audio detected text',
-            type: 'string',
-            description: 'Expression used to render the text when an audio rule is triggered. Available arguments ${time}',
-            defaultValue: !forMixin ? 'Audio detected at ${time}' : undefined,
-            placeholder: !forMixin ? 'Audio detected at ${time}' : undefined,
         },
         streamInterruptedText: {
             [groupKey]: 'Texts',
@@ -688,9 +679,10 @@ export const isDeviceEnabled = async (
     const activeDevicesForReporting = pluginStorage.getItem('activeDevicesForReporting');
     const isPluginEnabled = pluginStorage.getItem('pluginEnabled');
     const isMqttActive = pluginStorage.getItem('mqttEnabled');
-    const isActiveForNotifications = isPluginEnabled && (!!occupancyRules.length || !!detectionRules.length || !!timelapseRules.length || !!audioRules);
+    const isActiveForNotifications = isPluginEnabled && (!!occupancyRules.length || !!detectionRules.length || !!timelapseRules.length || !!audioRules.length);
     const isActiveForNvrNotifications = isPluginEnabled && !!nvrRules.length;
     const isActiveForMqttReporting = isPluginEnabled && isMqttActive && activeDevicesForReporting.includes(device.id);
+    const isActiveForAudioDetections = isPluginEnabled && !!audioRules.length;
 
     return {
         isPluginEnabled,
@@ -711,6 +703,7 @@ export const isDeviceEnabled = async (
         allTimelapseRules,
         audioRules,
         skippedAudioRules,
+        isActiveForAudioDetections,
         allAudioRules
     }
 }
@@ -824,6 +817,7 @@ export const getRuleKeys = (props: {
 
     // Specific for audio rules
     const decibelThresholdKey = `${prefix}:${ruleName}:decibelThreshold`;
+    const audioDurationKey = `${prefix}:${ruleName}:audioDuration`;
 
     return {
         common: {
@@ -877,6 +871,7 @@ export const getRuleKeys = (props: {
         },
         audio: {
             decibelThresholdKey,
+            audioDurationKey,
         }
     }
 }
@@ -1051,16 +1046,18 @@ export const getRuleSettings = (props: {
 
         settings.push(...getSpecificRules({ ruleName, subgroup, group, showMore: showMoreConfigurations }));
 
+        const isAudioRule = ruleType === RuleType.Audio;
         if (ruleType !== RuleType.Occupancy) {
             settings.push({
                 key: textKey,
-                title: 'Custom text',
-                description: ruleType === RuleType.Audio ?
-                    'Available arguments ${room} ${time} ${nvrLink}' :
+                title: isAudioRule ? 'Notification text' : 'Custom text',
+                description: isAudioRule ?
+                    'Available arguments ${duration} ${decibels}' :
                     'Available arguments ${room} ${time} ${nvrLink} ${zone} ${class} ${label}',
                 group,
                 subgroup,
                 type: 'string',
+                defaultValue: isAudioRule ? 'Audio detected: ${decibels} dB for ${duration} seconds' : undefined,
                 hide: ruleType === RuleType.Detection && !showMoreConfigurations
             });
         }
@@ -1677,8 +1674,8 @@ export const getAudioRulesSettings = async (props: {
 
         const { audio, common } = getRuleKeys({ ruleName, ruleType: RuleType.Audio });
 
-        const { textKey, dayKey, startTimeKey, endTimeKey } = common;
-        const { decibelThresholdKey } = audio;
+        const { textKey } = common;
+        const { decibelThresholdKey, audioDurationKey } = audio;
 
         settings.push(
             {
@@ -1698,6 +1695,15 @@ export const getAudioRulesSettings = async (props: {
                 type: 'number',
                 placeholder: '20',
                 defaultValue: 20
+            },
+            {
+                key: audioDurationKey,
+                title: 'Duration in seconds',
+                description: 'How long the audio should last to trigger the rule. Set 0 for instant notifications',
+                group,
+                subgroup,
+                type: 'number',
+                defaultValue: 0
             },
         );
 
@@ -2180,6 +2186,7 @@ export interface TimelapseRule extends BaseRule {
 
 export interface AudioRule extends BaseRule {
     decibelThreshold: number;
+    audioDuration?: number;
 }
 
 export const getDeviceTimelapseRules = (
@@ -2284,7 +2291,8 @@ export const getDeviceAudioRules = (
                 textKey
             },
             audio: {
-                decibelThresholdKey
+                decibelThresholdKey,
+                audioDurationKey,
             }
         } = getRuleKeys({
             ruleType: RuleType.Audio,
@@ -2302,11 +2310,13 @@ export const getDeviceAudioRules = (
 
         const customText = deviceStorage.getItem(textKey) as string;
         const decibelThreshold = deviceStorage.getItem(decibelThresholdKey) as number || 20;
+        const audioDuration = deviceStorage.getItem(audioDurationKey) as number || 0;
 
         const audioRule: AudioRule = {
             ...rule,
             customText,
             decibelThreshold,
+            audioDuration,
         };
 
 
@@ -2532,3 +2542,23 @@ export const supportedInterfaces = [
     ...supportedSensorInterfaces,
     ScryptedInterface.Notifier
 ];
+
+export const pcmU8ToDb = (payload: Uint8Array): number => {
+    let sum = 0;
+    const count = payload.length;
+
+    if (count === 0) return 0;
+
+    for (let i = 0; i < count; i++) {
+        const sample = payload[i] - 128;
+        sum += sample * sample;
+    }
+
+    const rms = Math.sqrt(sum / count);
+    const minRMS = 1.0;
+
+    if (rms < minRMS) return 0;
+
+    const db = 20 * Math.log10(rms / minRMS);
+    return db;
+}

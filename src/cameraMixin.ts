@@ -1,13 +1,15 @@
-import sdk, { Camera, EventListenerRegister, Image, MediaObject, MediaStreamDestination, MotionSensor, ObjectDetection, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoom, PanTiltZoomCommand, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoFrame, VideoFrameGenerator, VideoFrameGeneratorOptions } from "@scrypted/sdk";
+import sdk, { Camera, EventListenerRegister, FFmpegInput, Image, MediaObject, MediaStreamDestination, MotionSensor, ObjectDetection, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoom, PanTiltZoomCommand, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoFrame, VideoFrameGenerator, VideoFrameGeneratorOptions } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep } from "lodash";
-import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
+import { filterOverlappedDetections } from '../../scrypted-basic-object-detector/src/util';
+import { RtpPacket } from "../../scrypted/external/werift/packages/rtp/src/rtp/rtp";
+import { startRtpForwarderProcess } from '../../scrypted/plugins/webrtc/src/rtp-forwarders';
+import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { discoveryRuleTopics, getDetectionRuleId, getOccupancyRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { AudioRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, addBoundingBoxes, addBoundingToImage, convertSettingsToStorageSettings, filterAndSortValidDetections, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, isDeviceEnabled } from "./utils";
-import { filterOverlappedDetections } from '../../scrypted-basic-object-detector/src/util';
+import { AudioRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, addBoundingBoxes, convertSettingsToStorageSettings, filterAndSortValidDetections, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTextKey, getTimelapseRulesSettings, getWebookUrls, getWebooks, isDeviceEnabled, pcmU8ToDb } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -111,6 +113,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     mqttDetectionMotionTimeout: NodeJS.Timeout;
     mainLoopListener: NodeJS.Timeout;
     isActiveForNotifications: boolean;
+    isActiveForAudioDetections: boolean;
     isActiveForMqttReporting: boolean;
     lastAutoDiscovery: number;
     isActiveForNvrNotifications: boolean;
@@ -130,6 +133,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         motionTimeout: NodeJS.Timeout;
         motionListener: EventListenerRegister
     }> = {};
+    audioListeners: Record<string, {
+        inProgress: boolean;
+        lastDetection?: number;
+        resetInterval?: NodeJS.Timeout;
+    }> = {};
     detectionRuleListeners: Record<string, {
         disableNvrRecordingTimeout?: NodeJS.Timeout;
     }> = {};
@@ -140,6 +148,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     occupancyState: Record<string, OccupancyData> = {};
     timelapseLastCheck: Record<string, number> = {};
     latestFrame?: Buffer;
+    audioForwarder: ReturnType<typeof startRtpForwarderProcess>;
+    lastAudioDetected: number;
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -199,6 +209,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     detectionRules,
                     nvrRules,
                     skippedDetectionRules,
+                    isActiveForAudioDetections,
                     isActiveForNotifications,
                     isActiveForNvrNotifications,
                     occupancyRules,
@@ -240,6 +251,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     skippedOccupancyRules,
                     nvrRules,
                     isActiveForMqttReporting,
+                    isActiveForAudioDetections,
                     allDetectionRules,
                     timelapseRules,
                     skippedTimelapseRules,
@@ -249,6 +261,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     detectionRulesToDisable,
                     audioRulesToEnable,
                     audioRulesToDisable,
+                    skippedAudioRules,
                 })}`);
 
                 const rulesToEnable = [
@@ -271,12 +284,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         const { ruleType, name } = rule;
                         logger.log(`${ruleType} rule started: ${name}`);
 
-                        if (ruleType === RuleType.Timelapse && !rule.currentlyActive) {
-                            await this.plugin.timelapseRuleStarted({
-                                rule,
-                                device,
-                                logger,
-                            });
+                        if (!rule.currentlyActive) {
+                            if (ruleType === RuleType.Timelapse) {
+                                await this.plugin.timelapseRuleStarted({
+                                    rule,
+                                    device,
+                                    logger,
+                                });
+                            }
                         }
 
                         const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: name, ruleType });
@@ -422,7 +437,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     await this.checkOutdatedRules();
                 }
 
+                if (isActiveForAudioDetections && !this.isActiveForAudioDetections) {
+                    logger.log(`Starting Audio listener`);
+                    await this.startAudioDetection();
+                } else if (!isActiveForAudioDetections && this.isActiveForAudioDetections) {
+                    logger.log(`Stopping Audio listener`);
+                    this.stopAudioListener();
+                }
+
                 this.isActiveForNvrNotifications = isActiveForNvrNotifications;
+                this.isActiveForAudioDetections = isActiveForAudioDetections;
 
 
                 const { entityId } = this.storageSettings.values;
@@ -466,8 +490,23 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
+    resetAudioRule(ruleName: string) {
+        const resetInterval = this.audioListeners[ruleName]?.resetInterval;
+        resetInterval && clearInterval(resetInterval);
+        this.audioListeners[ruleName] = { inProgress: false, resetInterval: undefined, lastDetection: undefined };
+    }
+
+    stopAudioListener() {
+        this.audioForwarder?.then(f => f.kill());
+        this.audioForwarder = undefined;
+
+        for (const ruleName of Object.keys(this.audioListeners)) {
+            this.resetAudioRule(ruleName);
+        }
+    }
+
     resetListeners() {
-        if (this.detectionListener || this.motionListener) {
+        if (this.detectionListener || this.motionListener || this.audioForwarder) {
             this.getLogger().log('Resetting listeners.');
         }
 
@@ -476,6 +515,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.detectionListener = undefined;
         this.motionListener?.removeListener && this.motionListener.removeListener();
         this.motionListener = undefined;
+        this.stopAudioListener();
     }
 
     async initValues() {
@@ -673,15 +713,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const deviceConsole = this.console;
 
         if (!this.logger) {
-            const log = (debug: boolean, message?: any, ...optionalParams: any[]) => {
+            const log = (type: 'log' | 'error' | 'debug' | 'warn', message?: any, ...optionalParams: any[]) => {
                 const now = new Date().toLocaleString();
-                if (!debug || this.storageSettings.getItem('debug')) {
+                if (type !== 'debug' || this.storageSettings.getItem('debug')) {
                     deviceConsole.log(` ${now} - `, message, ...optionalParams);
                 }
             };
             this.logger = {
-                log: (message?: any, ...optionalParams: any[]) => log(false, message, ...optionalParams),
-                debug: (message?: any, ...optionalParams: any[]) => log(true, message, ...optionalParams),
+                log: (message?: any, ...optionalParams: any[]) => log('log', message, ...optionalParams),
+                debug: (message?: any, ...optionalParams: any[]) => log('debug', message, ...optionalParams),
+                error: (message?: any, ...optionalParams: any[]) => log('error', message, ...optionalParams),
+                warn: (message?: any, ...optionalParams: any[]) => log('warn', message, ...optionalParams),
             } as Console
         }
 
@@ -863,6 +905,57 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             this.getLogger().log('Error taking a picture in camera mixin', e);
             return {};
         }
+    }
+
+    async startAudioDetection() {
+        const logger = this.getLogger();
+        if (this.audioForwarder) {
+            this.stopAudioListener();
+        }
+
+        const mo = await this.cameraDevice.getVideoStream({
+            video: null,
+            audio: {},
+        });
+        const ffmpegInput = await sdk.mediaManager.convertMediaObjectToJSON<FFmpegInput>(mo, ScryptedMimeTypes.FFmpegInput);
+
+        const fp = startRtpForwarderProcess(logger, ffmpegInput, {
+            video: null,
+            audio: {
+                codecCopy: 'pcm_u8',
+                encoderArguments: [
+                    '-acodec', 'pcm_u8',
+                    '-ac', '1',
+                    '-ar', '8000',
+                ],
+                onRtp: rtp => {
+                    const now = Date.now();
+                    if (this.lastAudioDetected && now - this.lastAudioDetected < 1000)
+                        return;
+                    this.lastAudioDetected = now;
+
+                    const packet = RtpPacket.deSerialize(rtp);
+                    const decibels = pcmU8ToDb(packet.payload);
+                    if (decibels > 2) {
+                        this.processAudioDetection({ decibels }).catch(logger.error);
+                    }
+                },
+            }
+        });
+
+        this.audioForwarder = fp;
+
+        fp.catch(() => {
+            if (this.audioForwarder === fp)
+                this.audioForwarder = undefined;
+        });
+
+        this.audioForwarder.then(f => {
+            f.killPromise.then(() => {
+                if (this.audioForwarder === fp)
+                    this.audioForwarder = undefined;
+            });
+        });
     }
 
     async checkOutdatedRules() {
@@ -1212,7 +1305,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             .replace('${detectedObjects}', String(currentState.objectsDetected) ?? '')
                             .replace('${maxObjects}', String(rule.maxObjects) ?? '')
 
-                        const triggerTime = (occupancyRuleData?.triggerTime ?? now) - (5000);
+                        const triggerTime = (occupancyRuleData?.triggerTime ?? now) - 5000;
 
                         await this.plugin.notifyOccupancyEvent({
                             cameraDevice: this.cameraDevice,
@@ -1227,6 +1320,81 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
         catch (e) {
             logger.log('Error in checkOccupancyData', e);
+        }
+    }
+
+    public async processAudioDetection(props: {
+        decibels: number
+    }) {
+        const logger = this.getLogger();
+        const { decibels } = props;
+        if (this.isActiveForAudioDetections) {
+            logger.log(`Audio detection: ${decibels} dB`);
+            const rules = cloneDeep((this.audioRules) ?? []);
+            const now = Date.now();
+
+            const { image } = await this.getImage();
+
+            for (const rule of rules) {
+                const { name, audioDuration, decibelThreshold, customText } = rule;
+                const { lastDetection, inProgress } = this.audioListeners[name] ?? {};
+                const isThresholdMet = decibels >= decibelThreshold;
+                const isTimePassed = !audioDuration || (lastDetection && (now - lastDetection) > audioDuration);
+
+                logger.debug(`Audio rule: ${JSON.stringify({
+                    name,
+                    isThresholdMet,
+                    isTimePassed,
+                    inProgress,
+                    audioDuration,
+                    decibelThreshold,
+                })}`);
+                const currentDuration = lastDetection ? (now - lastDetection) / 1000 : 0;
+
+                if (inProgress || !audioDuration) {
+                    if (isThresholdMet) {
+                        if (isTimePassed) {
+                            logger.debug(`Audio rule ${name} passed: ${JSON.stringify({ currentDuration, decibels })}`);
+                            let message = customText;
+
+                            message = message.toString()
+                                .replace('${decibels}', String(decibelThreshold) ?? '')
+                                .replace('${duration}', String(audioDuration) ?? '')
+
+                            await this.plugin.notifyAudioEvent({
+                                cameraDevice: this.cameraDevice,
+                                image,
+                                message,
+                                rule,
+                                triggerTime: now,
+                            });
+
+                            this.resetAudioRule(name);
+                        } else {
+                            logger.log(`Audio rule ${name} still in progress ${currentDuration} seconds`);
+                            // Do nothing and wait for next detection
+                        }
+                    } else {
+                        logger.log(`Audio rule ${name} didn't hold the threshold, resetting after ${currentDuration} seconds`);
+                        this.resetAudioRule(name);
+                    }
+                } else if (isThresholdMet) {
+                    logger.log(`Audio rule ${name} started`);
+                    this.audioListeners[name] = {
+                        inProgress: true,
+                        lastDetection: now,
+                        resetInterval: undefined,
+                    };
+                    // const resetInterval = setInterval(() => {
+                    //     if (!this.audioDetected)
+                    //         return;
+                    //     if (Date.now() - lastAudio < this.storageSettings.values.audioTimeout * 1000)
+                    //         return;
+                    //     this.audioDetected = false;
+                    // }, this.storageSettings.values.audioTimeout * 1000);
+                }
+
+            }
         }
     }
 
