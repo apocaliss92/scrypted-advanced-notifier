@@ -609,7 +609,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     mqttClient,
                     detectionRules: allPluginDetectionRules,
                     activeEntitiesCb: async (message) => {
-                        logger.log(`Received update for ${mqttActiveEntitiesTopic} topic: ${JSON.stringify(message)}`);
+                        logger.debug(`Received update for ${mqttActiveEntitiesTopic} topic: ${JSON.stringify(message)}`);
                         await this.syncHaEntityIds(message);
                     },
                     ruleCb: async ({ active, ruleName }) => {
@@ -625,6 +625,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     private async syncHaEntityIds(devices: string[]) {
+        const logger = this.getLogger();
         const deviceIds: string[] = [];
         for (const device of devices) {
             const deviceNameFromEntity = this.haEntityDeviceMap[device];
@@ -637,16 +638,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
         }
 
-        this.getLogger().log(`SyncHaEntityIds: ${JSON.stringify({
+        logger.debug(`SyncHaEntityIds: ${JSON.stringify({
             devices,
-            deviceIds,
             stored: this.storageSettings.values.activeDevicesForNotifications ?? [],
             isEqual: isEqual(sortBy(deviceIds), sortBy(this.storageSettings.values.activeDevicesForNotifications ?? []))
         })}`);
 
         if (isEqual(sortBy(deviceIds), sortBy(this.storageSettings.values.activeDevicesForNotifications ?? []))) {
-            this.getLogger().log('Devices did not change');
+            logger.debug('Devices did not change');
         } else {
+            logger.log(`"OnActiveDevices" changed: ${JSON.stringify(deviceIds)}`);
             this.putSetting('activeDevicesForNotifications', deviceIds);
         }
     }
