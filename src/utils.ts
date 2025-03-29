@@ -783,11 +783,11 @@ export const getRuleKeys = (props: {
     const securitySystemModesKey = `${prefix}:${ruleName}:securitySystemModes`;
     const aiEnabledKey = `${prefix}:${ruleName}:aiEnabled`;
     const showMoreConfigurationsKey = `${prefix}:${ruleName}:showMoreConfigurations`;
+    const minDelayKey = `${prefix}:${ruleName}:minDelay`;
 
     // Specific for detection rules
     const detectionClassesKey = `${prefix}:${ruleName}:detecionClasses`;
     const nvrEventsKey = `${prefix}:${ruleName}:nvrEvents`;
-    const minDelayKey = `${prefix}:${ruleName}:minDelay`;
     const useNvrDetectionsKey = `${prefix}:${ruleName}:useNvrDetections`;
     const whitelistedZonesKey = `${prefix}:${ruleName}:whitelistedZones`;
     const blacklistedZonesKey = `${prefix}:${ruleName}:blacklistedZones`;
@@ -837,9 +837,9 @@ export const getRuleKeys = (props: {
             securitySystemModesKey,
             aiEnabledKey,
             showMoreConfigurationsKey,
+            minDelayKey,
         },
         detection: {
-            minDelayKey,
             useNvrDetectionsKey,
             whitelistedZonesKey,
             blacklistedZonesKey,
@@ -1150,10 +1150,9 @@ export const getDetectionRulesSettings = async (props: {
 
         const { detection, common, } = getRuleKeys({ ruleName, ruleType: RuleType.Detection });
 
-        const { scoreThresholdKey, activationKey } = common;
+        const { scoreThresholdKey, activationKey, minDelayKey } = common;
         const {
             blacklistedZonesKey,
-            minDelayKey,
             nvrEventsKey,
             recordingTriggerSecondsKey,
             useNvrDetectionsKey,
@@ -1669,12 +1668,12 @@ export const getAudioRulesSettings = async (props: {
 }) => {
     const { storage, ruleSource, onRuleToggle, onShowMore, logger } = props;
 
-    const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup, showMore }) => {
+    const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup }) => {
         const settings: StorageSetting[] = [];
 
         const { audio, common } = getRuleKeys({ ruleName, ruleType: RuleType.Audio });
 
-        const { textKey } = common;
+        const { textKey, minDelayKey } = common;
         const { decibelThresholdKey, audioDurationKey } = audio;
 
         settings.push(
@@ -1703,7 +1702,16 @@ export const getAudioRulesSettings = async (props: {
                 group,
                 subgroup,
                 type: 'number',
-                defaultValue: 0
+                placeholder: '-',
+            },
+            {
+                key: minDelayKey,
+                title: 'Minimum notification delay',
+                description: 'Minimum amount of seconds to wait between notifications.',
+                group,
+                subgroup,
+                type: 'number',
+                placeholder: '-',
             },
         );
 
@@ -1745,6 +1753,7 @@ export interface BaseRule {
     priority: NotificationPriority;
     actions?: string[];
     securitySystemModes?: SecuritySystemMode[];
+    minDelay?: number;
 }
 
 export interface DetectionRule extends BaseRule {
@@ -1756,7 +1765,6 @@ export interface DetectionRule extends BaseRule {
     whitelistedZones?: string[];
     blacklistedZones?: string[];
     disableNvrRecordingSeconds?: number;
-    minDelay?: number;
 }
 
 const initBasicRule = (props: {
@@ -1944,7 +1952,8 @@ export const getDeviceRules = (
                 common: {
                     activationKey,
                     scoreThresholdKey,
-                    textKey
+                    textKey,
+                    minDelayKey
                 },
                 detection: {
                     useNvrDetectionsKey,
@@ -1954,8 +1963,7 @@ export const getDeviceRules = (
                     blacklistedZonesKey,
                     devicesKey,
                     nvrEventsKey,
-                    recordingTriggerSecondsKey,
-                    minDelayKey
+                    recordingTriggerSecondsKey
                 } } = getRuleKeys({
                     ruleType: RuleType.Detection,
                     ruleName: detectionRuleName,
@@ -2180,7 +2188,6 @@ export const getDeviceOccupancyRules = (
 export interface TimelapseRule extends BaseRule {
     timelapseFramerate?: number;
     regularSnapshotInterval?: number;
-    minDelay?: number;
     additionalFfmpegParameters?: string;
 }
 
@@ -2288,7 +2295,8 @@ export const getDeviceAudioRules = (
     for (const audioRuleName of audioRuleNames) {
         const {
             common: {
-                textKey
+                textKey,
+                minDelayKey,
             },
             audio: {
                 decibelThresholdKey,
@@ -2311,12 +2319,14 @@ export const getDeviceAudioRules = (
         const customText = deviceStorage.getItem(textKey) as string;
         const decibelThreshold = deviceStorage.getItem(decibelThresholdKey) as number || 20;
         const audioDuration = deviceStorage.getItem(audioDurationKey) as number || 0;
+        const minDelay = deviceStorage.getItem(minDelayKey) as number;
 
         const audioRule: AudioRule = {
             ...rule,
             customText,
             decibelThreshold,
             audioDuration,
+            minDelay,
         };
 
 

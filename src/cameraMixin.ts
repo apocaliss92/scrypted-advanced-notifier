@@ -136,6 +136,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     audioListeners: Record<string, {
         inProgress: boolean;
         lastDetection?: number;
+        lastNotification?: number;
         resetInterval?: NodeJS.Timeout;
     }> = {};
     detectionRuleListeners: Record<string, {
@@ -490,10 +491,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    resetAudioRule(ruleName: string) {
+    resetAudioRule(ruleName: string, lastNotification?: number) {
         const resetInterval = this.audioListeners[ruleName]?.resetInterval;
         resetInterval && clearInterval(resetInterval);
-        this.audioListeners[ruleName] = { inProgress: false, resetInterval: undefined, lastDetection: undefined };
+        this.audioListeners[ruleName] = { inProgress: false, resetInterval: undefined, lastDetection: undefined, lastNotification };
     }
 
     stopAudioListener() {
@@ -1336,10 +1337,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const { image } = await this.getImage();
 
             for (const rule of rules) {
-                const { name, audioDuration, decibelThreshold, customText } = rule;
-                const { lastDetection, inProgress } = this.audioListeners[name] ?? {};
+                const { name, audioDuration, decibelThreshold, customText, minDelay } = rule;
+                const { lastDetection, inProgress, lastNotification } = this.audioListeners[name] ?? {};
                 const isThresholdMet = decibels >= decibelThreshold;
                 const isTimePassed = !audioDuration || (lastDetection && (now - lastDetection) > audioDuration);
+                const isTimeForNotificationPassed = !minDelay || (lastNotification && (now - lastNotification) > minDelay);
 
                 logger.debug(`Audio rule: ${JSON.stringify({
                     name,
@@ -1353,7 +1355,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 if (inProgress || !audioDuration) {
                     if (isThresholdMet) {
-                        if (isTimePassed) {
+                        if (isTimePassed && isTimeForNotificationPassed) {
                             logger.debug(`Audio rule ${name} passed: ${JSON.stringify({ currentDuration, decibels })}`);
                             let message = customText;
 
@@ -1369,7 +1371,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 triggerTime: now,
                             });
 
-                            this.resetAudioRule(name);
+                            this.resetAudioRule(name, now);
                         } else {
                             logger.log(`Audio rule ${name} still in progress ${currentDuration} seconds`);
                             // Do nothing and wait for next detection
