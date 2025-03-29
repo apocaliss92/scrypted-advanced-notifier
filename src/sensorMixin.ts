@@ -1,8 +1,8 @@
-import sdk, { EventListenerRegister, LockState, MediaObject, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, Setting, Settings } from "@scrypted/sdk";
+import sdk, { EventListenerRegister, MediaObject, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, Setting, Settings } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import HomeAssistantUtilitiesProvider from "./main";
-import { discoveryRuleTopics, getDetectionRuleId, publishDeviceState, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
+import { publishDeviceState, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { BinarySensorMetadata, binarySensorMetadataMap, convertSettingsToStorageSettings, DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, getRuleKeys, isDeviceEnabled, RuleSource, RuleType } from "./utils";
 
 const { systemManager } = sdk;
@@ -164,12 +164,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                         });
 
                         this.mainAutodiscoveryDone = true;
-                    }
-
-                    const missingRules = detectionRules.filter(rule => !this.rulesDiscovered.includes(getDetectionRuleId(rule)));
-                    if (missingRules.length) {
-                        await discoveryRuleTopics({ mqttClient, console: logger, device, rules: missingRules });
-                        this.rulesDiscovered.push(...missingRules.map(rule => getDetectionRuleId(rule)))
                     }
                 }
             }

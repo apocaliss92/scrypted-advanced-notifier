@@ -5,7 +5,7 @@
     "type": "git",
     "url": "https://github.com/apocaliss92/scrypted-advanced-notifier"
   },
-  "version": "2.2.28",
+  "version": "2.2.29",
   "scripts": {
     "scrypted-setup-project": "scrypted-setup-project",
     "prescrypted-setup-project": "scrypted-package-json",

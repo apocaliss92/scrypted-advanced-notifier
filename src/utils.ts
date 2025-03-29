@@ -2101,7 +2101,7 @@ export const getDeviceOccupancyRules = (
         device: DeviceBase,
     }
 ) => {
-    const { deviceStorage, pluginStorage } = props;
+    const { deviceStorage, pluginStorage, device } = props;
     const allOccupancyRules: OccupancyRule[] = [];
     const occupancyRules: OccupancyRule[] = [];
     const skippedOccupancyRules: OccupancyRule[] = [];
@@ -2160,6 +2160,7 @@ export const getDeviceOccupancyRules = (
             zoneOccupiedText,
             detectionClass,
             observeZone,
+            deviceId: device.id,
             scoreThreshold,
             changeStateConfirm,
             forceUpdate,
@@ -2204,7 +2205,7 @@ export const getDeviceTimelapseRules = (
         device: DeviceBase,
     }
 ) => {
-    const { deviceStorage, console, pluginStorage } = props;
+    const { deviceStorage, console, pluginStorage, device } = props;
     const timelapseRules: TimelapseRule[] = [];
     const skippedRules: TimelapseRule[] = [];
     const allTimelapseRules: TimelapseRule[] = [];
@@ -2250,7 +2251,8 @@ export const getDeviceTimelapseRules = (
             minDelay,
             timelapseFramerate,
             additionalFfmpegParameters,
-            regularSnapshotInterval
+            regularSnapshotInterval,
+            deviceId: device.id
         };
 
 
@@ -2283,7 +2285,7 @@ export const getDeviceAudioRules = (
         device: DeviceBase,
     }
 ) => {
-    const { deviceStorage, console, pluginStorage } = props;
+    const { deviceStorage, console, pluginStorage, device } = props;
     const audioRules: AudioRule[] = [];
     const skippedRules: AudioRule[] = [];
     const allAudioRules: AudioRule[] = [];
@@ -2327,6 +2329,7 @@ export const getDeviceAudioRules = (
             decibelThreshold,
             audioDuration,
             minDelay,
+            deviceId: device.id
         };
 
 

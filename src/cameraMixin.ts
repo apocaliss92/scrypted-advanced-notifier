@@ -7,9 +7,9 @@ import { RtpPacket } from "../../scrypted/external/werift/packages/rtp/src/rtp/r
 import { startRtpForwarderProcess } from '../../scrypted/plugins/webrtc/src/rtp-forwarders';
 import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
-import { discoveryRuleTopics, getDetectionRuleId, getOccupancyRuleId, publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
+import { publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { AudioRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, addBoundingBoxes, convertSettingsToStorageSettings, filterAndSortValidDetections, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTextKey, getTimelapseRulesSettings, getWebookUrls, getWebooks, isDeviceEnabled, pcmU8ToDb } from "./utils";
+import { AudioRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, addBoundingBoxes, convertSettingsToStorageSettings, filterAndSortValidDetections, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, isDeviceEnabled, pcmU8ToDb } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -224,7 +224,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     audioRules,
                     skippedAudioRules,
                 } = await isDeviceEnabled({
-                    device: this,
+                    device: this.cameraDevice,
                     console: logger,
                     plugin: this.plugin,
                     deviceStorage: this.storageSettings
@@ -392,28 +392,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             this.lastAutoDiscovery = now;
                         }
 
-                        const missingRules = allDetectionRules.filter(rule => !this.rulesDiscovered.includes(getDetectionRuleId(rule)));
-                        logger.debug(`Processing missing rules: ${JSON.stringify({
-                            missingRules,
-                            allDetectionRules,
-                            nvrRules,
-                        })}`);
-
-                        if (missingRules.length) {
-                            await discoveryRuleTopics({ mqttClient, console: logger, device, rules: missingRules });
-                            this.rulesDiscovered.push(...missingRules.map(rule => getDetectionRuleId(rule)))
-                        }
-
-                        const missingOccupancyRules = occupancyRules.filter(rule => !this.occupancyRulesDiscovered.includes(getOccupancyRuleId(rule)));
-                        if (missingOccupancyRules.length) {
-                            await discoveryRuleTopics({ mqttClient, console: logger, device, rules: missingOccupancyRules });
-                            this.occupancyRulesDiscovered.push(...missingOccupancyRules.map(rule => getOccupancyRuleId(rule)))
-                        }
-
                         const settings = await this.mixinDevice.getSettings();
                         const isRecording = !settings.find(setting => setting.key === 'recording:privacyMode')?.value;
 
-                        reportDeviceValues({ console: logger, device, mqttClient, isRecording });
+                        reportDeviceValues({ console: logger, device, mqttClient, isRecording, rulesToEnable, rulesToDisable });
                     }
                 }
 
