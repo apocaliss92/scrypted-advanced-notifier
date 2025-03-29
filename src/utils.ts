@@ -1220,19 +1220,19 @@ export const getDetectionRulesSettings = async (props: {
             );
         }
 
-        if (!useNvrDetections) {
-            settings.push(
-                {
-                    key: markDetectionsKey,
-                    title: 'Mark detections',
-                    description: 'Add a coloured box around the detections',
-                    group,
-                    subgroup,
-                    type: 'boolean',
-                    immediate: true
-                }
-            );
-        }
+        // if (!useNvrDetections) {
+        //     settings.push(
+        //         {
+        //             key: markDetectionsKey,
+        //             title: 'Mark detections',
+        //             description: 'Add a coloured box around the detections',
+        //             group,
+        //             subgroup,
+        //             type: 'boolean',
+        //             immediate: true
+        //         }
+        //     );
+        // }
 
         if (isPlugin && activationType !== DetectionRuleActivation.OnActive) {
             settings.push({
