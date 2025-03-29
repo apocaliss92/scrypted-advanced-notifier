@@ -116,7 +116,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     isActiveForAudioDetections: boolean;
     isActiveForMqttReporting: boolean;
     lastAutoDiscovery: number;
-    lastOccupancyUpdate: number;
     isActiveForNvrNotifications: boolean;
     mqttReportInProgress: boolean;
     lastDetectionMap: Record<string, number> = {};
@@ -1286,14 +1285,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             await this.storageSettings.putSetting('occupancyState', JSON.stringify(this.occupancyState));
 
-            await publishOccupancy({
-                console: logger,
-                device: this.cameraDevice,
-                mqttClient,
-                objectsDetected: detectedResultParent,
-                occupancyRulesData,
-                storeImageFn: this.plugin.storeImage,
-            });
+            if (this.isActiveForMqttReporting) {
+                await publishOccupancy({
+                    console: logger,
+                    device: this.cameraDevice,
+                    mqttClient,
+                    objectsDetected: detectedResultParent,
+                    occupancyRulesData,
+                    storeImageFn: this.plugin.storeImage,
+                });
+            }
 
             for (const occupancyRuleData of occupancyRulesData) {
                 const rule = occupancyRuleData.rule;
@@ -1449,7 +1450,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 b64Image = b64ImageNew;
             }
 
-            if (timePassed && this.occupancyRules.length) {
+            if (timePassed) {
                 this.checkOccupancyData(image).catch(logger.log);
             }
 
