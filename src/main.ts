@@ -6,7 +6,7 @@ import path from 'path';
 import { BasePlugin, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
-import { getMqttTopics, getRuleStrings, publishRuleCurrentlyActive, setupPluginAutodiscovery, subscribeToMainMqttTopics } from "./mqtt-utils";
+import { getMqttTopics, getRuleStrings, publishRuleCurrentlyActive, reportDeviceValues, setupPluginAutodiscovery, subscribeToMainMqttTopics } from "./mqtt-utils";
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
@@ -580,6 +580,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             console: logger,
             detectionRules: allPluginDetectionRules,
         });
+        
+        // if (rulesToEnable && rulesToDisable) {
+        //     await reportDeviceValues({
+        //         console: logger,
+        //         mqttClient,
+        //         rulesToDisable,
+        //         rulesToEnable
+        //     });
+        // }
 
         return { allPluginDetectionRules };
     }
@@ -748,7 +757,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
 
             const pluginStorage = this.storageSettings;
-            const { nvrRules, detectionRules, allPluginDetectionRules } = getDeviceRules({ pluginStorage, console: logger });
+            const { nvrRules, detectionRules } = getDeviceRules({ pluginStorage, console: logger });
 
 
             const detectionRulesToEnable = (detectionRules || []).filter(newRule => !this.detectionRules?.some(currentRule => currentRule.name === newRule.name));

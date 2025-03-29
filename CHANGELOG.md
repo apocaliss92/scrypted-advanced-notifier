@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 2.2.30
+
+Add MQTT flag for each rule currently running
+
 ### 2.2.28
 
 Enable reporting of occupancy data for every camera enabled to MQTT

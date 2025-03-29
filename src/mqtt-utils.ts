@@ -143,7 +143,7 @@ const getRuleMqttEntities = (rule: BaseRule): MqttEntity[] => {
 
 const deviceClassMqttEntitiesGrouped = groupBy(deviceClassMqttEntities, entry => entry.className);
 
-export const getDetectionRuleId = (rule: BaseRule) => `${rule.source}_${rule.name.replace(/\s/g, '')}`;
+export const getDetectionRuleId = (rule: BaseRule) => `${rule.source}_${rule.name.replaceAll(/\s/g, '')}`;
 
 export const getMqttTopics = (deviceId: string) => {
     const getEntityTopic = (entity: string) => `scrypted/advancedNotifier/${deviceId}/${entity}`;
@@ -176,7 +176,7 @@ const ruleTypeIdMap: Record<RuleType, string> = {
 }
 
 export const getRuleStrings = (rule: BaseRule) => {
-    const entityId = rule.name.trim().replace(' ', '_');
+    const entityId = rule.name.trim().replaceAll(' ', '_');
     const id = ruleTypeIdMap[rule.ruleType];
     const ruleDeviceId = rule.deviceId ? `${id}-${rule.name}` : mainRuleId;
 
@@ -185,7 +185,7 @@ export const getRuleStrings = (rule: BaseRule) => {
 
 export const getObserveZoneStrings = (zoneName: string, className: DetectionClass) => {
     const parsedClassName = firstUpperCase(className);
-    const parsedZoneName = zoneName.trim().replace(' ', '_');
+    const parsedZoneName = zoneName.trim().replaceAll(' ', '_');
     const entityId = `${parsedZoneName}_${className}_Objects`;
     const name = `${parsedZoneName} ${parsedClassName} objects`;
 
@@ -244,6 +244,7 @@ export const setupPluginAutodiscovery = async (props: {
             retain: true,
             qos: 0
         };
+        
 
         await mqttClient.publish(getDiscoveryTopic('switch', entityId), JSON.stringify(detectionRuleEnabledConfig));
     }
@@ -767,29 +768,31 @@ export const publishRelevantDetections = async (props: {
 
 export const reportDeviceValues = async (props: {
     mqttClient: MqttClient,
-    device: ScryptedDeviceBase,
-    isRecording: boolean,
+    device?: ScryptedDeviceBase,
+    isRecording?: boolean,
     console: Console,
     rulesToEnable: BaseRule[],
     rulesToDisable: BaseRule[],
 }) => {
     const { device, mqttClient, isRecording, rulesToDisable, rulesToEnable, console } = props;
-    const { getEntityTopic } = getMqttTopics(device.id);
 
-    if (device.interfaces.includes(ScryptedInterface.Battery) && device.batteryLevel) {
-        await mqttClient.publish(getEntityTopic(batteryEntity.entity), device.batteryLevel, true);
-    }
-    if (device.interfaces.includes(ScryptedInterface.Online)) {
-        await mqttClient.publish(getEntityTopic(onlineEntity.entity), device.online, true);
-    }
-    if (device.interfaces.includes(ScryptedInterface.VideoRecorder)) {
-        await mqttClient.publish(getEntityTopic(recordingEntity.entity), isRecording ? 'ON' : 'OFF', true);
+    if (device) {
+        const { getEntityTopic } = getMqttTopics(device.id);
+
+        if (device.interfaces.includes(ScryptedInterface.Battery) && device.batteryLevel) {
+            await mqttClient.publish(getEntityTopic(batteryEntity.entity), device.batteryLevel, true);
+        }
+        if (device.interfaces.includes(ScryptedInterface.Online)) {
+            await mqttClient.publish(getEntityTopic(onlineEntity.entity), device.online, true);
+        }
+        if (device.interfaces.includes(ScryptedInterface.VideoRecorder)) {
+            await mqttClient.publish(getEntityTopic(recordingEntity.entity), isRecording ? 'ON' : 'OFF', true);
+        }
     }
 
     for (const rule of rulesToEnable) {
         await publishRuleCurrentlyActive({
             console: console,
-            device,
             mqttClient,
             rule,
             active: true
@@ -799,7 +802,6 @@ export const reportDeviceValues = async (props: {
     for (const rule of rulesToDisable) {
         await publishRuleCurrentlyActive({
             console: console,
-            device,
             mqttClient,
             rule,
             active: false
@@ -858,7 +860,6 @@ const publishRuleData = async (props: {
 }
 
 export const publishRuleCurrentlyActive = async (props: {
-    device: ScryptedDeviceBase,
     rule: BaseRule,
     console: Console,
     mqttClient: MqttClient,
