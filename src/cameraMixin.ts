@@ -116,6 +116,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     isActiveForAudioDetections: boolean;
     isActiveForMqttReporting: boolean;
     lastAutoDiscovery: number;
+    lastOccupancyUpdate: number;
     isActiveForNvrNotifications: boolean;
     mqttReportInProgress: boolean;
     lastDetectionMap: Record<string, number> = {};
@@ -434,7 +435,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     logger.log(`Stopping NVR events listener`);
                 }
 
-                if ((isActiveForMqttReporting && !!occupancyRules.length) || !!timelapseRules?.length) {
+                if (isActiveForMqttReporting) {
                     await this.checkOutdatedRules();
                 }
 
@@ -994,9 +995,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             return shouldForceFrame;
         });
-        const anyTimelapseToRefresh = timelapsesToRefresh.length
+        const anyTimelapseToRefresh = timelapsesToRefresh.length;
 
-        if (anyOutdatedOccupancyRule || anyTimelapseToRefresh) {
+        const isRegularUpdatePossible = !this.cameraDevice.sleeping && this.cameraDevice.online;
+
+        if (anyOutdatedOccupancyRule || anyTimelapseToRefresh || isRegularUpdatePossible) {
             const { image } = await this.getImage();
             if (image) {
                 if (anyOutdatedOccupancyRule) {
