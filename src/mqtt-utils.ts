@@ -44,7 +44,8 @@ const recordingEntity: MqttEntity = {
     domain: 'switch',
     entity: 'recording',
     name: 'Recording',
-    deviceClass: 'running'
+    deviceClass: 'running',
+    icon: 'mdi:record-circle-outline'
 };
 const rebootEntity: MqttEntity = {
     domain: 'button',
@@ -452,6 +453,54 @@ const getDeviceClassEntities = (device: ScryptedDeviceBase) => {
     return deviceClassMqttEntities.filter(entry => !entry.className || classes.includes(entry.className));
 }
 
+const getMqttDiscoveryConfig = async (props: {
+    mqttEntity: MqttEntity,
+    deviceClass?: string,
+    stateTopic?: string,
+    device?: ScryptedDeviceBase,
+    id: string;
+    additionalConfigs?: object
+}) => {
+    const { mqttEntity, stateTopic, device, id, deviceClass, additionalConfigs = {} } = props;
+    const { domain, entity, name, deviceClass: deviceClassParent, icon } = mqttEntity;
+    const mqttdevice = await getMqttDevice(device);
+
+    const config = {
+        dev: mqttdevice,
+        unique_id: `${idPrefix}-${id}-${entity}`,
+        object_id: `${device.name}_${entity}`,
+        name,
+        device_class: deviceClass ?? deviceClassParent,
+        optimistic: false,
+        icon,
+        qos: 0,
+        domain,
+        retain: domain !== 'image',
+        ...additionalConfigs
+    } as any;
+
+    if (domain && stateTopic) {
+        if (domain === 'binary_sensor') {
+            config.payload_on = 'true';
+            config.payload_off = 'false';
+            config.state_topic = stateTopic;
+        }
+        if (domain === 'image') {
+            config.image_topic = stateTopic;
+            config.image_encoding = 'b64';
+            config.state_topic = stateTopic;
+        }
+        if (domain === 'sensor') {
+            config.state_topic = stateTopic;
+        }
+        if (domain === 'select') {
+            config.state_topic = stateTopic;
+        }
+    }
+
+    return config;
+};
+
 export const setupDeviceAutodiscovery = async (props: {
     mqttClient: MqttClient,
     device: ScryptedDeviceBase,
@@ -462,8 +511,6 @@ export const setupDeviceAutodiscovery = async (props: {
 }) => {
     const { device, withDetections, deviceClass, mqttClient, rules } = props;
     const { id } = device;
-
-    const mqttdevice = await getMqttDevice(device);
 
     const { getDiscoveryTopic, getEntityTopic, getCommandTopic } = getMqttTopics(device.id);
     const allEntities = [triggeredEntity, ...getDeviceClassEntities(device)];
@@ -479,34 +526,17 @@ export const setupDeviceAutodiscovery = async (props: {
         entitiesToRun.push(cloneDeep(onlineEntity));
     }
 
-    const getConfig = (entity: string, name: string, deviceClassParent?: string, icon?: string) => ({
-        dev: mqttdevice,
-        unique_id: `${idPrefix}-${id}-${entity}`,
-        object_id: `${device.name}_${entity}`,
-        name,
-        device_class: deviceClassParent ?? (entity === 'triggered' || entity.includes('Detected') ? deviceClass : undefined),
-        icon
-    } as any);
-
     for (const mqttEntity of entitiesToRun) {
-        const { domain, entity, name, deviceClass: deviceClassParent, icon } = mqttEntity;
+        const { domain, entity, deviceClass: deviceClassParent } = mqttEntity;
+        const stateTopic = getEntityTopic(entity);
 
-        const config = getConfig(entity, name, deviceClassParent, icon);
-        const topic = getEntityTopic(entity);
-
-        if (domain === 'binary_sensor') {
-            config.payload_on = 'true';
-            config.payload_off = 'false';
-            config.state_topic = topic;
-        }
-        if (domain === 'image') {
-            config.image_topic = topic;
-            config.image_encoding = 'b64';
-            config.state_topic = topic;
-        }
-        if (domain === 'sensor') {
-            config.state_topic = topic;
-        }
+        const config = await getMqttDiscoveryConfig({
+            mqttEntity,
+            stateTopic,
+            device,
+            id,
+            deviceClass: deviceClassParent ?? (entity === 'triggered' || entity.includes('Detected') ? deviceClass : undefined)
+        });
 
         await mqttClient.publish(getDiscoveryTopic(domain, entity), JSON.stringify(config));
 
@@ -519,18 +549,24 @@ export const setupDeviceAutodiscovery = async (props: {
         const stateTopic = getEntityTopic(recordingEntity.entity);
         const commandTopic = getCommandTopic(recordingEntity.entity);
 
-        const config = {
-            dev: mqttdevice,
-            unique_id: `${idPrefix}-${id}-${recordingEntity.entity}`,
-            object_id: `${device.name}_${recordingEntity.entity}`,
-            name: `${recordingEntity.name}`,
-            platform: 'switch',
-            command_topic: commandTopic,
-            state_topic: stateTopic,
-            optimistic: false,
-            retain: true,
-            qos: 0
-        };
+        // dev: mqttdevice,
+        // unique_id: `${idPrefix}-${id}-${entity}`,
+        // object_id: `${device.name}_${entity}`,
+        // name,
+        // optimistic: false,
+        // device_class: deviceClass ?? deviceClassParent,
+        // icon,
+        // qos: 0,
+        // domain
+        const config = await getMqttDiscoveryConfig({
+            mqttEntity: recordingEntity,
+            stateTopic,
+            device,
+            id,
+            additionalConfigs: {
+                command_topic: commandTopic
+            }
+        });
 
         await mqttClient.publish(getDiscoveryTopic(recordingEntity.domain, recordingEntity.entity), JSON.stringify(config));
     }
@@ -538,16 +574,14 @@ export const setupDeviceAutodiscovery = async (props: {
     if (device.interfaces.includes(ScryptedInterface.Reboot)) {
         const commandTopic = getCommandTopic(rebootEntity.entity);
 
-        const config = {
-            dev: mqttdevice,
-            unique_id: `${idPrefix}-${id}-${rebootEntity.entity}`,
-            object_id: `${device.name}_${rebootEntity.entity}`,
-            name: `${rebootEntity.name}`,
-            platform: 'button',
-            command_topic: commandTopic,
-            device_class: rebootEntity.deviceClass,
-            qos: 0
-        };
+        const config = await getMqttDiscoveryConfig({
+            mqttEntity: recordingEntity,
+            device,
+            id,
+            additionalConfigs: {
+                command_topic: commandTopic
+            }
+        });
 
         await mqttClient.publish(getDiscoveryTopic(rebootEntity.domain, rebootEntity.entity), JSON.stringify(config));
     }
@@ -558,18 +592,15 @@ export const setupDeviceAutodiscovery = async (props: {
             const commandTopic = getCommandTopic(ptzPresetEntity.entity);
             const stateTopic = getEntityTopic(ptzPresetEntity.entity);
 
-            const config = {
-                dev: mqttdevice,
-                unique_id: `${idPrefix}-${id}-${ptzPresetEntity.entity}`,
-                object_id: `${device.name}_${ptzPresetEntity.entity}`,
-                name: `${ptzPresetEntity.name}`,
-                platform: 'select',
-                command_topic: commandTopic,
-                state_topic: stateTopic,
-                qos: 0,
-                optimistic: false,
-                options: presets
-            };
+            const config = await getMqttDiscoveryConfig({
+                mqttEntity: ptzPresetEntity,
+                device,
+                id,
+                stateTopic,
+                additionalConfigs: {
+                    command_topic: commandTopic
+                }
+            });
 
             await mqttClient.publish(getDiscoveryTopic(ptzPresetEntity.domain, ptzPresetEntity.entity), JSON.stringify(config));
         }
@@ -579,17 +610,14 @@ export const setupDeviceAutodiscovery = async (props: {
         for (const commandEntity of commandEntities) {
             const commandTopic = getCommandTopic(commandEntity.entity);
 
-            const config = {
-                dev: mqttdevice,
-                unique_id: `${idPrefix}-${id}-${commandEntity.entity}`,
-                object_id: `${device.name}_${commandEntity.entity}`,
-                name: `${commandEntity.name}`,
-                platform: 'button',
-                command_topic: commandTopic,
-                device_class: commandEntity.deviceClass,
-                qos: 0,
-                icon: commandEntity.icon
-            };
+            const config = await getMqttDiscoveryConfig({
+                mqttEntity: commandEntity,
+                device,
+                id,
+                additionalConfigs: {
+                    command_topic: commandTopic
+                }
+            });
 
             await mqttClient.publish(getDiscoveryTopic(commandEntity.domain, commandEntity.entity), JSON.stringify(config));
         }
@@ -601,6 +629,23 @@ export const setupDeviceAutodiscovery = async (props: {
         const commandTopic = getCommandTopic(entityId);
         const stateTopic = getEntityTopic(entityId);
 
+        // dev: mqttdevice,
+        // unique_id: `${idPrefix}-${id}-${entity}`,
+        // object_id: `${device.name}_${entity}`,
+        // name,
+        // optimistic: false,
+        // device_class: deviceClass ?? deviceClassParent,
+        // icon,
+        // qos: 0,
+        // domain
+        const config = await getMqttDiscoveryConfig({
+            mqttEntity: commandEntity,
+            device,
+            id,
+            additionalConfigs: {
+                command_topic: commandTopic
+            }
+        });
         const ruleEnabledConfig = {
             dev: mqttdevice,
             unique_id: `${idPrefix}-${id}-${ruleDeviceId}`,
@@ -612,64 +657,16 @@ export const setupDeviceAutodiscovery = async (props: {
             optimistic: false,
             retain: true,
             qos: 0,
-        }
+        };
 
         await mqttClient.publish(getDiscoveryTopic('switch', entityId), JSON.stringify(ruleEnabledConfig));
-    }
 
-    for (const rule of rules) {
-        await publishRule(rule);
-    }
-}
-
-export const discoveryRuleTopics = async (
-    props: {
-        device: ScryptedDeviceBase,
-        rules: (DetectionRule | OccupancyRule)[],
-        console: Console,
-        mqttClient: MqttClient
-    }
-) => {
-    const { console, device, mqttClient, rules } = props;
-    const { id } = device;
-    const mqttdevice = await getMqttDevice(device);
-
-    const { getDiscoveryTopic, getEntityTopic, } = getMqttTopics(device.id);
-
-    console.debug(`Following rules will be discovered ${JSON.stringify({
-        rules,
-    })} `);
-
-    const getConfig = (entity: string, name: string, deviceClass?: string, icon?: string) => ({
-        dev: mqttdevice,
-        unique_id: `${idPrefix}-${id}-${entity}`,
-        object_id: `${device.name}_${entity}`,
-        name,
-        device_class: deviceClass,
-        icon
-    } as any);
-
-    for (const rule of rules) {
         const mqttEntities = getRuleMqttEntities(rule);
         for (const mqttEntity of mqttEntities) {
             const { domain, entity, name, deviceClass: deviceClassParent, icon } = mqttEntity;
-
-            const config = getConfig(entity, name, deviceClassParent, icon);
             const topic = getEntityTopic(entity);
 
-            if (domain === 'binary_sensor') {
-                config.payload_on = 'true';
-                config.payload_off = 'false';
-                config.state_topic = topic;
-            }
-            if (domain === 'image') {
-                config.image_topic = topic;
-                config.image_encoding = 'b64';
-                config.state_topic = topic;
-            }
-            if (domain === 'sensor') {
-                config.state_topic = topic;
-            }
+            const config = getMqttDiscoveryConfig({ entity, name, deviceClassParent, icon, domain, topic });
 
             const discoveryTopic = getDiscoveryTopic(domain, entity);
             console.debug(`Discovering following entity ${JSON.stringify({
@@ -683,6 +680,10 @@ export const discoveryRuleTopics = async (
                 await mqttClient.publish(topic, JSON.stringify(false));
             }
         }
+    }
+
+    for (const rule of rules) {
+        await publishRule(rule);
     }
 }
 
