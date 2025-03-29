@@ -1,6 +1,14 @@
 <details>
 <summary>Changelog</summary>
 
+### 2.2.28
+
+Enable reporting of occupancy data for every camera enabled to MQTT
+
+### 2.2.27
+
+Audio deteciton rules implemented
+
 ### 2.2.26
 
 Add PTZ controls to MQTT/HA

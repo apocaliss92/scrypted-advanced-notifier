@@ -110,7 +110,3 @@ Simple webooks to retrieve information, only the last snapshot is for now availa
 ## Notifier mixin
 - `Snapshot scale`: scale up/down the snapshot of a camera. If 1 will use the originated on camera and will improve performances
 - `Texts`: override of the plugin level texts
-
-## What's next
-* Add boundary box on detected object (really struggling :D)
-* Add more test suits to emulate a detection on specific conditions
