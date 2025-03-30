@@ -354,7 +354,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 rules: allRules
                             }).catch(logger.error);
 
-                            logger.log(`Subscribing to mqtt topics`);
+                            logger.debug(`Subscribing to mqtt topics`);
                             subscribeToDeviceMqttTopics({
                                 mqttClient,
                                 rules: allRules,
