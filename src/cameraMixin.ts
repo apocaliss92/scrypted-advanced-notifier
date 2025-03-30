@@ -336,8 +336,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     if (mqttClient) {
                         const now = Date.now();
                         // Send autodiscovery every hour
-                        if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 1) {
-                        // if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
+                        // if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 1) {
+                        if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
                             const allRules = [
                                 ...allDetectionRules,
                                 ...allOccupancyRules,
