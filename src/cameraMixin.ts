@@ -361,7 +361,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 device,
                                 activationRuleCb: async ({ active, ruleName, ruleType }) => {
                                     const { common: { enabledKey } } = getRuleKeys({ ruleName, ruleType });
-                                    logger.log(`Setting ${ruleType} rule ${ruleName} to ${active}`);
+                                    logger.debug(`Setting ${ruleType} rule ${ruleName} to ${active}`);
                                     await this.storageSettings.putSetting(`${enabledKey}`, active);
                                 },
                                 switchRecordingCb: async (active) => {

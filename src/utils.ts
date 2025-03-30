@@ -1754,10 +1754,10 @@ export interface BaseRule {
     actions?: string[];
     securitySystemModes?: SecuritySystemMode[];
     minDelay?: number;
+    devices?: string[];
 }
 
 export interface DetectionRule extends BaseRule {
-    devices: string[];
     markDetections: boolean;
     detectionClasses?: DetectionClass[];
     nvrEvents?: NvrEvent[];

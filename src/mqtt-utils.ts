@@ -244,9 +244,27 @@ export const setupPluginAutodiscovery = async (props: {
             retain: true,
             qos: 0
         };
-        
 
         await mqttClient.publish(getDiscoveryTopic('switch', entityId), JSON.stringify(detectionRuleEnabledConfig));
+
+        const currentlyActiveEntity = getRuleMqttEntities(detectionRule).find(entity => entity.deviceClass === 'running');
+
+        const activeStateTopic = getEntityTopic(currentlyActiveEntity.entity);
+        const currentlyActiveEntityConfig = {
+            dev: mqttMainSettingsDevice,
+            unique_id: `${mainRuleId}-rule-${currentlyActiveEntity.entity}-active`,
+            name: `Main rule ${detectionRule.name} active`,
+            platform: currentlyActiveEntity.domain,
+            state_topic: activeStateTopic,
+            optimistic: false,
+            retain: true,
+            payload_on: 'true',
+            payload_off: 'false',
+            qos: 0,
+            device_class: currentlyActiveEntity.deviceClass
+        };
+
+        await mqttClient.publish(getDiscoveryTopic(currentlyActiveEntity.domain, currentlyActiveEntity.entity), JSON.stringify(currentlyActiveEntityConfig));
     }
 }
 
@@ -621,7 +639,6 @@ export const setupDeviceAutodiscovery = async (props: {
             await mqttClient.publish(getDiscoveryTopic('switch', entityId), JSON.stringify(ruleEnabledConfig));
         }
 
-
         if (rule.ruleType !== RuleType.Timelapse) {
             const mqttEntities = getRuleMqttEntities(rule);
             for (const mqttEntity of mqttEntities) {
@@ -873,7 +890,8 @@ export const publishRuleCurrentlyActive = async (props: {
 
     const { entity } = mqttEntity;
 
-    await mqttClient.publish(getEntityTopic(entity), active ?? false, true);
+    const isActive = active ?? false;
+    await mqttClient.publish(getEntityTopic(entity), isActive, true);
 }
 
 export const publishDeviceState = async (props: {

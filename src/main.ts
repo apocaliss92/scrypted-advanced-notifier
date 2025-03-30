@@ -580,15 +580,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             console: logger,
             detectionRules: allPluginDetectionRules,
         });
-        
-        // if (rulesToEnable && rulesToDisable) {
-        //     await reportDeviceValues({
-        //         console: logger,
-        //         mqttClient,
-        //         rulesToDisable,
-        //         rulesToEnable
-        //     });
-        // }
+
+        if (rulesToEnable && rulesToDisable) {
+            await reportDeviceValues({
+                console: logger,
+                mqttClient,
+                rulesToDisable,
+                rulesToEnable
+            });
+        }
 
         return { allPluginDetectionRules };
     }

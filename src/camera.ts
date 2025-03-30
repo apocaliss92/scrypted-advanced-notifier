@@ -135,7 +135,7 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
         const thumbnailsPath = path.join(mainTimelapsePath, 'snapshots');
         let thumbnailMo: MediaObject;
 
-        const filename = `${ruleName.replace(' ', '')}_${videoclipUrl.split('/').pop().replace('.mp4', '.jpg')}`;
+        const filename = `${ruleName.replaceAll(' ', '')}_${videoclipUrl.split('/').pop().replace('.mp4', '.jpg')}`;
         const thumbnailPath = path.join(thumbnailsPath, filename);
         try {
             try {
