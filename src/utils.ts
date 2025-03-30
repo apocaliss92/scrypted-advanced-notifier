@@ -1617,7 +1617,7 @@ export const getTimelapseRulesSettings = async (props: {
             {
                 key: timelapseFramerateKey,
                 title: 'Timelapse framerate',
-                description: 'Minimum amount of seconds to wait until a new frame is recorded',
+                description: 'Framerate of the output timelapse',
                 group,
                 subgroup,
                 type: 'number',
