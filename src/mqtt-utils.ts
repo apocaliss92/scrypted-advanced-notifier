@@ -829,7 +829,8 @@ export const reportDeviceValues = async (props: {
             console: console,
             mqttClient,
             rule,
-            active: true
+            active: true,
+            device,
         });
     }
 
@@ -838,7 +839,8 @@ export const reportDeviceValues = async (props: {
             console: console,
             mqttClient,
             rule,
-            active: false
+            active: false,
+            device,
         });
     }
 }
@@ -898,18 +900,16 @@ export const publishRuleCurrentlyActive = async (props: {
     rule: BaseRule,
     console: Console,
     mqttClient: MqttClient,
-    active?: boolean
+    active?: boolean,
+    device?: ScryptedDeviceBase
 }) => {
-    const { mqttClient, rule, active } = props;
-    const mqttEntity = getRuleMqttEntities(rule).find(entity => entity.deviceClass === 'running');
+    const { mqttClient, rule, active, device } = props;
+    const mqttEntity = getRuleMqttEntitiesV2({ rule, device }).find(item => item.entity.endsWith(ruleRunningSuffix));
 
-    const { ruleDeviceId } = getRuleStrings(rule);
-    const { getEntityTopic } = getMqttTopics(ruleDeviceId);
-
-    const { entity } = mqttEntity;
-
+    const { stateTopic } = await getMqttAutodiscoveryConfiguration({ mqttEntity, device });
     const isActive = active ?? false;
-    await mqttClient.publish(getEntityTopic(entity), isActive, true);
+
+    await mqttClient.publish(stateTopic, JSON.stringify(isActive));
 }
 
 export const publishDeviceRuleData = async (props: {
