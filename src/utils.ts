@@ -274,13 +274,20 @@ export enum NotificationSource {
 
 
 
-export const filterAndSortValidDetections = (detections: ObjectDetectionResult[], logger: Console) => {
-    const sortedByPriorityAndScore = sortBy(detections,
+export const filterAndSortValidDetections = (props: {
+    detections: ObjectDetectionResult[],
+    logger: Console,
+    processedIds: string[]
+}) => {
+    const { detections, logger, processedIds } = props;
+    const filteredByProcessdIds = detections.filter(det => !det.id || !processedIds.includes(det.id));
+    const sortedByPriorityAndScore = sortBy(filteredByProcessdIds,
         (detection) => [detection?.className ? classnamePrio[detection.className] : 100,
         1 - (detection.score ?? 0)]
     );
     let hasLabel = false;
     const uniqueByClassName = uniqBy(sortedByPriorityAndScore, det => det.className);
+    const ids: string[] = [];
     const candidates = uniqueByClassName.filter(det => {
         const { className, label, movement } = det;
         if (className.startsWith('debug-')) {
@@ -299,10 +306,12 @@ export const filterAndSortValidDetections = (detections: ObjectDetectionResult[]
             hasLabel = isLabel;
         }
 
+        ids.push(det.id);
+
         return true;
     });
 
-    return { candidates, hasLabel };
+    return { candidates, hasLabel, ids };
 }
 
 export type TextSettingKey =

@@ -150,6 +150,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     latestFrame?: Buffer;
     audioForwarder: ReturnType<typeof startRtpForwarderProcess>;
     lastAudioDetected: number;
+    processedDetectionIds: string[] = [];
+    lastProcessedDetectionsReset: number;
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -330,11 +332,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const isCurrentlyRunning = !!this.detectionListener || !!this.motionListener;
                 const shouldRun = this.isActiveForMqttReporting || this.isActiveForNotifications;
 
+                const now = Date.now();
                 if (isActiveForMqttReporting) {
                     const mqttClient = await this.plugin.getMqttClient();
                     if (mqttClient) {
-                        const now = Date.now();
-                        if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
+                        // Every 10 minutes repeat the autodiscovery
+                        if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 10) {
                             const allRules = [
                                 ...allDetectionRules,
                                 ...allOccupancyRules,
@@ -433,6 +436,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const { entityId } = this.storageSettings.values;
                 if (this.plugin.storageSettings.values.haEnabled && entityId && !this.plugin.storageSettings.values.fetchedEntities.includes(entityId)) {
                     logger.debug(`Entity id ${entityId} does not exists on HA`);
+                }
+
+                // Every 10 seconds reset the processed detection IDs
+                if (!this.lastProcessedDetectionsReset || (now - this.lastProcessedDetectionsReset) > 1000 * 10) {
+                    this.processedDetectionIds = [];
+                    this.lastProcessedDetectionsReset = now;
                 }
             } catch (e) {
                 logger.log('Error in startCheckInterval funct', e);
@@ -1402,7 +1411,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             minSnapshotDelay
         } = this.storageSettings.values;
 
-        const { candidates, hasLabel } = filterAndSortValidDetections(detections ?? [], logger);
+        const { candidates, hasLabel, ids } = filterAndSortValidDetections({
+            detections: detections ?? [],
+            logger,
+            processedIds: this.processedDetectionIds ?? []
+        });
+        this.processedDetectionIds.push(...ids);
 
         let image: MediaObject;
         let b64Image: string;

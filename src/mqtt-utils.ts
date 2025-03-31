@@ -16,6 +16,7 @@ interface MqttEntity {
     entityCategory?: 'diagnostic' | 'config';
     valueToDispatch?: string;
     forcedId?: string;
+    options?: string[];
 }
 
 export const detectionClassForObjectsReporting = [DetectionClass.Animal, DetectionClass.Person, DetectionClass.Vehicle];
@@ -66,7 +67,7 @@ const ptzPresetEntity: MqttEntity = {
     domain: 'select',
     entity: 'ptz-preset',
     name: 'PTZ preset',
-    deviceClass: 'restart'
+    deviceClass: 'restart',
 };
 const ptzZoomInEntity: MqttEntity = {
     domain: 'button',
@@ -111,9 +112,9 @@ const getMqttAutodiscoveryConfiguration = async (props: {
     additionalProps?: object
 }) => {
     const { device, mqttEntity, additionalProps = {} } = props;
-    const { domain, entity, name, deviceClass, icon, entityCategory } = mqttEntity;
+    const { domain, entity, name, deviceClass, icon, entityCategory, options, forcedId } = mqttEntity;
     const mqttDevice = await getMqttDevice(device);
-    const deviceId = device ? device.id : pluginId;
+    const deviceId = forcedId ?? (device ? device.id : pluginId);
 
     const { commandTopic, discoveryTopic, stateTopic } = getMqttTopicsV2({ mqttEntity, device });
 
@@ -129,6 +130,7 @@ const getMqttAutodiscoveryConfiguration = async (props: {
         device_class: deviceClass,
         icon,
         entity_category: entityCategory,
+        options,
         ...additionalProps
     };
 
@@ -163,8 +165,19 @@ const lastImageSuffix = '-last-image';
 const deviceClassMqttEntities: MqttEntity[] = defaultDetectionClasses.flatMap(className => {
     const parsedClassName = toTitleCase(className);
     const entries: MqttEntity[] = [
-        { entity: `${className}${detectedSuffix}`, name: `${parsedClassName} detected`, domain: 'binary_sensor', className },
-        { entity: `${className}${lastImageSuffix}`, name: `${parsedClassName} last image `, domain: 'image', className },
+        {
+            entity: `${className}${detectedSuffix}`,
+            name: `${parsedClassName} detected`,
+            domain: 'binary_sensor',
+            className,
+            valueToDispatch: 'false'
+        },
+        {
+            entity: `${className}${lastImageSuffix}`,
+            name: `${parsedClassName} last image `,
+            domain: 'image',
+            className
+        },
         {
             entity: `${className}${lastDetectionSuffix}`,
             name: `${parsedClassName} last detection`,
@@ -660,7 +673,7 @@ export const setupDeviceAutodiscovery = async (props: {
     if (device.interfaces.includes(ScryptedInterface.PanTiltZoom)) {
         const presets = Object.values(device.ptzCapabilities.presets ?? {});
         if (presets?.length) {
-            entitiesToRun.push(ptzPresetEntity);
+            entitiesToRun.push({ ...ptzPresetEntity, options: presets });
         }
 
         const commandEntities = getPtzCommandEntities(device);
@@ -674,7 +687,6 @@ export const setupDeviceAutodiscovery = async (props: {
 
     for (const mqttEntity of entitiesToRun) {
         const { config, discoveryTopic, stateTopic } = await getMqttAutodiscoveryConfiguration({ mqttEntity, device });
-        console.log(device.name, JSON.stringify({ discoveryTopic, config }));
 
         await mqttClient.publish(discoveryTopic, JSON.stringify(config));
 
@@ -711,9 +723,10 @@ export const publishRelevantDetections = async (props: {
 
                     if (entity.endsWith(detectedSuffix)) {
                         value = true;
-                    } else if (entity.endsWith(lastImageSuffix)) {
+                    } else if (entity.endsWith(lastLabelSuffix)) {
                         value = detection?.label || null;
                     } else if (entity.endsWith(lastDetectionSuffix)) {
+                        // value = new Date(Math.ceil(new Date(triggerTime).getTime() / 1000) * 1000).toISOString();
                         value = new Date(triggerTime).toISOString();
                     } else if (entity.endsWith(lastImageSuffix) && b64Image) {
                         value = b64Image || null;
@@ -766,7 +779,7 @@ export const publishRelevantDetections = async (props: {
             for (const entry of getDeviceClassEntities(device)) {
                 const { entity } = entry;
 
-                if (entity.includes(detectedSuffix)) {
+                if (entity.endsWith(detectedSuffix)) {
                     const { stateTopic } = getMqttTopicsV2({ mqttEntity: entry, device });
                     await mqttClient.publish(stateTopic, false);
                 }
