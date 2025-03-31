@@ -2,7 +2,7 @@ import sdk, { EventListenerRegister, MediaObject, ScryptedDevice, ScryptedDevice
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import HomeAssistantUtilitiesProvider from "./main";
-import { publishDeviceRuleData, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
+import { setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { BinarySensorMetadata, binarySensorMetadataMap, convertSettingsToStorageSettings, DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, getRuleKeys, isDeviceEnabled, RuleSource, RuleType } from "./utils";
 
 const { systemManager } = sdk;
@@ -308,25 +308,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             }
 
             logger.log(`Sensor triggered: ${JSON.stringify({ triggered })}`);
-
-            const mqttClient = await this.plugin.getMqttClient();
-
-            if (mqttClient) {
-                try {
-                    const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase;
-                    publishDeviceRuleData({
-                        mqttClient,
-                        device,
-                        triggered,
-                        console: logger,
-                        resettAllClasses: false,
-                        allRuleIds: [],
-                        triggerTime,
-                    }).finally(() => this.mqttReportInProgress = false);
-                } catch (e) {
-                    logger.log(`Error in reportDetectionsToMqtt`, e);
-                }
-            }
 
             if (triggered) {
                 const { isDoorbell, device } = await this.plugin.getLinkedCamera(this.id);

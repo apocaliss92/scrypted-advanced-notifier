@@ -7,9 +7,9 @@ import { RtpPacket } from "../../scrypted/external/werift/packages/rtp/src/rtp/r
 import { startRtpForwarderProcess } from '../../scrypted/plugins/webrtc/src/rtp-forwarders';
 import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
-import { publishDeviceRuleData, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
+import { publishOccupancy, publishRelevantDetections, publishResetDetectionsEntities, publishRuleData, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { AudioRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, addBoundingBoxes, convertSettingsToStorageSettings, filterAndSortValidDetections, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, isDeviceEnabled, pcmU8ToDb } from "./utils";
+import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, addBoundingBoxes, convertSettingsToStorageSettings, filterAndSortValidDetections, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, isDeviceEnabled, pcmU8ToDb } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -126,12 +126,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     audioRules: AudioRule[] = [];
     allTimelapseRules: TimelapseRule[] = [];
     nvrDetectionRules: DetectionRule[] = [];
-    rulesDiscovered: string[] = [];
     occupancyRulesDiscovered: string[] = [];
-    detectionClassListeners: Record<string, {
-        motionTimeout: NodeJS.Timeout;
-        motionListener: EventListenerRegister
-    }> = {};
     audioListeners: Record<string, {
         inProgress: boolean;
         lastDetection?: number;
@@ -151,6 +146,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     audioForwarder: ReturnType<typeof startRtpForwarderProcess>;
     lastAudioDetected: number;
     processedDetectionIds: string[] = [];
+    allRules: BaseRule[] = [];
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -343,6 +339,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 ...allTimelapseRules,
                                 ...allAudioRules,
                             ];
+                            this.allRules = allRules;
 
                             setupDeviceAutodiscovery({
                                 mqttClient,
@@ -456,25 +453,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }, 10000);
     }
 
-    resetTimeouts(detectionClass?: string) {
-        if (detectionClass) {
-            const { motionListener, motionTimeout } = this.detectionClassListeners[detectionClass] ?? {};
-
-            motionTimeout && clearTimeout(motionTimeout);
-            motionListener?.removeListener && motionListener.removeListener();
-
-            this.detectionClassListeners[detectionClass] = { motionListener: undefined, motionTimeout: undefined };
-        } else {
-            Object.keys(this.detectionClassListeners).forEach(detectionClass => {
-                const { motionListener, motionTimeout } = this.detectionClassListeners[detectionClass] ?? {};
-                motionTimeout && clearTimeout(motionTimeout);
-                motionListener?.removeListener && motionListener.removeListener();
-
-                this.detectionClassListeners[detectionClass] = { motionListener: undefined, motionTimeout: undefined };
-            });
-        }
-    }
-
     resetAudioRule(ruleName: string, lastNotification?: number) {
         const resetInterval = this.audioListeners[ruleName]?.resetInterval;
         resetInterval && clearInterval(resetInterval);
@@ -495,12 +473,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             this.getLogger().log('Resetting listeners.');
         }
 
-        this.resetTimeouts();
         this.detectionListener?.removeListener && this.detectionListener.removeListener();
         this.detectionListener = undefined;
         this.motionListener?.removeListener && this.motionListener.removeListener();
         this.motionListener = undefined;
         this.stopAudioListener();
+        this.mqttDetectionMotionTimeout && clearInterval(this.mqttDetectionMotionTimeout);
     }
 
     async initValues() {
@@ -748,12 +726,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }
 
             this.mqttDetectionMotionTimeout = setTimeout(async () => {
-                publishRelevantDetections({
+                publishResetDetectionsEntities({
                     mqttClient,
-                    console: logger,
                     device,
-                    triggerTime,
-                    reset: true,
+                    allRules: this.allRules
                 }).catch(logger.error);
             }, motionDuration * 1000);
         }
@@ -761,87 +737,55 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async triggerRule(props: { matchRule: MatchRule, device: DeviceInterface, b64Image?: string, image?: MediaObject, triggerTime: number }) {
         const logger = this.getLogger();
+
         try {
             const { matchRule, b64Image, device, triggerTime, image } = props;
-            const { match: { className }, rule: parentRule } = matchRule;
-            const rule = parentRule as DetectionRule;
+            const { rule: ruleParent } = matchRule;
+            const rule = ruleParent as DetectionRule;
 
-            const report = async (triggered: boolean) => {
-                logger.debug(`Stopping listeners.`);
-                this.resetTimeouts(className);
-                const mqttClient = await this.plugin.getMqttClient();
-
-                if (mqttClient) {
-                    try {
-                        const { match } = matchRule;
-                        publishDeviceRuleData({
-                            mqttClient,
-                            device,
-                            triggered,
-                            console: logger,
-                            b64Image,
-                            image,
-                            detection: match,
-                            resettAllClasses: !triggered,
-                            rule: rule as DetectionRule,
-                            allRuleIds: this.rulesDiscovered,
-                            triggerTime,
-                            storeImageFn: this.plugin.storeImage
-                        }).catch(logger.error);
-                        // this.mqttReportInProgress = false
-                    } catch (e) {
-                        logger.log(`Error in triggerMotion`, e);
-                    }
-                }
-
-                const { disableNvrRecordingSeconds, name } = rule;
-                if (disableNvrRecordingSeconds !== undefined) {
-                    const seconds = Number(disableNvrRecordingSeconds);
-
-                    logger.log(`Enabling NVR recordings for ${seconds} seconds`);
-                    await this.enableRecording(device, true);
-
-                    if (!this.detectionRuleListeners[name]) {
-                        this.detectionRuleListeners[name] = {};
-                    }
-
-                    if (this.detectionRuleListeners[name].disableNvrRecordingTimeout) {
-                        clearTimeout(this.detectionRuleListeners[name].disableNvrRecordingTimeout);
-                        this.detectionRuleListeners[name].disableNvrRecordingTimeout = undefined;
-                    }
-
-                    this.detectionRuleListeners[name].disableNvrRecordingTimeout = setTimeout(async () => {
-                        logger.log(`Disabling NVR recordings`);
-                        await this.enableRecording(device, false);
-                    }, seconds * 1000);
+            const mqttClient = await this.plugin.getMqttClient();
+            if (mqttClient) {
+                try {
+                    publishRuleData({
+                        mqttClient,
+                        device,
+                        triggerValue: true,
+                        console: logger,
+                        b64Image,
+                        image,
+                        rule: rule as DetectionRule,
+                        triggerTime,
+                        storeImageFn: this.plugin.storeImage
+                    }).catch(logger.error);
+                } catch (e) {
+                    logger.log(`Error in triggerRule`, e);
                 }
             }
 
-            await report(true);
+            const { disableNvrRecordingSeconds, name } = rule;
+            if (disableNvrRecordingSeconds !== undefined) {
+                const seconds = Number(disableNvrRecordingSeconds);
 
-            logger.debug(`Starting motion OFF listeners.`);
-            const motionListener = systemManager.listenDevice(this.id, {
-                event: ScryptedInterface.MotionSensor,
-                watch: true,
-            }, async (_, __, data) => {
-                if (!data) {
-                    logger.debug(`Motion end triggered by the device.`);
-                    await report(false);
+                logger.log(`Enabling NVR recordings for ${seconds} seconds`);
+                await this.enableRecording(device, true);
+
+                if (!this.detectionRuleListeners[name]) {
+                    this.detectionRuleListeners[name] = {};
                 }
-            });
 
-            const motionDuration = this.storageSettings.values.motionDuration;
-            const motionTimeout = setTimeout(async () => {
-                logger.debug(`Motion end triggered automatically after ${motionDuration}s.`);
-                await report(false);
-            }, motionDuration * 1000);
+                if (this.detectionRuleListeners[name].disableNvrRecordingTimeout) {
+                    clearTimeout(this.detectionRuleListeners[name].disableNvrRecordingTimeout);
+                    this.detectionRuleListeners[name].disableNvrRecordingTimeout = undefined;
+                }
 
-            this.detectionClassListeners[className] = {
-                motionListener,
-                motionTimeout
+                this.detectionRuleListeners[name].disableNvrRecordingTimeout = setTimeout(async () => {
+                    logger.log(`Disabling NVR recordings`);
+                    await this.enableRecording(device, false);
+                }, seconds * 1000);
             }
+
         } catch (e) {
-            logger.log('error in trigger', e);
+            logger.log('error in triggerRule', e);
         }
     }
 
@@ -1611,7 +1555,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             eventType: EventType.ObjectDetection,
                             triggerTime,
                         })})}`);
-
                     }
 
                     this.plugin.matchDetectionFound({
@@ -1650,6 +1593,19 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         score: 1,
                     }
                     this.processDetections({ detections: [detection], triggerTime: timestamp, isFromNvr: false })
+                } else {
+                    const mqttClient = await this.plugin.getMqttClient();
+                    const logger = this.getLogger();
+                    if (this.mqttDetectionMotionTimeout) {
+                        clearInterval(this.mqttDetectionMotionTimeout);
+                        this.mqttDetectionMotionTimeout = undefined;
+
+                        publishResetDetectionsEntities({
+                            mqttClient,
+                            device: this.cameraDevice,
+                            allRules: this.allRules
+                        }).catch(logger.error);
+                    }
                 }
             });
         } catch (e) {
