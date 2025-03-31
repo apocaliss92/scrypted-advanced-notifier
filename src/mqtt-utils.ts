@@ -157,10 +157,11 @@ const getMqttAutodiscoveryConfiguration = async (props: {
     return { discoveryTopic, config, stateTopic, commandTopic };
 }
 
-const detectedSuffix = '-detected';
-const lastDetectionSuffix = '-last-detection';
-const lastLabelSuffix = '-last-recognized';
-const lastImageSuffix = '-last-image';
+const detectedSuffix = '_detected';
+const lastDetectionSuffix = '_last_detection';
+const lastLabelSuffix = '_last_recognized';
+const lastImageSuffix = '_last_image';
+const objectsSuffix = '_objects';
 
 const deviceClassMqttEntities: MqttEntity[] = defaultDetectionClasses.flatMap(className => {
     const parsedClassName = toTitleCase(className);
@@ -193,7 +194,7 @@ const deviceClassMqttEntities: MqttEntity[] = defaultDetectionClasses.flatMap(cl
     }
 
     if (detectionClassForObjectsReporting.includes(className)) {
-        entries.push({ entity: `${className}-objects`, name: `${parsedClassName} objects`, domain: 'sensor', className });
+        entries.push({ entity: `${className}${objectsSuffix}`, name: `${parsedClassName} objects`, domain: 'sensor', className });
     }
 
     return entries;
@@ -220,6 +221,11 @@ const getRuleMqttEntities = (rule: BaseRule): MqttEntity[] => {
     return entries;
 }
 
+const ruleRunningSuffix = '_running';
+const ruleActiveSuffix = '_active';
+const ruleTriggeredSuffix = '_triggered';
+const ruleLastTriggerSuffix = '_last_trigger';
+
 const getRuleMqttEntitiesV2 = (props: {
     rule: BaseRule,
     device?: ScryptedDeviceBase,
@@ -232,7 +238,7 @@ const getRuleMqttEntitiesV2 = (props: {
 
     const forcedId = isPluginRuleForDevice ? pluginId : undefined;
     const runningEntity: MqttEntity = {
-        entity: `${entity}_running`,
+        entity: `${entity}${ruleRunningSuffix}`,
         name: `${parsedName} running`,
         domain: 'binary_sensor',
         deviceClass: 'running',
@@ -240,27 +246,27 @@ const getRuleMqttEntitiesV2 = (props: {
         entityCategory: 'diagnostic'
     };
     const switchEntity: MqttEntity = {
-        entity: `${entity}_active`,
+        entity: `${entity}${ruleActiveSuffix}`,
         name: `${parsedName} active`,
         domain: 'switch',
         forcedId,
         entityCategory: 'config'
     };
     const triggerEntity: MqttEntity = {
-        entity: `${entity}_triggered`,
+        entity: `${entity}${ruleTriggeredSuffix}`,
         name: `${parsedName} triggered`,
         domain: 'binary_sensor',
         deviceClass: 'motion',
         forcedId
     };
     const lastImageEntity: MqttEntity = {
-        entity: `${entity}_last_image`,
+        entity: `${entity}${lastImageSuffix}`,
         name: `${parsedName} last image `,
         domain: 'image',
         forcedId
     };
     const lastTriggerEntity: MqttEntity = {
-        entity: `${entity}_last_trigger`,
+        entity: `${entity}${ruleLastTriggerSuffix}`,
         name: `${parsedName} last trigger `,
         domain: 'sensor',
         icon: 'mdi:clock',
@@ -849,7 +855,7 @@ const publishRuleData = async (props: {
     triggerValue?: boolean
 }) => {
     const { console, device, mqttClient, rule, b64Image, image, triggerTime, storeImageFn, triggerValue } = props;
-    const mqttEntities = getRuleMqttEntities(rule).filter(entity => entity.deviceClass !== 'running');
+    const mqttEntities = getRuleMqttEntitiesV2({ rule, device });
     console.debug(`Rule entities to publish: ${JSON.stringify({
         rule,
         mqttEntities,
@@ -857,19 +863,20 @@ const publishRuleData = async (props: {
         triggerValue,
     })}`);
 
-    const { ruleDeviceId } = getRuleStrings(rule);
-    const { getEntityTopic } = getMqttTopics(ruleDeviceId);
+    for (const mqttEntity of mqttEntities) {
+        const { entity } = mqttEntity;
+        const { config, discoveryTopic, stateTopic } = await getMqttAutodiscoveryConfiguration({ mqttEntity, device });
 
-    for (const entry of mqttEntities) {
-        const { entity, domain } = entry;
+        await mqttClient.publish(discoveryTopic, JSON.stringify(config));
+
         let value: any;
-        let retain: true;
+        let retain = false;
 
-        if (domain === 'binary_sensor') {
+        if (entity.endsWith(ruleTriggeredSuffix)) {
             value = triggerValue ?? false;
-        } else if (entity.includes('LastTrigger')) {
+        } else if (entity.endsWith(ruleLastTriggerSuffix)) {
             value = new Date(triggerTime).toISOString();
-        } else if (entity.includes('LastImage') && b64Image) {
+        } else if (entity.endsWith(lastImageSuffix) && b64Image) {
             value = b64Image || null;
             retain = true;
             storeImageFn && storeImageFn({
@@ -882,7 +889,7 @@ const publishRuleData = async (props: {
         }
 
         if (value !== undefined) {
-            await mqttClient.publish(getEntityTopic(entity), value, retain);
+            await mqttClient.publish(stateTopic, value);
         }
     }
 }
@@ -925,15 +932,6 @@ export const publishDeviceRuleData = async (props: {
         console.debug(`Trigger entities to publish: ${JSON.stringify(triggeredEntity)}`);
         const { getEntityTopic } = getMqttTopics(device.id);
 
-        const { entity } = triggeredEntity;
-
-        const value: any = triggered;
-        const retain = true;
-
-        if (value !== null) {
-            await mqttClient.publish(getEntityTopic(entity), value, retain);
-        }
-
         if (rule) {
             await publishRuleData({
                 b64Image,
@@ -944,6 +942,7 @@ export const publishDeviceRuleData = async (props: {
                 rule,
                 triggerTime,
                 storeImageFn,
+                triggerValue: triggered
             });
         }
 

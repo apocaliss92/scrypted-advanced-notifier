@@ -272,7 +272,7 @@ export enum NotificationSource {
     TIMELAPSE = 'TIMELAPSE',
 }
 
-
+const getDetectionId = (detection: ObjectDetectionResult) => detection.id ? `${detectionClassesDefaultMap[detection.className]}-${detection.id}` : undefined;
 
 export const filterAndSortValidDetections = (props: {
     detections: ObjectDetectionResult[],
@@ -280,7 +280,11 @@ export const filterAndSortValidDetections = (props: {
     processedIds: string[]
 }) => {
     const { detections, logger, processedIds } = props;
-    const filteredByProcessdIds = detections.filter(det => !det.id || !processedIds.includes(det.id));
+    const filteredByProcessdIds = detections.filter(det => {
+        const id = getDetectionId(det);
+
+        return !id || !processedIds.includes(id);
+    });
     const sortedByPriorityAndScore = sortBy(filteredByProcessdIds,
         (detection) => [detection?.className ? classnamePrio[detection.className] : 100,
         1 - (detection.score ?? 0)]
@@ -306,7 +310,9 @@ export const filterAndSortValidDetections = (props: {
             hasLabel = isLabel;
         }
 
-        ids.push(det.id);
+        const id = getDetectionId(det);
+
+        id && ids.push(id);
 
         return true;
     });
