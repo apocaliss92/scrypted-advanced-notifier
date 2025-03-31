@@ -68,6 +68,13 @@ const batteryEntity: MqttEntity = {
     deviceClass: 'battery',
     entityCategory: 'diagnostic'
 };
+const sleepingEntity: MqttEntity = {
+    domain: 'binary_sensor',
+    entity: 'sleeping',
+    name: 'Sleeping',
+    deviceClass: 'plug',
+    entityCategory: 'diagnostic'
+};
 const onlineEntity: MqttEntity = {
     domain: 'binary_sensor',
     entity: 'online',
@@ -189,10 +196,9 @@ const getVideocameraMqttAutodiscoveryConfiguration = async (props: {
     additionalProps?: Partial<AutodiscoveryConfig>
 }) => {
     const { device, mqttEntity, additionalProps = {} } = props;
-    const { forceStateId } = mqttEntity;
 
     const mqttDevice = await getMqttDevice(device);
-    const deviceId = forceStateId ?? device.id;
+    const deviceId = device.id;
 
     const { commandTopic, discoveryTopic, stateTopic } = getMqttTopics({ mqttEntity, device });
 
@@ -719,6 +725,10 @@ export const setupDeviceAutodiscovery = async (props: {
         mqttEntities.push(cloneDeep(onlineEntity));
     }
 
+    if (device.interfaces.includes(ScryptedInterface.Sleep)) {
+        mqttEntities.push(cloneDeep(sleepingEntity));
+    }
+
     if (device.interfaces.includes(ScryptedInterface.VideoRecorder)) {
         mqttEntities.push(recordingEntity);
     }
@@ -872,6 +882,10 @@ export const reportDeviceValues = async (props: {
         if (device.interfaces.includes(ScryptedInterface.Online)) {
             const { stateTopic } = getMqttTopics({ mqttEntity: onlineEntity, device });
             await mqttClient.publish(stateTopic, device.online, true);
+        }
+        if (device.interfaces.includes(ScryptedInterface.Sleep)) {
+            const { stateTopic } = getMqttTopics({ mqttEntity: sleepingEntity, device });
+            await mqttClient.publish(stateTopic, device.sleeping, true);
         }
         if (device.interfaces.includes(ScryptedInterface.VideoRecorder)) {
             const { stateTopic } = getMqttTopics({ mqttEntity: recordingEntity, device });
