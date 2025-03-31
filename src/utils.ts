@@ -666,7 +666,7 @@ export const isDeviceEnabled = async (
         skippedDetectionRules,
         nvrRules,
         allDeviceDetectionRules,
-        allPluginDetectionRules,
+        allPluginRules,
         allDetectionRules,
     } = getDeviceRules({
         device,
@@ -712,7 +712,7 @@ export const isDeviceEnabled = async (
         skippedDetectionRules,
         nvrRules,
         allDeviceDetectionRules,
-        allPluginDetectionRules,
+        allPluginRules,
         skippedOccupancyRules,
         occupancyRules,
         allOccupancyRules,
@@ -1760,6 +1760,7 @@ export interface Action {
 export interface BaseRule {
     activationType: DetectionRuleActivation;
     source: RuleSource;
+    isEnabled: boolean;
     currentlyActive?: boolean;
     useAi: boolean;
     ruleType: RuleType;
@@ -1830,6 +1831,7 @@ const initBasicRule = (props: {
     const notifiersTouse = notifiers?.filter(notifierId => activeNotifiers?.includes(notifierId));
 
     const rule: BaseRule = {
+        isEnabled,
         ruleType,
         useAi,
         currentlyActive,
@@ -1951,7 +1953,7 @@ export const getDeviceRules = (
     const detectionRules: DetectionRule[] = [];
     const nvrRules: DetectionRule[] = [];
     const skippedDetectionRules: DetectionRule[] = [];
-    const allPluginDetectionRules: DetectionRule[] = [];
+    const allPluginRules: BaseRule[] = [];
     const allDeviceDetectionRules: DetectionRule[] = [];
     const allDetectionRules: DetectionRule[] = [];
     const deviceId = device?.id;
@@ -2063,7 +2065,7 @@ export const getDeviceRules = (
             }
 
             if (ruleSource === RuleSource.Plugin) {
-                allPluginDetectionRules.push(cloneDeep(detectionRule));
+                allPluginRules.push(cloneDeep(detectionRule));
             } else if (ruleSource === RuleSource.Device) {
                 allDeviceDetectionRules.push(cloneDeep(detectionRule));
             }
@@ -2091,7 +2093,7 @@ export const getDeviceRules = (
         detectionRules,
         skippedDetectionRules,
         nvrRules,
-        allPluginDetectionRules,
+        allPluginRules,
         allDeviceDetectionRules,
         allDetectionRules,
     };

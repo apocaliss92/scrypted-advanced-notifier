@@ -149,6 +149,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                             withDetections: true,
                             deviceClass: this.storageSettings.values.haDeviceClass || 'window',
                             rules: allDeviceDetectionRules,
+                            rulesEnabled: detectionRulesToEnable
                         });
 
                         this.getLogger().log(`Subscribing to mqtt topics`);

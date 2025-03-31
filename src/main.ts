@@ -6,7 +6,7 @@ import path from 'path';
 import { BasePlugin, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
-import { getMqttTopics, getRuleStrings, publishRuleCurrentlyActive, reportDeviceValues, setupPluginAutodiscovery, subscribeToMainMqttTopics } from "./mqtt-utils";
+import { getPluginMqttAutodiscoveryConfiguration, getRuleMqttEntities, ruleActiveSuffix, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
@@ -291,6 +291,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     detectionRules: DetectionRule[] = [];
     lastNotExistingNotifier: number;
     private checkExistingDevicesInterval: NodeJS.Timeout;
+    allRules: BaseRule[] = [];
 
     constructor(nativeId: string) {
         super(nativeId, {
@@ -373,11 +374,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.refreshDeviceLinksInterval = setInterval(async () => {
                 await this.refreshDevicesLinks();
             }, 10000);
+
             this.checkExistingDevicesInterval = setInterval(async () => {
                 await this.checkPluginConfigurations(false);
 
                 if (this.storageSettings.values.mqttEnabled) {
-                    await this.sendAutoDiscovery({});
+                    await this.sendAutoDiscovery();
                 }
             }, 60 * 60 * 1000);
         } catch (e) {
@@ -558,11 +560,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         return;
     }
 
-    private async sendAutoDiscovery(props: {
-        rulesToEnable?: DetectionRule[];
-        rulesToDisable?: DetectionRule[];
-    }) {
-        const { rulesToDisable, rulesToEnable } = props;
+    private async sendAutoDiscovery() {
         const mqttClient = await this.getMqttClient();
         const logger = this.getLogger();
         const objDetectionPlugin = systemManager.getDeviceByName('Scrypted NVR Object Detection') as unknown as Settings;
@@ -572,25 +570,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             .map(person => person.trim());
 
         const pluginStorage = this.storageSettings;
-        const { allPluginDetectionRules } = getDeviceRules({ pluginStorage, console: logger });
+        const { allPluginRules } = getDeviceRules({ pluginStorage, console: logger });
 
         await setupPluginAutodiscovery({
             mqttClient,
             people: knownPeople,
             console: logger,
-            detectionRules: allPluginDetectionRules,
+            rules: allPluginRules,
         });
 
-        if (rulesToEnable && rulesToDisable) {
-            await reportDeviceValues({
-                console: logger,
-                mqttClient,
-                rulesToDisable,
-                rulesToEnable
-            });
-        }
-
-        return { allPluginDetectionRules };
+        this.allRules = allPluginRules;
     }
 
     async putSetting(key: string, value: SettingValue): Promise<void> {
@@ -600,12 +589,17 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     async updateActivationRuleOnMqtt(props: { deviceId?: string, active: boolean, ruleName: string, logger: Console, ruleType: RuleType }) {
         const { active, ruleName, deviceId, logger, ruleType } = props;
         const mqttClient = await this.getMqttClient();
-        const { entityId, ruleDeviceId } = getRuleStrings({ name: ruleName, ruleType } as BaseRule);
+        const rule = this.allRules.find(rule => rule.name === ruleName);
 
-        const { getEntityTopic } = getMqttTopics(ruleDeviceId);
-        const stateTopic = getEntityTopic(entityId);
-        logger.log(`Setting ${ruleType} rule ${ruleName} to ${active} for device ${deviceId}`);
-        await mqttClient.publish(stateTopic, active ? 'ON' : 'OFF');
+        if (rule) {
+            const ruleActiveEntity = getRuleMqttEntities({ rule }).find(item => item.entity.endsWith(ruleActiveSuffix));
+
+            if (ruleActiveEntity) {
+                const { stateTopic } = await getPluginMqttAutodiscoveryConfiguration({ mqttEntity: ruleActiveEntity });
+                logger.log(`Setting ${ruleType} rule ${ruleName} to ${active} for device ${deviceId}`);
+                await mqttClient.publish(stateTopic, active ? 'true' : 'false');
+            }
+        }
     }
 
     private async setupMqttEntities() {
@@ -613,14 +607,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if (mqttEnabled) {
             try {
                 const mqttClient = await this.getMqttClient();
-                const { allPluginDetectionRules } = await this.sendAutoDiscovery({});
+                await this.sendAutoDiscovery();
                 const logger = this.getLogger();
 
                 this.getLogger().log(`Subscribing to mqtt topics`);
-                await subscribeToMainMqttTopics({
+                await subscribeToPluginMqttTopics({
                     entitiesActiveTopic: mqttActiveEntitiesTopic,
                     mqttClient,
-                    detectionRules: allPluginDetectionRules,
+                    rules: this.allRules,
                     activeEntitiesCb: async (message) => {
                         logger.debug(`Received update for ${mqttActiveEntitiesTopic} topic: ${JSON.stringify(message)}`);
                         await this.syncHaEntityIds(message);
@@ -759,7 +753,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const pluginStorage = this.storageSettings;
             const { nvrRules, detectionRules } = getDeviceRules({ pluginStorage, console: logger });
 
-
             const detectionRulesToEnable = (detectionRules || []).filter(newRule => !this.detectionRules?.some(currentRule => currentRule.name === newRule.name));
             const detectionRulesToDisable = (this.detectionRules || []).filter(currentRule => !detectionRules?.some(newRule => newRule.name === currentRule.name));
 
@@ -792,10 +785,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.doorbellDevices = doorbellDevices;
 
             if (this.storageSettings.values.mqttEnabled) {
-                await this.sendAutoDiscovery({
-                    rulesToDisable,
-                    rulesToEnable
-                });
+                await this.sendAutoDiscovery();
             }
         } catch (e) {
             logger.log('Error in refreshDevicesLinks', e);
