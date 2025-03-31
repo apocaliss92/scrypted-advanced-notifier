@@ -63,7 +63,7 @@ export const getDefaultEntityId = (name: string) => {
         .map(word => word.toLowerCase())
         .join('_') ?? 'not_set';
 
-    return `binary_sensor.${convertedName}_triggered`;
+    return `binary_sensor.${convertedName}_notification_triggered`;
 }
 
 export const getWebooks = async () => {
