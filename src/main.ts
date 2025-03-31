@@ -11,7 +11,7 @@ import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { ADVANCED_NOTIFIER_INTERFACE, AiPlatform, AudioRule, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getDetectionRulesSettings, getDeviceRules, getElegibleDevices, getFolderPaths, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, HOMEASSISTANT_PLUGIN_ID, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, StoreImageFn, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TimelapseRule } from "./utils";
-// import { version } from '../package.json';
+import { version } from '../package.json';
 import child_process from 'child_process';
 import { once } from "events";
 import fs from 'fs';
@@ -274,6 +274,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             choices: [],
             combobox: true,
         },
+        alert300Shown: {
+            type: 'boolean',
+            hide: true
+        },
     };
     storageSettings = new StorageSettings(this, this.initStorage);
 
@@ -298,9 +302,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             pluginFriendlyName: 'Advanced notifier'
         });
 
-        // if (version === '1.5.1') {
-        //     this.log.a('In version 1.5.1 there have been many changes/fixes on the MQTT devices declaration. Please clear all the devices on Homeassistant with prefix "Scrypted AN" to have fresh sensors');
-        // }
+        const [major, minor, patch] = version.split('.').map(num => parseInt(num, 10));
+        if (major === 3 && minor === 0 && !this.storageSettings.values.alert300Shown) {
+            this.log.a(`Starting from version 3.x.x, an huge rework happened on MQTT. Most of the identifiers discovered on MQTT have changed.
+                It's suggested to remove all the discovered devices on Homeassistant, clear the retained messages on MQTT and let the addon recreate them.
+                Run a test checkConfiguration to make sure everything is ok`);
+            this.storageSettings.values.alert300Shown = true;
+        }
 
         (async () => {
             await sdk.deviceManager.onDeviceDiscovered(

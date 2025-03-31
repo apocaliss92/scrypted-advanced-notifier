@@ -1,6 +1,11 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.0.0
+
+MQTT rework. Most of the IDs have changed. Remove all the homeassistant devices and let the plugin to recreate them.
+This was required to allow me to extend the plugin in an easier and scalable way. Some improvements happened along the way
+
 ### 2.2.30
 
 Add MQTT flag for each rule currently running
