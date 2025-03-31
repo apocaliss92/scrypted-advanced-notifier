@@ -2,7 +2,7 @@ import sdk, { EventListenerRegister, MediaObject, ScryptedDevice, ScryptedDevice
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import HomeAssistantUtilitiesProvider from "./main";
-import { publishDeviceState, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
+import { publishDeviceRuleData, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { BinarySensorMetadata, binarySensorMetadataMap, convertSettingsToStorageSettings, DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, getRuleKeys, isDeviceEnabled, RuleSource, RuleType } from "./utils";
 
 const { systemManager } = sdk;
@@ -314,7 +314,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             if (mqttClient) {
                 try {
                     const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase;
-                    publishDeviceState({
+                    publishDeviceRuleData({
                         mqttClient,
                         device,
                         triggered,

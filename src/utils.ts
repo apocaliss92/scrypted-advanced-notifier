@@ -743,8 +743,6 @@ export const getTextKey = (props: { classname?: string, eventType: EventType }) 
     return key;
 }
 
-export const firstUpperCase = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
-
 export enum DetectionRuleActivation {
     Always = 'Always',
     OnActive = 'OnActive',
@@ -2575,3 +2573,19 @@ export const pcmU8ToDb = (payload: Uint8Array): number => {
     const db = 20 * Math.log10(rms / minRMS);
     return db;
 }
+
+export const toKebabCase = (str: string) => str
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[_\s]+/g, '-')
+    .toLowerCase();
+
+export const toSnakeCase = (str: string) => str
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[-\s]+/g, '_')
+    .toLowerCase();
+
+export const toTitleCase = (str: string) => str
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .toLowerCase()
+    .replace(/^\w/, char => char.toUpperCase()); 

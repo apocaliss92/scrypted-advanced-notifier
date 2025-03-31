@@ -7,7 +7,7 @@ import { RtpPacket } from "../../scrypted/external/werift/packages/rtp/src/rtp/r
 import { startRtpForwarderProcess } from '../../scrypted/plugins/webrtc/src/rtp-forwarders';
 import { detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
-import { publishDeviceState, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
+import { publishDeviceRuleData, publishOccupancy, publishRelevantDetections, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { AudioRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, addBoundingBoxes, convertSettingsToStorageSettings, filterAndSortValidDetections, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, isDeviceEnabled, pcmU8ToDb } from "./utils";
 
@@ -117,7 +117,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     isActiveForMqttReporting: boolean;
     lastAutoDiscovery: number;
     isActiveForNvrNotifications: boolean;
-    // mqttReportInProgress: boolean;
     lastDetectionMap: Record<string, number> = {};
     logger: Console;
     killed: boolean;
@@ -335,8 +334,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     const mqttClient = await this.plugin.getMqttClient();
                     if (mqttClient) {
                         const now = Date.now();
-                        // Send autodiscovery every hour
-                        // if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 1) {
                         if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
                             const allRules = [
                                 ...allDetectionRules,
@@ -724,12 +721,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }) {
         const { detections, device, logger, triggerTime, b64Image, image } = props;
         const { room, motionDuration } = this.storageSettings.values;
-        // if (!this.mqttReportInProgress) {
-        // logger.log(`Detected: ${detections.map(det => `${det.className} (${det.score})`).join(', ')}`);
 
         this.mqttDetectionMotionTimeout && clearTimeout(this.mqttDetectionMotionTimeout);
 
-        // this.mqttReportInProgress = true;
         const mqttClient = await this.plugin.getMqttClient();
 
         if (mqttClient) {
@@ -745,7 +739,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     room,
                     storeImageFn: this.plugin.storeImage
                 }).catch(logger.error);
-                // }).finally(() => this.mqttReportInProgress = false);
             } catch (e) {
                 logger.log(`Error in reportDetectionsToMqtt`, e);
             }
@@ -760,10 +753,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }).catch(logger.error);
             }, motionDuration * 1000);
         }
-        // }
     }
 
-    async triggerMotion(props: { matchRule: MatchRule, device: DeviceInterface, b64Image?: string, image?: MediaObject, triggerTime: number }) {
+    async triggerRule(props: { matchRule: MatchRule, device: DeviceInterface, b64Image?: string, image?: MediaObject, triggerTime: number }) {
         const logger = this.getLogger();
         try {
             const { matchRule, b64Image, device, triggerTime, image } = props;
@@ -778,7 +770,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 if (mqttClient) {
                     try {
                         const { match } = matchRule;
-                        publishDeviceState({
+                        publishDeviceRuleData({
                             mqttClient,
                             device,
                             triggered,
@@ -1438,7 +1430,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 this.checkOccupancyData(image).catch(logger.log);
             }
 
-            this.reportDetectionsToMqtt({ detections: candidates, triggerTime, logger, device, b64Image, image });
+            this.reportDetectionsToMqtt({ detections: candidates, triggerTime, logger, device, b64Image, image }).catch(logger.error);
         }
 
         let dataToReport = {};
@@ -1540,8 +1532,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             let imageToNotify = parentImage ?? image;
 
-            let markedImage;
-            let markedb64Image;
+            let markedImage: MediaObject;
+            let markedb64Image: string;
             if (!!matchRules.length) {
                 let bufferImage: Buffer;
 
@@ -1591,7 +1583,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         b64ImageToUse = markedb64Image;
                     }
 
-
                     logger.debug(`Matching detections found: ${JSON.stringify({
                         matchRulesMap: matchRules,
                         candidates,
@@ -1602,7 +1593,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                     if (rule.ruleType === RuleType.Detection) {
                         if (this.isActiveForMqttReporting) {
-                            this.triggerMotion({ matchRule, b64Image: b64ImageToUse, device, triggerTime, image: imageToUse });
+                            this.triggerRule({ matchRule, b64Image: b64ImageToUse, device, triggerTime, image: imageToUse });
                         }
 
                         logger.log(`Starting notifiers: ${JSON.stringify({
