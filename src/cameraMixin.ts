@@ -445,7 +445,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 if (this.killed) {
                     await this.release();
                 } else {
-                    await funct();
+                    if (this.plugin.getMqttClient()) {
+                        await funct();
+                    }
                 }
             } catch (e) {
                 logger.log('Error in startCheckInterval', e);
@@ -735,13 +737,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    async triggerRule(props: { matchRule: MatchRule, device: DeviceInterface, b64Image?: string, image?: MediaObject, triggerTime: number }) {
+    async triggerRule(props: { rule: BaseRule, device: DeviceInterface, b64Image?: string, image?: MediaObject, triggerTime: number }) {
         const logger = this.getLogger();
 
         try {
-            const { matchRule, b64Image, device, triggerTime, image } = props;
-            const { rule: ruleParent } = matchRule;
-            const rule = ruleParent as DetectionRule;
+            const { rule, b64Image, device, triggerTime, image } = props;
 
             const mqttClient = await this.plugin.getMqttClient();
             if (mqttClient) {
@@ -753,7 +753,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         console: logger,
                         b64Image,
                         image,
-                        rule: rule as DetectionRule,
+                        rule,
                         triggerTime,
                         storeImageFn: this.plugin.storeImage
                     }).catch(logger.error);
@@ -762,26 +762,28 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
             }
 
-            const { disableNvrRecordingSeconds, name } = rule;
-            if (disableNvrRecordingSeconds !== undefined) {
-                const seconds = Number(disableNvrRecordingSeconds);
+            if (rule.ruleType === RuleType.Detection) {
+                const { disableNvrRecordingSeconds, name } = rule as DetectionRule;
+                if (disableNvrRecordingSeconds !== undefined) {
+                    const seconds = Number(disableNvrRecordingSeconds);
 
-                logger.log(`Enabling NVR recordings for ${seconds} seconds`);
-                await this.enableRecording(device, true);
+                    logger.log(`Enabling NVR recordings for ${seconds} seconds`);
+                    await this.enableRecording(device, true);
 
-                if (!this.detectionRuleListeners[name]) {
-                    this.detectionRuleListeners[name] = {};
+                    if (!this.detectionRuleListeners[name]) {
+                        this.detectionRuleListeners[name] = {};
+                    }
+
+                    if (this.detectionRuleListeners[name].disableNvrRecordingTimeout) {
+                        clearTimeout(this.detectionRuleListeners[name].disableNvrRecordingTimeout);
+                        this.detectionRuleListeners[name].disableNvrRecordingTimeout = undefined;
+                    }
+
+                    this.detectionRuleListeners[name].disableNvrRecordingTimeout = setTimeout(async () => {
+                        logger.log(`Disabling NVR recordings`);
+                        await this.enableRecording(device, false);
+                    }, seconds * 1000);
                 }
-
-                if (this.detectionRuleListeners[name].disableNvrRecordingTimeout) {
-                    clearTimeout(this.detectionRuleListeners[name].disableNvrRecordingTimeout);
-                    this.detectionRuleListeners[name].disableNvrRecordingTimeout = undefined;
-                }
-
-                this.detectionRuleListeners[name].disableNvrRecordingTimeout = setTimeout(async () => {
-                    logger.log(`Disabling NVR recordings`);
-                    await this.enableRecording(device, false);
-                }, seconds * 1000);
             }
 
         } catch (e) {
@@ -1262,7 +1264,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const rules = cloneDeep((this.audioRules) ?? []);
             const now = Date.now();
 
-            const { image } = await this.getImage();
+            const { image, b64Image } = await this.getImage();
 
             for (const rule of rules) {
                 const { name, audioDuration, decibelThreshold, customText, minDelay } = rule;
@@ -1298,6 +1300,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 rule,
                                 triggerTime: now,
                             });
+
+                            if (this.isActiveForMqttReporting) {
+                                this.triggerRule({
+                                    rule,
+                                    b64Image,
+                                    device: this.cameraDevice,
+                                    triggerTime: now,
+                                    image
+                                });
+                            }
 
                             this.resetAudioRule(name, now);
                         } else {
@@ -1546,7 +1558,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                     if (rule.ruleType === RuleType.Detection) {
                         if (this.isActiveForMqttReporting) {
-                            this.triggerRule({ matchRule, b64Image: b64ImageToUse, device, triggerTime, image: imageToUse });
+                            this.triggerRule({ rule, b64Image: b64ImageToUse, device, triggerTime, image: imageToUse });
                         }
 
                         logger.log(`Starting notifiers: ${JSON.stringify({
