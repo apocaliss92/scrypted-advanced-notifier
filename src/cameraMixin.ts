@@ -151,7 +151,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     audioForwarder: ReturnType<typeof startRtpForwarderProcess>;
     lastAudioDetected: number;
     processedDetectionIds: string[] = [];
-    lastProcessedDetectionsReset: number;
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -438,11 +437,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     logger.debug(`Entity id ${entityId} does not exists on HA`);
                 }
 
-                // Every 10 seconds reset the processed detection IDs
-                if (!this.lastProcessedDetectionsReset || (now - this.lastProcessedDetectionsReset) > 1000 * 10) {
-                    this.processedDetectionIds = [];
-                    this.lastProcessedDetectionsReset = now;
-                }
+                this.processedDetectionIds = [];
             } catch (e) {
                 logger.log('Error in startCheckInterval funct', e);
             }

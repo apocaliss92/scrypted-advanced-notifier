@@ -289,6 +289,10 @@ export const filterAndSortValidDetections = (props: {
         (detection) => [detection?.className ? classnamePrio[detection.className] : 100,
         1 - (detection.score ?? 0)]
     );
+    // const sortedByPriorityAndScore = sortBy(detections,
+    //     (detection) => [detection?.className ? classnamePrio[detection.className] : 100,
+    //     1 - (detection.score ?? 0)]
+    // );
     let hasLabel = false;
     const uniqueByClassName = uniqBy(sortedByPriorityAndScore, det => det.className);
     const ids: string[] = [];

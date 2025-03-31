@@ -720,7 +720,7 @@ export const publishRelevantDetections = async (props: {
             const detectionClass = detectionClassesDefaultMap[detection.className];
             if (detectionClass) {
                 const entitiesToPublish = deviceClassMqttEntitiesGrouped[detectionClass] ?? [];
-                console.debug(`Relevant detections to publish: ${JSON.stringify({ detections, entitiesToPublish, b64Image })}`);
+                console.debug(`Relevant detections to publish: ${JSON.stringify({ detections, entitiesToPublish, b64Image: !!b64Image })}`);
 
                 for (const entry of entitiesToPublish) {
                     const { entity } = entry;
