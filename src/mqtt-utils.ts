@@ -714,12 +714,10 @@ export const publishResetDetectionsEntities = async (props: {
     ];
 
     for (const rule of allRules) {
-        if (rule.currentlyActive) {
-            const mqttEntity = getRuleMqttEntitiesV2({ rule, device }).find(item => item.entity.endsWith(ruleTriggeredSuffix));
+        const mqttEntity = getRuleMqttEntitiesV2({ rule, device }).find(item => item.entity.endsWith(ruleTriggeredSuffix));
 
-            if (mqttEntity) {
-                mqttEntities.push(mqttEntity);
-            }
+        if (mqttEntity) {
+            mqttEntities.push(mqttEntity);
         }
     }
 
