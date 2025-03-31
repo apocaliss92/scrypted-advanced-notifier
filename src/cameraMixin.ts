@@ -705,7 +705,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         image?: MediaObject
     }) {
         const { detections, device, logger, triggerTime, b64Image, image } = props;
-        const { room, motionDuration } = this.storageSettings.values;
+        const { room: settingRoom, motionDuration } = this.storageSettings.values;
+        const room = device.room ?? settingRoom;
 
         const mqttClient = await this.plugin.getMqttClient();
 
