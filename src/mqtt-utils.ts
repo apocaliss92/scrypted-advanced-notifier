@@ -708,17 +708,9 @@ export const publishResetDetectionsEntities = async (props: {
     allRules: BaseRule[]
 }) => {
     const { device, mqttClient, allRules = [] } = props;
-    for (const entry of getDeviceClassEntities(device)) {
-        const { entity } = entry;
-
-        if (entity.endsWith(detectedSuffix)) {
-            const { stateTopic } = getMqttTopicsV2({ mqttEntity: entry, device });
-            await mqttClient.publish(stateTopic, false);
-        }
-    }
 
     const mqttEntities: MqttEntity[] = [
-        ...getDeviceClassEntities(device),
+        ...getDeviceClassEntities(device).filter(item => item.entity.endsWith(detectedSuffix)),
     ];
 
     for (const rule of allRules) {
@@ -759,8 +751,6 @@ export const publishRelevantDetections = async (props: {
                 const parentClassEntries = parentClass ? deviceClassMqttEntitiesGrouped[parentClass] ?? [] : [];
 
                 const classEntries = [...specificClassEntries, ...parentClassEntries];
-                // console.debug(`Updating following entities related to ${detectionClass}. ${JSON.stringify({ classEntries, b64Image: !!b64Image })}`);
-                // const entitiesToPublish = deviceClassMqttEntitiesGrouped[detectionClass] ?? [];
                 console.debug(`Relevant detections to publish: ${JSON.stringify({ detections, classEntries, b64Image: !!b64Image })}`);
 
                 for (const entry of classEntries) {
