@@ -156,12 +156,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         super(options);
         const logger = this.getLogger();
 
-        this.storageSettings.settings.room.onGet = async () => {
-            const rooms = this.plugin.storageSettings.getItem('fetchedRooms');
-            return {
-                choices: rooms ?? []
-            }
-        }
         this.storageSettings.settings.entityId.onGet = async () => {
             const entities = this.plugin.storageSettings.getItem('fetchedEntities');
             return {
@@ -174,10 +168,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.initValues().then().catch(logger.log);
 
         this.plugin.currentMixinsMap[this.name] = this;
-
-        if (this.storageSettings.values.room && !this.room) {
-            sdk.systemManager.getDeviceById<ScryptedDevice>(this.id).setRoom(this.storageSettings.values.room);
-        }
 
         this.startStop(this.plugin.storageSettings.values.pluginEnabled).then().catch(logger.log);
     }
@@ -707,8 +697,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         image?: MediaObject
     }) {
         const { detections, device, logger, triggerTime, b64Image, image } = props;
-        const { room: settingRoom, motionDuration } = this.storageSettings.values;
-        const room = device.room ?? settingRoom;
+        const { motionDuration } = this.storageSettings.values;
+        const room = device.room;
 
         const mqttClient = await this.plugin.getMqttClient();
 

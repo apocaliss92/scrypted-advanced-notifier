@@ -39,7 +39,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
     killed: boolean;
     detectionRules: DetectionRule[] = [];
     nvrDetectionRules: DetectionRule[] = [];
-    rulesDiscovered: string[] = [];
     lastDetection: number;
     metadata: BinarySensorMetadata;
 
@@ -52,12 +51,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
         this.metadata = binarySensorMetadataMap[this.type];
 
-        this.storageSettings.settings.room.onGet = async () => {
-            const rooms = this.plugin.storageSettings.getItem('fetchedRooms');
-            return {
-                choices: rooms ?? []
-            }
-        }
         this.storageSettings.settings.entityId.onGet = async () => {
             const entities = this.plugin.storageSettings.getItem('fetchedEntities');
             return {
@@ -66,10 +59,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         }
 
         this.plugin.currentMixinsMap[this.name] = this;
-
-        if (this.storageSettings.values.room && !this.room) {
-            sdk.systemManager.getDeviceById<ScryptedDevice>(this.id).setRoom(this.storageSettings.values.room);
-        }
 
         this.startStop(this.plugin.storageSettings.values.pluginEnabled).then().catch(logger.log);
     }

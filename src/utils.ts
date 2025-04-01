@@ -511,7 +511,6 @@ export const rulesKey = 'advancedNotifierRules';
 
 export type MixinBaseSettingKey =
     | 'debug'
-    | 'room'
     | 'entityId'
     | 'haDeviceClass'
     | 'useNvrDetections'
@@ -543,13 +542,6 @@ export const getMixinBaseSettings = (props: {
                 type: 'boolean',
                 defaultValue: false,
                 immediate: true,
-            },
-            // To delete in some weeks
-            room: {
-                title: 'Room',
-                type: 'string',
-                immediate: true,
-                hide: true,
             },
             entityId: {
                 title: 'EntityID',
