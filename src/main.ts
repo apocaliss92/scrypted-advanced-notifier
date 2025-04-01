@@ -10,12 +10,12 @@ import { getPluginMqttAutodiscoveryConfiguration, getRuleMqttEntities, ruleActiv
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_INTERFACE, AiPlatform, AudioRule, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getDetectionRulesSettings, getDeviceRules, getElegibleDevices, getFolderPaths, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, HOMEASSISTANT_PLUGIN_ID, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, StoreImageFn, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TimelapseRule } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getDetectionRulesSettings, getDeviceRules, getElegibleDevices, getFolderPaths, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, HOMEASSISTANT_PLUGIN_ID, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, StoreImageFn, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TimelapseRule } from "./utils";
 import { version } from '../package.json';
 import child_process from 'child_process';
 import { once } from "events";
 import fs from 'fs';
-import { getAiMessage } from "./aiUtils";
+import { AiPlatform, getAiMessage } from "./aiUtils";
 import { AdvancedNotifierCamera } from "./camera";
 
 const { systemManager, mediaManager } = sdk;
@@ -595,7 +595,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             if (ruleActiveEntity) {
                 const { stateTopic } = await getPluginMqttAutodiscoveryConfiguration({ mqttEntity: ruleActiveEntity });
-                logger.log(`Setting ${ruleType} rule ${ruleName} to ${active} for device ${deviceId}`);
+                logger.debug(`Setting ${ruleType} rule ${ruleName} to ${active} for device ${deviceId}`);
                 await mqttClient.publish(stateTopic, active ? 'true' : 'false');
             }
         }

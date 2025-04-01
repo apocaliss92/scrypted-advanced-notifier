@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.0.8
+
+Added support to Groq
+
 ### 3.0.7
 
 Added support to Anthropic AI

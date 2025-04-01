@@ -12,14 +12,7 @@ import { classnamePrio, defaultDetectionClasses, DetectionClass, detectionClasse
 import AdvancedNotifierPlugin from "./main";
 const { endpointManager } = sdk;
 import { SANS_16_WHITE } from "jimp/fonts";
-import { defaultModel } from "./aiUtils";
-
-export enum AiPlatform {
-    Disabled = 'Disabled',
-    OpenAi = 'OpenAi',
-    GoogleAi = 'GoogleAi',
-    AnthropicClaude = 'AnthropicClaude',
-}
+import { AiPlatform, defaultModel } from "./aiUtils";
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Settings & ObjectDetector & VideoCamera & EntrySensor & Lock & BinarySensor;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
@@ -1363,7 +1356,12 @@ export const getAiSettings = (props: {
         );
     }
 
-    if ([AiPlatform.OpenAi, AiPlatform.GoogleAi, AiPlatform.AnthropicClaude].includes(aiPlatform)) {
+    if (
+        [AiPlatform.OpenAi,
+        AiPlatform.GoogleAi,
+        AiPlatform.AnthropicClaude,
+        AiPlatform.Groq,
+        ].includes(aiPlatform)) {
         settings.push(
             {
                 key: apiKeyKey,

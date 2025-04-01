@@ -2,8 +2,9 @@ import { GoogleGenerativeAI, HarmBlockThreshold, HarmCategory, Part } from "@goo
 import { ObjectDetectionResult } from "@scrypted/sdk";
 import axios from "axios";
 import AdvancedNotifierPlugin from "./main";
-import { AiPlatform, getAiSettingKeys } from "./utils";
+import { getAiSettingKeys } from "./utils";
 import { Anthropic } from '@anthropic-ai/sdk';
+import Groq from "groq-sdk";
 
 // export enum AiPromptPreset {
 //     Regular = 'Regular',
@@ -21,10 +22,19 @@ import { Anthropic } from '@anthropic-ai/sdk';
 // The response must be humorous, engaging, and under 130 characters. Do not tell the user to click the notification. If multiple interesting things are in the image, describe the most notable one. OSD texts on the image should be ignored. Output language should be italian`,
 // }
 
+export enum AiPlatform {
+    Disabled = 'Disabled',
+    OpenAi = 'OpenAi',
+    GoogleAi = 'GoogleAi',
+    AnthropicClaude = 'AnthropicClaude',
+    Groq = 'Groq',
+}
+
 export const defaultModel: Record<AiPlatform, string> = {
     [AiPlatform.AnthropicClaude]: 'claude-3-opus-20240229',
     [AiPlatform.OpenAi]: 'gpt-4o',
     [AiPlatform.GoogleAi]: 'gemini-1.5-flash',
+    [AiPlatform.Groq]: 'llama-3.2-90b-vision-preview',
     [AiPlatform.Disabled]: '',
 }
 
@@ -228,6 +238,31 @@ const executeAnthropicClaude = async (props: {
     return response.content;
 }
 
+const executeGroq = async (props: {
+    systemPrompt: string,
+    model: string,
+    b64Image: string,
+    logger: Console,
+    apiKey: string
+}) => {
+    const { b64Image, model, systemPrompt, logger, apiKey } = props;
+
+    const groq = new Groq({ apiKey });
+
+    const response = await groq.chat.completions.create({
+        model,
+        messages: [
+            { role: 'user', content: systemPrompt },
+            { role: 'user', content: `data:image/jpeg;base64,${b64Image}` }
+        ],
+        max_tokens: 1024,
+    });
+
+    const data = response.choices[0].message.content;
+    logger.debug(`Response from ${AiPlatform.Groq}: ${JSON.stringify(data)}`);
+    return data;
+}
+
 export const getAiMessage = async (props: {
     plugin: AdvancedNotifierPlugin,
     originalTitle: string,
@@ -284,6 +319,16 @@ export const getAiMessage = async (props: {
             message = result;
         } else if (aiPlatform === AiPlatform.AnthropicClaude) {
             const result = await executeAnthropicClaude({
+                apiKey,
+                b64Image,
+                logger,
+                model,
+                systemPrompt,
+            });
+
+            message = result;
+        } else if (aiPlatform === AiPlatform.Groq) {
+            const result = await executeGroq({
                 apiKey,
                 b64Image,
                 logger,
