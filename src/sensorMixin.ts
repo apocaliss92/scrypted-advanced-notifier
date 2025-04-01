@@ -2,7 +2,6 @@ import sdk, { EventListenerRegister, MediaObject, ScryptedDevice, ScryptedDevice
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import HomeAssistantUtilitiesProvider from "./main";
-import { setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { BinarySensorMetadata, binarySensorMetadataMap, convertSettingsToStorageSettings, DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, getRuleKeys, isDeviceEnabled, RuleSource, RuleType } from "./utils";
 
 const { systemManager } = sdk;
@@ -36,9 +35,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
     mainLoopListener: NodeJS.Timeout;
     isActiveForNotifications: boolean;
     isActiveForNvrNotifications: boolean;
-    isActiveForMqttReporting: boolean;
-    mainAutodiscoveryDone: boolean;
-    mqttReportInProgress: boolean;
     logger: Console;
     killed: boolean;
     detectionRules: DetectionRule[] = [];
@@ -94,8 +90,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
         const funct = async () => {
             const {
-                isActiveForMqttReporting,
-                isPluginEnabled,
                 detectionRules,
                 skippedDetectionRules,
                 isActiveForNotifications,
@@ -132,42 +126,10 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             this.nvrDetectionRules = nvrRules || [];
 
             this.isActiveForNotifications = isActiveForNotifications;
-            this.isActiveForMqttReporting = isActiveForMqttReporting;
 
             const isCurrentlyRunning = !!this.detectionListener;
-            const shouldRun = this.isActiveForMqttReporting || this.isActiveForNotifications;
+            const shouldRun = this.isActiveForNotifications;
 
-            if (isActiveForMqttReporting) {
-                const mqttClient = await this.plugin.getMqttClient();
-                if (mqttClient) {
-                    const device = systemManager.getDeviceById(this.id) as unknown as ScryptedDeviceBase & Settings;
-                    if (!this.mainAutodiscoveryDone) {
-                        await setupDeviceAutodiscovery({
-                            mqttClient,
-                            device,
-                            console: logger,
-                            withDetections: true,
-                            deviceClass: this.storageSettings.values.haDeviceClass || 'window',
-                            rules: allDeviceDetectionRules,
-                            rulesEnabled: detectionRulesToEnable
-                        });
-
-                        this.getLogger().log(`Subscribing to mqtt topics`);
-                        await subscribeToDeviceMqttTopics({
-                            mqttClient,
-                            rules: allDeviceDetectionRules,
-                            device,
-                            activationRuleCb: async ({ active, ruleName, ruleType }) => {
-                                const { common: { enabledKey } } = getRuleKeys({ ruleName, ruleType });
-                                logger.log(`Setting ${ruleType} rule ${ruleName} for device ${device.name} to ${active}`);
-                                await this.storageSettings.putSetting(`${enabledKey}`, active);
-                            },
-                        });
-
-                        this.mainAutodiscoveryDone = true;
-                    }
-                }
-            }
 
             if (isCurrentlyRunning && !shouldRun) {
                 logger.log('Stopping and cleaning listeners.');
@@ -175,7 +137,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             } else if (!isCurrentlyRunning && shouldRun) {
                 logger.log(`Starting ${this.metadata.interface} listener: ${JSON.stringify({
                     Notifications: isActiveForNotifications,
-                    MQTT: isActiveForMqttReporting,
                 })}`);
                 await this.startListeners();
             }
@@ -220,15 +181,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             ruleSource: RuleSource.Device,
             logger,
             onShowMore: this.refreshSettings.bind(this),
-            onRuleToggle: async (ruleName: string, active: boolean) => {
-                await this.plugin.updateActivationRuleOnMqtt({
-                    active,
-                    logger,
-                    ruleName,
-                    deviceId: this.id,
-                    ruleType: RuleType.Detection
-                });
-            },
         });
         dynamicSettings.push(...detectionRulesSettings);
 

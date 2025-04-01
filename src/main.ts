@@ -150,7 +150,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             type: 'device',
             multiple: true,
             combobox: true,
-            deviceFilter: deviceFilter,
+            deviceFilter: `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && type === '${ScryptedDeviceType.Camera}'`,
             defaultValue: [],
         },
         useNvrDetectionsForMqtt: {

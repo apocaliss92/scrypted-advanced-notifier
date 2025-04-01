@@ -901,8 +901,6 @@ export enum ZoneMatchType {
 export const deviceFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && ['${ScryptedDeviceType.Camera}', '${ScryptedDeviceType.Doorbell}', '${ScryptedDeviceType.Sensor}', '${ScryptedDeviceType.Lock}', '${ScryptedDeviceType.Entry}'].includes(type)`;
 export const notifierFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && ['${ScryptedDeviceType.Notifier}'].includes(type)`;
 export const sensorsFilter: StorageSetting['deviceFilter'] = `['${ScryptedDeviceType.Sensor}', '${ScryptedDeviceType.Entry}', '${ScryptedDeviceType.Lock}'].includes(type)`;
-// export const deviceFilter: StorageSetting['deviceFilter'] = d => d.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE) && [ScryptedDeviceType.Camera, ScryptedDeviceType.Doorbell, ScryptedDeviceType.Sensor, ScryptedDeviceType.Lock].includes(d.type);
-// export const notifierFilter: StorageSetting['deviceFilter'] = d => d.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE) && d.type === ScryptedDeviceType.Notifier;
 
 type GetSpecificRules = (props: { group: string, subgroup: string, ruleName: string, showMore: boolean }) => StorageSetting[];
 type OnRuleToggle = (ruleName: string, enabled: boolean) => Promise<void>
@@ -913,11 +911,11 @@ export const getRuleSettings = (props: {
     storage: StorageSettings<any>,
     ruleSource: RuleSource,
     getSpecificRules: GetSpecificRules,
-    onRuleToggle: OnRuleToggle,
+    onRuleToggle?: OnRuleToggle,
     onShowMore: OnShowMore,
     logger: Console
 }) => {
-    const { ruleType, storage, ruleSource, getSpecificRules, onRuleToggle, onShowMore, logger } = props;
+    const { ruleType, storage, ruleSource, getSpecificRules, onRuleToggle, onShowMore } = props;
     const group = ruleSource === RuleSource.Device ? mixinRulesGroup : pluginRulesGroup;
     const settings: StorageSetting[] = [];
     const { rulesKey, subgroupPrefix } = ruleTypeMetadataMap[ruleType];
@@ -962,9 +960,9 @@ export const getRuleSettings = (props: {
                 group,
                 subgroup,
                 immediate: true,
-                onPut: async (_, active) => {
+                onPut: onRuleToggle ? async (_, active) => {
                     await onRuleToggle(ruleName, active)
-                },
+                } : undefined,
                 defaultValue: true,
             },
             {
@@ -1155,7 +1153,7 @@ export const getDetectionRulesSettings = async (props: {
     zones?: string[],
     ruleSource: RuleSource,
     isCamera?: boolean,
-    onRuleToggle: OnRuleToggle,
+    onRuleToggle?: OnRuleToggle,
     onShowMore: OnShowMore,
     logger: Console
 }) => {
