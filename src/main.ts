@@ -1770,10 +1770,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         device: ScryptedDeviceBase,
         imageMo: MediaObject
     }) => {
-        const { rule, timestamp, imageMo } = props;
+        const { rule, timestamp, imageMo: imageMoParent, device } = props;
         const { imagesPath } = this.storageSettings.values;
 
-        if (imagesPath) {
+        let imageMo = imageMoParent;
+
+        if (!imageMo) {
+            imageMo = (await (this.currentMixinsMap[device.name] as AdvancedNotifierCameraMixin)?.getImage("periodic"))?.image;
+        }
+
+        if (imagesPath && imageMo) {
             const { framesPath } = this.getTimelapseFolder({ ruleName: rule.name });
 
             try {

@@ -808,7 +808,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    private async getImage(reason: RequestPictureOptions['reason'] = 'event') {
+    public async getImage(reason: RequestPictureOptions['reason'] = 'event') {
         const logger = this.getLogger();
         const now = Date.now();
         const { minSnapshotDelay } = this.storageSettings.values;
