@@ -1,6 +1,14 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.0.7
+
+Added support to Anthropic AI
+
+### 3.0.6
+
+Added support to Google AI, thanks @sfn!
+
 ### 3.0.0
 
 MQTT rework. Most of the IDs have changed. Remove all the homeassistant devices and let the plugin to recreate them.

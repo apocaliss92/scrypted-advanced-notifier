@@ -1,8 +1,9 @@
+import { GoogleGenerativeAI, HarmBlockThreshold, HarmCategory, Part } from "@google/generative-ai";
+import { ObjectDetectionResult } from "@scrypted/sdk";
 import axios from "axios";
 import AdvancedNotifierPlugin from "./main";
 import { AiPlatform, getAiSettingKeys } from "./utils";
-import sdk, { ObjectDetectionResult } from "@scrypted/sdk";
-import { GoogleGenerativeAI, HarmBlockThreshold, HarmCategory, Part } from "@google/generative-ai";
+import { Anthropic } from '@anthropic-ai/sdk';
 
 // export enum AiPromptPreset {
 //     Regular = 'Regular',
@@ -20,21 +21,27 @@ import { GoogleGenerativeAI, HarmBlockThreshold, HarmCategory, Part } from "@goo
 // The response must be humorous, engaging, and under 130 characters. Do not tell the user to click the notification. If multiple interesting things are in the image, describe the most notable one. OSD texts on the image should be ignored. Output language should be italian`,
 // }
 
+export const defaultModel: Record<AiPlatform, string> = {
+    [AiPlatform.AnthropicClaude]: 'claude-3-opus-20240229',
+    [AiPlatform.OpenAi]: 'gpt-4o',
+    [AiPlatform.GoogleAi]: 'gemini-1.5-flash',
+    [AiPlatform.Disabled]: '',
+}
 
 export const executeGoogleAi = async (props: {
     systemPrompt: string,
-    modeNamel: string,
+    model: string,
     b64Image: string,
     apiKey: string,
     logger: Console
 }) => {
-    const { modeNamel, systemPrompt, apiKey, b64Image, logger } = props;
+    const { model, systemPrompt, apiKey, b64Image, logger } = props;
 
     try {
         const promptText = systemPrompt || 'Describe this image in detail';
 
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: modeNamel });
+        const generativeModel = genAI.getGenerativeModel({ model });
 
         const generationConfig = {
             temperature: 0.4,
@@ -63,7 +70,7 @@ export const executeGoogleAi = async (props: {
             imagePart,
         ];
 
-        const result = await model.generateContent({
+        const result = await generativeModel.generateContent({
             contents: [{ role: 'user', parts }],
             generationConfig,
             safetySettings,
@@ -193,6 +200,34 @@ const executeOpenAi = async (props: {
     return {};
 }
 
+const executeAnthropicClaude = async (props: {
+    systemPrompt: string,
+    model: string,
+    b64Image: string,
+    logger: Console,
+    apiKey: string
+}) => {
+    const { b64Image, model, systemPrompt, logger, apiKey } = props;
+
+    const anthropic = new Anthropic({ apiKey });
+
+    const response = await anthropic.messages.create({
+        model,
+        max_tokens: 1024,
+        messages: [
+            {
+                role: "user", content: [
+                    { type: "text", text: systemPrompt },
+                    { type: "image", source: { type: "base64", data: b64Image, media_type: 'image/jpeg' } }
+                ]
+            }
+        ]
+    });
+
+    logger.debug(`Response from ${AiPlatform.AnthropicClaude}: ${JSON.stringify(response.content)}`);
+    return response.content;
+}
+
 export const getAiMessage = async (props: {
     plugin: AdvancedNotifierPlugin,
     originalTitle: string,
@@ -242,7 +277,17 @@ export const getAiMessage = async (props: {
                 apiKey,
                 b64Image,
                 logger,
-                modeNamel: model,
+                model,
+                systemPrompt,
+            });
+
+            message = result;
+        } else if (aiPlatform === AiPlatform.AnthropicClaude) {
+            const result = await executeAnthropicClaude({
+                apiKey,
+                b64Image,
+                logger,
+                model,
                 systemPrompt,
             });
 

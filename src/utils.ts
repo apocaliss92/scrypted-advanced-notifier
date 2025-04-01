@@ -12,12 +12,13 @@ import { classnamePrio, defaultDetectionClasses, DetectionClass, detectionClasse
 import AdvancedNotifierPlugin from "./main";
 const { endpointManager } = sdk;
 import { SANS_16_WHITE } from "jimp/fonts";
+import { defaultModel } from "./aiUtils";
 
 export enum AiPlatform {
     Disabled = 'Disabled',
-    // LmStudio = 'LmStudio',
     OpenAi = 'OpenAi',
     GoogleAi = 'GoogleAi',
+    AnthropicClaude = 'AnthropicClaude',
 }
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Settings & ObjectDetector & VideoCamera & EntrySensor & Lock & BinarySensor;
@@ -1362,7 +1363,7 @@ export const getAiSettings = (props: {
         );
     }
 
-    if ([AiPlatform.OpenAi, AiPlatform.GoogleAi].includes(aiPlatform)) {
+    if ([AiPlatform.OpenAi, AiPlatform.GoogleAi, AiPlatform.AnthropicClaude].includes(aiPlatform)) {
         settings.push(
             {
                 key: apiKeyKey,
@@ -1375,10 +1376,7 @@ export const getAiSettings = (props: {
                 group: 'AI',
                 title: 'Model',
                 description: 'The model to use to generate the image description. Must be vision capable.',
-                defaultValue: aiPlatform === AiPlatform.OpenAi ?
-                    'gpt-4o' : aiPlatform === AiPlatform.GoogleAi ?
-                        'gemini-1.5-flash' :
-                        undefined,
+                defaultValue: defaultModel[aiPlatform],
             },
             {
                 key: systemPromptKey,
