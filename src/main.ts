@@ -6,7 +6,7 @@ import path from 'path';
 import { BasePlugin, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
-import { getPluginMqttAutodiscoveryConfiguration, getRuleMqttEntities, ruleActiveSuffix, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
+import { getPluginMqttAutodiscoveryConfiguration, getRuleMqttEntities, MqttEntityIdentifier, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
@@ -591,7 +591,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const rule = this.allRules.find(rule => rule.name === ruleName);
 
         if (rule) {
-            const ruleActiveEntity = getRuleMqttEntities({ rule }).find(item => item.entity.endsWith(ruleActiveSuffix));
+            const ruleActiveEntity = getRuleMqttEntities({ rule }).find(item => item.identifier === MqttEntityIdentifier.RuleActive);
 
             if (ruleActiveEntity) {
                 const { stateTopic } = await getPluginMqttAutodiscoveryConfiguration({ mqttEntity: ruleActiveEntity });

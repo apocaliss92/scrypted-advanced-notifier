@@ -396,7 +396,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     logger.log('Stopping and cleaning listeners.');
                     this.resetListeners();
                 } else if (!isCurrentlyRunning && shouldRun) {
-                    logger.log(`Starting ${ScryptedInterface.ObjectDetector}/${ScryptedInterface.MotionSensor} listener: ${JSON.stringify({
+                    logger.log(`Starting ${ScryptedInterface.ObjectDetector}/${ScryptedInterface.MotionSensor} listeners: ${JSON.stringify({
                         Notifications: isActiveForNotifications,
                         MQTT: isActiveForMqttReporting,
                     })}`);
