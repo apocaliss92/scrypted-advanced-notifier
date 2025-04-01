@@ -352,13 +352,13 @@ export const getRuleMqttEntities = (props: {
         entities.push(switchEntity);
     }
 
-    if(isDetectionRule(rule)) {
+    if (isDetectionRule(rule)) {
         entities.push(
             triggeredEntity,
             lastImageEntity,
             lastTriggerEntity,
         );
-    } else if(rule.ruleType === RuleType.Occupancy) {
+    } else if (rule.ruleType === RuleType.Occupancy) {
         entities.push(
             occupiedEntity,
             lastImageEntity,
@@ -941,10 +941,16 @@ export const publishRuleData = async (props: {
     b64Image: string,
     triggerTime: number,
     storeImageFn?: StoreImageFn,
-    triggerValue?: boolean
+    triggerValue?: boolean,
+    isValueChanged?: boolean
 }) => {
-    const { console, device, mqttClient, rule, b64Image, image, triggerTime, storeImageFn, triggerValue } = props;
-    const mqttEntities = getRuleMqttEntities({ rule, device });
+    const { isValueChanged, console, device, mqttClient, rule, b64Image, image, triggerTime, storeImageFn, triggerValue } = props;
+    let mqttEntities = getRuleMqttEntities({ rule, device });
+
+    if (rule.ruleType === RuleType.Occupancy && !isValueChanged) {
+        mqttEntities = mqttEntities.filter(item => item.entity.endsWith(ruleOccupiedSuffix));
+    }
+
     console.debug(`Rule entities to publish: ${JSON.stringify({
         rule,
         mqttEntities,
@@ -1021,7 +1027,7 @@ export const publishOccupancy = async (props: {
         }
 
         for (const occupancyRuleData of occupancyRulesData) {
-            const { occupies, rule, b64Image, image, triggerTime } = occupancyRuleData;
+            const { occupies, rule, b64Image, image, triggerTime, changed } = occupancyRuleData;
 
             await publishRuleData({
                 b64Image,
@@ -1032,7 +1038,8 @@ export const publishOccupancy = async (props: {
                 rule,
                 triggerTime,
                 storeImageFn,
-                triggerValue: occupies
+                triggerValue: occupies,
+                isValueChanged: changed
             });
         }
     } catch (e) {

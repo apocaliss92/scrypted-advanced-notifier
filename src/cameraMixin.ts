@@ -28,6 +28,7 @@ interface OccupancyData {
 export type OccupancyRuleData = {
     rule: OccupancyRule;
     occupies: boolean;
+    changed?: boolean;
     image?: MediaObject;
     b64Image?: string;
     triggerTime: number;
@@ -1167,13 +1168,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     } else {
                         if (isStateConfirmed) {
                             // Time is passed and value didn't change, update the state
-                            occupancyRulesData.push({
-                                ...occupancyRuleData,
-                                image,
-                                b64Image,
-                                triggerTime: currentState.confirmationStart,
-                            });
-
                             occupancyData = {
                                 ...occupancyData,
                                 lastChange: now,
@@ -1193,6 +1187,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                     logPayload,
                                 })}`);
                             }
+
+                            occupancyRulesData.push({
+                                ...occupancyRuleData,
+                                image,
+                                b64Image,
+                                triggerTime: currentState.confirmationStart,
+                                changed: stateActuallyChanged
+                            });
                         } else {
                             // Time is passed and value changed, restart confirmation flow
                             occupancyData = {
