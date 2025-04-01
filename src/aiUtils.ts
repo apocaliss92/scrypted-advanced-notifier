@@ -1,32 +1,119 @@
 import axios from "axios";
 import AdvancedNotifierPlugin from "./main";
 import { AiPlatform, getAiSettingKeys } from "./utils";
-import { ObjectDetectionResult } from "@scrypted/sdk";
+import sdk, { ObjectDetectionResult } from "@scrypted/sdk";
+import { GoogleGenerativeAI, HarmBlockThreshold, HarmCategory, Part } from "@google/generative-ai";
 
-export enum AiPromptPreset {
-    Regular = 'Regular',
-    Mysterious = 'Mysterious',
-}
+// export enum AiPromptPreset {
+//     Regular = 'Regular',
+//     Mysterious = 'Mysterious',
+// }
 
-export const promptPresets: Record<AiPromptPreset, string> = {
-    [AiPromptPreset.Regular]: 'Create a notification suitable description of the image provided by the user. Describe the people, animals (coloring and breed), or vehicles (color and model) in the image. Do not describe scenery or static objects. Do not direct the user to click the notification. The original notification metadata may be provided and can be used to provide additional context for the new notification, but should not be used verbatim.',
-    [AiPromptPreset.Mysterious]: `Create a fun and engaging notification based on the image provided by the user.  
-If the image contains a person, describe them in a lighthearted way (e.g., 'A mysterious visitor', 'A friendly neighbor', 'Someone looking suspiciously at the door').  
-If an animal is present, describe it with humor and personality. Include its type, color, and breed (if applicable). Example: 'A tiny, fluffy criminal (golden retriever) has been spotted near the snacks!'  
-If a vehicle is present, describe its type, color, and any visible branding. Prioritize delivery vehicles (e.g., 'A FedEx truck is here – package day! 🎁').  
-If the image includes text, extract key words that might be useful (e.g., 'A sign reads: Beware of dog!').  
-DO NOT describe static objects, backgrounds, or scenery.  
-The response must be humorous, engaging, and under 130 characters. Do not tell the user to click the notification. If multiple interesting things are in the image, describe the most notable one. OSD texts on the image should be ignored. Output language should be italian`,
-}
+// export const promptPresets: Record<AiPromptPreset, string> = {
+//     [AiPromptPreset.Regular]: 'Create a notification suitable description of the image provided by the user. Describe the people, animals (coloring and breed), or vehicles (color and model) in the image. Do not describe scenery or static objects. Do not direct the user to click the notification. The original notification metadata may be provided and can be used to provide additional context for the new notification, but should not be used verbatim.',
+//     [AiPromptPreset.Mysterious]: `Create a fun and engaging notification based on the image provided by the user.  
+// If the image contains a person, describe them in a lighthearted way (e.g., 'A mysterious visitor', 'A friendly neighbor', 'Someone looking suspiciously at the door').  
+// If an animal is present, describe it with humor and personality. Include its type, color, and breed (if applicable). Example: 'A tiny, fluffy criminal (golden retriever) has been spotted near the snacks!'  
+// If a vehicle is present, describe its type, color, and any visible branding. Prioritize delivery vehicles (e.g., 'A FedEx truck is here – package day! 🎁').  
+// If the image includes text, extract key words that might be useful (e.g., 'A sign reads: Beware of dog!').  
+// DO NOT describe static objects, backgrounds, or scenery.  
+// The response must be humorous, engaging, and under 130 characters. Do not tell the user to click the notification. If multiple interesting things are in the image, describe the most notable one. OSD texts on the image should be ignored. Output language should be italian`,
+// }
 
-export const createOpenAiTemplate = (props: {
+
+export const executeGoogleAi = async (props: {
+    systemPrompt: string,
+    modeNamel: string,
+    b64Image: string,
+    apiKey: string,
+    logger: Console
+}) => {
+    const { modeNamel, systemPrompt, apiKey, b64Image, logger } = props;
+
+    try {
+        const promptText = systemPrompt || 'Describe this image in detail';
+
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ model: modeNamel });
+
+        const generationConfig = {
+            temperature: 0.4,
+            topK: 32,
+            topP: 1,
+            maxOutputTokens: 4096,
+        };
+
+        const safetySettings = [
+            { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+            { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+            { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+            { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+        ];
+
+        // Format the image part using the received Base64 data and mimeType
+        const imagePart: Part = {
+            inlineData: {
+                data: b64Image,
+                mimeType: 'image/jpeg',
+            },
+        };
+
+        const parts: Part[] = [
+            { text: promptText },
+            imagePart,
+        ];
+
+        const result = await model.generateContent({
+            contents: [{ role: 'user', parts }],
+            generationConfig,
+            safetySettings,
+        });
+
+        // Handle cases where the response might be blocked or missing text
+        if (!result.response || !result.response.candidates || result.response.candidates.length === 0) {
+            // Check for specific finish reasons like safety
+            const finishReason = result.response?.promptFeedback?.blockReason;
+            let blockMessage = "Analysis response is empty or blocked.";
+            if (finishReason) {
+                blockMessage += ` Reason: ${finishReason}`;
+            }
+            logger.error(blockMessage);
+            return null;
+        }
+
+        return result.response.text();
+
+    } catch (error: any) {
+        logger.error("Error analyzing image:", error);
+        let errorMessage = "Failed to analyze image.";
+        // Improved error handling for common issues
+        if (error instanceof SyntaxError) { // Handle JSON parsing errors
+            errorMessage = "Invalid request format.";
+            logger.error(errorMessage);
+            return null;
+        } else if (error.message && error.message.includes('API key not valid')) {
+            errorMessage = "Invalid API Key provided. Please check your key and try again.";
+        } else if (error.message && error.message.includes('quota')) { // Handle quota errors
+            errorMessage = "API quota exceeded. Please check your usage limits.";
+        } else if (error.message) {
+            errorMessage += ` Reason: ${error.message}`;
+        }
+        logger.error(errorMessage);
+        return null;
+    }
+};
+
+const executeOpenAi = async (props: {
     systemPrompt: string,
     model: string,
     imageUrl: string,
     originalTitle: string,
     detection?: ObjectDetectionResult,
+    logger: Console,
+    apiUrl: string,
+    apiKey: string
 }) => {
-    const { imageUrl, originalTitle, model, systemPrompt, detection } = props;
+    const { imageUrl, originalTitle, model, systemPrompt, detection, logger, apiKey, apiUrl } = props;
 
     let text = `Original notification message is ${originalTitle}}.`;
 
@@ -35,7 +122,7 @@ export const createOpenAiTemplate = (props: {
     }
 
     const schema = "The response must be in JSON format with a message 'title', 'subtitle', and 'body'. The title and subtitle must not be more than 24 characters each. The body must not be more than 130 characters."
-    return {
+    const template = {
         model,
         messages: [
             {
@@ -81,22 +168,43 @@ export const createOpenAiTemplate = (props: {
                 }
             }
         }
+    };
+
+    const response = await axios.post<any>(apiUrl, template, {
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+        },
+    });
+
+    logger.debug(`Response from ${AiPlatform.OpenAi}: ${JSON.stringify(response.data)}`);
+    const jsonMessage = response.data?.choices?.[0]?.message?.content;
+    if (jsonMessage) {
+        const parsedMessage = JSON.parse(jsonMessage);
+        const title = parsedMessage.title;
+        const message = parsedMessage.body;
+
+        return {
+            title,
+            message
+        }
     }
-};
+
+    return {};
+}
 
 export const getAiMessage = async (props: {
     plugin: AdvancedNotifierPlugin,
     originalTitle: string,
     detection?: ObjectDetectionResult,
     imageUrl: string,
+    b64Image: string,
     logger: Console
 }) => {
-    const { originalTitle, detection, plugin, imageUrl, logger } = props;
+    const { originalTitle, detection, plugin, imageUrl, logger, b64Image } = props;
 
-    let title;
+    let title = originalTitle;
     let message;
-    let data;
-
     try {
         const { aiPlatform } = plugin.storageSettings.values
         const { apiKeyKey, apiUrlKey, modelKey, systemPromptKey } = getAiSettingKeys(aiPlatform);
@@ -116,38 +224,36 @@ export const getAiMessage = async (props: {
         })}`);
 
         if (aiPlatform === AiPlatform.OpenAi) {
-            const messageTemplate = createOpenAiTemplate({
+            const result = await executeOpenAi({
+                apiKey,
+                apiUrl,
                 imageUrl,
+                logger,
                 model,
                 originalTitle,
                 systemPrompt,
                 detection,
             });
 
-            const response = await axios.post<any>(apiUrl, messageTemplate, {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${apiKey}`
-                },
+            title = result.title ?? originalTitle;
+            message = result.message;
+        } else if (aiPlatform === AiPlatform.GoogleAi) {
+            const result = await executeGoogleAi({
+                apiKey,
+                b64Image,
+                logger,
+                modeNamel: model,
+                systemPrompt,
             });
 
-            data = response.data;
-
-            logger.debug(`Response from ${aiPlatform}: ${JSON.stringify(response.data)}`);
-            const jsonMessage = response.data?.choices?.[0]?.message?.content;
-            if (jsonMessage) {
-                const parsedMessage = JSON.parse(jsonMessage);
-                title = parsedMessage.title;
-                message = parsedMessage.body;
-            }
+            message = result;
         }
     } catch (e) {
         logger.log('Error in getAiMessage', e);
     } finally {
         return {
-            data,
-            message,
             title,
-        };
+            message,
+        }
     }
 }

@@ -17,6 +17,7 @@ export enum AiPlatform {
     Disabled = 'Disabled',
     // LmStudio = 'LmStudio',
     OpenAi = 'OpenAi',
+    GoogleAi = 'GoogleAi',
 }
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Settings & ObjectDetector & VideoCamera & EntrySensor & Lock & BinarySensor;
@@ -1163,19 +1164,19 @@ export const getDetectionRulesSettings = async (props: {
             nvrEventsKey,
             recordingTriggerSecondsKey,
             useNvrDetectionsKey,
-            markDetectionsKey,
+            // markDetectionsKey,
             whitelistedZonesKey,
             devicesKey,
             detectionClassesKey,
         } = detection;
 
         const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean ?? false;
-        const devicesRaw = storage.getItem(devicesKey) ?? [];
-        const devices = typeof devicesRaw === 'string' ? JSON.parse(storage.getItem(devicesKey) ?? '[]') : devicesRaw;
+        // const devicesRaw = storage.getItem(devicesKey) ?? [];
+        // const devices = typeof devicesRaw === 'string' ? JSON.parse(storage.getItem(devicesKey) ?? '[]') : devicesRaw;
         const activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
-        const anyCameraDevice = (isPlugin && devices
-            .some(deviceId => [ScryptedDeviceType.Camera, ScryptedDeviceType.Doorbell].includes(sdk.systemManager.getDeviceById(deviceId)?.type))
-        ) || isCamera || activationType === DetectionRuleActivation.OnActive;
+        // const anyCameraDevice = (isPlugin && devices
+        //     .some(deviceId => [ScryptedDeviceType.Camera, ScryptedDeviceType.Doorbell].includes(sdk.systemManager.getDeviceById(deviceId)?.type))
+        // ) || isCamera || activationType === DetectionRuleActivation.OnActive;
 
         settings.push(
             {
@@ -1188,29 +1189,29 @@ export const getDetectionRulesSettings = async (props: {
             }
         );
 
-        if (anyCameraDevice) {
-            settings.push(
-                {
-                    key: detectionClassesKey,
-                    title: 'Detection classes',
-                    group,
-                    subgroup,
-                    multiple: true,
-                    combobox: true,
-                    choices: defaultDetectionClasses,
-                    defaultValue: []
-                },
-                {
-                    key: scoreThresholdKey,
-                    title: 'Score threshold',
-                    group,
-                    subgroup,
-                    type: 'number',
-                    placeholder: '0.7',
-                    hide: !showMore
-                },
-            );
-        }
+        // if (anyCameraDevice) {
+        settings.push(
+            {
+                key: detectionClassesKey,
+                title: 'Detection classes',
+                group,
+                subgroup,
+                multiple: true,
+                combobox: true,
+                choices: defaultDetectionClasses,
+                defaultValue: []
+            },
+            {
+                key: scoreThresholdKey,
+                title: 'Score threshold',
+                group,
+                subgroup,
+                type: 'number',
+                placeholder: '0.7',
+                hide: !showMore
+            },
+        );
+        // }
 
         if (useNvrDetections && isPlugin) {
             settings.push(
@@ -1336,7 +1337,7 @@ export const getAiSettingKeys = (aiPlatform: AiPlatform) => {
         apiKeyKey,
         apiUrlKey,
         modelKey,
-        systemPromptKey
+        systemPromptKey,
     }
 }
 
@@ -1349,17 +1350,6 @@ export const getAiSettings = (props: {
     const { apiKeyKey, apiUrlKey, modelKey, systemPromptKey } = getAiSettingKeys(aiPlatform);
     const settings: StorageSetting[] = [];
 
-    if (aiPlatform === AiPlatform.OpenAi) {
-        settings.push(
-            {
-                key: apiKeyKey,
-                title: 'API Key',
-                description: 'The API Key or token.',
-                group: 'AI',
-            }
-        );
-    }
-
     if ([AiPlatform.OpenAi].includes(aiPlatform)) {
         settings.push(
             {
@@ -1369,12 +1359,26 @@ export const getAiSettings = (props: {
                 description: 'The API URL of the OpenAI compatible server.',
                 defaultValue: 'https://api.openai.com/v1/chat/completions',
             },
+        );
+    }
+
+    if ([AiPlatform.OpenAi, AiPlatform.GoogleAi].includes(aiPlatform)) {
+        settings.push(
+            {
+                key: apiKeyKey,
+                title: 'API Key',
+                description: 'The API Key or token.',
+                group: 'AI',
+            },
             {
                 key: modelKey,
                 group: 'AI',
                 title: 'Model',
                 description: 'The model to use to generate the image description. Must be vision capable.',
-                defaultValue: 'gpt-4o',
+                defaultValue: aiPlatform === AiPlatform.OpenAi ?
+                    'gpt-4o' : aiPlatform === AiPlatform.GoogleAi ?
+                        'gemini-1.5-flash' :
+                        undefined,
             },
             {
                 key: systemPromptKey,

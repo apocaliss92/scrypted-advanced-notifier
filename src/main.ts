@@ -1578,6 +1578,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 const imageUrl = `data:image/jpeg;base64,${b64Image}`;
                 const aiResponse = await getAiMessage({
                     imageUrl,
+                    b64Image,
                     logger,
                     originalTitle: message,
                     plugin: this,
