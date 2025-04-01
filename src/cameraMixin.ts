@@ -1121,7 +1121,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             for (const occupancyRuleData of Object.values(occupancyRulesDataMap)) {
                 const { name, changeStateConfirm } = occupancyRuleData.rule;
                 const currentState = this.occupancyState[occupancyRuleData.rule.name];
-                const tooOld = currentState && (now - (currentState?.lastChange ?? 0)) >= (1000 * 60 * 60 * 1); // Force an update every hour
+                const tooOld = currentState && (now - (currentState?.lastChange ?? 0)) >= (1000 * 60 * 10); // Force an update every 10 minutes
                 const toConfirm = currentState.occupancyToConfirm != undefined && !!currentState.confirmationStart;
 
                 let occupancyData: Partial<OccupancyData> = {
