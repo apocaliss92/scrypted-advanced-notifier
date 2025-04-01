@@ -10,6 +10,7 @@ import HomeAssistantUtilitiesProvider from "./main";
 import { publishOccupancy, publishRelevantDetections, publishResetDetectionsEntities, publishRuleData, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, addBoundingBoxes, convertSettingsToStorageSettings, filterAndSortValidDetections, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, isDeviceEnabled, pcmU8ToDb } from "./utils";
+import { sleep } from "../../scrypted/server/src/sleep";
 
 const { systemManager } = sdk;
 
@@ -149,6 +150,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     lastAudioDetected: number;
     processedDetectionIds: string[] = [];
     allRules: BaseRule[] = [];
+    snapshotFailedRetry = 0;
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -807,9 +809,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     private async getImage(reason: RequestPictureOptions['reason'] = 'event') {
+        const logger = this.getLogger();
         const now = Date.now();
         const { minSnapshotDelay } = this.storageSettings.values;
         try {
+            if (this.snapshotFailedRetry) {
+                const waitTime = this.snapshotFailedRetry * 1000;
+                logger.log(`Waiting for ${this.snapshotFailedRetry} seconds`);
+                await sleep(waitTime);
+            }
             // Images within 0.5 seconds are very recent (move this as plugin configuration)
             const isVeryRecent = this.lastPicture && this.lastPictureTaken && (now - this.lastPictureTaken) <= 500;
             const timePassed = !this.lastPictureTaken || (now - this.lastPictureTaken) >= 1000 * minSnapshotDelay;
@@ -832,6 +840,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 });
                 this.lastPictureTaken = now;
                 this.lastPicture = image;
+
+                this.snapshotFailedRetry = 0;
             }
 
             if (image) {
@@ -842,6 +852,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             return { image, b64Image, bufferImage };
         } catch (e) {
             this.getLogger().log('Error taking a picture in camera mixin', e);
+            this.snapshotFailedRetry = (this.snapshotFailedRetry || 0) + 1;
             return {};
         }
     }
