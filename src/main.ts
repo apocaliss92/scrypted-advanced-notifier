@@ -265,15 +265,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             choices: [],
             combobox: true,
         },
-        fetchedRooms: {
-            group: 'Metadata',
-            title: '',
-            subgroup: 'Rooms',
-            multiple: true,
-            defaultValue: [],
-            choices: [],
-            combobox: true,
-        },
         alert300Shown: {
             type: 'boolean',
             hide: true
@@ -707,12 +698,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 try {
                     const settings = await device.getSettings();
                     const haEntityId = settings.find(setting => setting.key === 'homeassistantMetadata:entityId')?.value as string;
-                    const room = device.room;
                     const linkedCamera = settings.find(setting => setting.key === 'homeassistantMetadata:linkedCamera')?.value as string;
                     const nearbySensors = (settings.find(setting => setting.key === 'recording:nearbySensors')?.value as string[]) ?? [];
                     const nearbyLocks = (settings.find(setting => setting.key === 'recording:nearbyLocks')?.value as string[]) ?? [];
 
-                    deviceRoomMap[deviceId] = room;
+                    deviceRoomMap[deviceId] = device.room;
                     if (haEntityId) {
                         haEntities.push(haEntityId);
 
@@ -983,25 +973,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { domains } = this.storageSettings.values;
         const logger = this.getLogger();
 
-        let rooms: string[] = [];
         let entityIds: string[] = [];
 
         try {
             logger.log(`Fetching homeasisstant data`);
             const haApi = await this.getHaApi();
-            const roomsResponse = await haApi.getTemplateData("{{ areas() }}");
-
-            const getRoomName = async (areaId: string) => {
-                return await haApi.getTemplateData(`{{ area_name('${areaId}') }}`);
-            }
-
             const entitiesResponse = await haApi.getStatesData();
-            const roomIds = sortBy(JSON.parse(roomsResponse.data.replace(new RegExp('\'', 'g'), '"')), elem => elem);
-
-            for (const roomId of roomIds) {
-                const roomName = await getRoomName(roomId);
-                rooms.push(roomName.data);
-            }
 
             entityIds = sortBy(
                 entitiesResponse.data
@@ -1012,9 +989,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger.log(e);
         } finally {
             logger.debug(`Entities found: ${JSON.stringify(entityIds)}`);
-            logger.debug(`Rooms found: ${JSON.stringify(rooms)}`);
             await this.putSetting('fetchedEntities', entityIds);
-            await this.putSetting('fetchedRooms', rooms);
 
             logger.log(`HA data fetched`);
         }
