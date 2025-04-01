@@ -819,8 +819,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const now = Date.now();
         const { minSnapshotDelay } = this.storageSettings.values;
         try {
-            // Images within 0.5 seconds are very recent
-            const isVeryRecent = this.lastPicture && this.lastPictureTaken && (now - this.lastPictureTaken) >= 500;
+            // Images within 0.5 seconds are very recent (move this as plugin configuration)
+            const isVeryRecent = this.lastPicture && this.lastPictureTaken && (now - this.lastPictureTaken) <= 500;
             const timePassed = !this.lastPictureTaken || (now - this.lastPictureTaken) >= 1000 * minSnapshotDelay;
 
             let image: MediaObject;
@@ -839,7 +839,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         width: this.storageSettings.values.snapshotWidth,
                     },
                 });
-                this.lastPictureTaken = Date.now();
+                this.lastPictureTaken = now;
                 this.lastPicture = image;
             }
 
