@@ -834,10 +834,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 image = await objectDetector.takePicture({
                     reason,
                     timeout: 10000,
-                    // picture: {
-                    //     height: this.storageSettings.values.snapshotHeight,
-                    //     width: this.storageSettings.values.snapshotWidth,
-                    // },
+                    picture: {
+                        height: this.storageSettings.values.snapshotHeight,
+                        width: this.storageSettings.values.snapshotWidth,
+                    },
                 });
                 this.lastPictureTaken = Date.now();
                 this.lastPicture = image;
