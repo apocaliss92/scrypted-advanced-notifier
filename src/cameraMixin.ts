@@ -1,4 +1,4 @@
-import sdk, { Camera, EventListenerRegister, FFmpegInput, Image, MediaObject, MediaStreamDestination, MotionSensor, ObjectDetection, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoom, PanTiltZoomCommand, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoFrame, VideoFrameGenerator, VideoFrameGeneratorOptions } from "@scrypted/sdk";
+import sdk, { Camera, EventListenerRegister, FFmpegInput, Image, MediaObject, MediaStreamDestination, MotionSensor, ObjectDetection, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoom, PanTiltZoomCommand, Reboot, RequestPictureOptions, ScryptedDevice, ScryptedDeviceBase, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoFrame, VideoFrameGenerator, VideoFrameGeneratorOptions } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep } from "lodash";
@@ -136,6 +136,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     detectionRuleListeners: Record<string, {
         disableNvrRecordingTimeout?: NodeJS.Timeout;
     }> = {};
+    lastPicture?: MediaObject;
     lastPictureTaken: number;
     lastFrameAnalysis: number;
     lastObserveZonesFetched: number;
@@ -363,7 +364,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                     await this.storageSettings.putSetting(`${enabledKey}`, active);
                                 },
                                 switchRecordingCb: async (active) => {
-                                    logger.log(`Setting NVR privacy mode to ${!active}`);
+                                    logger.debug(`Setting NVR privacy mode to ${!active}`);
                                     await this.enableRecording(device, active);
                                 },
                                 rebootCb: device.interfaces.includes(ScryptedInterface.Reboot) ?
@@ -814,20 +815,38 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    private async getImage() {
+    private async getImage(reason: RequestPictureOptions['reason'] = 'event') {
+        const now = Date.now();
+        const { minSnapshotDelay } = this.storageSettings.values;
         try {
-            const objectDetector = this.getObjectDetector();
-            const image = await objectDetector.takePicture({
-                reason: 'event',
-                timeout: 10000,
-                picture: {
-                    height: this.storageSettings.values.snapshotHeight,
-                    width: this.storageSettings.values.snapshotWidth,
-                },
-            });
+            // Images within 0.5 seconds are very recent
+            const isVeryRecent = this.lastPicture && this.lastPictureTaken && (now - this.lastPictureTaken) >= 500;
+            const timePassed = !this.lastPictureTaken || (now - this.lastPictureTaken) >= 1000 * minSnapshotDelay;
 
-            const bufferImage = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg');
-            const b64Image = bufferImage?.toString('base64');
+            let image: MediaObject;
+            let bufferImage: Buffer;
+            let b64Image: string;
+
+            if (isVeryRecent) {
+                image = this.lastPicture;
+            } else if (timePassed) {
+                const objectDetector = this.getObjectDetector();
+                image = await objectDetector.takePicture({
+                    reason,
+                    timeout: 10000,
+                    // picture: {
+                    //     height: this.storageSettings.values.snapshotHeight,
+                    //     width: this.storageSettings.values.snapshotWidth,
+                    // },
+                });
+                this.lastPictureTaken = Date.now();
+                this.lastPicture = image;
+            }
+
+            if (image) {
+                bufferImage = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg');
+                b64Image = bufferImage?.toString('base64');
+            }
 
             return { image, b64Image, bufferImage };
         } catch (e) {
@@ -925,7 +944,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const anyTimelapseToRefresh = timelapsesToRefresh.length;
 
         if (anyOutdatedOccupancyRule || anyTimelapseToRefresh) {
-            const { image } = await this.getImage();
+            const { image } = await this.getImage('periodic');
             if (image) {
                 if (anyOutdatedOccupancyRule) {
                     logger.debug('Forcing update of occupancy data');
@@ -979,12 +998,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 // );
             }
 
-            let detectedResultParent = await objectDetectorParent.detectObjects(imageParent);
+            const detectedResultParent = await objectDetectorParent.detectObjects(imageParent);
 
-            if (!this.occupancyRules.length) {
-                if (objectDetectorParent.name !== 'Scrypted NVR Object Detection') {
-                    detectedResultParent.detections = filterOverlappedDetections(detectedResultParent.detections);
-                }
+            if (objectDetectorParent.name !== 'Scrypted NVR Object Detection') {
+                detectedResultParent.detections = filterOverlappedDetections(detectedResultParent.detections);
             }
 
             for (const occupancyRule of this.occupancyRules) {
@@ -1051,7 +1068,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         d.boundingBox[1] += top;
                     }
                     detectedResult.inputDimensions = [image.width, image.height];
-                } else if (ruleObjectDetector) {
+                } else if (ruleObjectDetector && !detectedResult) {
                     detectedResult = await objectDetector.detectObjects(imageParent);
                 }
 
@@ -1368,10 +1385,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             minSnapshotDelay
         } = this.storageSettings.values;
 
-        const { candidates, hasLabel, ids } = filterAndSortValidDetections({
+        const { candidates, ids } = filterAndSortValidDetections({
             detections: detections ?? [],
             logger,
-            processedIds: this.processedDetectionIds ?? []
+            processedIds: []
+            // processedIds: this.processedDetectionIds ?? []
         });
         this.processedDetectionIds.push(...ids);
 
@@ -1380,25 +1398,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         if (this.isActiveForMqttReporting) {
             const { useNvrDetectionsForMqtt } = this.plugin.storageSettings.values;
-            const timePassed = (now - this.lastPictureTaken) >= 1000 * minSnapshotDelay;
             if (isFromNvr && parentImage && useNvrDetectionsForMqtt) {
-                b64Image = (await sdk.mediaManager.convertMediaObjectToBuffer(parentImage, 'image/jpeg'))?.toString('base64');
-                this.lastPictureTaken = now;
-            } else if (
-                !useNvrDetectionsForMqtt &&
-                (hasLabel ||
-                    !this.lastPictureTaken ||
-                    timePassed)
-            ) {
-                this.lastPictureTaken = now;
-                logger.debug('Refreshing the image');
+                image = parentImage;
+                b64Image = (await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg'))?.toString('base64');
+            } else if (!image) {
                 const { b64Image: b64ImageNew, image: imageNew } = await this.getImage();
                 image = imageNew;
                 b64Image = b64ImageNew;
             }
+
             const isSleeping = this.cameraDevice.sleeping || !this.cameraDevice.online;
 
-            if (timePassed && !isSleeping) {
+            if (image && !isSleeping) {
                 this.checkOccupancyData(image).catch(logger.log);
             }
 

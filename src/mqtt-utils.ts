@@ -286,6 +286,7 @@ export const getDetectionRuleId = (rule: BaseRule) => `${rule.source}_${rule.nam
 const ruleRunningSuffix = '_running';
 export const ruleActiveSuffix = '_active';
 const ruleTriggeredSuffix = '_triggered';
+const ruleOccupiedSuffix = '_occupied';
 const ruleLastDetectionSuffix = '_last_detection';
 
 export const getRuleMqttEntities = (props: {
@@ -322,6 +323,12 @@ export const getRuleMqttEntities = (props: {
         forceStateId: forcedId,
         forceCommandId: forcedId,
     };
+    const occupiedEntity: MqttEntity = {
+        entity: `${entity}${ruleOccupiedSuffix}`,
+        name: `${parsedName} occupied`,
+        domain: 'binary_sensor',
+        deviceClass: 'occupancy',
+    };
     const lastImageEntity: MqttEntity = {
         entity: `${entity}${lastImageSuffix}`,
         name: `${parsedName} last image `,
@@ -345,9 +352,15 @@ export const getRuleMqttEntities = (props: {
         entities.push(switchEntity);
     }
 
-    if (rule.ruleType !== RuleType.Timelapse) {
+    if(isDetectionRule(rule)) {
         entities.push(
             triggeredEntity,
+            lastImageEntity,
+            lastTriggerEntity,
+        );
+    } else if(rule.ruleType === RuleType.Occupancy) {
+        entities.push(
+            occupiedEntity,
             lastImageEntity,
             lastTriggerEntity,
         );
@@ -753,6 +766,11 @@ export const setupDeviceAutodiscovery = async (props: {
     await autoDiscoverRules({ mqttClient, rules, device });
 }
 
+export const isDetectionRule = (rule: BaseRule) => [
+    RuleType.Audio,
+    RuleType.Detection,
+].includes(rule.ruleType);
+
 export const publishResetDetectionsEntities = async (props: {
     mqttClient: MqttClient,
     device: ScryptedDeviceBase,
@@ -764,7 +782,7 @@ export const publishResetDetectionsEntities = async (props: {
         ...getDeviceClassEntities(device).filter(item => item.entity.endsWith(detectedSuffix)),
     ];
 
-    for (const rule of allRules) {
+    for (const rule of allRules.filter(isDetectionRule)) {
         const mqttEntity = getRuleMqttEntities({ rule, device }).find(item => item.entity.endsWith(ruleTriggeredSuffix));
 
         if (mqttEntity) {
@@ -943,7 +961,7 @@ export const publishRuleData = async (props: {
         let value: any;
         let retain = false;
 
-        if (entity.endsWith(ruleTriggeredSuffix)) {
+        if (entity.endsWith(ruleTriggeredSuffix) || entity.endsWith(ruleOccupiedSuffix)) {
             value = triggerValue ?? false;
         } else if (entity.endsWith(ruleLastDetectionSuffix)) {
             value = new Date(triggerTime).toISOString();
