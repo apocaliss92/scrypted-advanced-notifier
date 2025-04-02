@@ -1420,7 +1420,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }
 
             this.reportDetectionsToMqtt({ detections: candidates, triggerTime, logger, device, b64Image, image }).catch(logger.error);
-            this.processingMqttDetections = true;
+            this.processingMqttDetections = false;
         }
 
         let dataToReport = {};
