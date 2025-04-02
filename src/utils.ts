@@ -272,13 +272,13 @@ const getDetectionId = (detection: ObjectDetectionResult) => detection.id ? `${d
 export const filterAndSortValidDetections = (props: {
     detections: ObjectDetectionResult[],
     logger: Console,
-    processedIds: string[]
+    processedIds: Record<string, boolean>
 }) => {
     const { detections, logger, processedIds } = props;
     const filteredByProcessdIds = detections.filter(det => {
         const id = getDetectionId(det);
 
-        return !id || !processedIds.includes(id);
+        return !id || !processedIds[id];
     });
     const sortedByPriorityAndScore = sortBy(filteredByProcessdIds,
         (detection) => [detection?.className ? classnamePrio[detection.className] : 100,
@@ -290,7 +290,6 @@ export const filterAndSortValidDetections = (props: {
     // );
     let hasLabel = false;
     const uniqueByClassName = uniqBy(sortedByPriorityAndScore, det => det.className);
-    const ids: string[] = [];
     const candidates = uniqueByClassName.filter(det => {
         const { className, label, movement } = det;
         if (className.startsWith('debug-')) {
@@ -311,12 +310,12 @@ export const filterAndSortValidDetections = (props: {
 
         const id = getDetectionId(det);
 
-        id && ids.push(id);
+        id && (processedIds[id] = true);
 
         return true;
     });
 
-    return { candidates, hasLabel, ids };
+    return { candidates, hasLabel, processedIds };
 }
 
 export type TextSettingKey =

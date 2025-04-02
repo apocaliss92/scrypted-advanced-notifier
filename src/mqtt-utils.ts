@@ -995,9 +995,9 @@ export const publishRuleData = async (props: {
 
         let value: any;
 
-        if (identifier === MqttEntityIdentifier.Triggered || identifier === MqttEntityIdentifier.Occupied) {
+        if ([MqttEntityIdentifier.Triggered, MqttEntityIdentifier.Occupied].includes(identifier)) {
             value = triggerValue ?? false;
-        } else if (identifier === MqttEntityIdentifier.LastDetection) {
+        } else if (identifier === MqttEntityIdentifier.LastTrigger) {
             value = new Date(triggerTime).toISOString();
         } else if (identifier === MqttEntityIdentifier.LastImage && b64Image) {
             value = b64Image || null;

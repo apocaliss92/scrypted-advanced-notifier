@@ -150,7 +150,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             type: 'device',
             multiple: true,
             combobox: true,
-            deviceFilter: `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && type === '${ScryptedDeviceType.Camera}'`,
+            deviceFilter: `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && ['${ScryptedDeviceType.Camera}', '${ScryptedDeviceType.Doorbell}'].includes(type)`,
             defaultValue: [],
         },
         useNvrDetectionsForMqtt: {
@@ -1310,11 +1310,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger.log(`${rule.notifiers.length} notifiers will be notified: ${JSON.stringify({ match, rule })}`);
         }
 
-        for (const notifierId of rule.notifiers) {
-            const notifier = systemManager.getDeviceById(notifierId) as unknown as Settings & ScryptedDeviceBase;
-            const notifierSettings = await notifier.getSettings();
+        if (rule.ruleType === RuleType.Detection) {
+            for (const notifierId of rule.notifiers) {
+                const notifier = systemManager.getDeviceById(notifierId) as unknown as Settings & ScryptedDeviceBase;
+                const notifierSettings = await notifier.getSettings();
 
-            if (rule.ruleType === RuleType.Detection) {
                 this.notifyCamera({
                     triggerDevice,
                     cameraDevice,
@@ -1329,9 +1329,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     rule: rule as DetectionRule,
                 }).catch(e => logger.log(`Error on notifier ${notifier.name}`, e));
             }
-        }
-
-        if (rule.ruleType === RuleType.Timelapse) {
+        } else if (rule.ruleType === RuleType.Timelapse) {
             logger.debug(`Storing timelapse image for rule ${rule.name}: ${JSON.stringify({
                 timestamp: triggerTime,
                 id: this.id
@@ -1768,7 +1766,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         let imageMo = imageMoParent;
 
         if (!imageMo) {
-            imageMo = (await (this.currentMixinsMap[device.name] as AdvancedNotifierCameraMixin)?.getImage("periodic"))?.image;
+            imageMo = (await (this.currentMixinsMap[device.name] as AdvancedNotifierCameraMixin)?.getImage({ reason: 'periodic' }))?.image;
         }
 
         if (imagesPath && imageMo) {
