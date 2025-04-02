@@ -820,32 +820,34 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let b64Image: string;
 
         try {
-            if (this.snapshotFailedRetry) {
-                const waitTime = this.snapshotFailedRetry * 1000;
-                logger.debug(`Waiting for ${this.snapshotFailedRetry} seconds`);
-                await sleep(waitTime);
-            }
-
-            // Images within 0.5 seconds are very recent (move this as plugin configuration)
             const isVeryRecent = this.lastPicture && this.lastPictureTaken && (now - this.lastPictureTaken) <= 500;
-            const timePassed = !this.lastPictureTaken || (now - this.lastPictureTaken) >= 1000 * minSnapshotDelay;
 
             if (isVeryRecent) {
                 image = this.lastPicture;
-            } else if (timePassed) {
-                const objectDetector = this.getObjectDetector();
-                image = await objectDetector.takePicture({
-                    reason,
-                    timeout: 10000,
-                    picture: {
-                        height: this.storageSettings.values.snapshotHeight,
-                        width: this.storageSettings.values.snapshotWidth,
-                    },
-                });
-                this.lastPictureTaken = now;
-                this.lastPicture = image;
+            } else {
+                if (this.snapshotFailedRetry) {
+                    const waitTime = this.snapshotFailedRetry * 1000;
+                    logger.debug(`Waiting for ${this.snapshotFailedRetry} seconds`);
+                    await sleep(waitTime);
+                }
 
-                this.snapshotFailedRetry = 0;
+                // Images within 0.5 seconds are very recent (move this as plugin configuration)
+                const timePassed = !this.lastPictureTaken || (now - this.lastPictureTaken) >= 1000 * minSnapshotDelay;
+                if (timePassed) {
+                    const objectDetector = this.getObjectDetector();
+                    image = await objectDetector.takePicture({
+                        reason,
+                        timeout: 10000,
+                        picture: {
+                            height: this.storageSettings.values.snapshotHeight,
+                            width: this.storageSettings.values.snapshotWidth,
+                        },
+                    });
+                    this.lastPictureTaken = now;
+                    this.lastPicture = image;
+
+                    this.snapshotFailedRetry = 0;
+                }
             }
 
             if (image) {
@@ -855,9 +857,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         } catch (e) {
             this.getLogger().log('Error taking a picture in camera mixin', e);
             this.snapshotFailedRetry = (this.snapshotFailedRetry || 0) + 1;
+        } finally {
+            return { image, b64Image, bufferImage };
         }
-
-        return { image, b64Image, bufferImage };
     }
 
     async startAudioDetection() {
@@ -1382,7 +1384,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         if (this.processingMqttDetections || !detections?.length) {
             return;
         }
-        this.processingMqttDetections = true;
+        // this.processingMqttDetections = true;
 
         const now = new Date().getTime();
 
