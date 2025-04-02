@@ -154,7 +154,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     audioForwarder: ReturnType<typeof startRtpForwarderProcess>;
     lastAudioDetected: number;
     allRules: BaseRule[] = [];
-    snapshotFailedRetry = 0;
+    // snapshotFailedRetry = 0;
     lastImage?: MediaObject;
     lastB64Image?: string;
     lastPictureTaken?: number;
@@ -820,7 +820,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         detectionId?: string,
         eventId?: string
     }) {
-        const { reason = 'event' } = props ?? {};
+        const { reason = 'event', detectionId, eventId } = props ?? {};
         const logger = this.getLogger();
         const now = Date.now();
         const { minSnapshotDelay } = this.storageSettings.values;
@@ -831,51 +831,43 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let b64Image: string;
 
         try {
-            // if (detectionId && eventId) {
-            //     try {
-            //         image = await this.cameraDevice.getDetectionInput(detectionId, eventId);
-            //         logger.log(`Image found on camera for id ${detectionId}`);
-            //     } catch (e) {
-            //         logger.log(`Error during getDetectionInput for detectionId ${detectionId} and eventId ${eventId}`, e);
-            //     }
-            // }
-
-            const msPassed = now - this.lastPictureTaken;
-            if (!image) {
-                const isVeryRecent = msPassed && msPassed <= 500;
-
-                // Images within 0.5 seconds are very recent (move this as plugin configuration)
-                if (isVeryRecent && this.lastImage) {
-                    image = this.lastImage;
-                    b64Image = this.lastB64Image;
-                    imageChanged = false;
-                    logger.debug(`Last used image taken`);
-
-                    this.snapshotFailedRetry = 0;
-                } else {
-                    if (this.snapshotFailedRetry) {
-                        const waitTime = this.snapshotFailedRetry * 1000;
-                        logger.debug(`Waiting for ${this.snapshotFailedRetry} seconds`);
-                        await sleep(waitTime);
-                    }
-
-                    const timePassed = !this.lastPictureTaken || msPassed >= 1000 * minSnapshotDelay;
-                    if (timePassed) {
-                        this.lastPictureTaken = now;
-                        const objectDetector = this.getObjectDetector();
-                        image = await objectDetector.takePicture({
-                            reason,
-                            timeout: 10000,
-                            picture: {
-                                height: this.storageSettings.values.snapshotHeight,
-                                width: this.storageSettings.values.snapshotWidth,
-                            },
-                        });
-                        logger.debug(`Image taken from snapshot`);
-                        this.snapshotFailedRetry = 0;
-                    }
+            if (detectionId && eventId) {
+                try {
+                    image = await this.cameraDevice.getDetectionInput(detectionId, eventId);
+                    logger.log(`Image found on camera for id ${detectionId}`);
+                } catch (e) {
+                    logger.log(`Error during getDetectionInput for detectionId ${detectionId} and eventId ${eventId}`, e);
                 }
             }
+
+            const msPassed = now - this.lastPictureTaken;
+            const isVeryRecent = msPassed && msPassed <= 500;
+
+            // Images within 0.5 seconds are very recent (move this as plugin configuration)
+            if (isVeryRecent && this.lastImage) {
+                image = this.lastImage;
+                b64Image = this.lastB64Image;
+                imageChanged = false;
+                logger.debug(`Last used image taken`);
+            } else {
+
+                const timePassed = !this.lastPictureTaken || msPassed >= 1000 * minSnapshotDelay;
+                if (timePassed || reason === "periodic") {
+                    this.lastPictureTaken = now;
+                    const objectDetector = this.getObjectDetector();
+                    image = await objectDetector.takePicture({
+                        reason,
+                        timeout: 10000,
+                        picture: {
+                            height: this.storageSettings.values.snapshotHeight,
+                            width: this.storageSettings.values.snapshotWidth,
+                        },
+                    });
+                    logger.debug(`Image taken from snapshot`);
+                    // this.snapshotFailedRetry = 0;
+                }
+            }
+            // }
 
             if (image && imageChanged) {
                 bufferImage = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg');
@@ -883,7 +875,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }
         } catch (e) {
             // this.getLogger().log('Error taking a picture in camera mixin', e);
-            this.snapshotFailedRetry = (this.snapshotFailedRetry || 0) + 1;
+            // this.snapshotFailedRetry = (this.snapshotFailedRetry || 0) + 1;
         } finally {
             this.lastImage = image;
             this.lastB64Image = b64Image;
@@ -1476,10 +1468,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         let dataToReport = {};
         try {
-            const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
+            // const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
 
             const matchRules: MatchRule[] = [];
-            let shouldMarkBoundaries = false;
+            // let shouldMarkBoundaries = false;
 
             const rules: (DetectionRule | TimelapseRule)[] = (isFromNvr ? this.nvrDetectionRules : this.detectionRules) ?? [];
             rules.push(...(this.timelapseRules ?? []));
@@ -1561,9 +1553,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                     if (match) {
                         matchRules.push({ match, rule, dataToReport });
-                        if (rule.markDetections) {
-                            shouldMarkBoundaries = true;
-                        }
+                        // if (rule.markDetections) {
+                        //     shouldMarkBoundaries = true;
+                        // }
                     }
                 } else {
                     if (ruleParent.ruleType === RuleType.Timelapse) {
@@ -1575,37 +1567,40 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             let imageToNotify = isFromNvr ? parentImage ?? image : image;
 
-            let markedImage: MediaObject;
-            let markedb64Image: string;
-            if (!!matchRules.length) {
-                let bufferImage: Buffer;
+            // let markedImage: MediaObject;
+            // let markedb64Image: string;
+            // if (!!matchRules.length) {
+            // let bufferImage: Buffer;
 
-                if (!imageToNotify) {
-                    const { b64Image: b64ImageNew, image: imageNew, bufferImage: bufferImageNew } = await this.getImage({ reason: "periodic" });
-                    imageToNotify = imageNew;
-                    b64Image = b64ImageNew;
-                    bufferImage = bufferImageNew;
-                }
+            // let isPeriodicImage = false
+            // if (!imageToNotify) {
+            //     const { b64Image: b64ImageNew, image: imageNew, bufferImage: bufferImageNew } = await this.getImage({ reason: "periodic" });
+            //     imageToNotify = imageNew;
+            //     b64Image = b64ImageNew;
+            //     !!imageToNotify && (isPeriodicImage = true);
+            //     // bufferImage = bufferImageNew;
+            // }
 
-                if (imageToNotify) {
-                    const imageUrl = await sdk.mediaManager.convertMediaObjectToLocalUrl(imageToNotify, 'image/jpg');
-                    logger.debug(`Updating webook last image URL: ${imageUrl}`);
-                    this.storageSettings.putSetting('lastSnapshotImageUrl', imageUrl);
-                }
+            //     if (imageToNotify) {
+            //         const imageUrl = await sdk.mediaManager.convertMediaObjectToLocalUrl(imageToNotify, 'image/jpg');
+            //         logger.debug(`Updating webook last image URL: ${imageUrl}`);
+            //         this.storageSettings.putSetting('lastSnapshotImageUrl', imageUrl);
+            //     }
 
-                if (shouldMarkBoundaries && !!objectDetector) {
-                    const detectionResult = await objectDetector.detectObjects(imageToNotify);
+            //     if (shouldMarkBoundaries && !!objectDetector) {
+            //         const detectionResult = await objectDetector.detectObjects(imageToNotify);
 
-                    if (objectDetector.name !== 'Scrypted NVR Object Detection') {
-                        detectionResult.detections = filterOverlappedDetections(detectionResult.detections);
-                    }
+            //         if (objectDetector.name !== 'Scrypted NVR Object Detection') {
+            //             detectionResult.detections = filterOverlappedDetections(detectionResult.detections);
+            //         }
 
-                    const { newB64Image, newImage } = await addBoundingBoxes(b64Image, detectionResult.detections);
-                    markedb64Image = newB64Image;
-                    markedImage = newImage;
-                }
-            }
+            //         const { newB64Image, newImage } = await addBoundingBoxes(b64Image, detectionResult.detections);
+            //         markedb64Image = newB64Image;
+            //         markedImage = newImage;
+            //     }
+            // }
 
+            logger.debug(`Matchrules found: ${JSON.stringify({ matchRules, imageFound: !!imageToNotify })}`);
             for (const matchRule of matchRules) {
                 try {
                     const { match, rule } = matchRule;
@@ -1621,10 +1616,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     let imageToUse = imageToNotify;
                     let b64ImageToUse = b64Image;
 
-                    if (rule.ruleType === RuleType.Detection && (rule as DetectionRule).markDetections && markedImage) {
-                        imageToUse = markedImage;
-                        b64ImageToUse = markedb64Image;
-                    }
+                    // if (rule.ruleType === RuleType.Detection && (rule as DetectionRule).markDetections && markedImage) {
+                    //     imageToUse = markedImage;
+                    //     b64ImageToUse = markedb64Image;
+                    // }
 
                     logger.debug(`Matching detections found: ${JSON.stringify({
                         matchRulesMap: matchRules,

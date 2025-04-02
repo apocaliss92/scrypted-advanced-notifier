@@ -980,10 +980,10 @@ export const publishRuleData = async (props: {
         mqttEntities = mqttEntities.filter(item => item.identifier === MqttEntityIdentifier.Occupied);
     }
 
-    console.debug(`Rule entities to publish: ${JSON.stringify({
+    console.log(`Publishing rule entities: ${JSON.stringify({
         rule,
         mqttEntities,
-        b64Image,
+        b64Image: b64Image?.substring(0, 10),
         triggerValue,
     })}`);
 
