@@ -256,15 +256,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 await this.checkPluginConfigurations(true);
             },
         },
-        fetchedEntities: {
-            group: 'Metadata',
-            title: '',
-            subgroup: 'Entities',
-            multiple: true,
-            defaultValue: [],
-            choices: [],
-            combobox: true,
-        },
         alert300Shown: {
             type: 'boolean',
             hide: true
@@ -287,6 +278,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     lastNotExistingNotifier: number;
     private checkExistingDevicesInterval: NodeJS.Timeout;
     allRules: BaseRule[] = [];
+    fetchedEntities: string[] = [];
 
     constructor(nativeId: string) {
         super(nativeId, {
@@ -851,7 +843,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             ).map(sensor => sensor.name);
 
             const entitiesWithWrongEntityId = allDevices.filter(
-                device => !this.deviceHaEntityMap[device.id] || !this.storageSettings.values.fetchedEntities.includes(this.deviceHaEntityMap[device.id])
+                device => !this.deviceHaEntityMap[device.id] || !this.fetchedEntities.includes(this.deviceHaEntityMap[device.id])
             ).map(sensor => sensor.name);
 
             const {
@@ -989,7 +981,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger.log(e);
         } finally {
             logger.debug(`Entities found: ${JSON.stringify(entityIds)}`);
-            await this.putSetting('fetchedEntities', entityIds);
+            this.fetchedEntities = entityIds;
 
             logger.log(`HA data fetched`);
         }

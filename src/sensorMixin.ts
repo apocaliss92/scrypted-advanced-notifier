@@ -52,7 +52,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         this.metadata = binarySensorMetadataMap[this.type];
 
         this.storageSettings.settings.entityId.onGet = async () => {
-            const entities = this.plugin.storageSettings.getItem('fetchedEntities');
+            const entities = this.plugin.fetchedEntities;
             return {
                 choices: entities ?? []
             }

@@ -5,7 +5,7 @@ import { cloneDeep } from "lodash";
 import { filterOverlappedDetections } from '../../scrypted-basic-object-detector/src/util';
 import { RtpPacket } from "../../scrypted/external/werift/packages/rtp/src/rtp/rtp";
 import { startRtpForwarderProcess } from '../../scrypted/plugins/webrtc/src/rtp-forwarders';
-import { detectionClassesDefaultMap } from "./detecionClasses";
+import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { publishOccupancy, publishRelevantDetections, publishResetDetectionsEntities, publishRuleData, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
@@ -151,6 +151,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     processedDetectionIds: string[] = [];
     allRules: BaseRule[] = [];
     snapshotFailedRetry = 0;
+    // detectionLastTrigger: Partial<Record<DetectionClass, number>> = {};
+    processingMqttDetections = false;
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -160,7 +162,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
 
         this.storageSettings.settings.entityId.onGet = async () => {
-            const entities = this.plugin.storageSettings.getItem('fetchedEntities');
+            const entities = this.plugin.fetchedEntities;
             return {
                 choices: entities ?? []
             }
@@ -426,7 +428,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
 
                 const { entityId } = this.storageSettings.values;
-                if (this.plugin.storageSettings.values.haEnabled && entityId && !this.plugin.storageSettings.values.fetchedEntities.includes(entityId)) {
+                if (this.plugin.storageSettings.values.haEnabled && entityId && !this.plugin.fetchedEntities.includes(entityId)) {
                     logger.debug(`Entity id ${entityId} does not exists on HA`);
                 }
 
@@ -812,19 +814,21 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
         const now = Date.now();
         const { minSnapshotDelay } = this.storageSettings.values;
+
+        let image: MediaObject;
+        let bufferImage: Buffer;
+        let b64Image: string;
+
         try {
             if (this.snapshotFailedRetry) {
                 const waitTime = this.snapshotFailedRetry * 1000;
-                logger.log(`Waiting for ${this.snapshotFailedRetry} seconds`);
+                logger.debug(`Waiting for ${this.snapshotFailedRetry} seconds`);
                 await sleep(waitTime);
             }
+
             // Images within 0.5 seconds are very recent (move this as plugin configuration)
             const isVeryRecent = this.lastPicture && this.lastPictureTaken && (now - this.lastPictureTaken) <= 500;
             const timePassed = !this.lastPictureTaken || (now - this.lastPictureTaken) >= 1000 * minSnapshotDelay;
-
-            let image: MediaObject;
-            let bufferImage: Buffer;
-            let b64Image: string;
 
             if (isVeryRecent) {
                 image = this.lastPicture;
@@ -848,13 +852,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 bufferImage = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg');
                 b64Image = bufferImage?.toString('base64');
             }
-
-            return { image, b64Image, bufferImage };
         } catch (e) {
             this.getLogger().log('Error taking a picture in camera mixin', e);
             this.snapshotFailedRetry = (this.snapshotFailedRetry || 0) + 1;
-            return {};
         }
+
+        return { image, b64Image, bufferImage };
     }
 
     async startAudioDetection() {
@@ -1376,23 +1379,23 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { detections, triggerTime, isFromNvr, image: parentImage } = props;
         const logger = this.getLogger();
 
-        if (!detections?.length) {
+        if (this.processingMqttDetections || !detections?.length) {
             return;
         }
+        this.processingMqttDetections = true;
 
         const now = new Date().getTime();
 
         const {
             minDelayTime,
             ignoreCameraDetections,
-            minSnapshotDelay
         } = this.storageSettings.values;
 
         const { candidates, ids } = filterAndSortValidDetections({
             detections: detections ?? [],
             logger,
-            processedIds: []
-            // processedIds: this.processedDetectionIds ?? []
+            // processedIds: []
+            processedIds: this.processedDetectionIds ?? []
         });
         this.processedDetectionIds.push(...ids);
 
@@ -1417,6 +1420,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }
 
             this.reportDetectionsToMqtt({ detections: candidates, triggerTime, logger, device, b64Image, image }).catch(logger.error);
+            this.processingMqttDetections = true;
         }
 
         let dataToReport = {};

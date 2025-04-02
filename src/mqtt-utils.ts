@@ -149,7 +149,7 @@ const ptzLeftEntity: MqttEntity = {
     domain: 'button',
     entity: 'ptz-move-left',
     name: 'Move left',
-    icon: 'mdi:arrow-left-thick'
+    icon: 'mdi:arrow-left-thick',
 };
 const ptzRightEntity: MqttEntity = {
     domain: 'button',
@@ -314,8 +314,6 @@ const deviceClassMqttEntities: MqttEntity[] = defaultDetectionClasses.flatMap(cl
 
     return entries;
 });
-
-export const getDetectionRuleId = (rule: BaseRule) => `${rule.source}_${rule.name.replaceAll(/\s/g, '')}`;
 
 export const getRuleMqttEntities = (props: {
     rule: BaseRule,
@@ -620,29 +618,25 @@ export const subscribeToDeviceMqttTopics = async (
         device
     } = props;
 
-    const processRules = async (rules: BaseRule[]) => {
-        for (const rule of rules) {
-            const mqttEntity = getRuleMqttEntities({ rule, device })?.find(item => item.identifier === MqttEntityIdentifier.RuleActive);
+    for (const rule of rules) {
+        const mqttEntity = getRuleMqttEntities({ rule, device })?.find(item => item.identifier === MqttEntityIdentifier.RuleActive);
 
-            if (mqttEntity) {
-                const { commandTopic, stateTopic } = await getVideocameraMqttAutodiscoveryConfiguration({ mqttEntity, device });
+        if (mqttEntity) {
+            const { commandTopic, stateTopic } = await getVideocameraMqttAutodiscoveryConfiguration({ mqttEntity, device });
 
-                await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
-                    if (messageTopic === commandTopic) {
-                        activationRuleCb({
-                            active: message === 'true',
-                            ruleName: rule.name,
-                            ruleType: rule.ruleType
-                        });
+            await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
+                if (messageTopic === commandTopic) {
+                    activationRuleCb({
+                        active: message === 'true',
+                        ruleName: rule.name,
+                        ruleType: rule.ruleType
+                    });
 
-                        await mqttClient.publish(stateTopic, message, mqttEntity.retain);
-                    }
-                });
-            }
+                    await mqttClient.publish(stateTopic, message, mqttEntity.retain);
+                }
+            });
         }
     }
-
-    await processRules(rules);
 
     if (switchRecordingCb) {
         const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: recordingEntity, device });
