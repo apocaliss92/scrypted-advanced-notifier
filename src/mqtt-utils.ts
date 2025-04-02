@@ -89,9 +89,9 @@ const sleepingEntity: MqttEntity = {
     domain: 'binary_sensor',
     entity: 'sleeping',
     name: 'Sleeping',
-    deviceClass: 'plug',
     entityCategory: 'diagnostic',
     retain: true,
+    icon: 'mdi:sleep'
 };
 const onlineEntity: MqttEntity = {
     domain: 'binary_sensor',

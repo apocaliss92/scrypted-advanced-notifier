@@ -1404,7 +1404,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             if (isFromNvr && parentImage && useNvrDetectionsForMqtt) {
                 image = parentImage;
                 b64Image = (await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg'))?.toString('base64');
-            } else if (!image) {
+            } else if (!useNvrDetectionsForMqtt && !image) {
                 const { b64Image: b64ImageNew, image: imageNew } = await this.getImage();
                 image = imageNew;
                 b64Image = b64ImageNew;
