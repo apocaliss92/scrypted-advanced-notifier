@@ -2,17 +2,17 @@ import sdk, { BinarySensor, Camera, DeviceBase, EntrySensor, LockState, MediaObj
 import { SettingsMixinDeviceBase } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDevice, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import fs from 'fs';
+import { Jimp, loadFont, rgbaToInt } from "jimp";
+import { SANS_16_WHITE } from "jimp/fonts";
 import { cloneDeep, sortBy, uniq, uniqBy } from "lodash";
 import moment, { Moment } from "moment";
 import path from 'path';
 import sharp from 'sharp';
-import { Jimp, loadFont, rgbaToInt } from "jimp";
 import { name, scrypted } from '../package.json';
+import { AiPlatform, defaultModel } from "./aiUtils";
 import { classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detecionClasses";
 import AdvancedNotifierPlugin from "./main";
 const { endpointManager } = sdk;
-import { SANS_16_WHITE } from "jimp/fonts";
-import { AiPlatform, defaultModel } from "./aiUtils";
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Settings & ObjectDetector & VideoCamera & EntrySensor & Lock & BinarySensor;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
