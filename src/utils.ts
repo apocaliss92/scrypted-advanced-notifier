@@ -90,6 +90,11 @@ export const getFolderPaths = async (deviceId: string) => {
     return { snapshotsFolder };
 }
 
+export const isDetectionRule = (rule: BaseRule) => [
+    RuleType.Audio,
+    RuleType.Detection,
+].includes(rule.ruleType);
+
 export const storeWebhookImage = async (props: {
     deviceId: string,
     image: MediaObject,
@@ -504,6 +509,7 @@ export const pluginRulesGroup = 'Rules';
 export const rulesKey = 'advancedNotifierRules';
 
 export type MixinBaseSettingKey =
+    | 'info'
     | 'debug'
     | 'entityId'
     | 'haDeviceClass'
@@ -533,6 +539,12 @@ export const getMixinBaseSettings = (props: {
         const settings: StorageSettingsDict<MixinBaseSettingKey> = {
             debug: {
                 title: 'Log debug messages',
+                type: 'boolean',
+                defaultValue: false,
+                immediate: true,
+            },
+            info: {
+                title: 'Log info messages',
                 type: 'boolean',
                 defaultValue: false,
                 immediate: true,
@@ -2055,7 +2067,7 @@ export const getDeviceRules = (
                 ...restCriterias,
             })}`);
 
-            if (deviceOk || activationType === DetectionRuleActivation.OnActive) {
+            if (deviceOk || (activationType === DetectionRuleActivation.OnActive && (device ? onActiveDevices.includes(deviceId) : true))) {
                 if (useNvrDetections) {
                     allNvrRules.push(cloneDeep(detectionRule));
                 } else {
@@ -2614,4 +2626,32 @@ export const toTitleCase = (str: string) => str
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .replace(/[_-]+/g, ' ')
     .toLowerCase()
-    .replace(/^\w/, char => char.toUpperCase()); 
+    .replace(/^\w/, char => char.toUpperCase());
+
+export const splitRules = (props: {
+    allRules: BaseRule[],
+    rulesToActivate: BaseRule[],
+    currentlyActiveRules: BaseRule[],
+}) => {
+    const { currentlyActiveRules, rulesToActivate, allRules } = props;
+
+    const rulesToEnable: BaseRule[] = [];
+    const rulesToDisable: BaseRule[] = [];
+
+    for (const rule of allRules) {
+        const isCurrentlyActive = currentlyActiveRules.find(innerRule => rule.name === innerRule.name);
+        const shouldBeActive = rulesToActivate.find(innerRule => rule.name === innerRule.name);
+        const isActuallyActive = rule.currentlyActive;
+
+        if (shouldBeActive && (!isCurrentlyActive || !isActuallyActive)) {
+            rulesToEnable.push(cloneDeep(rule))
+        } else if (!shouldBeActive && (isCurrentlyActive || isActuallyActive)) {
+            rulesToDisable.push(cloneDeep(rule))
+        }
+    }
+
+    return [
+        rulesToEnable,
+        rulesToDisable,
+    ];
+}

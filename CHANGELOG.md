@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.0.19
+
+- Performance noticeably improved splitting images update on MQTT in batches
+
 ### 3.0.17
 
 - MQTT client split per device to reduce overhead for weak brokers

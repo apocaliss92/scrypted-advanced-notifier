@@ -1,7 +1,7 @@
 import sdk, { Camera, EventDetails, EventListenerRegister, FFmpegInput, Image, MediaObject, MediaStreamDestination, MotionSensor, ObjectDetection, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoom, PanTiltZoomCommand, Reboot, RequestPictureOptions, ScryptedDevice, ScryptedDeviceBase, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoFrame, VideoFrameGenerator, VideoFrameGeneratorOptions } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
-import { cloneDeep } from "lodash";
+import { cloneDeep, uniq } from "lodash";
 import { getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import { filterOverlappedDetections } from '../../scrypted-basic-object-detector/src/util';
@@ -9,9 +9,9 @@ import { RtpPacket } from "../../scrypted/external/werift/packages/rtp/src/rtp/r
 import { startRtpForwarderProcess } from '../../scrypted/plugins/webrtc/src/rtp-forwarders';
 import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
-import { publishOccupancy, publishRelevantDetections, publishResetDetectionsEntities, publishRuleData, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
+import { publishClassnameImages, publishOccupancy, publishRelevantDetections, publishResetDetectionsEntities, publishRuleData, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, isDeviceEnabled, pcmU8ToDb } from "./utils";
+import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, isDetectionRule, isDeviceEnabled, pcmU8ToDb, splitRules } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -36,6 +36,10 @@ export type OccupancyRuleData = {
     triggerTime: number;
 };
 
+interface AccumulatedDetection { detect: ObjectsDetected, eventId: string };
+
+const MIN_DELAY_RULE_IMAGE_PUBLISH = 4000;
+
 export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> implements Settings {
     initStorage: StorageSettingsDict<string> = {
         ...getMixinBaseSettings({
@@ -57,11 +61,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             description: 'Minimum amount of seconds to wait until a new snapshot is taken from the camera',
             type: 'number',
             defaultValue: 5
-        },
-        motionDuration: {
-            title: 'Off motion duration',
-            type: 'number',
-            defaultValue: 10
         },
         snapshotWidth: {
             subgroup: 'Notifier',
@@ -126,10 +125,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     isActiveForNotifications: boolean;
     isActiveForAudioDetections: boolean;
     isActiveForMqttReporting: boolean;
+    isActiveForNvrNotifications: boolean;
     initializingMqtt: boolean;
     lastAutoDiscovery: number;
-    isActiveForNvrNotifications: boolean;
-    lastDetectionMap: Record<string, number> = {};
+    lastRuleNotifiedMap: Record<string, number> = {};
+    lastRulePublishedMap: Record<string, number> = {};
     logger: Console;
     killed: boolean;
     occupancyRules: OccupancyRule[] = [];
@@ -138,7 +138,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     audioRules: AudioRule[] = [];
     allTimelapseRules: TimelapseRule[] = [];
     nvrDetectionRules: DetectionRule[] = [];
-    occupancyRulesDiscovered: string[] = [];
     audioListeners: Record<string, {
         inProgress: boolean;
         lastDetection?: number;
@@ -148,12 +147,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     detectionRuleListeners: Record<string, {
         disableNvrRecordingTimeout?: NodeJS.Timeout;
     }> = {};
-    lastFrameAnalysis: number;
     lastObserveZonesFetched: number;
     observeZoneData: ObserveZoneData[];
     occupancyState: Record<string, OccupancyData> = {};
     timelapseLastCheck: Record<string, number> = {};
-    latestFrame?: Buffer;
     audioForwarder: ReturnType<typeof startRtpForwarderProcess>;
     lastAudioDetected: number;
     allRules: BaseRule[] = [];
@@ -162,9 +159,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     lastPictureTaken?: number;
     lastOccupancyRegularCheck?: number;
 
-    // detectionsBucket: {detect: ObjectsDetected, eventI}[] = [];
-    processedDetectionIds = new Set<string>();
-    // processDetectionsInterval: NodeJS.Timeout;
+    accumulatedDetections: AccumulatedDetection[] = [];
+    // processedDetectionIds = new Set<string>();
+    processDetectionsInterval: NodeJS.Timeout;
+    processingAccumulatedDetections = false;
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -208,7 +206,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         mqttHost: this.plugin.storageSettings.getItem('mqttHost'),
                         mqttUsename: this.plugin.storageSettings.getItem('mqttUsename'),
                         mqttPassword: this.plugin.storageSettings.getItem('mqttPassword'),
-                        // clientId: `Scrypted_AN_${this.id}`
+                        clientId: `s_an_${this.id}`
                     });
                     await this.mqttClient?.getMqttClient();
                 } catch (e) {
@@ -234,34 +232,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async enableRecording(device: Settings, enabled: boolean) {
         await device.putSetting(`recording:privacyMode`, !enabled)
-    }
-
-    splitRules(props: {
-        allRules: BaseRule[],
-        rulesToActivate: BaseRule[],
-        currentlyActiveRules: BaseRule[],
-    }) {
-        const { currentlyActiveRules, rulesToActivate, allRules } = props;
-
-        const rulesToEnable: BaseRule[] = [];
-        const rulesToDisable: BaseRule[] = [];
-
-        for (const rule of allRules) {
-            const isCurrentlyActive = currentlyActiveRules.find(innerRule => rule.name === innerRule.name);
-            const shouldBeActive = rulesToActivate.find(innerRule => rule.name === innerRule.name);
-            const isActuallyActive = rule.currentlyActive;
-
-            if (shouldBeActive && (!isCurrentlyActive || !isActuallyActive)) {
-                rulesToEnable.push(cloneDeep(rule))
-            } else if (!shouldBeActive && (isCurrentlyActive || isActuallyActive)) {
-                rulesToDisable.push(cloneDeep(rule))
-            }
-        }
-
-        return [
-            rulesToEnable,
-            rulesToDisable,
-        ];
     }
 
     async startCheckInterval() {
@@ -298,34 +268,34 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     deviceStorage: this.storageSettings
                 });
 
-                const [timelapseRulesToEnable, timelapseRulesToDisable] = this.splitRules({
+                const [timelapseRulesToEnable, timelapseRulesToDisable] = splitRules({
                     allRules: allTimelapseRules,
                     currentlyActiveRules: this.timelapseRules,
                     rulesToActivate: timelapseRules
                 });
 
-                const [detectionRulesToEnable, detectionRulesToDisable] = this.splitRules({
+                const [detectionRulesToEnable, detectionRulesToDisable] = splitRules({
                     allRules: allDetectionRules,
                     currentlyActiveRules: this.detectionRules,
                     rulesToActivate: detectionRules
                 });
 
-                const [nvrDetectionRulesToEnable, nvrDetectionRulesToDisable] = this.splitRules({
+                const [nvrDetectionRulesToEnable, nvrDetectionRulesToDisable] = splitRules({
                     allRules: allNvrRules,
                     currentlyActiveRules: this.nvrDetectionRules,
                     rulesToActivate: nvrRules
                 });
 
-                const [occupancyRulesToEnable, occupancyRulesToDisable] = this.splitRules({
+                const [occupancyRulesToEnable, occupancyRulesToDisable] = splitRules({
                     allRules: allOccupancyRules,
                     currentlyActiveRules: this.occupancyRules,
-                    rulesToActivate: this.occupancyRules
+                    rulesToActivate: occupancyRules
                 });
 
-                const [audioRulesToEnable, audioRulesToDisable] = this.splitRules({
+                const [audioRulesToEnable, audioRulesToDisable] = splitRules({
                     allRules: allAudioRules,
                     currentlyActiveRules: this.audioRules,
-                    rulesToActivate: this.audioRules
+                    rulesToActivate: audioRules
                 });
 
                 logger.debug(`Detected rules: ${JSON.stringify({
@@ -517,13 +487,22 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 this.isActiveForNvrNotifications = isActiveForNvrNotifications;
                 this.isActiveForAudioDetections = isActiveForAudioDetections;
 
-
                 const { entityId } = this.storageSettings.values;
-                if (this.plugin.storageSettings.values.haEnabled && entityId && !this.plugin.fetchedEntities.includes(entityId)) {
+                const { haEnabled, useNvrDetectionsForMqtt } = this.plugin.storageSettings.values;
+
+                if (haEnabled && entityId && !this.plugin.fetchedEntities.includes(entityId)) {
                     logger.debug(`Entity id ${entityId} does not exists on HA`);
                 }
 
-                this.processedDetectionIds = new Set();
+                if (!useNvrDetectionsForMqtt && !this.processDetectionsInterval) {
+                    logger.log('Starting processing of accumulated detections');
+                    this.startAccumulatedDetectionsInterval();
+                } else if (useNvrDetectionsForMqtt && this.processDetectionsInterval) {
+                    logger.log('Stopping processing of accumulated detections');
+                    this.stopAccumulatedDetectionsInterval();
+                }
+
+                // this.processedDetectionIds = new Set();
             } catch (e) {
                 logger.log('Error in startCheckInterval funct', e);
             }
@@ -540,22 +519,37 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 logger.log('Error in mainLoopListener', e);
             }
         }, 10000);
+    }
 
-        // this.processDetectionsInterval = setInterval(async () => {
-        //     try {
-        //         if (!this.killed) {
-        //             this.processDetections({ detections: this.detectionsBucket, triggerTime: Date.now(), isFromNvr: false });
-        //         }
-        //     } catch (e) {
-        //         logger.log('Error in startCheckInterval', e);
-        //     }
-        // })
+    startAccumulatedDetectionsInterval() {
+        const logger = this.getLogger();
+        this.processDetectionsInterval = setInterval(async () => {
+            try {
+                if (!this.killed && this.accumulatedDetections.length && !this.processingAccumulatedDetections) {
+                    try {
+                        this.processingAccumulatedDetections = true;
+                        await this.processAccumulatedDetections();
+                    } catch (e) {
+                        logger.log(`Error in startAccumulatedDetectionsInterval`, e);
+                    } finally {
+                        this.processingAccumulatedDetections = false;
+                    }
+                }
+            } catch (e) {
+                logger.log('Error in startCheckInterval', e);
+            }
+        }, 1500);
     }
 
     resetAudioRule(ruleName: string, lastNotification?: number) {
         const resetInterval = this.audioListeners[ruleName]?.resetInterval;
         resetInterval && clearInterval(resetInterval);
         this.audioListeners[ruleName] = { inProgress: false, resetInterval: undefined, lastDetection: undefined, lastNotification };
+    }
+
+    stopAccumulatedDetectionsInterval() {
+        this.processDetectionsInterval && clearInterval(this.processDetectionsInterval);
+        this.processDetectionsInterval = undefined;
     }
 
     stopAudioListener() {
@@ -774,18 +768,29 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.resetListeners();
     }
 
-    private getLogger() {
+    public getLogger() {
         const deviceConsole = this.console;
 
         if (!this.logger) {
-            const log = (type: 'log' | 'error' | 'debug' | 'warn', message?: any, ...optionalParams: any[]) => {
+            const log = (type: 'log' | 'error' | 'debug' | 'warn' | 'info', message?: any, ...optionalParams: any[]) => {
                 const now = new Date().toLocaleString();
-                if (type !== 'debug' || this.storageSettings.getItem('debug')) {
+
+                let canLog = false;
+                if (type === 'debug') {
+                    canLog = this.storageSettings.getItem('debug')
+                } else if (type === 'info') {
+                    canLog = this.storageSettings.getItem('info')
+                } else {
+                    canLog = true;
+                }
+
+                if (canLog) {
                     deviceConsole.log(` ${now} - `, message, ...optionalParams);
                 }
             };
             this.logger = {
                 log: (message?: any, ...optionalParams: any[]) => log('log', message, ...optionalParams),
+                info: (message?: any, ...optionalParams: any[]) => log('info', message, ...optionalParams),
                 debug: (message?: any, ...optionalParams: any[]) => log('debug', message, ...optionalParams),
                 error: (message?: any, ...optionalParams: any[]) => log('error', message, ...optionalParams),
                 warn: (message?: any, ...optionalParams: any[]) => log('warn', message, ...optionalParams),
@@ -793,50 +798,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
 
         return this.logger;
-    }
-
-    async reportDetectionsToMqtt(props: {
-        detections: ObjectDetectionResult[],
-        triggerTime: number,
-        logger: Console,
-        device: ScryptedDeviceBase,
-        b64Image?: string,
-        imageUrl?: string,
-        image?: MediaObject,
-    }) {
-        const { detections, device, logger, triggerTime, b64Image, image, imageUrl } = props;
-        const { motionDuration } = this.storageSettings.values;
-        const room = device.room;
-
-        const mqttClient = await this.getMqttClient();
-
-        if (mqttClient) {
-            try {
-                publishRelevantDetections({
-                    mqttClient,
-                    console: logger,
-                    detections,
-                    device,
-                    triggerTime,
-                    b64Image,
-                    image,
-                    imageUrl,
-                    room,
-                    storeImageFn: this.plugin.storeImage
-                }).catch(logger.error);
-            } catch (e) {
-                logger.log(`Error in reportDetectionsToMqtt`, e);
-            }
-
-            this.resetMqttTimeout();
-            this.mqttDetectionMotionTimeout = setTimeout(async () => {
-                publishResetDetectionsEntities({
-                    mqttClient,
-                    device,
-                    allRules: this.allRules
-                }).catch(logger.error);
-            }, motionDuration * 1000);
-        }
     }
 
     async triggerRule(props: {
@@ -924,11 +885,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     public async getImage(props?: {
         preferLatest?: boolean,
+        fallbackToLatest?: boolean,
         detectionId?: string,
         eventId?: string,
         image?: MediaObject
     }) {
-        const { preferLatest, detectionId, eventId, image: imageParent } = props ?? {};
+        const { preferLatest, fallbackToLatest, detectionId, eventId, image: imageParent } = props ?? {};
         const logger = this.getLogger();
         const now = Date.now();
         const { minSnapshotDelay } = this.storageSettings.values;
@@ -937,6 +899,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let bufferImage: Buffer;
         let b64Image: string;
         let imageUrl: string;
+        let imageSource: string;
 
         const msPassed = now - this.lastPictureTaken;
         const isVeryRecent = msPassed && msPassed <= 500;
@@ -945,48 +908,58 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             if (!image) {
                 if (preferLatest) {
                     image = this.lastImage;
-                    logger.debug(`Last used image taken because periodic`);
+                    logger.info(`Last used image taken because periodic`);
+                    imageSource = 'Latest because requested';
                 } else if (isVeryRecent && this.lastImage) {
                     image = this.lastImage;
                     b64Image = this.lastB64Image;
-                    logger.debug(`Last used image taken because very recent`);
-                    // } else if (detectionId && eventId) {
-                    // try {
-                    //     this.lastPictureTaken = now;
-                    //     this.lastImage = undefined;
-                    //     const detectImage = await this.cameraDevice.getDetectionInput(detectionId, eventId);
-                    //     const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(detectImage, ScryptedMimeTypes.Image);
-                    //     image = await convertedImage.toImage({
-                    //         resize: {
-                    //             height: this.storageSettings.values.snapshotHeight,
-                    //             width: this.storageSettings.values.snapshotWidth,
-                    //         },
-                    //     });
-                    //     logger.debug(`Image taken from the detector mixin`);
-                    // } catch (e) {
-                    //     logger.log(`Error finding the mixin detection image`, e);
-                    // }
-                } else {
-                    const timePassed = !this.lastPictureTaken || msPassed >= 1000 * minSnapshotDelay;
-
-                    if (timePassed) {
+                    logger.info(`Last used image taken because very recent`);
+                    imageSource = 'Latest because very recent';
+                } else if (detectionId && eventId) {
+                    try {
                         this.lastPictureTaken = now;
                         this.lastImage = undefined;
-                        const objectDetector = this.getObjectDetector();
-                        image = await objectDetector.takePicture({
-                            reason: 'event',
-                            timeout: 2000,
-                            picture: {
+                        const detectImage = await this.cameraDevice.getDetectionInput(detectionId, eventId);
+                        const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(detectImage, ScryptedMimeTypes.Image);
+                        image = await convertedImage.toImage({
+                            resize: {
                                 height: this.storageSettings.values.snapshotHeight,
                                 width: this.storageSettings.values.snapshotWidth,
                             },
                         });
-                        logger.debug(`Image taken from snapshot because time is passed ${detectionId} ${eventId}`);
+                        logger.info(`Image taken from the detector mixin`);
+                        imageSource = 'Detector mixin';
+                    } catch (e) {
+                        logger.log(`Error finding the image from the detector mixin`, e.message);
+                        this.lastPictureTaken = undefined;
+                    }
+                } else {
+                    const timePassed = !this.lastPictureTaken || msPassed >= 1000 * minSnapshotDelay;
+
+                    if (timePassed) {
+                        try {
+                            this.lastPictureTaken = now;
+                            this.lastImage = undefined;
+                            const objectDetector = this.getObjectDetector();
+                            image = await objectDetector.takePicture({
+                                reason: 'event',
+                                timeout: 5000,
+                                picture: {
+                                    height: this.storageSettings.values.snapshotHeight,
+                                    width: this.storageSettings.values.snapshotWidth,
+                                },
+                            });
+                            logger.info(`Image taken from snapshot because time is passed ${detectionId} ${eventId}`);
+                            imageSource = 'Snapshot';
+                        } catch (e) {
+                            logger.log(`Error taking a snapshot`, e.message);
+                            this.lastPictureTaken = undefined;
+                        }
                     }
                 }
             }
 
-            if (!image) {
+            if (!image && fallbackToLatest) {
                 image = this.lastImage;
             }
 
@@ -996,11 +969,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 // imageUrl = await sdk.mediaManager.convertMediaObjectToInsecureLocalUrl(image, 'image/jpeg');
             }
         } catch (e) {
+            logger.log(`Error during getImage`, e);
         } finally {
             this.lastImage = image;
             this.lastB64Image = b64Image;
 
-            return { image, b64Image, bufferImage, imageUrl };
+            return { image, b64Image, bufferImage, imageUrl, imageSource };
         }
     }
 
@@ -1064,7 +1038,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const currentState = this.occupancyState[name];
             const shouldForceFrame = !currentState || (now - (currentState?.lastCheck ?? 0)) >= (1000 * forceUpdate);
 
-            logger.debug(`Should force update occupancy: ${JSON.stringify({
+            logger.info(`Should force occupancy data update: ${JSON.stringify({
                 shouldForceFrame,
                 lastCheck: currentState?.lastCheck,
                 forceUpdate,
@@ -1080,7 +1054,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const lastCheck = this.timelapseLastCheck[name];
             const shouldForceFrame = !lastCheck || (now - (lastCheck ?? 0)) >= (1000 * regularSnapshotInterval);
 
-            logger.debug(`Should force timelapse frame: ${JSON.stringify({
+            logger.info(`Should force timelapse frame: ${JSON.stringify({
                 shouldForceFrame,
                 lastCheck,
                 regularSnapshotInterval,
@@ -1090,13 +1064,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             return shouldForceFrame;
         });
-        const anyTimelapseToRefresh = timelapsesToRefresh.length;
+
+        const anyTimelapseToRefresh = !!timelapsesToRefresh.length;
 
         if (anyOutdatedOccupancyRule || anyTimelapseToRefresh) {
-            const { image } = await this.getImage({ preferLatest: true });
+            const { image } = await this.getImage({ fallbackToLatest: true });
             if (image) {
                 if (anyOutdatedOccupancyRule) {
-                    logger.debug('Forcing update of occupancy data');
+                    logger.log(`Updating occupancy data`);
                     this.checkOccupancyData(image).catch(logger.log);
                 }
 
@@ -1104,10 +1079,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     const device = systemManager.getDeviceById<DeviceInterface>(this.id);
 
                     for (const rule of timelapsesToRefresh) {
-                        logger.debug(`Forcing timelapse image for rule ${rule.name}: ${JSON.stringify({
-                            timestamp: now,
-                            id: this.id
-                        })}`);
+                        logger.log(`Adding frame to the timelapse rule ${rule.name}`);
                         this.plugin.storeTimelapseFrame({
                             imageMo: image,
                             timestamp: now,
@@ -1130,12 +1102,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         try {
             const now = new Date().getTime();
+            const minDelayInSeconds = !!this.occupancyRules.length ? 3 : 15;
+            const timePassed = !this.lastOccupancyRegularCheck || (now - this.lastOccupancyRegularCheck) > (1000 * minDelayInSeconds);
 
-            // make a configuration for this
-            const timePassed = this.lastOccupancyRegularCheck ? now - this.lastOccupancyRegularCheck > (1000 * 15) : true;
-            const hasActiveRules = !!this.occupancyRules.length;
-
-            if (!hasActiveRules && !timePassed) {
+            if (!timePassed) {
                 return;
             }
 
@@ -1202,16 +1172,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     width = Math.min(width, image.width - left);
                     height = Math.min(height, image.height - top);
 
-                    const cropped = await image.toImage({
-                        crop: {
-                            left,
-                            top,
-                            width,
-                            height,
-                        },
-                    });
-                    imageToUse = cropped;
-                    detectedResult = await objectDetector.detectObjects(cropped);
+                    if (!Number.isNaN(left) && !Number.isNaN(top) && !Number.isNaN(width) && !Number.isNaN(height)) {
+                        imageToUse = await image.toImage({
+                            crop: {
+                                left,
+                                top,
+                                width,
+                                height,
+                            },
+                        });
+                        detectedResult = await objectDetector.detectObjects(imageToUse);
+                    }
 
                     if (objectDetector.name !== 'Scrypted NVR Object Detection') {
                         detectedResult.detections = filterOverlappedDetections(detectedResult.detections);
@@ -1292,7 +1263,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const image = this.occupancyState[name].image;
                 const b64Image = (await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg'))?.toString('base64')
                 if (!currentState || tooOld) {
-                    logger.debug(`Force pushing rule ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
+                    logger.info(`Force pushing rule ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
                     occupancyRulesData.push({
                         ...occupancyRuleData,
                         image,
@@ -1318,7 +1289,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     if (!isConfirmationTimePassed) {
                         if (isStateConfirmed) {
                             // Do nothing and wait for next iteration
-                            logger.debug(`Confirmation time is not passed yet ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
+                            logger.info(`Confirmation time is not passed yet ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
                         } else {
                             // Reset confirmation data because the value changed before confirmation time passed
                             logger.log(`Confirmation failed, value changed during confirmation time ${occupancyRuleData.rule.name}`);
@@ -1369,7 +1340,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 occupancyToConfirm: occupancyRuleData.occupies
                             };
 
-                            logger.log(`Restarting confirmation flow for occupancy rule ${occupancyRuleData.rule.name}`);
+                            logger.log(`Restarting confirmation flow (because time is passed and value changed) for occupancy rule ${occupancyRuleData.rule.name}`);
                             logger.debug(JSON.stringify(logPayload));
                         }
                     }
@@ -1383,7 +1354,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         occupancyToConfirm: occupancyRuleData.occupies
                     };
                 } else {
-                    logger.debug(`Refreshing lastCheck only for rule ${occupancyRuleData.rule.name}`);
+                    logger.info(`Refreshing lastCheck only for rule ${occupancyRuleData.rule.name}`);
                     logger.debug(JSON.stringify(logPayload));
                 }
 
@@ -1448,7 +1419,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const rules = cloneDeep((this.audioRules) ?? []);
             const now = Date.now();
 
-            const { image, b64Image, imageUrl } = await this.getImage();
+            const { image, b64Image, imageUrl } = await this.getImage({ preferLatest: true });
 
             for (const rule of rules) {
                 const { name, audioDuration, decibelThreshold, customText, minDelay } = rule;
@@ -1525,21 +1496,54 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    // public accumulateDetections(props: {
-    //     detection: ObjectsDetected,
-    //     event: EventDetails
-    // }) {
-    //     const { detection, event } = props;
+    // This method is called in case the camera is configured to not get MQTT updates from NVR, this will defer the 
+    // detections train and reduce overhead
+    async processAccumulatedDetections() {
+        const logger = this.getLogger();
+        const dataToAnalyze = this.accumulatedDetections.map(det => ({
+            triggerTime: det.detect.timestamp,
+            detectionId: det.detect.detectionId,
+            eventId: det.eventId,
+            classnames: det.detect.detections.map(innerDet => innerDet.className)
+        }));
+        // Clearing the bucket right away to not lose too many detections
+        this.accumulatedDetections = [];
 
-    //     for (const det of detections) {
-    //         const { id, className } = det;
-    //         const isIdKnown = id && this.processedDetectionIds.has(id);
-    //         if (detectionClassesDefaultMap[className] !== DetectionClass.Motion && !isIdKnown) {
-    //             this.detectionsBucket.push(det);
-    //             id && this.processedDetectionIds.add(id);
-    //         }
-    //     }
-    // }
+        const triggerTime = dataToAnalyze[0]?.triggerTime;
+        const { detectionId, eventId } = dataToAnalyze.find(item => item.detectionId && item.eventId) ?? {};
+        const classnames = uniq(dataToAnalyze.flatMap(item => item.classnames));
+
+        logger.info(`Accumulated data to analyze: ${JSON.stringify({ triggerTime, detectionId, eventId, classnames })}`);
+
+        const { image, b64Image, imageSource } = await this.getImage({
+            detectionId,
+            eventId,
+        });
+
+        if (image && b64Image && classnames.length) {
+            if (classnames.length > 1) {
+                logger.log(`Updating classname images ${classnames.join(', ')} with image source ${imageSource}`);
+            }
+            try {
+                const mqttClient = await this.getMqttClient();
+
+                if (mqttClient) {
+                    await publishClassnameImages({
+                        mqttClient,
+                        console: logger,
+                        classnames,
+                        device: this.cameraDevice,
+                        b64Image,
+                        image,
+                        triggerTime,
+                        storeImageFn: this.plugin.storeImage
+                    }).catch(logger.error);
+                }
+            } catch (e) {
+                logger.log(`Error on publishing data: ${JSON.stringify(dataToAnalyze)}`, e)
+            }
+        }
+    }
 
     public async processDetections(props: {
         detect: ObjectsDetected,
@@ -1547,16 +1551,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         isFromNvr: boolean,
         image?: MediaObject,
     }) {
-        const device = systemManager.getDeviceById<DeviceInterface>(this.id);
         const { detect, isFromNvr, eventDetails, image: parentImage } = props;
         const logger = this.getLogger();
         const { timestamp: triggerTime, detections, detectionId } = detect;
+        const { eventId } = eventDetails ?? {};
+        const { useNvrDetectionsForMqtt } = this.plugin.storageSettings.values;
 
-        const detectionsAmount = detections?.length ?? 0;
-        if (!detectionsAmount) {
+        if (!detections?.length) {
             return;
         }
-        const isOnlyMotion = detectionsAmount === 1 && detectionClassesDefaultMap[detections[0].className] === DetectionClass.Motion;
 
         const now = new Date().getTime();
 
@@ -1576,11 +1579,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let imageUrl: string;
 
         if (this.isActiveForMqttReporting) {
-            const { useNvrDetectionsForMqtt } = this.plugin.storageSettings.values;
             const isNvrImage = isFromNvr && parentImage && useNvrDetectionsForMqtt;
-            const isPluginImage = !useNvrDetectionsForMqtt && !image && !isOnlyMotion;
 
-            if (isNvrImage || isPluginImage) {
+            if (isNvrImage) {
+                // If NVR notification, just transform the image in b64 to use for MQTT
                 const { b64Image: b64ImageNew, image: imageNew, imageUrl: imageUrlNew } = await this.getImage({
                     detectionId,
                     eventId: eventDetails.eventId,
@@ -1590,26 +1592,31 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 b64Image = b64ImageNew;
                 imageUrl = imageUrlNew;
             }
+            const mqttClient = await this.getMqttClient();
 
-            if (image) {
-                const isSleeping = this.cameraDevice.sleeping || !this.cameraDevice.online;
-                !isSleeping && this.checkOccupancyData(image).catch(e => {
-                    logger.log(`Error during checkOccupancyData with image ${image}`, e);
-                });
+            if (mqttClient) {
+                publishRelevantDetections({
+                    mqttClient,
+                    console: logger,
+                    detections,
+                    device: this.cameraDevice,
+                    triggerTime,
+                    b64Image,
+                    image,
+                    imageUrl,
+                    room: this.cameraDevice.room,
+                    storeImageFn: this.plugin.storeImage
+                }).catch(logger.error);
             }
-
-            this.reportDetectionsToMqtt({ detections: candidates, triggerTime, logger, device, b64Image, image, imageUrl }).catch(logger.error);
         }
 
         let dataToReport = {};
         try {
-            // const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
-
             const matchRules: MatchRule[] = [];
+            // const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
             // let shouldMarkBoundaries = false;
 
             const rules: (DetectionRule | TimelapseRule)[] = cloneDeep(isFromNvr ? this.nvrDetectionRules : this.detectionRules) ?? [];
-            rules.push(...cloneDeep(this.timelapseRules ?? []));
             logger.debug(`Detections incoming ${JSON.stringify({
                 candidates,
                 detections,
@@ -1618,86 +1625,89 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 rules,
             })}`);
 
-            for (const ruleParent of rules) {
-                if (ruleParent.ruleType === RuleType.Detection) {
-                    const rule = ruleParent as DetectionRule
-                    const { detectionClasses, scoreThreshold, whitelistedZones, blacklistedZones } = rule;
+            let anyRuleToPublish = false;
 
-                    if (!detectionClasses.length) {
+            for (const ruleParent of rules) {
+                const rule = ruleParent as DetectionRule
+                const { detectionClasses, scoreThreshold, whitelistedZones, blacklistedZones } = rule;
+
+                if (!detectionClasses.length) {
+                    return;
+                }
+
+                const match = candidates.find(d => {
+                    if (ignoreCameraDetections && !d.boundingBox) {
+                        return false;
+                    }
+
+                    const { className: classnameRaw, score, zones } = d;
+                    const className = detectionClassesDefaultMap[classnameRaw];
+
+                    if (!className) {
+                        logger.log(`Classname ${classnameRaw} not mapped. Candidates ${JSON.stringify(candidates)}`);
+
                         return;
                     }
 
-                    const match = candidates.find(d => {
-                        if (ignoreCameraDetections && !d.boundingBox) {
-                            return false;
-                        }
+                    if (!detectionClasses.includes(className)) {
+                        logger.debug(`Classname ${className} not contained in ${detectionClasses}`);
+                        return false;
+                    }
 
-                        const { className: classnameRaw, score, zones } = d;
-                        const className = detectionClassesDefaultMap[classnameRaw];
+                    const scoreOk = !score || score > scoreThreshold;
 
-                        if (!className) {
-                            logger.log(`Classname ${classnameRaw} not mapped. Candidates ${JSON.stringify(candidates)}`);
+                    if (!scoreOk) {
+                        logger.debug(`Score ${score} not ok ${scoreThreshold}`);
+                        return false;
+                    }
 
-                            return;
-                        }
+                    dataToReport = {
+                        zones,
 
-                        if (!detectionClasses.includes(className)) {
-                            logger.debug(`Classname ${className} not contained in ${detectionClasses}`);
-                            return false;
-                        }
+                        score,
+                        scoreThreshold,
+                        scoreOk,
 
-                        const scoreOk = !score || score > scoreThreshold;
+                        className,
+                        detectionClasses
+                    };
 
-                        if (!scoreOk) {
-                            logger.debug(`Score ${score} not ok ${scoreThreshold}`);
-                            return false;
-                        }
+                    let zonesOk = true;
+                    if (rule.source === RuleSource.Device) {
+                        const isIncluded = whitelistedZones?.length ? zones.some(zone => whitelistedZones.includes(zone)) : true;
+                        const isExcluded = blacklistedZones?.length ? zones.some(zone => blacklistedZones.includes(zone)) : false;
+
+                        zonesOk = isIncluded && !isExcluded;
 
                         dataToReport = {
-                            zones,
-
-                            score,
-                            scoreThreshold,
-                            scoreOk,
-
-                            className,
-                            detectionClasses
-                        };
-
-                        let zonesOk = true;
-                        if (rule.source === RuleSource.Device) {
-                            const isIncluded = whitelistedZones?.length ? zones.some(zone => whitelistedZones.includes(zone)) : true;
-                            const isExcluded = blacklistedZones?.length ? zones.some(zone => blacklistedZones.includes(zone)) : false;
-
-                            zonesOk = isIncluded && !isExcluded;
-
-                            dataToReport = {
-                                ...dataToReport,
-                                zonesOk,
-                                isIncluded,
-                                isExcluded,
-                            }
+                            ...dataToReport,
+                            zonesOk,
+                            isIncluded,
+                            isExcluded,
                         }
-
-                        if (!zonesOk) {
-                            logger.debug(`Zones ${zones} not ok`);
-                            return false;
-                        }
-
-                        return true;
-                    });
-
-                    if (match) {
-                        matchRules.push({ match, rule, dataToReport });
-                        // if (rule.markDetections) {
-                        //     shouldMarkBoundaries = true;
-                        // }
                     }
-                } else {
-                    if (ruleParent.ruleType === RuleType.Timelapse) {
-                        const rule = ruleParent as TimelapseRule;
-                        matchRules.push({ match: candidates[0], rule, dataToReport: {} });
+
+                    if (!zonesOk) {
+                        logger.debug(`Zones ${zones} not ok`);
+                        return false;
                     }
+
+                    return true;
+                });
+
+                if (match) {
+                    const matchRule = { match, rule, dataToReport };
+                    matchRules.push(matchRule);
+                    const lastDetectionkey = this.getLastDetectionkey(matchRule);
+
+                    const lastPublished = this.lastRulePublishedMap[lastDetectionkey];
+                    if (lastPublished && (now - lastPublished) >= MIN_DELAY_RULE_IMAGE_PUBLISH) {
+                        anyRuleToPublish = true;
+                        this.lastRulePublishedMap[lastDetectionkey] = triggerTime;
+                    }
+                    // if (rule.markDetections) {
+                    //     shouldMarkBoundaries = true;
+                    // }
                 }
             }
 
@@ -1715,12 +1725,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             //     // bufferImage = bufferImageNew;
             // }
 
-            if (image) {
-                const imageUrl = await sdk.mediaManager.convertMediaObjectToLocalUrl(image, 'image/jpg');
-                logger.debug(`Updating webook last image URL: ${imageUrl}`);
-                this.storageSettings.putSetting('lastSnapshotImageUrl', imageUrl);
-            }
-
             //     if (shouldMarkBoundaries && !!objectDetector) {
             //         const detectionResult = await objectDetector.detectObjects(imageToNotify);
 
@@ -1734,73 +1738,129 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             //     }
             // }
 
-            logger.debug(`Matchrules found: ${JSON.stringify({ matchRules, imageFound: !!image })}`);
-            for (const matchRule of matchRules) {
-                try {
-                    const { match, rule } = matchRule;
-                    const lastDetectionkey = this.getLastDetectionkey(matchRule);
-                    const lastDetection = this.lastDetectionMap[lastDetectionkey];
-                    const delay = rule.minDelay ?? minDelayTime;
-                    if (lastDetection && (now - lastDetection) < 1000 * delay) {
-                        logger.debug(`Waiting for delay: ${delay - ((now - lastDetection) / 1000)}s`);
-                        return false;
-                    }
-                    this.lastDetectionMap[lastDetectionkey] = now;
-
-                    let imageToUse = image;
-                    let b64ImageToUse = b64Image;
-                    let imageUrlToUse = imageUrl;
-
-                    // if (rule.ruleType === RuleType.Detection && (rule as DetectionRule).markDetections && markedImage) {
-                    //     imageToUse = markedImage;
-                    //     b64ImageToUse = markedb64Image;
-                    // }
-
-                    logger.debug(`Matching detections found: ${JSON.stringify({
-                        matchRulesMap: matchRules,
-                        candidates,
-                        b64ImageToUse,
-                        imageUrlToUse,
-                        imageToUse: !!imageToUse,
-                        parentImage: !!parentImage
-                    })}`);
-
-                    if (rule.ruleType === RuleType.Detection) {
-                        if (this.isActiveForMqttReporting) {
-                            this.triggerRule({
-                                rule,
-                                b64Image: b64ImageToUse,
-                                device,
-                                triggerTime,
-                                image: imageToUse,
-                                imageUrl: imageUrlToUse
-                            });
-                        }
-
-                        logger.log(`Starting notifiers: ${JSON.stringify({
-                            match,
-                            rule,
-                            eventType: EventType.ObjectDetection,
-                            triggerTime,
-                        })})}`);
-                    }
-
-                    this.plugin.matchDetectionFound({
-                        triggerDeviceId: this.id,
-                        match,
-                        rule,
-                        image: imageToUse,
-                        logger,
-                        eventType: EventType.ObjectDetection,
-                        triggerTime,
-                    });
-
-                } catch (e) {
-                    logger.log(`Error processing matchRule ${JSON.stringify(matchRule)}`, e);
-                }
+            if (matchRules.length) {
+                logger.log(`Matching rules found: ${matchRules.map(({ rule }) => rule.name).join(', ')}`);
+                this.processMatchRules({
+                    candidates,
+                    matchRules,
+                    triggerTime: now,
+                    b64Image,
+                    detectionId,
+                    eventId,
+                    image,
+                    anyRuleToPublish
+                }).catch(logger.log);
             }
         } catch (e) {
             logger.log('Error finding a match', e);
+        }
+    }
+
+    async processMatchRules(props: {
+        image?: MediaObject,
+        b64Image?: string,
+        detectionId?: string,
+        eventId?: string,
+        matchRules: MatchRule[],
+        candidates: ObjectDetectionResult[],
+        triggerTime: number,
+        anyRuleToPublish: boolean
+    }) {
+        const { triggerTime, b64Image: b64ImageParent, detectionId, eventId, image: imageParent, matchRules, candidates, anyRuleToPublish } = props;
+        const { minDelayTime, } = this.storageSettings.values;
+        const logger = this.getLogger();
+
+        let image = imageParent;
+        let b64Image = b64ImageParent;
+
+        if (!image && anyRuleToPublish) {
+            // In case of non-NVR detections, take a snapshot preferring the one from the detection
+            const { image: newImage, b64Image: newB64Image } = await this.getImage({
+                eventId,
+                detectionId,
+            });
+            image = newImage;
+            b64Image = newB64Image;
+        }
+
+        logger.debug(`Matchrules found: ${JSON.stringify({ matchRules, imageFound: !!image })}`);
+        for (const matchRule of matchRules) {
+            try {
+                const lastDetectionkey = this.getLastDetectionkey(matchRule);
+
+                if (!image) {
+                    this.lastRulePublishedMap[lastDetectionkey] = undefined;
+                }
+
+                const { match, rule } = matchRule;
+
+                if (rule.ruleType === RuleType.Detection && this.isActiveForMqttReporting) {
+                    this.lastRulePublishedMap[lastDetectionkey] = triggerTime;
+                    this.triggerRule({
+                        rule,
+                        b64Image,
+                        device: this.cameraDevice,
+                        triggerTime,
+                        image,
+                    });
+                }
+
+                const lastDetection = this.lastRuleNotifiedMap[lastDetectionkey];
+                const delay = rule.minDelay ?? minDelayTime;
+
+                if (lastDetection && (triggerTime - lastDetection) < 1000 * delay) {
+                    this.lastRulePublishedMap[lastDetectionkey] = undefined;
+                    return;
+                }
+
+                // let imageToUse = image;
+                // let b64ImageToUse = b64Image;
+                // let imageUrlToUse = imageUrl;
+
+                // if (rule.ruleType === RuleType.Detection && (rule as DetectionRule).markDetections && markedImage) {
+                //     imageToUse = markedImage;
+                //     b64ImageToUse = markedb64Image;
+                // }
+
+                logger.debug(`Matching detections found: ${JSON.stringify({
+                    matchRulesMap: matchRules,
+                    candidates,
+                    b64Image,
+                    imageToUse: !!image,
+                })}`);
+
+                if (rule.ruleType === RuleType.Detection) {
+                    if (this.isActiveForMqttReporting) {
+                        this.triggerRule({
+                            rule,
+                            b64Image,
+                            device: this.cameraDevice,
+                            triggerTime,
+                            image,
+                        });
+                    }
+
+                    logger.log(`Starting notifiers: ${JSON.stringify({
+                        match,
+                        rule,
+                        eventType: EventType.ObjectDetection,
+                        triggerTime,
+                    })})}`);
+                }
+
+                this.lastRuleNotifiedMap[lastDetectionkey] = triggerTime;
+                this.plugin.matchDetectionFound({
+                    triggerDeviceId: this.id,
+                    match,
+                    rule,
+                    image,
+                    eventType: EventType.ObjectDetection,
+                    triggerTime,
+                });
+
+            } catch (e) {
+                logger.log(`Error processing matchRule ${JSON.stringify(matchRule)}`, e);
+            }
         }
     }
 
@@ -1811,14 +1871,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async startListeners() {
         try {
+            const logger = this.getLogger();
+
             this.detectionListener = systemManager.listenDevice(this.id, {
                 event: ScryptedInterface.ObjectDetector,
             }, async (_, eventDetails, data) => {
                 const detect: ObjectsDetected = data;
 
-                // this.accumulateDetections({ detect });
-                this.processDetections({ detect, isFromNvr: false, eventDetails })
+                this.processDetectionsInterval && this.accumulatedDetections.push({ detect, eventId: eventDetails.eventId });
+                this.processDetections({ detect, isFromNvr: false, eventDetails }).catch(logger.log);
             });
+
             this.motionListener = systemManager.listenDevice(this.id, {
                 event: ScryptedInterface.MotionSensor,
             }, async (_, __, data) => {
@@ -1828,12 +1891,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         className: 'motion',
                         score: 1,
                     }];
-                    // this.accumulateDetections({ detect: { timestamp, detections });
-                    this.processDetections({ detect: { timestamp, detections }, isFromNvr: false });
+                    this.processDetections({ detect: { timestamp, detections }, isFromNvr: false }).catch(logger.log);
                 } else {
                     this.resetMqttTimeout();
                     const mqttClient = await this.plugin.getMqttClient();
-                    const logger = this.getLogger();
 
                     publishResetDetectionsEntities({
                         mqttClient,
@@ -1883,6 +1944,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         try {
             return await videoFrameGenerator.generateVideoFrames(stream, {
                 queue: 0,
+                resize: {
+                    height: this.storageSettings.values.snapshotHeight,
+                    width: this.storageSettings.values.snapshotWidth,
+                },
                 ...options
             });
         }

@@ -2,7 +2,8 @@ import sdk, { EventListenerRegister, MediaObject, ScryptedDevice, ScryptedDevice
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import HomeAssistantUtilitiesProvider from "./main";
-import { BinarySensorMetadata, binarySensorMetadataMap, convertSettingsToStorageSettings, DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, getRuleKeys, isDeviceEnabled, RuleSource, RuleType } from "./utils";
+import { BinarySensorMetadata, binarySensorMetadataMap, convertSettingsToStorageSettings, DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, getRuleKeys, isDeviceEnabled, RuleSource, RuleType, splitRules } from "./utils";
+import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 
 const { systemManager } = sdk;
 
@@ -93,8 +94,11 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 deviceStorage: this.storageSettings
             });
 
-            const detectionRulesToEnable = (detectionRules || []).filter(newRule => !allDetectionRules?.some(currentRule => currentRule.name === newRule.name));
-            const detectionRulesToDisable = (allDetectionRules || []).filter(currentRule => !detectionRules?.some(newRule => newRule.name === currentRule.name));
+            const [detectionRulesToEnable, detectionRulesToDisable] = splitRules({
+                allRules: allDetectionRules,
+                currentlyActiveRules: this.detectionRules,
+                rulesToActivate: detectionRules
+            });
 
             if (detectionRulesToEnable?.length) {
                 for (const rule of detectionRulesToEnable) {
@@ -129,6 +133,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 })}`);
                 await this.startListeners();
             }
+
             if (isActiveForNvrNotifications && !this.isActiveForNvrNotifications) {
                 logger.log(`Starting NVR events listeners`);
             } else if (!isActiveForNvrNotifications && this.isActiveForNvrNotifications) {
@@ -195,19 +200,32 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         this.resetListeners();
     }
 
-    private getLogger() {
-        const deviceConsole = sdk.deviceManager.getMixinConsole(this.id, this.nativeId);
+    public getLogger() {
+        const deviceConsole = this.console;
 
         if (!this.logger) {
-            const log = (debug: boolean, message?: any, ...optionalParams: any[]) => {
+            const log = (type: 'log' | 'error' | 'debug' | 'warn' | 'info', message?: any, ...optionalParams: any[]) => {
                 const now = new Date().toLocaleString();
-                if (!debug || this.storageSettings.getItem('debug')) {
+
+                let canLog = false;
+                if (type === 'debug') {
+                    canLog = this.storageSettings.getItem('debug')
+                } else if (type === 'info') {
+                    canLog = this.storageSettings.getItem('info')
+                } else {
+                    canLog = true;
+                }
+
+                if (canLog) {
                     deviceConsole.log(` ${now} - `, message, ...optionalParams);
                 }
             };
             this.logger = {
-                log: (message?: any, ...optionalParams: any[]) => log(false, message, ...optionalParams),
-                debug: (message?: any, ...optionalParams: any[]) => log(true, message, ...optionalParams),
+                log: (message?: any, ...optionalParams: any[]) => log('log', message, ...optionalParams),
+                info: (message?: any, ...optionalParams: any[]) => log('info', message, ...optionalParams),
+                debug: (message?: any, ...optionalParams: any[]) => log('debug', message, ...optionalParams),
+                error: (message?: any, ...optionalParams: any[]) => log('error', message, ...optionalParams),
+                warn: (message?: any, ...optionalParams: any[]) => log('warn', message, ...optionalParams),
             } as Console
         }
 
@@ -256,43 +274,26 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 const isDoorlock = this.type === ScryptedDeviceType.Lock;
 
                 const enabledRules = (isFromNvr ? this.nvrDetectionRules : this.detectionRules) ?? [];
+                const mixinDevice = this.plugin.currentMixinsMap[device.name] as AdvancedNotifierCameraMixin;
 
-                if (!enabledRules.length) {
+                if (!enabledRules.length || !mixinDevice) {
                     return;
                 }
 
-                let image = imageParent;
-
-                try {
-                    if (!image) {
-                        const deviceSettings = await device.getSettings();
-                        const cameraSnapshotHeight = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:snapshotHeight')?.value as number) ?? 720;
-                        const cameraSnapshotWidth = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:snapshotWidth')?.value as number) ?? 1280;
-
-                        image = await device.takePicture({
-                            reason: 'event',
-                            picture: {
-                                height: cameraSnapshotHeight,
-                                width: cameraSnapshotWidth,
-                            },
-                        });
-                    }
-                } catch (e) {
-                    logger.log('Error taking a picture in sensor mixin', e);
-                }
+                const image = (await mixinDevice.getImage({ image: imageParent }))?.image;
 
                 const eventType = isDoorbell ? EventType.Doorbell : isDoorlock ? EventType.Doorlock : EventType.Contact;
 
                 for (const rule of enabledRules) {
-                    logger.log(`Starting notifiers: ${JSON.stringify({
+                    logger.log(`Starting ${rule.notifiers.length} notifiers for event ${eventType}`);
+                    logger.info(JSON.stringify({
                         eventType,
                         triggerTime,
                         rule,
-                    })})}`);
+                    }));
 
                     this.plugin.matchDetectionFound({
                         triggerDeviceId: this.id,
-                        logger,
                         eventType,
                         triggerTime,
                         rule,

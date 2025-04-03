@@ -3,7 +3,7 @@ import { cloneDeep, groupBy } from 'lodash';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 import { OccupancyRuleData } from './cameraMixin';
 import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, parentDetectionClassMap } from './detecionClasses';
-import { BaseRule, getWebooks, RuleSource, RuleType, StoreImageFn, storeWebhookImage, toKebabCase, toSnakeCase, toTitleCase } from './utils';
+import { BaseRule, getWebooks, isDetectionRule, RuleSource, RuleType, StoreImageFn, storeWebhookImage, toKebabCase, toSnakeCase, toTitleCase } from './utils';
 
 export enum MqttEntityIdentifier {
     Triggered = 'Triggered',
@@ -462,13 +462,6 @@ export const getMqttTopics = (props: {
     };
 }
 
-// const ruleTypeIdMap: Record<RuleType, string> = {
-//     [RuleType.Detection]: 'detection-rule',
-//     [RuleType.Occupancy]: 'occupancy-rule',
-//     [RuleType.Timelapse]: 'timelapse-rule',
-//     [RuleType.Audio]: 'audio-rule',
-// }
-
 export const getObserveZoneStrings = (zoneName: string, className: DetectionClass) => {
     const parsedClassName = toTitleCase(className);
     const parsedZoneName = zoneName.trim().replaceAll(' ', '_');
@@ -823,11 +816,6 @@ export const setupDeviceAutodiscovery = async (props: {
     await autoDiscoverRules({ mqttClient, rules, device, console });
 }
 
-export const isDetectionRule = (rule: BaseRule) => [
-    RuleType.Audio,
-    RuleType.Detection,
-].includes(rule.ruleType);
-
 export const publishResetDetectionsEntities = async (props: {
     mqttClient?: MqttClient,
     device: ScryptedDeviceBase,
@@ -870,7 +858,7 @@ export const publishRelevantDetections = async (props: {
     room?: string,
     storeImageFn?: StoreImageFn
 }) => {
-    const { mqttClient, device, detections = [], triggerTime, console, b64Image, image, room, storeImageFn, imageUrl } = props;
+    const { mqttClient, device, detections = [], triggerTime, console, b64Image, image, room, storeImageFn } = props;
 
     if (!mqttClient) {
         return;
@@ -945,6 +933,63 @@ export const publishRelevantDetections = async (props: {
             detections,
             triggerTime,
         })}`, e);
+    }
+}
+
+export const publishClassnameImages = async (props: {
+    mqttClient?: MqttClient,
+    device: ScryptedDeviceBase,
+    console: Console,
+    triggerTime: number,
+    classnames?: string[],
+    b64Image?: string,
+    imageUrl?: string,
+    image?: MediaObject,
+    storeImageFn?: StoreImageFn
+}) => {
+    const { mqttClient, device, classnames = [], console, b64Image, image, triggerTime, storeImageFn } = props;
+
+    if (!mqttClient) {
+        return;
+    }
+    console.info(`Publishing image for classnames: ${classnames.join(',')}`);
+
+    try {
+        for (const classname of classnames) {
+            const detectionClass = detectionClassesDefaultMap[classname];
+            if (detectionClass) {
+                const mqttEntity = deviceClassMqttEntitiesGrouped[detectionClass].find(entry => entry.identifier === MqttEntityIdentifier.LastImage);
+
+                storeImageFn && storeImageFn({
+                    device,
+                    name: `object-detection-${classname}`,
+                    imageMo: image,
+                    timestamp: triggerTime,
+                    b64Image
+                });
+
+                const { stateTopic } = getMqttTopics({ mqttEntity, device });
+                await mqttClient.publish(stateTopic, b64Image, false);
+
+                const { lastSnapshot } = await getWebooks();
+                await storeWebhookImage({
+                    deviceId: device.id,
+                    image,
+                    logger: console,
+                    webhook: lastSnapshot
+                }).catch(console.log);
+                await storeWebhookImage({
+                    deviceId: device.id,
+                    image,
+                    logger: console,
+                    webhook: `${lastSnapshot}_${detectionClass}`
+                }).catch(console.log);
+            } else {
+                console.log(`${classname} not found`);
+            }
+        }
+    } catch (e) {
+        console.log(`Error publishing ${JSON.stringify({ classnames })}`, e);
     }
 }
 
