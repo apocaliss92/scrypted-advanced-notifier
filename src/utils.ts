@@ -654,6 +654,8 @@ export const isDeviceEnabled = async (
         allDeviceDetectionRules,
         allPluginRules,
         allDetectionRules,
+        allDeviceNvrRules,
+        allNvrRules,
     } = getDeviceRules({
         device,
         console,
@@ -709,7 +711,9 @@ export const isDeviceEnabled = async (
         audioRules,
         skippedAudioRules,
         isActiveForAudioDetections,
-        allAudioRules
+        allAudioRules,
+        allDeviceNvrRules,
+        allNvrRules,
     }
 }
 
@@ -1817,7 +1821,7 @@ const initBasicRule = (props: {
     const securitySystemModes = storage.getItem(securitySystemModesKey) as SecuritySystemMode[] ?? [];
     const notifiers = storage.getItem(notifiersKey) as string[];
 
-    const notifiersTouse = notifiers?.filter(notifierId => activeNotifiers?.includes(notifierId));
+    const notifiersTouse = notifiers?.filter?.(notifierId => activeNotifiers?.includes(notifierId));
 
     const rule: BaseRule = {
         isEnabled,
@@ -1941,6 +1945,8 @@ export const getDeviceRules = (
     const { device, pluginStorage, deviceStorage, console } = props;
     const detectionRules: DetectionRule[] = [];
     const nvrRules: DetectionRule[] = [];
+    const allDeviceNvrRules: DetectionRule[] = [];
+    const allNvrRules: DetectionRule[] = [];
     const skippedDetectionRules: DetectionRule[] = [];
     const allPluginRules: BaseRule[] = [];
     const allDeviceDetectionRules: DetectionRule[] = [];
@@ -2050,13 +2056,21 @@ export const getDeviceRules = (
             })}`);
 
             if (deviceOk || activationType === DetectionRuleActivation.OnActive) {
-                allDetectionRules.push(cloneDeep(detectionRule));
+                if (useNvrDetections) {
+                    allNvrRules.push(cloneDeep(detectionRule));
+                } else {
+                    allDetectionRules.push(cloneDeep(detectionRule));
+                }
             }
 
             if (ruleSource === RuleSource.Plugin) {
                 allPluginRules.push(cloneDeep(detectionRule));
             } else if (ruleSource === RuleSource.Device) {
                 allDeviceDetectionRules.push(cloneDeep(detectionRule));
+
+                if (useNvrDetections) {
+                    allDeviceNvrRules.push(cloneDeep(detectionRule));
+                }
             }
 
             if (!ruleAllowed) {
@@ -2085,6 +2099,8 @@ export const getDeviceRules = (
         allPluginRules,
         allDeviceDetectionRules,
         allDetectionRules,
+        allDeviceNvrRules,
+        allNvrRules
     };
 }
 

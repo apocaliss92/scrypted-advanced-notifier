@@ -53,7 +53,8 @@
     "jimp": "^1.6.0",
     "lodash": "^4.17.21",
     "moment": "^2.30.1",
-    "sharp": "^0.33.5"
+    "sharp": "^0.33.5",
+    "mqtt": "5.10.4"
   },
   "devDependencies": {
     "@types/lodash": "^4.17.12",

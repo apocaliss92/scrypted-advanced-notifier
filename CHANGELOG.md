@@ -1,6 +1,12 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.0.17
+
+- MQTT client split per device to reduce overhead for weak brokers
+- Utilize images from object detectors when available
+- Optimize image usage 
+
 ### 3.0.8
 
 Added support to Groq

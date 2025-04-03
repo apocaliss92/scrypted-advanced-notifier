@@ -577,6 +577,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         return this.storageSettings.putSetting(key, value);
     }
 
+    async getMqttClient() {
+        return super.getMqttClient();
+    }
+
     async updateActivationRuleOnMqtt(props: { deviceId?: string, active: boolean, ruleName: string, logger: Console, ruleType: RuleType }) {
         const { active, ruleName, deviceId, logger, ruleType } = props;
         const mqttClient = await this.getMqttClient();
@@ -1217,9 +1221,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         if ([EventType.ObjectDetection, EventType.Package].includes(eventType as EventType)) {
             await (this.currentMixinsMap[triggerDevice.name] as AdvancedNotifierCameraMixin)?.processDetections({
-                detections: allDetections,
+                detect: { timestamp: triggerTime, detections: allDetections },
                 isFromNvr: true,
-                triggerTime,
                 image,
             });
         } else if ([EventType.Contact, EventType.Doorbell, EventType.Doorlock].includes(eventType as EventType)) {
