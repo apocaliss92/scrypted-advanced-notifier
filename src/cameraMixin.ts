@@ -923,12 +923,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     public async getImage(props?: {
-        reason?: RequestPictureOptions['reason'],
+        preferLatest?: boolean,
         detectionId?: string,
         eventId?: string,
         image?: MediaObject
     }) {
-        const { reason = 'event', detectionId, eventId, image: imageParent } = props ?? {};
+        const { preferLatest, detectionId, eventId, image: imageParent } = props ?? {};
         const logger = this.getLogger();
         const now = Date.now();
         const { minSnapshotDelay } = this.storageSettings.values;
@@ -943,29 +943,29 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         try {
             if (!image) {
-                if (reason === "periodic" && this.lastImage) {
+                if (preferLatest) {
                     image = this.lastImage;
                     logger.debug(`Last used image taken because periodic`);
                 } else if (isVeryRecent && this.lastImage) {
                     image = this.lastImage;
                     b64Image = this.lastB64Image;
                     logger.debug(`Last used image taken because very recent`);
-                } else if (detectionId && eventId) {
-                    try {
-                        this.lastPictureTaken = now;
-                        this.lastImage = undefined;
-                        const detectImage = await this.cameraDevice.getDetectionInput(detectionId, eventId);
-                        const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(detectImage, ScryptedMimeTypes.Image);
-                        image = await convertedImage.toImage({
-                            resize: {
-                                height: this.storageSettings.values.snapshotHeight,
-                                width: this.storageSettings.values.snapshotWidth,
-                            },
-                        });
-                        logger.debug(`Image taken from the detector mixin`);
-                    } catch (e) {
-                        logger.log(`Error finding the mixin detection image`, e);
-                    }
+                    // } else if (detectionId && eventId) {
+                    // try {
+                    //     this.lastPictureTaken = now;
+                    //     this.lastImage = undefined;
+                    //     const detectImage = await this.cameraDevice.getDetectionInput(detectionId, eventId);
+                    //     const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(detectImage, ScryptedMimeTypes.Image);
+                    //     image = await convertedImage.toImage({
+                    //         resize: {
+                    //             height: this.storageSettings.values.snapshotHeight,
+                    //             width: this.storageSettings.values.snapshotWidth,
+                    //         },
+                    //     });
+                    //     logger.debug(`Image taken from the detector mixin`);
+                    // } catch (e) {
+                    //     logger.log(`Error finding the mixin detection image`, e);
+                    // }
                 } else {
                     const timePassed = !this.lastPictureTaken || msPassed >= 1000 * minSnapshotDelay;
 
@@ -1093,7 +1093,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const anyTimelapseToRefresh = timelapsesToRefresh.length;
 
         if (anyOutdatedOccupancyRule || anyTimelapseToRefresh) {
-            const { image } = await this.getImage();
+            const { image } = await this.getImage({ preferLatest: true });
             if (image) {
                 if (anyOutdatedOccupancyRule) {
                     logger.debug('Forcing update of occupancy data');
@@ -1593,7 +1593,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             if (image) {
                 const isSleeping = this.cameraDevice.sleeping || !this.cameraDevice.online;
-                !isSleeping && this.checkOccupancyData(image).catch(logger.log);
+                !isSleeping && this.checkOccupancyData(image).catch(e => {
+                    logger.log(`Error during checkOccupancyData with image ${image}`, e);
+                });
             }
 
             this.reportDetectionsToMqtt({ detections: candidates, triggerTime, logger, device, b64Image, image, imageUrl }).catch(logger.error);

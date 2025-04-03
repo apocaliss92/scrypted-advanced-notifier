@@ -1769,7 +1769,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         let imageMo = imageMoParent;
 
         if (!imageMo) {
-            imageMo = (await (this.currentMixinsMap[device.name] as AdvancedNotifierCameraMixin)?.getImage({ reason: 'periodic' }))?.image;
+            imageMo = (await (this.currentMixinsMap[device.name] as AdvancedNotifierCameraMixin)?.getImage({ preferLatest: true }))?.image;
         }
 
         if (imagesPath && imageMo) {
