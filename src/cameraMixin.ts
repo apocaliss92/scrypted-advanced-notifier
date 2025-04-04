@@ -579,9 +579,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.motionListener?.removeListener && this.motionListener.removeListener();
         this.motionListener = undefined;
         this.stopAudioListener();
-        // this.resetMqttTimeout();
+        this.resetMqttMotionTimeout();
         // this.processDetectionsInterval && clearInterval(this.processDetectionsInterval);
         // this.processDetectionsInterval = undefined;
+        Object.keys(this.detectionRuleListeners).forEach(ruleName => {
+            const { disableNvrRecordingTimeout, turnOffTimeout } = this.detectionRuleListeners[ruleName];
+            disableNvrRecordingTimeout && clearTimeout(disableNvrRecordingTimeout);
+            turnOffTimeout && clearTimeout(turnOffTimeout);
+        })
     }
 
     async initValues() {
@@ -853,8 +858,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         this.detectionRuleListeners[name] = {};
                     }
 
-                    if (this.detectionRuleListeners[name].disableNvrRecordingTimeout) {
-                        clearTimeout(this.detectionRuleListeners[name].disableNvrRecordingTimeout);
+                    const { disableNvrRecordingTimeout } = this.detectionRuleListeners[name];
+
+                    if (disableNvrRecordingTimeout) {
+                        clearTimeout(disableNvrRecordingTimeout);
                         this.detectionRuleListeners[name].disableNvrRecordingTimeout = undefined;
                     }
 
@@ -1938,7 +1945,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     async resetDetectionEntities(resetSource: 'MotionSensor' | 'Timeout') {
         const isFromSensor = resetSource === 'MotionSensor';
         const logger = this.getLogger();
-        const mqttClient = await this.plugin.getMqttClient();
+        const mqttClient = await this.getMqttClient();
 
 
         const funct = async () => {
@@ -1964,7 +1971,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async resetRuleEntities(rule: BaseRule) {
         const logger = this.getLogger();
-        const mqttClient = await this.plugin.getMqttClient();
+        const mqttClient = await this.getMqttClient();
         const { motionDuration, } = this.storageSettings.values;
 
         const turnOffTimeout = setTimeout(async () => {
