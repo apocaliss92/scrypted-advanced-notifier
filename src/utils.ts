@@ -644,7 +644,7 @@ export const getMixinBaseSettings = (props: {
 
 export const mainPluginName = scrypted.name;
 
-export const isDeviceEnabled = async (
+export const getActiveRules = async (
     props: {
         device: StorageSettingsDevice & DeviceBase,
         deviceStorage: StorageSettings<any>,
@@ -660,35 +660,39 @@ export const isDeviceEnabled = async (
     }
 
     const {
-        detectionRules,
-        skippedDetectionRules,
-        nvrRules,
-        allDeviceDetectionRules,
-        allPluginRules,
-        allDetectionRules,
-        allDeviceNvrRules,
-        allNvrRules,
-    } = getDeviceRules({
+        allowedRules: allowedDetectionRules,
+        availableRules: availableDetectionRules,
+        anyAllowedNvrRule: anyAllowedNvrDetectionRule
+    } = getDetectionRules({
         device,
         console,
         deviceStorage,
         pluginStorage,
     });
 
-    const { occupancyRules, skippedOccupancyRules, allOccupancyRules } = getDeviceOccupancyRules({
+    const {
+        allowedRules: allowedOccupancyRules,
+        availableRules: availableOccupancyRules
+    } = getDeviceOccupancyRules({
         deviceStorage,
         pluginStorage,
         device,
     });
 
-    const { skippedRules: skippedTimelapseRules, timelapseRules, allTimelapseRules } = getDeviceTimelapseRules({
+    const {
+        allowedRules: allowedTimelapseRules,
+        availableRules: availableTimelapseRules
+    } = getDeviceTimelapseRules({
         deviceStorage,
         pluginStorage,
         console,
         device,
     });
 
-    const { skippedRules: skippedAudioRules, audioRules, allAudioRules } = getDeviceAudioRules({
+    const {
+        allowedRules: allowedAudioRules,
+        availableRules: availableAudioRules,
+    } = getDeviceAudioRules({
         deviceStorage,
         pluginStorage,
         console,
@@ -698,34 +702,40 @@ export const isDeviceEnabled = async (
     const activeDevicesForReporting = pluginStorage.getItem('activeDevicesForReporting');
     const isPluginEnabled = pluginStorage.getItem('pluginEnabled');
     const isMqttActive = pluginStorage.getItem('mqttEnabled');
-    const isActiveForNotifications = isPluginEnabled && (!!occupancyRules.length || !!detectionRules.length || !!timelapseRules.length || !!audioRules.length);
-    const isActiveForNvrNotifications = isPluginEnabled && !!nvrRules.length;
+
+    const allAvailableRules = [
+        ...availableDetectionRules,
+        ...availableOccupancyRules,
+        ...availableTimelapseRules,
+        ...availableAudioRules,
+    ];
+
+    const allAllowedRules = [
+        ...allowedDetectionRules,
+        ...allowedOccupancyRules,
+        ...allowedTimelapseRules,
+        ...allowedAudioRules,
+    ];
+
+    const shouldListenAudio = !!allowedAudioRules.length;
     const isActiveForMqttReporting = isPluginEnabled && isMqttActive && activeDevicesForReporting.includes(device.id);
-    const isActiveForAudioDetections = isPluginEnabled && !!audioRules.length;
+    const shouldListenDetections = !!allowedDetectionRules.length || isActiveForMqttReporting;
 
     return {
-        isPluginEnabled,
-        isActiveForNotifications,
-        isActiveForNvrNotifications,
+        availableDetectionRules,
+        availableOccupancyRules,
+        availableTimelapseRules,
+        availableAudioRules,
+        allowedDetectionRules,
+        allowedOccupancyRules,
+        allowedTimelapseRules,
+        allowedAudioRules,
+        allAvailableRules,
+        allAllowedRules,
+        shouldListenDetections,
+        shouldListenAudio,
         isActiveForMqttReporting,
-        detectionRules,
-        skippedDetectionRules,
-        nvrRules,
-        allDeviceDetectionRules,
-        allPluginRules,
-        skippedOccupancyRules,
-        occupancyRules,
-        allOccupancyRules,
-        allDetectionRules,
-        timelapseRules,
-        skippedTimelapseRules,
-        allTimelapseRules,
-        audioRules,
-        skippedAudioRules,
-        isActiveForAudioDetections,
-        allAudioRules,
-        allDeviceNvrRules,
-        allNvrRules,
+        anyAllowedNvrDetectionRule
     }
 }
 
@@ -1782,6 +1792,7 @@ export interface BaseRule {
     isEnabled: boolean;
     currentlyActive?: boolean;
     useAi: boolean;
+    isNvr?: boolean;
     ruleType: RuleType;
     name: string;
     deviceId?: string;
@@ -1961,23 +1972,17 @@ const initBasicRule = (props: {
     };
 }
 
-export const getDeviceRules = (
-    props: {
-        deviceStorage?: StorageSettings<any>,
-        pluginStorage: StorageSettings<any>,
-        device?: DeviceBase & StorageSettingsDevice,
-        console: Console,
-    }
-) => {
-    const { device, pluginStorage, deviceStorage, console } = props;
-    const detectionRules: DetectionRule[] = [];
-    const nvrRules: DetectionRule[] = [];
-    const allDeviceNvrRules: DetectionRule[] = [];
-    const allNvrRules: DetectionRule[] = [];
-    const skippedDetectionRules: DetectionRule[] = [];
-    const allPluginRules: BaseRule[] = [];
-    const allDeviceDetectionRules: DetectionRule[] = [];
-    const allDetectionRules: DetectionRule[] = [];
+export const getDetectionRules = (props: {
+    deviceStorage?: StorageSettings<any>,
+    pluginStorage: StorageSettings<any>,
+    device?: DeviceBase & StorageSettingsDevice,
+    console: Console,
+}) => {
+    const { console, pluginStorage, device, deviceStorage } = props;
+    const availableRules: DetectionRule[] = [];
+    const allowedRules: DetectionRule[] = [];
+    let anyAllowedNvrRule = false;
+
     const deviceId = device?.id;
     const deviceType = device?.type;
 
@@ -2048,6 +2053,7 @@ export const getDeviceRules = (
                 disableNvrRecordingSeconds,
                 minDelay,
                 minMqttPublishDelay,
+                isNvr: useNvrDetections
             };
 
             if (ruleSource === RuleSource.Device) {
@@ -2087,31 +2093,12 @@ export const getDeviceRules = (
 
             // if (deviceOk || (activationType === DetectionRuleActivation.OnActive && (device ? onActiveDevices.includes(deviceId) : true))) {
             if (deviceOk || activationType === DetectionRuleActivation.OnActive) {
-                if (useNvrDetections) {
-                    allNvrRules.push(cloneDeep(detectionRule));
-                } else {
-                    allDetectionRules.push(cloneDeep(detectionRule));
-                }
+                availableRules.push(cloneDeep(detectionRule));
             }
 
-            if (ruleSource === RuleSource.Plugin) {
-                allPluginRules.push(cloneDeep(detectionRule));
-            } else if (ruleSource === RuleSource.Device) {
-                allDeviceDetectionRules.push(cloneDeep(detectionRule));
-
-                if (useNvrDetections) {
-                    allDeviceNvrRules.push(cloneDeep(detectionRule));
-                }
-            }
-
-            if (!ruleAllowed) {
-                skippedDetectionRules.push(cloneDeep(detectionRule));
-            } else {
-                if (useNvrDetections) {
-                    nvrRules.push(cloneDeep(detectionRule));
-                } else {
-                    detectionRules.push(cloneDeep(detectionRule));
-                }
+            if (ruleAllowed) {
+                allowedRules.push(cloneDeep(detectionRule));
+                !anyAllowedNvrRule && (anyAllowedNvrRule = rule.isNvr);
             }
 
         }
@@ -2123,16 +2110,7 @@ export const getDeviceRules = (
         processDetectionRules(deviceStorage, RuleSource.Device);
     }
 
-    return {
-        detectionRules,
-        skippedDetectionRules,
-        nvrRules,
-        allPluginRules,
-        allDeviceDetectionRules,
-        allDetectionRules,
-        allDeviceNvrRules,
-        allNvrRules
-    };
+    return { availableRules, allowedRules, anyAllowedNvrRule };
 }
 
 export interface OccupancyRule extends BaseRule {
@@ -2157,9 +2135,8 @@ export const getDeviceOccupancyRules = (
     }
 ) => {
     const { deviceStorage, pluginStorage, device } = props;
-    const allOccupancyRules: OccupancyRule[] = [];
-    const occupancyRules: OccupancyRule[] = [];
-    const skippedOccupancyRules: OccupancyRule[] = [];
+    const availableRules: OccupancyRule[] = [];
+    const allowedRules: OccupancyRule[] = [];
 
     const { notifiers: activeNotifiers, securitySystem } = pluginStorage.values;
     const { rulesKey } = ruleTypeMetadataMap[RuleType.Occupancy];
@@ -2226,18 +2203,16 @@ export const getDeviceOccupancyRules = (
 
         const ruleAllowed = basicRuleAllowed && !!detectionClass && !!observeZone;
 
-        allOccupancyRules.push(occupancyRule);
-        if (!ruleAllowed) {
-            skippedOccupancyRules.push(occupancyRule);
-        } else {
-            occupancyRules.push(occupancyRule);
+        availableRules.push(cloneDeep(occupancyRule));
+
+        if (ruleAllowed) {
+            allowedRules.push(cloneDeep(occupancyRule));
         }
     }
 
     return {
-        occupancyRules,
-        skippedOccupancyRules,
-        allOccupancyRules,
+        availableRules,
+        allowedRules,
     };
 }
 
@@ -2261,9 +2236,8 @@ export const getDeviceTimelapseRules = (
     }
 ) => {
     const { deviceStorage, console, pluginStorage, device } = props;
-    const timelapseRules: TimelapseRule[] = [];
-    const skippedRules: TimelapseRule[] = [];
-    const allTimelapseRules: TimelapseRule[] = [];
+    const availableRules: TimelapseRule[] = [];
+    const allowedRules: TimelapseRule[] = [];
 
     const { notifiers: activeNotifiers, securitySystem } = pluginStorage.values;
     const { rulesKey } = ruleTypeMetadataMap[RuleType.Timelapse];
@@ -2316,19 +2290,16 @@ export const getDeviceTimelapseRules = (
             basicRuleAllowed,
         })}`);
 
-        allTimelapseRules.push(cloneDeep(timelapseRule));
+        availableRules.push(cloneDeep(timelapseRule));
 
-        if (!basicRuleAllowed) {
-            skippedRules.push(timelapseRule);
-        } else {
-            timelapseRules.push(timelapseRule);
+        if (basicRuleAllowed) {
+            allowedRules.push(cloneDeep(timelapseRule));
         }
     }
 
     return {
-        timelapseRules,
-        skippedRules,
-        allTimelapseRules,
+        availableRules,
+        allowedRules,
     };
 }
 
@@ -2341,9 +2312,8 @@ export const getDeviceAudioRules = (
     }
 ) => {
     const { deviceStorage, console, pluginStorage, device } = props;
-    const audioRules: AudioRule[] = [];
-    const skippedRules: AudioRule[] = [];
-    const allAudioRules: AudioRule[] = [];
+    const availableRules: AudioRule[] = [];
+    const allowedRules: AudioRule[] = [];
 
     const { notifiers: activeNotifiers, securitySystem } = pluginStorage.values;
     const { rulesKey } = ruleTypeMetadataMap[RuleType.Audio];
@@ -2393,19 +2363,16 @@ export const getDeviceAudioRules = (
             basicRuleAllowed,
         })}`);
 
-        allAudioRules.push(cloneDeep(audioRule));
+        availableRules.push(cloneDeep(audioRule));
 
-        if (!basicRuleAllowed) {
-            skippedRules.push(audioRule);
-        } else {
-            audioRules.push(audioRule);
+        if (basicRuleAllowed) {
+            allowedRules.push(audioRule);
         }
     }
 
     return {
-        audioRules,
-        skippedRules,
-        allAudioRules,
+        availableRules,
+        allowedRules,
     };
 }
 

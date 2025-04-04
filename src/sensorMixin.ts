@@ -3,7 +3,8 @@ import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/s
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import HomeAssistantUtilitiesProvider from "./main";
-import { BinarySensorMetadata, binarySensorMetadataMap, convertSettingsToStorageSettings, DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, getRuleKeys, isDeviceEnabled, RuleSource, RuleType, splitRules } from "./utils";
+import { BinarySensorMetadata, binarySensorMetadataMap, convertSettingsToStorageSettings, DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, getRuleKeys, getActiveRules, RuleSource, RuleType, splitRules } from "./utils";
+import { cloneDeep } from "lodash";
 
 const { systemManager } = sdk;
 
@@ -38,8 +39,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
     isActiveForNvrNotifications: boolean;
     logger: Console;
     killed: boolean;
-    detectionRules: DetectionRule[] = [];
-    nvrDetectionRules: DetectionRule[] = [];
+    runningDetectionRules: DetectionRule[] = [];
     lastDetection: number;
     metadata: BinarySensorMetadata;
 
@@ -80,67 +80,54 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
         const funct = async () => {
             const {
-                detectionRules,
-                skippedDetectionRules,
-                isActiveForNotifications,
-                isActiveForNvrNotifications,
-                nvrRules,
-                allDeviceDetectionRules,
-                allDetectionRules,
-            } = await isDeviceEnabled({
+                allowedDetectionRules,
+                availableDetectionRules,
+                anyAllowedNvrDetectionRule,
+                shouldListenDetections,
+            } = await getActiveRules({
                 device: this,
                 console: logger,
                 plugin: this.plugin,
                 deviceStorage: this.storageSettings
             });
 
-            const [detectionRulesToEnable, detectionRulesToDisable] = splitRules({
-                allRules: allDetectionRules,
-                currentlyActiveRules: this.detectionRules,
-                rulesToActivate: detectionRules
+            const [rulesToEnable, rulesToDisable] = splitRules({
+                allRules: availableDetectionRules,
+                currentlyActiveRules: this.runningDetectionRules,
+                rulesToActivate: allowedDetectionRules
             });
 
-            if (detectionRulesToEnable?.length) {
-                for (const rule of detectionRulesToEnable) {
-                    const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
-                    this.putMixinSetting(currentlyActiveKey, 'true');
-                }
+            for (const rule of rulesToEnable) {
+                const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
+                this.putMixinSetting(currentlyActiveKey, 'true');
             }
 
-            if (detectionRulesToDisable?.length) {
-                for (const rule of detectionRulesToEnable) {
-                    const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
-                    this.putMixinSetting(currentlyActiveKey, 'false');
-                }
+            for (const rule of rulesToDisable) {
+                const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
+                this.putMixinSetting(currentlyActiveKey, 'false');
             }
 
-            logger.debug(`Detected rules: ${JSON.stringify({ detectionRules, skippedDetectionRules })}`);
-            this.detectionRules = detectionRules || [];
-            this.nvrDetectionRules = nvrRules || [];
-
-            this.isActiveForNotifications = isActiveForNotifications;
+            logger.debug(`Detected rules: ${JSON.stringify({ availableDetectionRules, allowedDetectionRules })}`);
+            this.runningDetectionRules = allowedDetectionRules || [];
 
             const isCurrentlyRunning = !!this.detectionListener;
-            const shouldRun = this.isActiveForNotifications;
 
-
-            if (isCurrentlyRunning && !shouldRun) {
+            if (isCurrentlyRunning && !shouldListenDetections) {
                 logger.log('Stopping and cleaning listeners.');
                 this.resetListeners();
-            } else if (!isCurrentlyRunning && shouldRun) {
+            } else if (!isCurrentlyRunning && shouldListenDetections) {
                 logger.log(`Starting ${this.metadata.interface} listener: ${JSON.stringify({
-                    Notifications: isActiveForNotifications,
+                    Basic: shouldListenDetections,
                 })}`);
                 await this.startListeners();
             }
 
-            if (isActiveForNvrNotifications && !this.isActiveForNvrNotifications) {
+            if (anyAllowedNvrDetectionRule && !this.isActiveForNvrNotifications) {
                 logger.log(`Starting NVR events listeners`);
-            } else if (!isActiveForNvrNotifications && this.isActiveForNvrNotifications) {
+            } else if (!anyAllowedNvrDetectionRule && this.isActiveForNvrNotifications) {
                 logger.log(`Stopping NVR events listeners`);
             }
-
-            this.isActiveForNvrNotifications = isActiveForNvrNotifications;
+            this.isActiveForNvrNotifications = anyAllowedNvrDetectionRule;
         };
 
         this.mainLoopListener = setInterval(async () => {
@@ -273,10 +260,10 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 const { isDoorbell, device } = await this.plugin.getLinkedCamera(this.id);
                 const isDoorlock = this.type === ScryptedDeviceType.Lock;
 
-                const enabledRules = (isFromNvr ? this.nvrDetectionRules : this.detectionRules) ?? [];
+                const rules = cloneDeep(this.runningDetectionRules.filter(rule => isFromNvr ? rule.isNvr : !rule.isNvr)) ?? [];
                 const mixinDevice = this.plugin.currentMixinsMap[device.name] as AdvancedNotifierCameraMixin;
 
-                if (!enabledRules.length || !mixinDevice) {
+                if (!rules.length || !mixinDevice) {
                     return;
                 }
 
@@ -284,7 +271,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
                 const eventType = isDoorbell ? EventType.Doorbell : isDoorlock ? EventType.Doorlock : EventType.Contact;
 
-                for (const rule of enabledRules) {
+                for (const rule of rules) {
                     logger.log(`Starting ${rule.notifiers.length} notifiers for event ${eventType}`);
                     logger.info(JSON.stringify({
                         eventType,

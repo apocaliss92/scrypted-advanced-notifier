@@ -4,7 +4,7 @@ import axios from "axios";
 import child_process from 'child_process';
 import { once } from "events";
 import fs from 'fs';
-import { isEqual, keyBy, sortBy } from 'lodash';
+import { cloneDeep, isEqual, keyBy, sortBy } from 'lodash';
 import path from 'path';
 import { BasePlugin, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { version } from '../package.json';
@@ -16,7 +16,7 @@ import { getPluginMqttAutodiscoveryConfiguration, getRuleMqttEntities, MqttEntit
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getDetectionRulesSettings, getDeviceRules, getElegibleDevices, getFolderPaths, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, HOMEASSISTANT_PLUGIN_ID, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, StoreImageFn, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TimelapseRule } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getDetectionRulesSettings, getDetectionRules, getElegibleDevices, getFolderPaths, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, HOMEASSISTANT_PLUGIN_ID, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, StoreImageFn, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TimelapseRule, splitRules } from "./utils";
 
 const { systemManager, mediaManager } = sdk;
 const defaultNotifierNativeId = 'advancedNotifierDefaultNotifier';
@@ -277,10 +277,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     defaultNotifier: AdvancedNotifierNotifier;
     camera: AdvancedNotifierCamera;
     nvrRules: DetectionRule[] = [];
-    detectionRules: DetectionRule[] = [];
+    runningDetectionRules: DetectionRule[] = [];
     lastNotExistingNotifier: number;
     private checkExistingDevicesInterval: NodeJS.Timeout;
-    allRules: BaseRule[] = [];
+    allAvailableRules: BaseRule[] = [];
     fetchedEntities: string[] = [];
 
     constructor(nativeId: string) {
@@ -564,16 +564,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             .map(person => person.trim());
 
         const pluginStorage = this.storageSettings;
-        const { allPluginRules } = getDeviceRules({ pluginStorage, console: logger });
+        const { availableRules } = getDetectionRules({ pluginStorage, console: logger });
 
         await setupPluginAutodiscovery({
             mqttClient,
             people: knownPeople,
             console: logger,
-            rules: allPluginRules,
+            rules: availableRules,
         });
 
-        this.allRules = allPluginRules;
+        this.allAvailableRules = availableRules;
     }
 
     async putSetting(key: string, value: SettingValue): Promise<void> {
@@ -596,7 +596,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     async updateActivationRuleOnMqtt(props: { deviceId?: string, active: boolean, ruleName: string, logger: Console, ruleType: RuleType }) {
         const { active, ruleName, deviceId, logger, ruleType } = props;
         const mqttClient = await this.getMqttClient();
-        const rule = this.allRules.find(rule => rule.name === ruleName);
+        const rule = this.allAvailableRules.find(rule => rule.name === ruleName);
 
         if (rule) {
             const ruleActiveEntity = getRuleMqttEntities({ rule }).find(item => item.identifier === MqttEntityIdentifier.RuleActive);
@@ -621,7 +621,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 await subscribeToPluginMqttTopics({
                     entitiesActiveTopic: mqttActiveEntitiesTopic,
                     mqttClient,
-                    rules: this.allRules,
+                    rules: this.allAvailableRules,
                     activeEntitiesCb: async (message) => {
                         logger.debug(`Received update for ${mqttActiveEntitiesTopic} topic: ${JSON.stringify(message)}`);
                         await this.syncHaEntityIds(message);
@@ -757,16 +757,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
 
             const pluginStorage = this.storageSettings;
-            const { nvrRules, detectionRules } = getDeviceRules({ pluginStorage, console: logger });
+            const { availableRules, allowedRules } = getDetectionRules({ pluginStorage, console: logger });
 
-            const detectionRulesToEnable = (detectionRules || []).filter(newRule => !this.detectionRules?.some(currentRule => currentRule.name === newRule.name));
-            const detectionRulesToDisable = (this.detectionRules || []).filter(currentRule => !detectionRules?.some(newRule => newRule.name === currentRule.name));
-
-            const nvrDetectionRulesToEnable = (nvrRules || []).filter(newRule => !this.nvrRules?.some(currentRule => currentRule.name === newRule.name));
-            const nvrDetectionRulesToDisable = (this.nvrRules || []).filter(currentRule => !nvrRules?.some(newRule => newRule.name === currentRule.name));
-
-            const rulesToEnable = [...detectionRulesToEnable, ...nvrDetectionRulesToEnable];
-            const rulesToDisable = [...detectionRulesToDisable, ...nvrDetectionRulesToDisable];
+            const [rulesToEnable, rulesToDisable] = splitRules({
+                allRules: availableRules,
+                currentlyActiveRules: this.runningDetectionRules,
+                rulesToActivate: allowedRules
+            });
 
             for (const rule of rulesToEnable) {
                 logger.log(`${rule.ruleType} rule started: ${rule.name}`);
@@ -780,8 +777,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 this.putSetting(currentlyActiveKey, 'false');
             }
 
-            this.nvrRules = nvrRules || [];
-            this.detectionRules = detectionRules || [];
+            this.runningDetectionRules = cloneDeep(allowedRules) || [];
 
             this.deviceHaEntityMap = deviceHaEntityMap;
             this.haEntityDeviceMap = haEntityDeviceMap;

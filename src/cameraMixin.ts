@@ -11,7 +11,7 @@ import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { publishAudioPressureValue, publishClassnameImages, publishOccupancy, publishRelevantDetections, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, isDeviceEnabled, pcmU8ToDb, splitRules } from "./utils";
+import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, getActiveRules, pcmU8ToDb, splitRules } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -46,19 +46,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             isCamera: true,
             refreshSettings: this.refreshSettings.bind(this)
         }),
+        minSnapshotDelay: {
+            title: 'Minimum snapshot acquisition delay',
+            description: 'Minimum amount of seconds to wait until a new snapshot is taken from the camera',
+            type: 'number',
+            defaultValue: 5
+        },
         minDelayTime: {
             subgroup: 'Notifier',
             title: 'Minimum notification delay',
             description: 'Minimum amount of seconds to wait until a notification is sent for the same detection type',
             type: 'number',
             defaultValue: 15,
-        },
-        minSnapshotDelay: {
-            subgroup: 'Notifier',
-            title: 'Minimum snapshot acquisition delay',
-            description: 'Minimum amount of seconds to wait until a new snapshot is taken from the camera',
-            type: 'number',
-            defaultValue: 5
         },
         motionDuration: {
             title: 'Off motion duration',
@@ -129,22 +128,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     motionListener: EventListenerRegister;
     mqttDetectionMotionTimeout: NodeJS.Timeout;
     mainLoopListener: NodeJS.Timeout;
-    isActiveForNotifications: boolean;
-    isActiveForAudioDetections: boolean;
     isActiveForMqttReporting: boolean;
     isActiveForNvrNotifications: boolean;
+    isActiveForAudioDetections: boolean;
     initializingMqtt: boolean;
     lastAutoDiscovery: number;
     lastRuleNotifiedMap: Record<string, number> = {};
     lastRulePublishedMap: Record<string, number> = {};
     logger: Console;
     killed: boolean;
-    occupancyRules: OccupancyRule[] = [];
-    detectionRules: DetectionRule[] = [];
-    timelapseRules: TimelapseRule[] = [];
-    audioRules: AudioRule[] = [];
-    allTimelapseRules: TimelapseRule[] = [];
-    nvrDetectionRules: DetectionRule[] = [];
+    runningOccupancyRules: OccupancyRule[] = [];
+    runningDetectionRules: DetectionRule[] = [];
+    runningTimelapseRules: TimelapseRule[] = [];
+    runningAudioRules: AudioRule[] = [];
+    availableTimelapseRules: TimelapseRule[] = [];
     audioListeners: Record<string, {
         inProgress: boolean;
         lastDetection?: number;
@@ -162,7 +159,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     audioForwarder: ReturnType<typeof startRtpForwarderProcess>;
     lastAudioDetected: number;
     lastAudioConnection: number;
-    allRules: BaseRule[] = [];
     lastImage?: MediaObject;
     lastB64Image?: string;
     lastPictureTaken?: number;
@@ -251,102 +247,44 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 await this.getMqttClient();
 
                 const {
+                    allAllowedRules,
+                    allAvailableRules,
+                    allowedAudioRules,
+                    allowedDetectionRules,
+                    allowedOccupancyRules,
+                    allowedTimelapseRules,
+                    availableTimelapseRules,
+                    shouldListenDetections,
+                    shouldListenAudio,
                     isActiveForMqttReporting,
-                    detectionRules,
-                    nvrRules,
-                    skippedDetectionRules,
-                    isActiveForAudioDetections,
-                    isActiveForNotifications,
-                    isActiveForNvrNotifications,
-                    occupancyRules,
-                    skippedOccupancyRules,
-                    allOccupancyRules,
-                    allDetectionRules,
-                    timelapseRules,
-                    skippedTimelapseRules,
-                    allTimelapseRules,
-                    allAudioRules,
-                    audioRules,
-                    skippedAudioRules,
-                    allNvrRules,
-                } = await isDeviceEnabled({
+                    anyAllowedNvrDetectionRule
+                } = await getActiveRules({
                     device: this.cameraDevice,
                     console: logger,
                     plugin: this.plugin,
                     deviceStorage: this.storageSettings
                 });
 
-                const [timelapseRulesToEnable, timelapseRulesToDisable] = splitRules({
-                    allRules: allTimelapseRules,
-                    currentlyActiveRules: this.timelapseRules,
-                    rulesToActivate: timelapseRules
-                });
+                const currentlyRunningRules = [
+                    ...this.runningDetectionRules,
+                    ...this.runningAudioRules,
+                    ...this.runningOccupancyRules,
+                    ...this.runningTimelapseRules,
+                ];
 
-                const [detectionRulesToEnable, detectionRulesToDisable] = splitRules({
-                    allRules: allDetectionRules,
-                    currentlyActiveRules: this.detectionRules,
-                    rulesToActivate: detectionRules
-                });
-
-                const [nvrDetectionRulesToEnable, nvrDetectionRulesToDisable] = splitRules({
-                    allRules: allNvrRules,
-                    currentlyActiveRules: this.nvrDetectionRules,
-                    rulesToActivate: nvrRules
-                });
-
-                const [occupancyRulesToEnable, occupancyRulesToDisable] = splitRules({
-                    allRules: allOccupancyRules,
-                    currentlyActiveRules: this.occupancyRules,
-                    rulesToActivate: occupancyRules
-                });
-
-                const [audioRulesToEnable, audioRulesToDisable] = splitRules({
-                    allRules: allAudioRules,
-                    currentlyActiveRules: this.audioRules,
-                    rulesToActivate: audioRules
+                const [rulesToEnable, rulesToDisable] = splitRules({
+                    allRules: allAvailableRules,
+                    currentlyActiveRules: currentlyRunningRules,
+                    rulesToActivate: allAllowedRules
                 });
 
                 logger.debug(`Detected rules: ${JSON.stringify({
-                    detectionRules,
-                    skippedDetectionRules,
-                    occupancyRules,
-                    skippedOccupancyRules,
-                    nvrRules,
-                    isActiveForMqttReporting,
-                    isActiveForAudioDetections,
-                    allDetectionRules,
-                    timelapseRules,
-                    skippedTimelapseRules,
-                    timelapseRulesToEnable,
-                    timelapseRulesToDisable,
-                    detectionRulesToEnable,
-                    detectionRulesToDisable,
-                    audioRulesToEnable,
-                    audioRulesToDisable,
-                    skippedAudioRules,
+                    rulesToEnable,
+                    rulesToDisable,
+                    allAvailableRules,
+                    currentlyRunningRules,
+                    allAllowedRules,
                 })}`);
-
-                const rulesToEnable = [
-                    ...detectionRulesToEnable,
-                    ...nvrDetectionRulesToEnable,
-                    ...occupancyRulesToEnable,
-                    ...timelapseRulesToEnable,
-                    ...audioRulesToEnable
-                ];
-                const rulesToDisable = [
-                    ...detectionRulesToDisable,
-                    ...nvrDetectionRulesToDisable,
-                    ...occupancyRulesToDisable,
-                    ...timelapseRulesToDisable,
-                    ...audioRulesToDisable,
-                ];
-                const allRules = [
-                    ...allDetectionRules,
-                    ...allNvrRules,
-                    ...allOccupancyRules,
-                    ...allTimelapseRules,
-                    ...allAudioRules,
-                ];
 
                 if (rulesToEnable?.length) {
                     for (const rule of rulesToEnable) {
@@ -386,24 +324,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
                 }
 
-                this.detectionRules = cloneDeep(detectionRules || []);
-                this.nvrDetectionRules = cloneDeep(nvrRules || []);
-                this.occupancyRules = cloneDeep(occupancyRules || []);
-                this.timelapseRules = cloneDeep(timelapseRules || []);
-                this.allTimelapseRules = cloneDeep(allTimelapseRules || []);
-                this.audioRules = cloneDeep(audioRules || []);
-                this.allRules = cloneDeep(allRules || []);
+                this.runningDetectionRules = cloneDeep(allowedDetectionRules || []);
+                this.runningOccupancyRules = cloneDeep(allowedOccupancyRules || []);
+                this.runningTimelapseRules = cloneDeep(allowedTimelapseRules || []);
+                this.runningAudioRules = cloneDeep(allowedAudioRules || []);
+                this.availableTimelapseRules = cloneDeep(availableTimelapseRules || []);
 
-                this.isActiveForNotifications = isActiveForNotifications;
                 this.isActiveForMqttReporting = isActiveForMqttReporting;
 
-                const isCurrentlyRunning = !!this.detectionListener || !!this.motionListener;
-                const shouldRun = this.isActiveForMqttReporting || this.isActiveForNotifications;
+                const isDetectionListenerRunning = !!this.detectionListener || !!this.motionListener;
 
                 const now = Date.now();
                 const { entityId, occupancyCheckInterval = 0, checkSoundPressure } = this.storageSettings.values;
 
-                logger.log(JSON.stringify({ allDetectionRules, detectionRules }))
+                // logger.log(JSON.stringify({ allDetectionRules, detectionRules }))
                 if (isActiveForMqttReporting) {
                     const mqttClient = await this.getMqttClient();
                     if (mqttClient) {
@@ -413,7 +347,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 mqttClient,
                                 device: this.cameraDevice,
                                 console: logger,
-                                rules: allRules,
+                                rules: allAvailableRules,
                                 occupancyEnabled: !!occupancyCheckInterval,
                                 deletedRules: [],
                                 withAudio: checkSoundPressure,
@@ -422,7 +356,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             logger.debug(`Subscribing to mqtt topics`);
                             subscribeToDeviceMqttTopics({
                                 mqttClient,
-                                rules: allRules,
+                                rules: allAvailableRules,
                                 device: this.cameraDevice,
                                 console: logger,
                                 activationRuleCb: async ({ active, ruleName, ruleType }) => {
@@ -473,29 +407,29 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
                 }
 
-                if (isCurrentlyRunning && !shouldRun) {
+                if (isDetectionListenerRunning && !shouldListenDetections) {
                     logger.log('Stopping and cleaning listeners.');
                     this.resetListeners();
-                } else if (!isCurrentlyRunning && shouldRun) {
+                } else if (!isDetectionListenerRunning && shouldListenDetections) {
                     logger.log(`Starting ${ScryptedInterface.ObjectDetector}/${ScryptedInterface.MotionSensor} listeners: ${JSON.stringify({
-                        Notifications: isActiveForNotifications,
+                        Basic: shouldListenDetections,
                         MQTT: isActiveForMqttReporting,
                     })}`);
                     await this.startListeners();
                 }
 
-                if (isActiveForNvrNotifications && !this.isActiveForNvrNotifications) {
+                if (anyAllowedNvrDetectionRule && !this.isActiveForNvrNotifications) {
                     logger.log(`Starting NVR events listener`);
-                } else if (!isActiveForNvrNotifications && this.isActiveForNvrNotifications) {
+                } else if (!anyAllowedNvrDetectionRule && this.isActiveForNvrNotifications) {
                     logger.log(`Stopping NVR events listener`);
                 }
+                this.isActiveForNvrNotifications = anyAllowedNvrDetectionRule;
 
                 if (isActiveForMqttReporting) {
                     await this.checkOutdatedRules();
                 }
 
-                const shouldCheckAudio = isActiveForAudioDetections || checkSoundPressure;
-
+                const shouldCheckAudio = shouldListenAudio || checkSoundPressure;
                 if (shouldCheckAudio && !this.isActiveForAudioDetections) {
                     logger.log(`Starting Audio listener`);
                     await this.startAudioDetection();
@@ -503,16 +437,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     logger.log(`Stopping Audio listener`);
                     await this.stopAudioListener();
                 }
-
                 // Restart stream every minute
                 if (this.isActiveForAudioDetections && this.lastAudioConnection && (now - this.lastAudioConnection) >= 1000 * 60) {
                     logger.log(`Restarting Audio listener`);
                     await this.stopAudioListener();
                     await this.startAudioDetection();
                 }
-
-                this.isActiveForNvrNotifications = isActiveForNvrNotifications;
                 this.isActiveForAudioDetections = shouldCheckAudio;
+
 
                 const { haEnabled, useNvrDetectionsForMqtt } = this.plugin.storageSettings.values;
 
@@ -667,7 +599,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             logger,
             onShowMore: this.refreshSettings.bind(this),
             onCleanDataTimelapse: async (ruleName) => {
-                const rule = this.allTimelapseRules?.find(rule => rule.name === ruleName);
+                const rule = this.availableTimelapseRules?.find(rule => rule.name === ruleName);
 
                 if (rule) {
                     const device = systemManager.getDeviceById<DeviceInterface>(this.id);
@@ -680,8 +612,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             },
             onGenerateTimelapse: async (ruleName) => {
                 const logger = this.getLogger();
-                logger.log(ruleName, this.allTimelapseRules);
-                const rule = this.allTimelapseRules?.find(rule => rule.name === ruleName);
+                const rule = this.availableTimelapseRules?.find(rule => rule.name === ruleName);
 
                 if (rule) {
                     const device = systemManager.getDeviceById<DeviceInterface>(this.id);
@@ -1075,7 +1006,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const now = new Date().getTime();
         const logger = this.getLogger();
 
-        const anyOutdatedOccupancyRule = this.occupancyRules.some(rule => {
+        const anyOutdatedOccupancyRule = this.runningOccupancyRules.some(rule => {
             const { forceUpdate, name } = rule;
             const currentState = this.occupancyState[name];
             const shouldForceFrame = !currentState || (now - (currentState?.lastCheck ?? 0)) >= (1000 * (forceUpdate - 1));
@@ -1091,7 +1022,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             return shouldForceFrame;
         }) || this.storageSettings.values.occupancyCheckInterval;
 
-        const timelapsesToRefresh = (this.timelapseRules || []).filter(rule => {
+        const timelapsesToRefresh = (this.runningTimelapseRules || []).filter(rule => {
             const { regularSnapshotInterval, name } = rule;
             const lastCheck = this.timelapseLastCheck[name];
             const shouldForceFrame = !lastCheck || (now - (lastCheck ?? 0)) >= (1000 * regularSnapshotInterval);
@@ -1143,7 +1074,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         try {
             const now = new Date().getTime();
-            const minDelayInSeconds = !!this.occupancyRules.length ? 3 : (this.storageSettings.values.occupancyCheckInterval || 0);
+            const minDelayInSeconds = !!this.runningOccupancyRules.length ? 3 : (this.storageSettings.values.occupancyCheckInterval || 0);
 
             if (!minDelayInSeconds) {
                 return;
@@ -1177,7 +1108,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
 
 
-            for (const occupancyRule of this.occupancyRules) {
+            for (const occupancyRule of this.runningOccupancyRules) {
                 const { name, zoneType, observeZone, scoreThreshold, detectionClass, maxObjects, objectDetector: ruleObjectDetector, captureZone } = occupancyRule;
 
                 let objectDetector = objectDetectorParent;
@@ -1464,7 +1395,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
         const { decibels } = props;
         logger.debug(`Audio detection: ${decibels} dB`);
-        const rules = (this.audioRules ?? []);
+        const rules = (this.runningAudioRules ?? []);
         const now = Date.now();
 
         const { image, b64Image, imageUrl } = await this.getImage({ preferLatest: true });
@@ -1680,7 +1611,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             // const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
             // let shouldMarkBoundaries = false;
 
-            const rules = cloneDeep(isFromNvr ? this.nvrDetectionRules : this.detectionRules) ?? [];
+            const rules = cloneDeep(this.runningDetectionRules.filter(rule => isFromNvr ? rule.isNvr : !rule.isNvr)) ?? [];
             logger.debug(`Detections incoming ${JSON.stringify({
                 candidates,
                 detections,
