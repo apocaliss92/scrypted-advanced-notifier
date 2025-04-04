@@ -1831,7 +1831,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const delay = rule.minDelay ?? minDelayTime;
 
                 if (lastDetection && (triggerTime - lastDetection) < 1000 * delay) {
-                    this.lastRulePublishedMap[lastDetectionkey] = undefined;
+                    // this.lastRulePublishedMap[lastDetectionkey] = undefined;
                     return;
                 }
 
@@ -1947,7 +1947,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             this.resetMqttMotionTimeout();
             const { motionDuration, } = this.storageSettings.values;
             this.mqttDetectionMotionTimeout = setTimeout(async () => {
-                funct();
+                await funct();
             }, motionDuration * 1000);
         }
     }

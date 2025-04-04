@@ -272,6 +272,7 @@ const deviceClassMqttEntities: MqttEntity[] = defaultDetectionClasses.flatMap(cl
             domain: 'binary_sensor',
             className,
             valueToDispatch: 'false',
+            deviceClass: 'motion',
             identifier: MqttEntityIdentifier.Detected
         },
         {
@@ -852,9 +853,11 @@ export const publishResetDetectionsEntities = async (props: {
         ...getDeviceClassEntities(device).filter(item => item.identifier === MqttEntityIdentifier.Detected),
     ];
 
-    console.log(`Resetting trigger entities: ${mqttEntities.map(item => item.className).join(', ')} detections and ${allRules.map(item => item.name).join(', ')} rules`);
+    const rulesToTurnOff = allRules.filter(isDetectionRule);
 
-    for (const rule of allRules.filter(isDetectionRule)) {
+    console.info(`Resetting trigger entities: detections ${mqttEntities.map(item => item.className).join(', ')}, rules ${rulesToTurnOff.map(item => item.name).join(', ')}`);
+
+    for (const rule of rulesToTurnOff) {
         const mqttEntity = getRuleMqttEntities({ rule, device }).find(item => item.identifier === MqttEntityIdentifier.Triggered);
 
         if (mqttEntity) {
