@@ -75,7 +75,8 @@ const triggeredEntity: MqttEntity = {
     name: 'Notification triggered',
     domain: 'binary_sensor',
     valueToDispatch: 'false',
-    identifier: MqttEntityIdentifier.Triggered
+    identifier: MqttEntityIdentifier.Triggered,
+    deviceClass: 'motion'
 };
 
 const batteryEntity: MqttEntity = {
@@ -760,25 +761,18 @@ export const setupDeviceAutodiscovery = async (props: {
     mqttClient?: MqttClient,
     device: ScryptedDeviceBase,
     console: Console,
-    withDetections?: boolean,
-    deviceClass: string,
     rules: BaseRule[],
+    enabledClasses: string[]
 }) => {
-    const { device, withDetections, deviceClass, mqttClient, rules, console } = props;
+    const { device, mqttClient, rules, console, enabledClasses } = props;
 
     if (!mqttClient) {
         return;
     }
-    console.debug(`All rules: ${JSON.stringify(rules)}`);
+    console.log(`Autodiscovery started, ${enabledClasses.length} classes, ${rules.length} rules`);
 
-    const triggerEntityToUse: MqttEntity = {
-        ...triggeredEntity,
-        deviceClass
-    }
-    const allEntities = [triggerEntityToUse, ...getDeviceClassEntities(device)];
-    const mqttEntities = withDetections ?
-        allEntities :
-        [triggerEntityToUse];
+    const mqttEntities = [triggeredEntity, ...getDeviceClassEntities(device)];
+    console.info(`Mqtt entities to discover: ${JSON.stringify(mqttEntities)}`);
 
     if (device.interfaces.includes(ScryptedInterface.Battery)) {
         mqttEntities.push(cloneDeep(batteryEntity));
@@ -819,9 +813,10 @@ export const setupDeviceAutodiscovery = async (props: {
 export const publishResetDetectionsEntities = async (props: {
     mqttClient?: MqttClient,
     device: ScryptedDeviceBase,
-    allRules: BaseRule[]
+    allRules: BaseRule[],
+    console: Console
 }) => {
-    const { device, mqttClient, allRules = [] } = props;
+    const { device, mqttClient, allRules = [], console } = props;
 
     if (!mqttClient) {
         return;
@@ -830,6 +825,8 @@ export const publishResetDetectionsEntities = async (props: {
     const mqttEntities: MqttEntity[] = [
         ...getDeviceClassEntities(device).filter(item => item.identifier === MqttEntityIdentifier.Detected),
     ];
+
+    console.log(`Resetting trigger entities: ${mqttEntities.map(item => item.className).join(', ')} detections and ${allRules.map(item => item.name).join(', ')} rules`);
 
     for (const rule of allRules.filter(isDetectionRule)) {
         const mqttEntity = getRuleMqttEntities({ rule, device }).find(item => item.identifier === MqttEntityIdentifier.Triggered);

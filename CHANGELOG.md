@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.0.20
+
+- Fix NVR detections parsing
+
 ### 3.0.19
 
 - Performance noticeably improved splitting images update on MQTT in batches

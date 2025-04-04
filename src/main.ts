@@ -1115,7 +1115,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const fileSizeInMegabytes = sizeInBytes / (1024 * 1024);
         const isVideoValid = fileSizeInMegabytes < 50;
 
-        for (const notifierId of rule.notifiers) {
+        for (const notifierId of (rule.notifiers ?? [])) {
             const notifier = systemManager.getDeviceById(notifierId) as unknown as Notifier & DeviceInterface;
             const deviceSettings = await cameraDevice.getSettings();
 
@@ -1229,8 +1229,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             eventType,
             triggerDevice,
         } = result;
-
-        logger.debug(`NVR notification received: ${JSON.stringify({ cameraName, options, result, imageExists: !!image })}`);
 
         if ([EventType.ObjectDetection, EventType.Package].includes(eventType as EventType)) {
             await (this.currentMixinsMap[triggerDevice.name] as AdvancedNotifierCameraMixin)?.processDetections({
