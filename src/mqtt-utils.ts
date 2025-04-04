@@ -489,13 +489,14 @@ const publishMqttEntitiesDiscovery = async (props: { mqttClient?: MqttClient, mq
         console.debug(`Discovering ${JSON.stringify({ mqttEntity, discoveryTopic, config })}`)
 
         if (mqttEntity.cleanupDiscovery) {
-            console.info(`Entity ${mqttEntity.entity} will be cleanedup`);
             await mqttClient.publish(discoveryTopic, '', true);
+            console.info(`Entity ${mqttEntity.entity} unpublished`);
         } else {
             await mqttClient.publish(discoveryTopic, JSON.stringify(config), true);
             if (mqttEntity.valueToDispatch !== undefined) {
                 await mqttClient.publish(stateTopic, mqttEntity.valueToDispatch, mqttEntity.retain);
             }
+            console.info(`Entity ${mqttEntity.entity} published`);
         }
     }
 }
@@ -840,10 +841,9 @@ export const setupDeviceAutodiscovery = async (props: {
 export const publishResetDetectionsEntities = async (props: {
     mqttClient?: MqttClient,
     device: ScryptedDeviceBase,
-    allRules: BaseRule[],
     console: Console
 }) => {
-    const { device, mqttClient, allRules = [], console } = props;
+    const { device, mqttClient, console } = props;
 
     if (!mqttClient) {
         return;
@@ -853,16 +853,35 @@ export const publishResetDetectionsEntities = async (props: {
         ...getDeviceClassEntities(device).filter(item => item.identifier === MqttEntityIdentifier.Detected),
     ];
 
-    const rulesToTurnOff = allRules.filter(isDetectionRule);
+    console.info(`Resetting detection entities: ${mqttEntities.map(item => item.className).join(', ')}`);
 
-    console.info(`Resetting trigger entities: detections ${mqttEntities.map(item => item.className).join(', ')}, rules ${rulesToTurnOff.map(item => item.name).join(', ')}`);
+    for (const mqttEntity of mqttEntities) {
+        const { stateTopic } = await getVideocameraMqttAutodiscoveryConfiguration({ mqttEntity, device });
 
-    for (const rule of rulesToTurnOff) {
-        const mqttEntity = getRuleMqttEntities({ rule, device }).find(item => item.identifier === MqttEntityIdentifier.Triggered);
+        await mqttClient.publish(stateTopic, false, mqttEntity.retain);
+    }
+}
 
-        if (mqttEntity) {
-            mqttEntities.push(mqttEntity);
-        }
+export const publishResetRuleEntities = async (props: {
+    mqttClient?: MqttClient,
+    device: ScryptedDeviceBase,
+    rule: BaseRule,
+    console: Console
+}) => {
+    const { device, mqttClient, rule, console } = props;
+
+    if (!mqttClient) {
+        return;
+    }
+
+    const mqttEntities: MqttEntity[] = [];
+
+    console.info(`Resetting entities of rule ${rule.name}`);
+
+    const mqttEntity = getRuleMqttEntities({ rule, device }).find(item => item.identifier === MqttEntityIdentifier.Triggered);
+
+    if (mqttEntity) {
+        mqttEntities.push(mqttEntity);
     }
 
     for (const mqttEntity of mqttEntities) {

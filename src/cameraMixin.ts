@@ -9,7 +9,7 @@ import { RtpPacket } from "../../scrypted/external/werift/packages/rtp/src/rtp/r
 import { startRtpForwarderProcess } from '../../scrypted/plugins/webrtc/src/rtp-forwarders';
 import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
-import { publishClassnameImages, publishOccupancy, publishRelevantDetections, publishResetDetectionsEntities, publishRuleData, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
+import { publishClassnameImages, publishOccupancy, publishRelevantDetections, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, isDeviceEnabled, pcmU8ToDb, splitRules } from "./utils";
 
@@ -149,6 +149,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }> = {};
     detectionRuleListeners: Record<string, {
         disableNvrRecordingTimeout?: NodeJS.Timeout;
+        turnOffTimeout?: NodeJS.Timeout;
     }> = {};
     lastObserveZonesFetched: number;
     observeZoneData: ObserveZoneData[];
@@ -862,6 +863,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         await this.enableRecording(device, false);
                     }, seconds * 1000);
                 }
+
+                this.resetRuleEntities(rule).catch(logger.log);
             }
 
         } catch (e) {
@@ -1626,7 +1629,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }).catch(logger.error);
 
 
-                    this.resetDetectionEntities('Timeout');
+                    this.resetDetectionEntities('Timeout').catch(logger.log);
                 }
             }
         } catch (e) {
@@ -1892,6 +1895,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.mqttDetectionMotionTimeout = undefined;
     }
 
+    resetRuleTriggerTimeout(ruleName: string) {
+        this.detectionRuleListeners[ruleName]?.turnOffTimeout && clearTimeout(this.detectionRuleListeners[ruleName]?.turnOffTimeout);
+        this.detectionRuleListeners[ruleName] = {
+            ...this.detectionRuleListeners[ruleName],
+            turnOffTimeout: undefined
+        };
+    }
+
     async startListeners() {
         try {
             const logger = this.getLogger();
@@ -1933,12 +1944,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const funct = async () => {
             logger.log(`Reset detections signal coming from ${resetSource}`);
 
-            publishResetDetectionsEntities({
+            await publishResetDetectionsEntities({
                 mqttClient,
                 device: this.cameraDevice,
-                allRules: this.allRules,
                 console: logger
-            }).catch(logger.error);
+            });
         };
 
         if (isFromSensor) {
@@ -1951,6 +1961,33 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }, motionDuration * 1000);
         }
     }
+
+    async resetRuleEntities(rule: BaseRule) {
+        const logger = this.getLogger();
+        const mqttClient = await this.plugin.getMqttClient();
+        const { motionDuration, } = this.storageSettings.values;
+
+        const turnOffTimeout = setTimeout(async () => {
+            logger.log(`Rule ${rule.name} trigger entities reset`);
+
+            await publishResetRuleEntities({
+                mqttClient,
+                device: this.cameraDevice,
+                console: logger,
+                rule,
+            });
+        }, motionDuration * 1000);
+
+        const ruleName = rule.name;
+        this.resetRuleTriggerTimeout(ruleName);
+
+        this.detectionRuleListeners[ruleName] = {
+            ...this.detectionRuleListeners[ruleName],
+            turnOffTimeout
+        };
+    }
+
+
 
     public async getTimelapseWebhookUrl(props: {
         ruleName: string,
