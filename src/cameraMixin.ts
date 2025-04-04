@@ -1539,7 +1539,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             await publishAudioPressureValue({
                 console: logger,
-                decibels: Math.ceil(decibels ?? 0),
+                decibels,
                 device: this.cameraDevice,
                 mqttClient
             });
@@ -1680,7 +1680,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             // const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
             // let shouldMarkBoundaries = false;
 
-            const rules: (DetectionRule | TimelapseRule)[] = cloneDeep(isFromNvr ? this.nvrDetectionRules : this.detectionRules) ?? [];
+            const rules = cloneDeep(isFromNvr ? this.nvrDetectionRules : this.detectionRules) ?? [];
             logger.debug(`Detections incoming ${JSON.stringify({
                 candidates,
                 detections,

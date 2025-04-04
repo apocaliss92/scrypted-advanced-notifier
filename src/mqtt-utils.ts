@@ -31,7 +31,9 @@ interface MqttEntity {
     forceDiscoveryId?: string;
     forceStateId?: string;
     forceCommandId?: string;
-    unit_of_measurement?: string;
+    unitOfMeasurement?: string;
+    stateClass?: string;
+    precision?: number;
     options?: string[];
     retain?: boolean;
     cleanupDiscovery?: boolean;
@@ -54,8 +56,10 @@ interface AutodiscoveryConfig {
     payload_on?: string;
     payload_off?: string;
     state_topic?: string;
+    unit_of_measurement?: string;
     url_topic?: string;
     command_topic?: string;
+    state_class?: string;
     image_topic?: string;
     image_encoding?: 'b64';
 }
@@ -103,8 +107,10 @@ const audioPressureEntity: MqttEntity = {
     name: 'Sound pressure',
     entityCategory: 'diagnostic',
     deviceClass: 'sound_pressure',
+    precision: 1,
+    stateClass: 'measurement',
     retain: true,
-    unit_of_measurement: 'dB',
+    unitOfMeasurement: 'dB',
 };
 const onlineEntity: MqttEntity = {
     domain: 'binary_sensor',
@@ -180,7 +186,7 @@ const getBasicMqttAutodiscoveryConfiguration = (props: {
     commandTopic?: string,
 }) => {
     const { mqttEntity, mqttDevice, deviceId, additionalProps = {}, stateTopic, commandTopic } = props;
-    const { entity, domain, name, icon, deviceClass, entityCategory, options } = mqttEntity;
+    const { entity, domain, name, icon, deviceClass, entityCategory, options, unitOfMeasurement, stateClass } = mqttEntity;
 
     const config: AutodiscoveryConfig = {
         dev: mqttDevice,
@@ -191,8 +197,10 @@ const getBasicMqttAutodiscoveryConfiguration = (props: {
         retain: true,
         qos: 0,
         device_class: deviceClass,
+        state_class: stateClass,
         icon,
         entity_category: entityCategory,
+        unit_of_measurement: unitOfMeasurement,
         options,
         ...additionalProps
     };
