@@ -778,6 +778,9 @@ export const setupDeviceAutodiscovery = async (props: {
     if (device.interfaces.includes(ScryptedInterface.ObjectDetector)) {
         const objectTypes = await device.getObjectTypes();
         enabledClasses = objectTypes?.classes?.map(classname => detectionClassesDefaultMap[classname]) ?? [];
+        if (!enabledClasses.includes(DetectionClass.Motion)) {
+            enabledClasses.push(DetectionClass.Motion);
+        }
 
     }
 
