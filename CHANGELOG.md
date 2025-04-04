@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.0.23
+
+- Add rule configuration to delay MQTT image update
+
 ### 3.0.21
 
 - Cleanup detection rules discovery not supported per camera

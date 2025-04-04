@@ -803,6 +803,7 @@ export const getRuleKeys = (props: {
     const aiEnabledKey = `${prefix}:${ruleName}:aiEnabled`;
     const showMoreConfigurationsKey = `${prefix}:${ruleName}:showMoreConfigurations`;
     const minDelayKey = `${prefix}:${ruleName}:minDelay`;
+    const minMqttPublishDelayKey = `${prefix}:${ruleName}:minMqttPublishDelay`;
 
     // Specific for detection rules
     const detectionClassesKey = `${prefix}:${ruleName}:detecionClasses`;
@@ -857,6 +858,7 @@ export const getRuleKeys = (props: {
             aiEnabledKey,
             showMoreConfigurationsKey,
             minDelayKey,
+            minMqttPublishDelayKey,
         },
         detection: {
             useNvrDetectionsKey,
@@ -1167,7 +1169,7 @@ export const getDetectionRulesSettings = async (props: {
 
         const { detection, common, } = getRuleKeys({ ruleName, ruleType: RuleType.Detection });
 
-        const { scoreThresholdKey, activationKey, minDelayKey } = common;
+        const { scoreThresholdKey, activationKey, minDelayKey, minMqttPublishDelayKey } = common;
         const {
             blacklistedZonesKey,
             nvrEventsKey,
@@ -1307,6 +1309,17 @@ export const getDetectionRulesSettings = async (props: {
                     subgroup,
                     type: 'number',
                     placeholder: '-',
+                    hide: !showMore
+                },
+                {
+                    key: minMqttPublishDelayKey,
+                    title: 'Minimum MQTT publish delay',
+                    description: 'Minimum amount of seconds to wait until a new image is published on MQTT',
+                    group,
+                    subgroup,
+                    type: 'number',
+                    placeholder: '15',
+                    defaultValue: 15,
                     hide: !showMore
                 },
                 {
@@ -1778,6 +1791,7 @@ export interface BaseRule {
     actions?: string[];
     securitySystemModes?: SecuritySystemMode[];
     minDelay?: number;
+    minMqttPublishDelay?: number;
     devices?: string[];
 }
 
@@ -1980,7 +1994,8 @@ export const getDeviceRules = (
                     activationKey,
                     scoreThresholdKey,
                     textKey,
-                    minDelayKey
+                    minDelayKey,
+                    minMqttPublishDelayKey
                 },
                 detection: {
                     useNvrDetectionsKey,
@@ -2009,6 +2024,7 @@ export const getDeviceRules = (
             const nvrEvents = storage.getItem(nvrEventsKey) as NvrEvent[] ?? [];
             const scoreThreshold = storage.getItem(scoreThresholdKey) as number || 0.7;
             const minDelay = storage.getItem(minDelayKey) as number;
+            const minMqttPublishDelay = storage.getItem(minMqttPublishDelayKey) as number || 15;
             const disableNvrRecordingSeconds = storage.getItem(recordingTriggerSecondsKey) as number;
 
             const { rule, basicRuleAllowed, ...restCriterias } = initBasicRule({
@@ -2031,6 +2047,7 @@ export const getDeviceRules = (
                 deviceId,
                 disableNvrRecordingSeconds,
                 minDelay,
+                minMqttPublishDelay,
             };
 
             if (ruleSource === RuleSource.Device) {

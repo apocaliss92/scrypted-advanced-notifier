@@ -38,8 +38,6 @@ export type OccupancyRuleData = {
 
 interface AccumulatedDetection { detect: ObjectsDetected, eventId: string };
 
-const MIN_DELAY_RULE_IMAGE_PUBLISH = 1000;
-
 export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> implements Settings {
     initStorage: StorageSettingsDict<string> = {
         ...getMixinBaseSettings({
@@ -1726,7 +1724,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     const lastDetectionkey = this.getLastDetectionkey(matchRule);
 
                     const lastPublished = this.lastRulePublishedMap[lastDetectionkey];
-                    if (!lastPublished || (now - lastPublished) >= MIN_DELAY_RULE_IMAGE_PUBLISH) {
+                    if (!lastPublished || (now - lastPublished) >= rule.minMqttPublishDelay) {
                         anyRuleToPublish = true;
                         this.lastRulePublishedMap[lastDetectionkey] = triggerTime;
                     }
