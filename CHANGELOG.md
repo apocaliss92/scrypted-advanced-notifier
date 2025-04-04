@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.0.21
+
+- Cleanup detection rules discovery not supported per camera
+
 ### 3.0.20
 
 - Fix NVR detections parsing

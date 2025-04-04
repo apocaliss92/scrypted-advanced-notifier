@@ -38,7 +38,7 @@ export type OccupancyRuleData = {
 
 interface AccumulatedDetection { detect: ObjectsDetected, eventId: string };
 
-const MIN_DELAY_RULE_IMAGE_PUBLISH = 4000;
+const MIN_DELAY_RULE_IMAGE_PUBLISH = 1000;
 
 export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> implements Settings {
     initStorage: StorageSettingsDict<string> = {
@@ -240,7 +240,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async startCheckInterval() {
-        const device = sdk.systemManager.getDeviceById<ScryptedDeviceBase & Settings & Reboot & PanTiltZoom>(this.id);
         const logger = this.getLogger();
 
         const funct = async () => {
@@ -354,7 +353,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             if (ruleType === RuleType.Timelapse) {
                                 await this.plugin.timelapseRuleStarted({
                                     rule,
-                                    device,
+                                    device: this.cameraDevice,
                                     logger,
                                 });
                             }
@@ -373,7 +372,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         if (ruleType === RuleType.Timelapse) {
                             this.plugin.timelapseRuleEnded({
                                 rule,
-                                device,
+                                device: this.cameraDevice,
                                 logger,
                             }).catch(logger.log);
                         }
@@ -403,22 +402,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     if (mqttClient) {
                         // Every 10 minutes repeat the autodiscovery
                         if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 10) {
-                            // const objectTypes = await this.cameraDevice.getObjectTypes();
-                            // const enabledClasses = objectTypes.classes;
-
                             setupDeviceAutodiscovery({
                                 mqttClient,
-                                device,
+                                device: this.cameraDevice,
                                 console: logger,
                                 rules: allRules,
-                                enabledClasses: [],
                             }).catch(logger.error);
 
                             logger.debug(`Subscribing to mqtt topics`);
                             subscribeToDeviceMqttTopics({
                                 mqttClient,
                                 rules: allRules,
-                                device,
+                                device: this.cameraDevice,
                                 console: logger,
                                 activationRuleCb: async ({ active, ruleName, ruleType }) => {
                                     const { common: { enabledKey } } = getRuleKeys({ ruleName, ruleType });
@@ -427,25 +422,25 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 },
                                 switchRecordingCb: async (active) => {
                                     logger.debug(`Setting NVR privacy mode to ${!active}`);
-                                    await this.enableRecording(device, active);
+                                    await this.enableRecording(this.cameraDevice, active);
                                 },
-                                rebootCb: device.interfaces.includes(ScryptedInterface.Reboot) ?
+                                rebootCb: this.cameraDevice.interfaces.includes(ScryptedInterface.Reboot) ?
                                     async () => {
                                         logger.log(`Rebooting camera`);
-                                        await device.reboot();
+                                        await this.cameraDevice.reboot();
                                     } :
                                     undefined,
-                                ptzCommandCb: device.interfaces.includes(ScryptedInterface.PanTiltZoom) ?
+                                ptzCommandCb: this.cameraDevice.interfaces.includes(ScryptedInterface.PanTiltZoom) ?
                                     (async (ptzCommand: PanTiltZoomCommand) => {
                                         logger.log(`Executing ptz command: ${JSON.stringify(ptzCommand)}`);
 
                                         if (ptzCommand.preset) {
-                                            const presetId = Object.entries(device.ptzCapabilities?.presets ?? {}).find(([id, name]) => name === ptzCommand.preset)?.[0];
+                                            const presetId = Object.entries(this.cameraDevice.ptzCapabilities?.presets ?? {}).find(([id, name]) => name === ptzCommand.preset)?.[0];
                                             if (presetId) {
-                                                await device.ptzCommand({ preset: presetId });
+                                                await this.cameraDevice.ptzCommand({ preset: presetId });
                                             }
                                         } else {
-                                            await device.ptzCommand(ptzCommand);
+                                            await this.cameraDevice.ptzCommand(ptzCommand);
                                         }
                                     }) :
                                     undefined
@@ -457,7 +452,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         const settings = await this.mixinDevice.getSettings();
                         const isRecording = !settings.find(setting => setting.key === 'recording:privacyMode')?.value;
 
-                        reportDeviceValues({ console: logger, device, mqttClient, isRecording, rulesToEnable, rulesToDisable }).catch(logger.error);
+                        reportDeviceValues({
+                            console: logger,
+                            device: this.cameraDevice,
+                            mqttClient,
+                            isRecording,
+                            rulesToEnable,
+                            rulesToDisable
+                        }).catch(logger.error);
                     }
                 }
 
@@ -911,6 +913,31 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const msPassed = now - this.lastPictureTaken;
         const isVeryRecent = msPassed && msPassed <= 500;
 
+        const findFromSnapshot = async () => {
+            const timePassed = !this.lastPictureTaken || msPassed >= 1000 * minSnapshotDelay;
+
+            if (timePassed) {
+                try {
+                    this.lastPictureTaken = now;
+                    this.lastImage = undefined;
+                    const objectDetector = this.getObjectDetector();
+                    image = await objectDetector.takePicture({
+                        reason: 'event',
+                        timeout: 5000,
+                        picture: {
+                            height: this.storageSettings.values.snapshotHeight,
+                            width: this.storageSettings.values.snapshotWidth,
+                        },
+                    });
+                    logger.info(`Image taken from snapshot because time is passed ${detectionId} ${eventId}`);
+                    imageSource = 'Snapshot';
+                } catch (e) {
+                    logger.log(`Error taking a snapshot`, e.message);
+                    this.lastPictureTaken = undefined;
+                }
+            }
+        }
+
         try {
             if (!image) {
                 if (preferLatest) {
@@ -938,31 +965,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         imageSource = 'Detector mixin';
                     } catch (e) {
                         logger.log(`Error finding the image from the detector mixin`, e.message);
-                        this.lastPictureTaken = undefined;
+
+                        await findFromSnapshot();
                     }
                 } else {
-                    const timePassed = !this.lastPictureTaken || msPassed >= 1000 * minSnapshotDelay;
-
-                    if (timePassed) {
-                        try {
-                            this.lastPictureTaken = now;
-                            this.lastImage = undefined;
-                            const objectDetector = this.getObjectDetector();
-                            image = await objectDetector.takePicture({
-                                reason: 'event',
-                                timeout: 5000,
-                                picture: {
-                                    height: this.storageSettings.values.snapshotHeight,
-                                    width: this.storageSettings.values.snapshotWidth,
-                                },
-                            });
-                            logger.info(`Image taken from snapshot because time is passed ${detectionId} ${eventId}`);
-                            imageSource = 'Snapshot';
-                        } catch (e) {
-                            logger.log(`Error taking a snapshot`, e.message);
-                            this.lastPictureTaken = undefined;
-                        }
-                    }
+                    await findFromSnapshot();
                 }
             }
 
@@ -1574,7 +1581,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const {
             minDelayTime,
-            motionDuration,
             ignoreCameraDetections,
         } = this.storageSettings.values;
 
@@ -1622,9 +1628,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }).catch(logger.error);
 
 
-                    this.mqttDetectionMotionTimeout = setTimeout(async () => {
-                        this.resetDetectionEntities('Timeout');
-                    }, motionDuration * 1000);
+                    this.resetDetectionEntities('Timeout');
                 }
             }
         } catch (e) {
@@ -1760,7 +1764,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             // }
 
             if (matchRules.length) {
-                logger.log(`Matching rules found: ${matchRules.map(({ rule }) => rule.name).join(', ')}`);
+                logger.info(`Matching rules found: ${matchRules.map(({ rule }) => rule.name).join(', ')}`);
                 this.processMatchRules({
                     candidates,
                     matchRules,
@@ -1886,8 +1890,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    resetMqttTimeout() {
-        this.mqttDetectionMotionTimeout && clearInterval(this.mqttDetectionMotionTimeout);
+    resetMqttMotionTimeout() {
+        this.mqttDetectionMotionTimeout && clearTimeout(this.mqttDetectionMotionTimeout);
         this.mqttDetectionMotionTimeout = undefined;
     }
 
@@ -1926,17 +1930,29 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     async resetDetectionEntities(resetSource: 'MotionSensor' | 'Timeout') {
         const isFromSensor = resetSource === 'MotionSensor';
         const logger = this.getLogger();
-        isFromSensor && this.resetMqttTimeout();
         const mqttClient = await this.plugin.getMqttClient();
 
-        logger.log(`Reset detections signal coming from ${resetSource}`);
 
-        publishResetDetectionsEntities({
-            mqttClient,
-            device: this.cameraDevice,
-            allRules: this.allRules,
-            console: logger
-        }).catch(logger.error);
+        const funct = async () => {
+            logger.log(`Reset detections signal coming from ${resetSource}`);
+
+            publishResetDetectionsEntities({
+                mqttClient,
+                device: this.cameraDevice,
+                allRules: this.allRules,
+                console: logger
+            }).catch(logger.error);
+        };
+
+        if (isFromSensor) {
+            await funct();
+        } else {
+            this.resetMqttMotionTimeout();
+            const { motionDuration, } = this.storageSettings.values;
+            this.mqttDetectionMotionTimeout = setTimeout(async () => {
+                funct();
+            }, motionDuration * 1000);
+        }
     }
 
     public async getTimelapseWebhookUrl(props: {

@@ -1,4 +1,4 @@
-import sdk, { MediaObject, ObjectDetectionResult, ObjectsDetected, PanTiltZoomCommand, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface } from '@scrypted/sdk';
+import sdk, { MediaObject, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoomCommand, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface } from '@scrypted/sdk';
 import { cloneDeep, groupBy } from 'lodash';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 import { OccupancyRuleData } from './cameraMixin';
@@ -33,6 +33,7 @@ interface MqttEntity {
     forceCommandId?: string;
     options?: string[];
     retain?: boolean;
+    cleanupDiscovery?: boolean;
     identifier?: MqttEntityIdentifier;
 }
 
@@ -472,7 +473,7 @@ export const getObserveZoneStrings = (zoneName: string, className: DetectionClas
     return { entityId, name };
 }
 
-const publishMqttEntities = async (props: { mqttClient?: MqttClient, mqttEntities: MqttEntity[], device?: ScryptedDeviceBase, console: Console }) => {
+const publishMqttEntitiesDiscovery = async (props: { mqttClient?: MqttClient, mqttEntities: MqttEntity[], device?: ScryptedDeviceBase, console: Console }) => {
     const { mqttClient, mqttEntities, device, console } = props;
 
     if (!mqttClient) {
@@ -484,12 +485,16 @@ const publishMqttEntities = async (props: { mqttClient?: MqttClient, mqttEntitie
             await getVideocameraMqttAutodiscoveryConfiguration({ mqttEntity, device }) :
             await getPluginMqttAutodiscoveryConfiguration({ mqttEntity });
 
-        // console.debug(`Discovering ${JSON.stringify({ mqttEntity, discoveryTopic, config })}`)
+        console.debug(`Discovering ${JSON.stringify({ mqttEntity, discoveryTopic, config })}`)
 
-        await mqttClient.publish(discoveryTopic, JSON.stringify(config), true);
-
-        if (mqttEntity.valueToDispatch !== undefined) {
-            await mqttClient.publish(stateTopic, mqttEntity.valueToDispatch, mqttEntity.retain);
+        if (mqttEntity.cleanupDiscovery) {
+            console.info(`Entity ${mqttEntity.entity} will be cleanedup`);
+            await mqttClient.publish(discoveryTopic, '', true);
+        } else {
+            await mqttClient.publish(discoveryTopic, JSON.stringify(config), true);
+            if (mqttEntity.valueToDispatch !== undefined) {
+                await mqttClient.publish(stateTopic, mqttEntity.valueToDispatch, mqttEntity.retain);
+            }
         }
     }
 }
@@ -519,7 +524,7 @@ const autoDiscoverRules = async (props: { mqttClient?: MqttClient, rules: BaseRu
     }
     // console.log(`Rules discovery: ${JSON.stringify({ rules, mqttEntities })}`);
 
-    await publishMqttEntities({ mqttClient, mqttEntities, device, console });
+    await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, device, console });
 }
 
 export const setupPluginAutodiscovery = async (props: {
@@ -759,19 +764,38 @@ const getDeviceClassEntities = (device: ScryptedDeviceBase) => {
 
 export const setupDeviceAutodiscovery = async (props: {
     mqttClient?: MqttClient,
-    device: ScryptedDeviceBase,
+    device: ScryptedDeviceBase & ObjectDetector,
     console: Console,
     rules: BaseRule[],
-    enabledClasses: string[]
 }) => {
-    const { device, mqttClient, rules, console, enabledClasses } = props;
+    const { device, mqttClient, rules, console } = props;
 
     if (!mqttClient) {
         return;
     }
-    console.log(`Autodiscovery started, ${enabledClasses.length} classes, ${rules.length} rules`);
 
-    const mqttEntities = [triggeredEntity, ...getDeviceClassEntities(device)];
+    let enabledClasses: string[];
+    let detectionMqttEntities = getDeviceClassEntities(device);
+
+    if (device.interfaces.includes(ScryptedInterface.ObjectDetector)) {
+        const objectTypes = await device.getObjectTypes();
+        enabledClasses = objectTypes?.classes?.map(classname => detectionClassesDefaultMap[classname]);
+
+        detectionMqttEntities = detectionMqttEntities.map(entity => {
+            if (!enabledClasses.includes(detectionClassesDefaultMap[entity.className])) {
+                return {
+                    ...entity,
+                    cleanupDiscovery: true,
+                };
+            }
+
+            return entity;
+        })
+    }
+
+    console.log(`Autodiscovery started, ${enabledClasses?.join(', ')} classes, ${rules.map(rule => rule.name).join(', ')} rules`);
+
+    const mqttEntities = [triggeredEntity, ...detectionMqttEntities];
     console.info(`Mqtt entities to discover: ${JSON.stringify(mqttEntities)}`);
 
     if (device.interfaces.includes(ScryptedInterface.Battery)) {
@@ -805,7 +829,7 @@ export const setupDeviceAutodiscovery = async (props: {
         mqttEntities.push(...commandEntities);
     }
 
-    await publishMqttEntities({ mqttClient, mqttEntities, device, console });
+    await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, device, console });
 
     await autoDiscoverRules({ mqttClient, rules, device, console });
 }
@@ -949,7 +973,7 @@ export const publishClassnameImages = async (props: {
     if (!mqttClient) {
         return;
     }
-    console.info(`Publishing image for classnames: ${classnames.join(',')}`);
+    console.info(`Publishing image for classnames: ${classnames.join(', ')}`);
 
     try {
         for (const classname of classnames) {
@@ -1062,6 +1086,8 @@ export const publishRuleData = async (props: {
     if (!mqttClient) {
         return;
     }
+
+    console.log(`Updating data for rule ${rule.name}: triggered ${triggerValue} and image is present: ${!!b64Image}`);
 
     let mqttEntities = getRuleMqttEntities({ rule, device });
 
