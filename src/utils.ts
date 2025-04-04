@@ -2085,7 +2085,8 @@ export const getDeviceRules = (
                 ...restCriterias,
             })}`);
 
-            if (deviceOk || (activationType === DetectionRuleActivation.OnActive && (device ? onActiveDevices.includes(deviceId) : true))) {
+            // if (deviceOk || (activationType === DetectionRuleActivation.OnActive && (device ? onActiveDevices.includes(deviceId) : true))) {
+            if (deviceOk || activationType === DetectionRuleActivation.OnActive) {
                 if (useNvrDetections) {
                     allNvrRules.push(cloneDeep(detectionRule));
                 } else {

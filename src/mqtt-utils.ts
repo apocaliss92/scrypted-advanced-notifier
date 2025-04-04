@@ -31,6 +31,7 @@ interface MqttEntity {
     forceDiscoveryId?: string;
     forceStateId?: string;
     forceCommandId?: string;
+    unit_of_measurement?: string;
     options?: string[];
     retain?: boolean;
     cleanupDiscovery?: boolean;
@@ -95,6 +96,15 @@ const sleepingEntity: MqttEntity = {
     entityCategory: 'diagnostic',
     retain: true,
     icon: 'mdi:sleep'
+};
+const audioPressureEntity: MqttEntity = {
+    domain: 'sensor',
+    entity: 'sound_pressure',
+    name: 'Sound pressure',
+    entityCategory: 'diagnostic',
+    deviceClass: 'sound_pressure',
+    retain: true,
+    unit_of_measurement: 'dB',
 };
 const onlineEntity: MqttEntity = {
     domain: 'binary_sensor',
@@ -350,7 +360,7 @@ export const getRuleMqttEntities = (props: {
         entity: `${entity}_triggered`,
         name: `${parsedName} triggered`,
         domain: 'binary_sensor',
-        deviceClass: 'motion',
+        deviceClass: rule.ruleType === RuleType.Audio ? 'sound' : rule.ruleType === RuleType.Detection ? 'motion' : undefined,
         forceStateId: forcedId,
         forceCommandId: forcedId,
         identifier: MqttEntityIdentifier.Triggered
@@ -501,34 +511,6 @@ const publishMqttEntitiesDiscovery = async (props: { mqttClient?: MqttClient, mq
     }
 }
 
-const autoDiscoverRules = async (props: { mqttClient?: MqttClient, rules: BaseRule[], device?: ScryptedDeviceBase, console: Console }) => {
-    const { mqttClient, rules, device, console } = props;
-    const mqttEntities: MqttEntity[] = [];
-
-    for (const rule of rules) {
-        const ruleEntities = getRuleMqttEntities({ rule, device });
-
-        for (const mqttEntity of ruleEntities) {
-            if (mqttEntity.identifier === MqttEntityIdentifier.RuleActive) {
-                mqttEntities.push({
-                    ...mqttEntity,
-                    valueToDispatch: rule.isEnabled
-                })
-            } else if (mqttEntity.identifier === MqttEntityIdentifier.RuleRunning) {
-                mqttEntities.push({
-                    ...mqttEntity,
-                    valueToDispatch: rule.currentlyActive
-                })
-            } else {
-                mqttEntities.push(mqttEntity);
-            }
-        }
-    }
-    // console.log(`Rules discovery: ${JSON.stringify({ rules, mqttEntities })}`);
-
-    await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, device, console });
-}
-
 export const setupPluginAutodiscovery = async (props: {
     mqttClient?: MqttClient,
     people: string[],
@@ -546,7 +528,30 @@ export const setupPluginAutodiscovery = async (props: {
         await mqttClient.publish(discoveryTopic, JSON.stringify(config), true);
     }
 
-    await autoDiscoverRules({ mqttClient, rules, console });
+    const mqttEntities: MqttEntity[] = [];
+
+    for (const rule of rules) {
+        const ruleEntities = getRuleMqttEntities({ rule });
+
+        for (const mqttEntity of ruleEntities) {
+            let entityToPublish = mqttEntity;
+            if (mqttEntity.identifier === MqttEntityIdentifier.RuleActive) {
+                entityToPublish = {
+                    ...mqttEntity,
+                    valueToDispatch: rule.isEnabled,
+                };
+            } else if (mqttEntity.identifier === MqttEntityIdentifier.RuleRunning) {
+                entityToPublish = {
+                    ...mqttEntity,
+                    valueToDispatch: rule.currentlyActive
+                };
+            }
+
+            mqttEntities.push(entityToPublish);
+        }
+    }
+
+    await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, console });
 }
 
 export const subscribeToPluginMqttTopics = async (
@@ -769,9 +774,11 @@ export const setupDeviceAutodiscovery = async (props: {
     device: ScryptedDeviceBase & ObjectDetector,
     console: Console,
     rules: BaseRule[],
+    deletedRules: BaseRule[],
     occupancyEnabled: boolean,
+    withAudio: boolean,
 }) => {
-    const { device, mqttClient, rules, console, occupancyEnabled } = props;
+    const { device, mqttClient, rules, console, occupancyEnabled, deletedRules, withAudio } = props;
 
     if (!mqttClient) {
         return;
@@ -801,10 +808,7 @@ export const setupDeviceAutodiscovery = async (props: {
         };
     })
 
-    console.log(`Autodiscovery started, ${enabledClasses?.join(', ')} classes, ${rules.map(rule => rule.name).join(', ')} rules`);
-
     const mqttEntities = [triggeredEntity, ...detectionMqttEntities];
-    console.info(`Mqtt entities to discover: ${JSON.stringify(mqttEntities)}`);
 
     if (device.interfaces.includes(ScryptedInterface.Battery)) {
         mqttEntities.push(cloneDeep(batteryEntity));
@@ -826,6 +830,11 @@ export const setupDeviceAutodiscovery = async (props: {
         mqttEntities.push(rebootEntity);
     }
 
+    mqttEntities.push({
+        ...audioPressureEntity,
+        cleanupDiscovery: !withAudio
+    });
+
 
     if (device.interfaces.includes(ScryptedInterface.PanTiltZoom)) {
         const presets = Object.values(device.ptzCapabilities.presets ?? {});
@@ -837,9 +846,39 @@ export const setupDeviceAutodiscovery = async (props: {
         mqttEntities.push(...commandEntities);
     }
 
-    await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, device, console });
+    for (const rule of rules) {
+        const ruleEntities = getRuleMqttEntities({ rule, device });
 
-    await autoDiscoverRules({ mqttClient, rules, device, console });
+        for (const mqttEntity of ruleEntities) {
+            if (mqttEntity.identifier === MqttEntityIdentifier.RuleActive) {
+                mqttEntities.push({
+                    ...mqttEntity,
+                    valueToDispatch: rule.isEnabled
+                });
+            } else if (mqttEntity.identifier === MqttEntityIdentifier.RuleRunning) {
+                mqttEntities.push({
+                    ...mqttEntity,
+                    valueToDispatch: rule.currentlyActive
+                });
+            } else {
+                mqttEntities.push(mqttEntity);
+            }
+        }
+    }
+
+    // console.info(`Mqtt entities to discover: ${mqttEntities.map(item => item.name).join(', ')}`);
+
+    for (const rule of deletedRules) {
+        const ruleEntities = getRuleMqttEntities({ rule, device });
+        for (const mqttEntity of ruleEntities) {
+            mqttEntities.push({
+                ...mqttEntity,
+                cleanupDiscovery: true
+            });
+        }
+    }
+
+    await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, device, console });
 }
 
 export const publishResetDetectionsEntities = async (props: {
@@ -982,6 +1021,27 @@ export const publishRelevantDetections = async (props: {
             detections,
             triggerTime,
         })}`, e);
+    }
+}
+
+export const publishAudioPressureValue = async (props: {
+    mqttClient?: MqttClient,
+    console: Console,
+    device: ScryptedDeviceBase,
+    decibels: number,
+}) => {
+    const { mqttClient, console, device, decibels } = props;
+
+    if (!mqttClient) {
+        return;
+    }
+
+    console.info(`Publishing audio update ${decibels}`);
+    try {
+        const { stateTopic } = getMqttTopics({ mqttEntity: audioPressureEntity, device });
+        await mqttClient.publish(stateTopic, decibels, audioPressureEntity.retain);
+    } catch (e) {
+        console.log(`Error publishing audio pressure: ${decibels}`, e);
     }
 }
 

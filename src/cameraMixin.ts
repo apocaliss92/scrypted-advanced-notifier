@@ -9,7 +9,7 @@ import { RtpPacket } from "../../scrypted/external/werift/packages/rtp/src/rtp/r
 import { startRtpForwarderProcess } from '../../scrypted/plugins/webrtc/src/rtp-forwarders';
 import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
-import { publishClassnameImages, publishOccupancy, publishRelevantDetections, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
+import { publishAudioPressureValue, publishClassnameImages, publishOccupancy, publishRelevantDetections, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, isDeviceEnabled, pcmU8ToDb, splitRules } from "./utils";
 
@@ -91,6 +91,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             description: 'Regularly check objects presence, performance intensive. Set to 0 to disable',
             type: 'number',
         },
+        checkSoundPressure: {
+            title: 'Continuously check sound pressure',
+            description: 'Check the pressure of the audio via software',
+            type: 'boolean',
+            immediate: true,
+        },
         // WEBHOOKS
         lastSnapshotWebhook: {
             subgroup: 'Webhooks',
@@ -155,6 +161,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     timelapseLastCheck: Record<string, number> = {};
     audioForwarder: ReturnType<typeof startRtpForwarderProcess>;
     lastAudioDetected: number;
+    lastAudioConnection: number;
     allRules: BaseRule[] = [];
     lastImage?: MediaObject;
     lastB64Image?: string;
@@ -394,19 +401,22 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const shouldRun = this.isActiveForMqttReporting || this.isActiveForNotifications;
 
                 const now = Date.now();
-                const { entityId, occupancyCheckInterval = 0 } = this.storageSettings.values;
+                const { entityId, occupancyCheckInterval = 0, checkSoundPressure } = this.storageSettings.values;
 
+                logger.log(JSON.stringify({ allDetectionRules, detectionRules }))
                 if (isActiveForMqttReporting) {
                     const mqttClient = await this.getMqttClient();
                     if (mqttClient) {
-                        // Every 10 minutes repeat the autodiscovery
-                        if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 10) {
+                        // Every 60 minutes repeat the autodiscovery
+                        if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
                             setupDeviceAutodiscovery({
                                 mqttClient,
                                 device: this.cameraDevice,
                                 console: logger,
                                 rules: allRules,
-                                occupancyEnabled: !!occupancyCheckInterval
+                                occupancyEnabled: !!occupancyCheckInterval,
+                                deletedRules: [],
+                                withAudio: checkSoundPressure,
                             }).catch(logger.error);
 
                             logger.debug(`Subscribing to mqtt topics`);
@@ -484,16 +494,25 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     await this.checkOutdatedRules();
                 }
 
-                if (isActiveForAudioDetections && !this.isActiveForAudioDetections) {
+                const shouldCheckAudio = isActiveForAudioDetections || checkSoundPressure;
+
+                if (shouldCheckAudio && !this.isActiveForAudioDetections) {
                     logger.log(`Starting Audio listener`);
                     await this.startAudioDetection();
-                } else if (!isActiveForAudioDetections && this.isActiveForAudioDetections) {
+                } else if (!shouldCheckAudio && this.isActiveForAudioDetections) {
                     logger.log(`Stopping Audio listener`);
-                    this.stopAudioListener();
+                    await this.stopAudioListener();
+                }
+
+                // Restart stream every minute
+                if (this.isActiveForAudioDetections && this.lastAudioConnection && (now - this.lastAudioConnection) >= 1000 * 60) {
+                    logger.log(`Restarting Audio listener`);
+                    await this.stopAudioListener();
+                    await this.startAudioDetection();
                 }
 
                 this.isActiveForNvrNotifications = isActiveForNvrNotifications;
-                this.isActiveForAudioDetections = isActiveForAudioDetections;
+                this.isActiveForAudioDetections = shouldCheckAudio;
 
                 const { haEnabled, useNvrDetectionsForMqtt } = this.plugin.storageSettings.values;
 
@@ -560,13 +579,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.processDetectionsInterval = undefined;
     }
 
-    stopAudioListener() {
+    async stopAudioListener() {
         this.audioForwarder?.then(f => f.kill());
         this.audioForwarder = undefined;
 
         for (const ruleName of Object.keys(this.audioListeners)) {
             this.resetAudioRule(ruleName);
         }
+
+        this.lastAudioConnection = undefined;
     }
 
     resetListeners() {
@@ -1029,9 +1050,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                     const packet = RtpPacket.deSerialize(rtp);
                     const decibels = pcmU8ToDb(packet.payload);
-                    if (decibels > 2) {
-                        this.processAudioDetection({ decibels }).catch(logger.error);
-                    }
+                    this.processAudioDetection({ decibels }).catch(logger.error);
                 },
             }
         });
@@ -1049,6 +1068,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     this.audioForwarder = undefined;
             });
         });
+        this.lastAudioConnection = Date.now();
     }
 
     async checkOutdatedRules() {
@@ -1443,85 +1463,86 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }) {
         const logger = this.getLogger();
         const { decibels } = props;
-        if (this.isActiveForAudioDetections) {
-            logger.debug(`Audio detection: ${decibels} dB`);
-            const rules = cloneDeep((this.audioRules) ?? []);
-            const now = Date.now();
+        logger.debug(`Audio detection: ${decibels} dB`);
+        const rules = (this.audioRules ?? []);
+        const now = Date.now();
 
-            const { image, b64Image, imageUrl } = await this.getImage({ preferLatest: true });
+        const { image, b64Image, imageUrl } = await this.getImage({ preferLatest: true });
 
-            for (const rule of rules) {
-                const { name, audioDuration, decibelThreshold, customText, minDelay } = rule;
-                const { lastDetection, inProgress, lastNotification } = this.audioListeners[name] ?? {};
-                const isThresholdMet = decibels >= decibelThreshold;
-                const isTimePassed = !audioDuration || (lastDetection && (now - lastDetection) > audioDuration);
-                const isTimeForNotificationPassed = !minDelay || (lastNotification && (now - lastNotification) > minDelay);
+        for (const rule of rules) {
+            const { name, audioDuration, decibelThreshold, customText, minDelay } = rule;
+            const { lastDetection, inProgress, lastNotification } = this.audioListeners[name] ?? {};
+            const isThresholdMet = decibels >= decibelThreshold;
+            const isTimePassed = !audioDuration || (lastDetection && (now - lastDetection) > audioDuration);
+            const isTimeForNotificationPassed = !minDelay || (lastNotification && (now - lastNotification) > minDelay);
 
-                logger.debug(`Audio rule: ${JSON.stringify({
-                    name,
-                    isThresholdMet,
-                    isTimePassed,
-                    inProgress,
-                    audioDuration,
-                    decibelThreshold,
-                })}`);
-                const currentDuration = lastDetection ? (now - lastDetection) / 1000 : 0;
+            logger.debug(`Audio rule: ${JSON.stringify({
+                name,
+                isThresholdMet,
+                isTimePassed,
+                inProgress,
+                audioDuration,
+                decibelThreshold,
+            })}`);
+            const currentDuration = lastDetection ? (now - lastDetection) / 1000 : 0;
 
-                if (inProgress || !audioDuration) {
-                    if (isThresholdMet) {
-                        if (isTimePassed && isTimeForNotificationPassed) {
-                            logger.debug(`Audio rule ${name} passed: ${JSON.stringify({ currentDuration, decibels })}`);
-                            let message = customText;
+            if (inProgress || !audioDuration) {
+                if (isThresholdMet) {
+                    if (isTimePassed && isTimeForNotificationPassed) {
+                        logger.info(`Audio rule ${name} passed: ${JSON.stringify({ currentDuration, decibels })}`);
+                        let message = customText;
 
-                            message = message.toString()
-                                .replace('${decibels}', String(decibelThreshold) ?? '')
-                                .replace('${duration}', String(audioDuration) ?? '')
+                        message = message.toString()
+                            .replace('${decibels}', String(decibelThreshold) ?? '')
+                            .replace('${duration}', String(audioDuration) ?? '')
 
-                            await this.plugin.notifyAudioEvent({
-                                cameraDevice: this.cameraDevice,
-                                image,
-                                message,
+                        await this.plugin.notifyAudioEvent({
+                            cameraDevice: this.cameraDevice,
+                            image,
+                            message,
+                            rule,
+                            triggerTime: now,
+                        });
+
+                        if (this.isActiveForMqttReporting) {
+                            this.triggerRule({
                                 rule,
+                                b64Image,
+                                device: this.cameraDevice,
                                 triggerTime: now,
+                                image,
+                                imageUrl
                             });
-
-                            if (this.isActiveForMqttReporting) {
-                                this.triggerRule({
-                                    rule,
-                                    b64Image,
-                                    device: this.cameraDevice,
-                                    triggerTime: now,
-                                    image,
-                                    imageUrl
-                                });
-                            }
-
-                            this.resetAudioRule(name, now);
-                        } else {
-                            logger.debug(`Audio rule ${name} still in progress ${currentDuration} seconds`);
-                            // Do nothing and wait for next detection
                         }
-                    } else {
-                        logger.debug(`Audio rule ${name} didn't hold the threshold, resetting after ${currentDuration} seconds`);
-                        this.resetAudioRule(name);
-                    }
-                } else if (isThresholdMet) {
-                    logger.debug(`Audio rule ${name} started`);
-                    this.audioListeners[name] = {
-                        inProgress: true,
-                        lastDetection: now,
-                        resetInterval: undefined,
-                    };
-                    // const resetInterval = setInterval(() => {
-                    //     if (!this.audioDetected)
-                    //         return;
-                    //     if (Date.now() - lastAudio < this.storageSettings.values.audioTimeout * 1000)
-                    //         return;
-                    //     this.audioDetected = false;
-                    // }, this.storageSettings.values.audioTimeout * 1000);
-                }
 
+                        this.resetAudioRule(name, now);
+                    } else {
+                        logger.info(`Audio rule ${name} still in progress ${currentDuration} seconds`);
+                        // Do nothing and wait for next detection
+                    }
+                } else {
+                    logger.info(`Audio rule ${name} didn't hold the threshold, resetting after ${currentDuration} seconds`);
+                    this.resetAudioRule(name);
+                }
+            } else if (isThresholdMet) {
+                logger.info(`Audio rule ${name} started`);
+                this.audioListeners[name] = {
+                    inProgress: true,
+                    lastDetection: now,
+                    resetInterval: undefined,
+                };
             }
+        }
+
+        if (this.isActiveForMqttReporting && this.storageSettings.values.checkSoundPressure) {
+            const mqttClient = await this.getMqttClient();
+
+            await publishAudioPressureValue({
+                console: logger,
+                decibels: Math.ceil(decibels ?? 0),
+                device: this.cameraDevice,
+                mqttClient
+            });
         }
     }
 
