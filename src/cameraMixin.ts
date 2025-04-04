@@ -62,11 +62,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             type: 'number',
             defaultValue: 5
         },
-        // motionDuration: {
-        //     title: 'Off motion duration',
-        //     type: 'number',
-        //     defaultValue: 10
-        // },
+        motionDuration: {
+            title: 'Off motion duration',
+            type: 'number',
+            defaultValue: 10
+        },
         snapshotWidth: {
             subgroup: 'Notifier',
             title: 'Snapshot width',
@@ -125,7 +125,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     cameraDevice: DeviceInterface;
     detectionListener: EventListenerRegister;
     motionListener: EventListenerRegister;
-    // mqttDetectionMotionTimeout: NodeJS.Timeout;
+    mqttDetectionMotionTimeout: NodeJS.Timeout;
     mainLoopListener: NodeJS.Timeout;
     isActiveForNotifications: boolean;
     isActiveForAudioDetections: boolean;
@@ -1574,6 +1574,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const {
             minDelayTime,
+            motionDuration,
             ignoreCameraDetections,
         } = this.storageSettings.values;
 
@@ -1590,7 +1591,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         try {
             if (this.isActiveForMqttReporting) {
                 const isNvrImage = isFromNvr && parentImage && useNvrDetectionsForMqtt;
-                // logger.log(isFromNvr, !!parentImage, useNvrDetectionsForMqtt);
 
                 if (isNvrImage) {
                     // If NVR notification, just transform the image in b64 to use for MQTT
@@ -1620,6 +1620,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         room: this.cameraDevice.room,
                         storeImageFn: this.plugin.storeImage
                     }).catch(logger.error);
+
+
+                    this.mqttDetectionMotionTimeout = setTimeout(async () => {
+                        this.resetDetectionEntities('Timeout');
+                    }, motionDuration * 1000);
                 }
             }
         } catch (e) {
@@ -1881,10 +1886,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    // resetMqttTimeout() {
-    //     this.mqttDetectionMotionTimeout && clearInterval(this.mqttDetectionMotionTimeout);
-    //     this.mqttDetectionMotionTimeout = undefined;
-    // }
+    resetMqttTimeout() {
+        this.mqttDetectionMotionTimeout && clearInterval(this.mqttDetectionMotionTimeout);
+        this.mqttDetectionMotionTimeout = undefined;
+    }
 
     async startListeners() {
         try {
@@ -1910,20 +1915,28 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }];
                     this.processDetections({ detect: { timestamp, detections }, isFromNvr: false }).catch(logger.log);
                 } else {
-                    // this.resetMqttTimeout();
-                    const mqttClient = await this.plugin.getMqttClient();
-
-                    publishResetDetectionsEntities({
-                        mqttClient,
-                        device: this.cameraDevice,
-                        allRules: this.allRules,
-                        console: logger
-                    }).catch(logger.error);
+                    this.resetDetectionEntities('MotionSensor').catch(logger.log);
                 }
             });
         } catch (e) {
             this.getLogger().log('Error in startListeners', e);
         }
+    }
+
+    async resetDetectionEntities(resetSource: 'MotionSensor' | 'Timeout') {
+        const isFromSensor = resetSource === 'MotionSensor';
+        const logger = this.getLogger();
+        isFromSensor && this.resetMqttTimeout();
+        const mqttClient = await this.plugin.getMqttClient();
+
+        logger.log(`Reset detections signal coming from ${resetSource}`);
+
+        publishResetDetectionsEntities({
+            mqttClient,
+            device: this.cameraDevice,
+            allRules: this.allRules,
+            console: logger
+        }).catch(logger.error);
     }
 
     public async getTimelapseWebhookUrl(props: {
