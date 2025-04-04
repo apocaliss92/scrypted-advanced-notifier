@@ -769,8 +769,9 @@ export const setupDeviceAutodiscovery = async (props: {
     device: ScryptedDeviceBase & ObjectDetector,
     console: Console,
     rules: BaseRule[],
+    occupancyEnabled: boolean,
 }) => {
-    const { device, mqttClient, rules, console } = props;
+    const { device, mqttClient, rules, console, occupancyEnabled } = props;
 
     if (!mqttClient) {
         return;
@@ -787,14 +788,17 @@ export const setupDeviceAutodiscovery = async (props: {
     }
 
     const detectionMqttEntities = getDeviceClassEntities(device).map(entity => {
+        let cleanupDiscovery = false;
         if (!enabledClasses.includes(detectionClassesDefaultMap[entity.className])) {
-            return {
-                ...entity,
-                cleanupDiscovery: true,
-            };
+            cleanupDiscovery = true;
+        } else if (entity.identifier === MqttEntityIdentifier.Object && !occupancyEnabled) {
+            cleanupDiscovery = true
         }
 
-        return entity;
+        return {
+            ...entity,
+            cleanupDiscovery,
+        };
     })
 
     console.log(`Autodiscovery started, ${enabledClasses?.join(', ')} classes, ${rules.map(rule => rule.name).join(', ')} rules`);

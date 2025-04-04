@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.0.27
+
+- Add camera level configuration to enable regular occupancy check
+
 ### 3.0.23
 
 - Add rule configuration to delay MQTT image update

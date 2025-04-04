@@ -86,13 +86,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             subgroup: 'Notifier',
             immediate: true,
         },
-        // checkOccupancy: {
-        //     title: 'Check occupancy',
-        //     description: 'If checked, the occupancy will checked regularly, performance intensive',
-        //     type: 'boolean',
-        //     subgroup: 'Notifier',
-        //     immediate: true,
-        // },
+        occupancyCheckInterval: {
+            title: 'Check objects occupancy in seconds',
+            description: 'Regularly check objects presence, performance intensive. Set to 0 to disable',
+            type: 'number',
+        },
         // WEBHOOKS
         lastSnapshotWebhook: {
             subgroup: 'Webhooks',
@@ -396,6 +394,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const shouldRun = this.isActiveForMqttReporting || this.isActiveForNotifications;
 
                 const now = Date.now();
+                const { entityId, occupancyCheckInterval = 0 } = this.storageSettings.values;
+
                 if (isActiveForMqttReporting) {
                     const mqttClient = await this.getMqttClient();
                     if (mqttClient) {
@@ -406,6 +406,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 device: this.cameraDevice,
                                 console: logger,
                                 rules: allRules,
+                                occupancyEnabled: !!occupancyCheckInterval
                             }).catch(logger.error);
 
                             logger.debug(`Subscribing to mqtt topics`);
@@ -494,7 +495,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 this.isActiveForNvrNotifications = isActiveForNvrNotifications;
                 this.isActiveForAudioDetections = isActiveForAudioDetections;
 
-                const { entityId } = this.storageSettings.values;
                 const { haEnabled, useNvrDetectionsForMqtt } = this.plugin.storageSettings.values;
 
                 if (haEnabled && entityId && !this.plugin.fetchedEntities.includes(entityId)) {
@@ -1069,7 +1069,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             })}`);
 
             return shouldForceFrame;
-        });
+        }) || this.storageSettings.values.occupancyCheckInterval;
 
         const timelapsesToRefresh = (this.timelapseRules || []).filter(rule => {
             const { regularSnapshotInterval, name } = rule;
@@ -1093,8 +1093,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const { image } = await this.getImage({ fallbackToLatest: true });
             if (image) {
                 if (anyOutdatedOccupancyRule) {
-                    logger.log(`Updating occupancy data`);
-                    this.checkOccupancyData(image).catch(logger.log);
+                    this.checkOccupancyData(image, 'MainFlow').catch(logger.log);
                 }
 
                 if (anyTimelapseToRefresh) {
@@ -1116,7 +1115,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    async checkOccupancyData(imageParent: MediaObject) {
+    async checkOccupancyData(imageParent: MediaObject, source: 'Detections' | 'MainFlow') {
         if (!imageParent) {
             return;
         }
@@ -1124,12 +1123,19 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         try {
             const now = new Date().getTime();
-            const minDelayInSeconds = !!this.occupancyRules.length ? 3 : 15;
+            const minDelayInSeconds = !!this.occupancyRules.length ? 3 : (this.storageSettings.values.occupancyCheckInterval || 0);
+
+            if (!minDelayInSeconds) {
+                return;
+            }
+
             const timePassed = !this.lastOccupancyRegularCheck || (now - this.lastOccupancyRegularCheck) > (1000 * minDelayInSeconds);
 
             if (!timePassed) {
                 return;
             }
+
+            logger.log(`Checking occupancy for reason ${source}`);
 
             const mqttClient = await this.getMqttClient();
 
@@ -1389,6 +1395,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             await this.storageSettings.putSetting('occupancyState', JSON.stringify(this.occupancyState));
 
             if (this.isActiveForMqttReporting && detectedResultParent) {
+                logger.log(`Publishing occupancy data from source ${source}`);
                 publishOccupancy({
                     console: logger,
                     device: this.cameraDevice,
@@ -1563,6 +1570,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         storeImageFn: this.plugin.storeImage
                     }).catch(logger.error);
                 }
+
+
+                this.checkOccupancyData(image, 'Detections').catch(logger.log);
             } catch (e) {
                 logger.log(`Error on publishing data: ${JSON.stringify(dataToAnalyze)}`, e)
             }
