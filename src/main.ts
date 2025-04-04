@@ -45,6 +45,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 this.startStopMixins(enabled);
             },
             hideHa: false,
+            baseGroupName: ''
         }),
         pluginEnabled: {
             title: 'Plugin enabled',
@@ -70,7 +71,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             type: 'boolean',
             defaultValue: false,
             immediate: true,
-            group: 'Base'
         },
         serverId: {
             title: 'Server identifier',
@@ -102,7 +102,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             onPut: async (_, active) => this.executeCameraDiscovery(active)
         },
         domains: {
-            group: 'Base',
             subgroup: 'Homeassistant',
             title: 'Entity regex patterns',
             description: 'Regex to filter out entities fetched',
@@ -111,7 +110,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             defaultValue: ['binary_sensor.(.*)_triggered'],
         },
         fetchHaEntities: {
-            group: 'Base',
             subgroup: 'Homeassistant',
             title: 'Fetch entities from HA',
             type: 'button',
@@ -119,14 +117,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         },
         mqttActiveEntitiesTopic: {
             title: 'Active entities topic',
-            group: 'MQTT',
+            subgroup: 'MQTT',
             description: 'Topic containing the active entities, will trigger the related devices activation for notifications',
             onPut: async () => {
                 await this.setupMqttEntities();
             },
         },
         activeDevicesForReporting: {
-            group: 'Base',
             subgroup: 'MQTT',
             title: 'Active devices for MQTT reporting',
             type: 'device',
@@ -136,7 +133,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             defaultValue: [],
         },
         useNvrDetectionsForMqtt: {
-            group: 'Base',
             subgroup: 'MQTT',
             title: 'Use NVR detections',
             description: 'Use NVR detection to publish MQTT state messages. Will also affect the images stored on file system',
