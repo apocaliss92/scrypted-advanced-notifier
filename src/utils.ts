@@ -1352,9 +1352,10 @@ export const getAiSettingKeys = (aiPlatform: AiPlatform) => {
 
 export const getAiSettings = (props: {
     aiPlatform: AiPlatform,
-    logger: Console
+    logger: Console,
+    onRefresh: () => Promise<void>
 }) => {
-    const { aiPlatform } = props;
+    const { aiPlatform, onRefresh } = props;
 
     const { apiKeyKey, apiUrlKey, modelKey, systemPromptKey } = getAiSettingKeys(aiPlatform);
     const settings: StorageSetting[] = [];
