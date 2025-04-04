@@ -1726,7 +1726,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     const lastDetectionkey = this.getLastDetectionkey(matchRule);
 
                     const lastPublished = this.lastRulePublishedMap[lastDetectionkey];
-                    if (lastPublished && (now - lastPublished) >= MIN_DELAY_RULE_IMAGE_PUBLISH) {
+                    if (!lastPublished || (now - lastPublished) >= MIN_DELAY_RULE_IMAGE_PUBLISH) {
                         anyRuleToPublish = true;
                         this.lastRulePublishedMap[lastDetectionkey] = triggerTime;
                     }
@@ -1764,7 +1764,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             // }
 
             if (matchRules.length) {
-                logger.info(`Matching rules found: ${matchRules.map(({ rule }) => rule.name).join(', ')}`);
+                logger.info(`Matching rules found: ${matchRules.map(({ rule }) => rule.name).join(', ')}, anyRuleToPublish: ${anyRuleToPublish}`);
                 this.processMatchRules({
                     candidates,
                     matchRules,
@@ -1808,7 +1808,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             b64Image = newB64Image;
         }
 
-        logger.debug(`Matchrules found: ${JSON.stringify({ matchRules, imageFound: !!image })}`);
         for (const matchRule of matchRules) {
             try {
                 const lastDetectionkey = this.getLastDetectionkey(matchRule);
