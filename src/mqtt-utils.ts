@@ -774,24 +774,23 @@ export const setupDeviceAutodiscovery = async (props: {
         return;
     }
 
-    let enabledClasses: string[];
-    let detectionMqttEntities = getDeviceClassEntities(device);
-
+    let enabledClasses: string[] = [];
     if (device.interfaces.includes(ScryptedInterface.ObjectDetector)) {
         const objectTypes = await device.getObjectTypes();
-        enabledClasses = objectTypes?.classes?.map(classname => detectionClassesDefaultMap[classname]);
+        enabledClasses = objectTypes?.classes?.map(classname => detectionClassesDefaultMap[classname]) ?? [];
 
-        detectionMqttEntities = detectionMqttEntities.map(entity => {
-            if (!enabledClasses.includes(detectionClassesDefaultMap[entity.className])) {
-                return {
-                    ...entity,
-                    cleanupDiscovery: true,
-                };
-            }
-
-            return entity;
-        })
     }
+
+    const detectionMqttEntities = getDeviceClassEntities(device).map(entity => {
+        if (!enabledClasses.includes(detectionClassesDefaultMap[entity.className])) {
+            return {
+                ...entity,
+                cleanupDiscovery: true,
+            };
+        }
+
+        return entity;
+    })
 
     console.log(`Autodiscovery started, ${enabledClasses?.join(', ')} classes, ${rules.map(rule => rule.name).join(', ')} rules`);
 
