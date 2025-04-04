@@ -774,14 +774,14 @@ export const setupDeviceAutodiscovery = async (props: {
         return;
     }
 
-    let enabledClasses: string[] = [];
+    const enabledClasses: string[] = [];
+    if (device.interfaces.includes(ScryptedInterface.MotionSensor)) {
+        enabledClasses.push(DetectionClass.Motion);
+    }
+
     if (device.interfaces.includes(ScryptedInterface.ObjectDetector)) {
         const objectTypes = await device.getObjectTypes();
-        enabledClasses = objectTypes?.classes?.map(classname => detectionClassesDefaultMap[classname]) ?? [];
-        if (!enabledClasses.includes(DetectionClass.Motion)) {
-            enabledClasses.push(DetectionClass.Motion);
-        }
-
+        enabledClasses.push(...(objectTypes?.classes?.map(classname => detectionClassesDefaultMap[classname]) ?? []));
     }
 
     const detectionMqttEntities = getDeviceClassEntities(device).map(entity => {
