@@ -279,13 +279,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     rulesToActivate: allAllowedRules,
                     device: this.cameraDevice
                 });
-                logger.log(JSON.stringify({
-                    rulesToEnable,
-                    rulesToDisable,
-                    allAvailableRules,
-                    currentlyRunningRules,
-                    allAllowedRules
-                }))
 
                 logger.debug(`Detected rules: ${JSON.stringify({
                     rulesToEnable,
@@ -318,11 +311,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     logger.log(`${ruleType} rule stopped: ${name}`);
 
                     if (ruleType === RuleType.Timelapse) {
-                        // this.plugin.timelapseRuleEnded({
-                        //     rule,
-                        //     device: this.cameraDevice,
-                        //     logger,
-                        // }).catch(logger.log);
+                        this.plugin.timelapseRuleEnded({
+                            rule,
+                            device: this.cameraDevice,
+                            logger,
+                        }).catch(logger.log);
                     }
 
                     const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: name, ruleType });
