@@ -596,7 +596,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     async updateActivationRuleOnMqtt(props: { deviceId?: string, active: boolean, ruleName: string, logger: Console, ruleType: RuleType }) {
         const { active, ruleName, deviceId, logger, ruleType } = props;
         const mqttClient = await this.getMqttClient();
-        const rule = this.allAvailableRules.find(rule => rule.name === ruleName);
+        const rule = this.allAvailableRules.find(rule => rule.ruleType === ruleType && rule.name === ruleName);
 
         if (rule) {
             const ruleActiveEntity = getRuleMqttEntities({ rule }).find(item => item.identifier === MqttEntityIdentifier.RuleActive);
@@ -966,6 +966,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         try {
             const { haEnabled } = this.storageSettings.values;
             this.storageSettings.settings.domains.hide = !haEnabled;
+            this.storageSettings.settings.fetchHaEntities.hide = !haEnabled;
 
             return super.getSettings();
         } catch (e) {

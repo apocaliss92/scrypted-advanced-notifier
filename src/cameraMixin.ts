@@ -9,7 +9,7 @@ import { RtpPacket } from "../../scrypted/external/werift/packages/rtp/src/rtp/r
 import { startRtpForwarderProcess } from '../../scrypted/plugins/webrtc/src/rtp-forwarders';
 import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
-import { publishAudioPressureValue, publishClassnameImages, publishOccupancy, publishRelevantDetections, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
+import { publishAudioPressureValue, publishClassnameImages, publishOccupancy, publishRelevantDetections, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, getActiveRules, pcmU8ToDb, splitRules } from "./utils";
 
@@ -142,6 +142,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     runningTimelapseRules: TimelapseRule[] = [];
     runningAudioRules: AudioRule[] = [];
     availableTimelapseRules: TimelapseRule[] = [];
+    allAvailableRules: BaseRule[] = [];
     audioListeners: Record<string, {
         inProgress: boolean;
         lastDetection?: number;
@@ -329,6 +330,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 this.runningTimelapseRules = cloneDeep(allowedTimelapseRules || []);
                 this.runningAudioRules = cloneDeep(allowedAudioRules || []);
                 this.availableTimelapseRules = cloneDeep(availableTimelapseRules || []);
+                this.allAvailableRules = cloneDeep(allAvailableRules || []);
 
                 this.isActiveForMqttReporting = isActiveForMqttReporting;
 
@@ -477,7 +479,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             } catch (e) {
                 logger.log('Error in mainLoopListener', e);
             }
-        }, 10000);
+        }, 1000 * 5);
     }
 
     startAccumulatedDetectionsInterval() {
@@ -556,6 +558,23 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const dynamicSettings: StorageSetting[] = [];
         const zones = (await this.getObserveZones()).map(item => item.name);
 
+        const toggleRule = async (ruleName: string, ruleType: RuleType, enabled: boolean) => {
+            const mqttClient = await this.getMqttClient();
+            const rule = this.allAvailableRules.find(rule => rule.ruleType === ruleType && rule.name === ruleName);
+
+            logger.log(`Setting ${ruleType} rule ${ruleName} enabled to ${enabled}`);
+
+            if (rule) {
+                await publishRuleEnabled({
+                    console: logger,
+                    rule,
+                    device: this.cameraDevice,
+                    enabled,
+                    mqttClient
+                });
+            }
+        };
+
         const detectionRulesSettings = await getDetectionRulesSettings({
             storage: this.storageSettings,
             zones,
@@ -563,15 +582,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             logger,
             ruleSource: RuleSource.Device,
             onShowMore: this.refreshSettings.bind(this),
-            onRuleToggle: async (ruleName: string, active: boolean) => {
-                await this.plugin.updateActivationRuleOnMqtt({
-                    active,
-                    logger,
-                    ruleName,
-                    deviceId: this.id,
-                    ruleType: RuleType.Detection
-                });
-            },
+            onRuleToggle: async (ruleName: string, enabled: boolean) => toggleRule(ruleName, RuleType.Detection, enabled),
         });
         dynamicSettings.push(...detectionRulesSettings);
 
@@ -581,15 +592,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             ruleSource: RuleSource.Device,
             logger,
             onShowMore: this.refreshSettings.bind(this),
-            onRuleToggle: async (ruleName: string, active: boolean) => {
-                await this.plugin.updateActivationRuleOnMqtt({
-                    active,
-                    logger,
-                    ruleName,
-                    deviceId: this.id,
-                    ruleType: RuleType.Occupancy
-                });
-            },
+            onRuleToggle: async (ruleName: string, enabled: boolean) => toggleRule(ruleName, RuleType.Occupancy, enabled),
         });
         dynamicSettings.push(...occupancyRulesSettings);
 
@@ -623,15 +626,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }).catch(logger.log);
                 }
             },
-            onRuleToggle: async (ruleName: string, active: boolean) => {
-                await this.plugin.updateActivationRuleOnMqtt({
-                    active,
-                    logger,
-                    ruleName,
-                    deviceId: this.id,
-                    ruleType: RuleType.Timelapse
-                });
-            },
+            onRuleToggle: async (ruleName: string, enabled: boolean) => toggleRule(ruleName, RuleType.Timelapse, enabled),
         });
         dynamicSettings.push(...timelapseRulesSettings);
 
@@ -640,15 +635,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             ruleSource: RuleSource.Device,
             logger,
             onShowMore: this.refreshSettings.bind(this),
-            onRuleToggle: async (ruleName: string, active: boolean) => {
-                await this.plugin.updateActivationRuleOnMqtt({
-                    active,
-                    logger,
-                    ruleName,
-                    deviceId: this.id,
-                    ruleType: RuleType.Audio
-                });
-            },
+            onRuleToggle: async (ruleName: string, enabled: boolean) => toggleRule(ruleName, RuleType.Audio, enabled),
         });
         dynamicSettings.push(...audioRulesSettings);
 

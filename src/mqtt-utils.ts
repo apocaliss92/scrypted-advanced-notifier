@@ -369,8 +369,8 @@ export const getRuleMqttEntities = (props: {
         name: `${parsedName} triggered`,
         domain: 'binary_sensor',
         deviceClass: rule.ruleType === RuleType.Audio ? 'sound' : rule.ruleType === RuleType.Detection ? 'motion' : undefined,
-        forceStateId: forcedId,
-        forceCommandId: forcedId,
+        // forceStateId: forcedId,
+        // forceCommandId: forcedId,
         identifier: MqttEntityIdentifier.Triggered
     };
     const occupiedEntity: MqttEntity = {
@@ -394,8 +394,8 @@ export const getRuleMqttEntities = (props: {
         domain: 'sensor',
         icon: 'mdi:clock',
         deviceClass: 'timestamp',
-        forceStateId: forcedId,
-        forceCommandId: forcedId,
+        // forceStateId: forcedId,
+        // forceCommandId: forcedId,
         retain: true,
         identifier: MqttEntityIdentifier.LastTrigger
     };
@@ -409,11 +409,13 @@ export const getRuleMqttEntities = (props: {
     }
 
     if (isDetectionRule(rule)) {
-        entities.push(
-            triggeredEntity,
-            lastImageEntity,
-            lastTriggerEntity,
-        );
+        if (isPluginRuleForDevice || rule.source === RuleSource.Device) {
+            entities.push(
+                triggeredEntity,
+                lastImageEntity,
+                lastTriggerEntity,
+            );
+        }
     } else if (rule.ruleType === RuleType.Occupancy) {
         entities.push(
             occupiedEntity,
@@ -1247,6 +1249,29 @@ export const publishRuleCurrentlyActive = async (props: {
         await getVideocameraMqttAutodiscoveryConfiguration({ mqttEntity, device }) :
         await getPluginMqttAutodiscoveryConfiguration({ mqttEntity });
     const isActive = active ?? false;
+
+    await mqttClient.publish(stateTopic, JSON.stringify(isActive), mqttEntity.retain);
+}
+
+export const publishRuleEnabled = async (props: {
+    rule: BaseRule,
+    console: Console,
+    mqttClient?: MqttClient,
+    enabled?: boolean,
+    device?: ScryptedDeviceBase
+}) => {
+    const { mqttClient, rule, enabled, device } = props;
+
+    if (!mqttClient) {
+        return;
+    }
+
+    const mqttEntity = getRuleMqttEntities({ rule, device }).find(item => item.identifier === MqttEntityIdentifier.RuleActive);
+
+    const { stateTopic } = device ?
+        await getVideocameraMqttAutodiscoveryConfiguration({ mqttEntity, device }) :
+        await getPluginMqttAutodiscoveryConfiguration({ mqttEntity });
+    const isActive = enabled ?? false;
 
     await mqttClient.publish(stateTopic, JSON.stringify(isActive), mqttEntity.retain);
 }
