@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.0.28
+
+- NVR images will be stored on system as well, with a -NVR suffix, along with the non-cropped ones
+
 ### 3.0.27
 
 - Add camera level configuration to enable regular occupancy check

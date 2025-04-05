@@ -140,7 +140,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             } catch (e) {
                 logger.log('Error in startCheckInterval', e);
             }
-        }, 10000);
+        }, 5 * 1000);
     }
 
     resetListeners() {
@@ -224,39 +224,34 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             const timestamp = new Date().getTime();
 
             const isTriggered = this.metadata.isActiveFn(undefined, data);
-            this.processEvent({ triggered: isTriggered, triggerTime: timestamp, isFromNvr: false })
+            this.processEvent({ triggered: isTriggered, triggerTime: timestamp })
         });
     }
 
     public async processEvent(props: {
         triggerTime: number,
-        isFromNvr: boolean,
         triggered: boolean,
         image?: MediaObject
     }) {
         const { minDelayTime } = this.storageSettings.values;
-        const { isFromNvr, triggerTime, triggered, image: imageParent } = props;
+        const { triggerTime, triggered, image: imageParent } = props;
         const logger = this.getLogger();
+        const isFromNvr = !!imageParent;
 
-        const shouldExecute = (isFromNvr && this.isActiveForNvrNotifications) || (!isFromNvr && this.isActiveForNotifications);
-
-        if (!shouldExecute) {
-            return;
-        }
+        logger.log(`Event received triggered ${triggered} isFromNvr ${!!isFromNvr}`);
 
         try {
-            if (minDelayTime) {
-                if (this.lastDetection && (triggerTime - this.lastDetection) < 1000 * minDelayTime) {
-                    logger.debug(`Waiting for delay: ${minDelayTime - ((triggerTime - this.lastDetection) / 1000)}s`);
-                    return;
+            logger.log(`Sensor triggered: ${JSON.stringify({ triggered })}`);
+            if (triggered) {
+                if (minDelayTime) {
+                    if (this.lastDetection && (triggerTime - this.lastDetection) < 1000 * minDelayTime) {
+                        logger.info(`Waiting for delay: ${minDelayTime - ((triggerTime - this.lastDetection) / 1000)}s`);
+                        return;
+                    }
+
+                    this.lastDetection = triggerTime;
                 }
 
-                this.lastDetection = triggerTime;
-            }
-
-            logger.log(`Sensor triggered: ${JSON.stringify({ triggered })}`);
-
-            if (triggered) {
                 const { isDoorbell, device } = await this.plugin.getLinkedCamera(this.id);
                 const isDoorlock = this.type === ScryptedDeviceType.Lock;
 
@@ -270,7 +265,8 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
                 const eventType = isDoorbell ? EventType.Doorbell : isDoorlock ? EventType.Doorlock : EventType.Contact;
 
-                for (const rule of this.runningDetectionRules) {
+                const rules = cloneDeep(this.runningDetectionRules.filter(rule => isFromNvr ? rule.isNvr : !rule.isNvr)) ?? [];
+                for (const rule of rules) {
                     logger.log(`Starting ${rule.notifiers.length} notifiers for event ${eventType}`);
                     logger.info(JSON.stringify({
                         eventType,
