@@ -1537,10 +1537,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     public async processDetections(props: {
         detect: ObjectsDetected,
         eventDetails?: EventDetails,
-        isFromNvr: boolean,
         image?: MediaObject,
     }) {
-        const { detect, isFromNvr, eventDetails, image: parentImage } = props;
+        const { detect, eventDetails, image: parentImage } = props;
         const logger = this.getLogger();
         const { timestamp: triggerTime, detections, detectionId } = detect;
         const { eventId } = eventDetails ?? {};
@@ -1567,10 +1566,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let b64Image: string;
         let imageUrl: string;
 
+        const isNvrImage = parentImage && useNvrDetectionsForMqtt;
+
         try {
             if (this.isActiveForMqttReporting) {
-                const isNvrImage = isFromNvr && parentImage && useNvrDetectionsForMqtt;
-
                 if (isNvrImage) {
                     // If NVR notification, just transform the image in b64 to use for MQTT
                     const { b64Image: b64ImageNew, image: imageNew, imageUrl: imageUrlNew } = await this.getImage({
@@ -1597,9 +1596,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         image,
                         imageUrl,
                         room: this.cameraDevice.room,
+                        isNvrRule: isNvrImage,
                         storeImageFn: this.plugin.storeImage
                     }).catch(logger.error);
-
 
                     this.resetDetectionEntities('Timeout').catch(logger.log);
                 }
@@ -1614,7 +1613,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             // const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
             // let shouldMarkBoundaries = false;
 
-            const rules = cloneDeep(this.runningDetectionRules.filter(rule => isFromNvr ? rule.isNvr : !rule.isNvr)) ?? [];
+            const rules = cloneDeep(this.runningDetectionRules.filter(rule => isNvrImage ? rule.isNvr : !rule.isNvr)) ?? [];
             logger.debug(`Detections incoming ${JSON.stringify({
                 candidates,
                 detections,
@@ -1885,7 +1884,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const detect: ObjectsDetected = data;
 
                 this.processDetectionsInterval && this.accumulatedDetections.push({ detect, eventId: eventDetails.eventId });
-                this.processDetections({ detect, isFromNvr: false, eventDetails }).catch(logger.log);
+                this.processDetections({ detect, eventDetails }).catch(logger.log);
             });
 
             this.motionListener = systemManager.listenDevice(this.id, {
@@ -1897,7 +1896,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         className: 'motion',
                         score: 1,
                     }];
-                    this.processDetections({ detect: { timestamp, detections }, isFromNvr: false }).catch(logger.log);
+                    this.processDetections({ detect: { timestamp, detections } }).catch(logger.log);
                 } else {
                     this.resetDetectionEntities('MotionSensor').catch(logger.log);
                 }

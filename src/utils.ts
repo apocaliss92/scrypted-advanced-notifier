@@ -514,7 +514,6 @@ export type MixinBaseSettingKey =
     | 'entityId'
     | 'haDeviceClass'
     | 'useNvrDetections'
-    | 'useNvrImages'
     | 'haActions'
     | typeof rulesKey;
 
@@ -565,15 +564,6 @@ export const getMixinBaseSettings = (props: {
                 description: 'If enabled, the NVR notifications will be used. Make sure to extend the notifiers with this extension',
                 type: 'boolean',
                 subgroup: 'Detection',
-                immediate: true,
-                hide: true,
-            },
-            useNvrImages: {
-                title: 'Use NVR images',
-                description: 'If enabled, the NVR images coming from NVR will be used, otherwise the one defined in the plugin',
-                type: 'boolean',
-                subgroup: 'Detection',
-                defaultValue: true,
                 immediate: true,
                 hide: true,
             },

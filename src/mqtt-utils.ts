@@ -956,9 +956,10 @@ export const publishRelevantDetections = async (props: {
     imageUrl?: string,
     image?: MediaObject,
     room?: string,
+    isNvrRule?: boolean,
     storeImageFn?: StoreImageFn
 }) => {
-    const { mqttClient, device, detections = [], triggerTime, console, b64Image, image, room, storeImageFn } = props;
+    const { mqttClient, device, detections = [], triggerTime, console, b64Image, image, room, storeImageFn, isNvrRule } = props;
 
     if (!mqttClient) {
         return;
@@ -988,9 +989,14 @@ export const publishRelevantDetections = async (props: {
                     } else if (identifier === MqttEntityIdentifier.LastImage && b64Image) {
                         // value = imageUrl || null;
                         value = b64Image || null;
+                        let name = `object-detection-${entry.className}`;
+                        if (isNvrRule) {
+                            name += '-NVR';
+                        }
+
                         storeImageFn && storeImageFn({
                             device,
-                            name: `object-detection-${entry.className}`,
+                            name,
                             imageMo: image,
                             timestamp: triggerTime,
                             b64Image

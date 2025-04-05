@@ -260,10 +260,9 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 const { isDoorbell, device } = await this.plugin.getLinkedCamera(this.id);
                 const isDoorlock = this.type === ScryptedDeviceType.Lock;
 
-                const rules = cloneDeep(this.runningDetectionRules.filter(rule => isFromNvr ? rule.isNvr : !rule.isNvr)) ?? [];
                 const mixinDevice = this.plugin.currentMixinsMap[device.name] as AdvancedNotifierCameraMixin;
 
-                if (!rules.length || !mixinDevice) {
+                if (!this.runningDetectionRules.length || !mixinDevice) {
                     return;
                 }
 
@@ -271,7 +270,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
                 const eventType = isDoorbell ? EventType.Doorbell : isDoorlock ? EventType.Doorlock : EventType.Contact;
 
-                for (const rule of rules) {
+                for (const rule of this.runningDetectionRules) {
                     logger.log(`Starting ${rule.notifiers.length} notifiers for event ${eventType}`);
                     logger.info(JSON.stringify({
                         eventType,

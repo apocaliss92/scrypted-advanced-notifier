@@ -135,7 +135,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         useNvrDetectionsForMqtt: {
             subgroup: 'MQTT',
             title: 'Use NVR detections',
-            description: 'Use NVR detection to publish MQTT state messages. Will also affect the images stored on file system',
+            description: 'Use NVR detection to publish MQTT state messages for basic detections.',
             type: 'boolean',
             immediate: true
         },
@@ -1228,7 +1228,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if ([EventType.ObjectDetection, EventType.Package].includes(eventType as EventType)) {
             await (this.currentMixinsMap[triggerDevice.name] as AdvancedNotifierCameraMixin)?.processDetections({
                 detect: { timestamp: triggerTime, detections: allDetections },
-                isFromNvr: true,
                 image,
             });
         } else if ([EventType.Contact, EventType.Doorbell, EventType.Doorlock].includes(eventType as EventType)) {
