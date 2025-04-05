@@ -57,6 +57,7 @@ interface AutodiscoveryConfig {
     payload_off?: string;
     state_topic?: string;
     unit_of_measurement?: string;
+    suggested_display_precision?: number;
     url_topic?: string;
     command_topic?: string;
     state_class?: string;
@@ -186,7 +187,7 @@ const getBasicMqttAutodiscoveryConfiguration = (props: {
     commandTopic?: string,
 }) => {
     const { mqttEntity, mqttDevice, deviceId, additionalProps = {}, stateTopic, commandTopic } = props;
-    const { entity, domain, name, icon, deviceClass, entityCategory, options, unitOfMeasurement, stateClass } = mqttEntity;
+    const { entity, domain, name, icon, deviceClass, entityCategory, options, unitOfMeasurement, stateClass, precision } = mqttEntity;
 
     const config: AutodiscoveryConfig = {
         dev: mqttDevice,
@@ -201,6 +202,7 @@ const getBasicMqttAutodiscoveryConfiguration = (props: {
         icon,
         entity_category: entityCategory,
         unit_of_measurement: unitOfMeasurement,
+        suggested_display_precision: precision,
         options,
         ...additionalProps
     };

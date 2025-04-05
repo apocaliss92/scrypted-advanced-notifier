@@ -2617,22 +2617,24 @@ export const toTitleCase = (str: string) => str
 export const splitRules = (props: {
     allRules: BaseRule[],
     rulesToActivate: BaseRule[],
-    currentlyActiveRules: BaseRule[],
+    currentlyRunningRules: BaseRule[],
+    device?: ScryptedDeviceBase,
 }) => {
-    const { currentlyActiveRules, rulesToActivate, allRules } = props;
+    const { currentlyRunningRules, rulesToActivate, allRules, device } = props;
 
     const rulesToEnable: BaseRule[] = [];
     const rulesToDisable: BaseRule[] = [];
 
     for (const rule of allRules) {
-        const isCurrentlyActive = currentlyActiveRules.find(innerRule => rule.name === innerRule.name);
+        const isCurrentlyActive = currentlyRunningRules.find(innerRule => rule.name === innerRule.name);
         const shouldBeActive = rulesToActivate.find(innerRule => rule.name === innerRule.name);
+        const isPluginForDevice = rule.source === RuleSource.Plugin && !!device;
         const isActuallyActive = rule.currentlyActive;
 
         if (shouldBeActive && (!isCurrentlyActive || !isActuallyActive)) {
-            rulesToEnable.push(cloneDeep(rule))
-        } else if (!shouldBeActive && (isCurrentlyActive || isActuallyActive)) {
-            rulesToDisable.push(cloneDeep(rule))
+            rulesToEnable.push(cloneDeep(rule));
+        } else if (!shouldBeActive && (isCurrentlyActive || (isActuallyActive && !isPluginForDevice))) {
+            rulesToDisable.push(cloneDeep(rule));
         }
     }
 

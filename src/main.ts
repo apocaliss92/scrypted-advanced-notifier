@@ -745,7 +745,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             const [rulesToEnable, rulesToDisable] = splitRules({
                 allRules: availableRules,
-                currentlyActiveRules: this.runningDetectionRules,
+                currentlyRunningRules: this.runningDetectionRules,
                 rulesToActivate: allowedRules
             });
 

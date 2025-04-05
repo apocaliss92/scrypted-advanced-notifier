@@ -275,9 +275,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 const [rulesToEnable, rulesToDisable] = splitRules({
                     allRules: allAvailableRules,
-                    currentlyActiveRules: currentlyRunningRules,
-                    rulesToActivate: allAllowedRules
+                    currentlyRunningRules: currentlyRunningRules,
+                    rulesToActivate: allAllowedRules,
+                    device: this.cameraDevice
                 });
+                logger.log(JSON.stringify({
+                    rulesToEnable,
+                    rulesToDisable,
+                    allAvailableRules,
+                    currentlyRunningRules,
+                    allAllowedRules
+                }))
 
                 logger.debug(`Detected rules: ${JSON.stringify({
                     rulesToEnable,
@@ -287,42 +295,38 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     allAllowedRules,
                 })}`);
 
-                if (rulesToEnable?.length) {
-                    for (const rule of rulesToEnable) {
-                        const { ruleType, name } = rule;
-                        logger.log(`${ruleType} rule started: ${name}`);
+                for (const rule of rulesToEnable) {
+                    const { ruleType, name } = rule;
+                    logger.log(`${ruleType} rule started: ${name}`);
 
-                        if (!rule.currentlyActive) {
-                            if (ruleType === RuleType.Timelapse) {
-                                await this.plugin.timelapseRuleStarted({
-                                    rule,
-                                    device: this.cameraDevice,
-                                    logger,
-                                });
-                            }
-                        }
-
-                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: name, ruleType });
-                        this.putMixinSetting(currentlyActiveKey, 'true');
-                    }
-                }
-
-                if (rulesToDisable?.length) {
-                    for (const rule of rulesToDisable) {
-                        const { ruleType, name } = rule;
-                        logger.log(`${ruleType} rule stopped: ${name}`);
-
+                    if (!rule.currentlyActive) {
                         if (ruleType === RuleType.Timelapse) {
-                            this.plugin.timelapseRuleEnded({
+                            await this.plugin.timelapseRuleStarted({
                                 rule,
                                 device: this.cameraDevice,
                                 logger,
-                            }).catch(logger.log);
+                            });
                         }
-
-                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: name, ruleType });
-                        this.putMixinSetting(currentlyActiveKey, 'false');
                     }
+
+                    const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: name, ruleType });
+                    this.putMixinSetting(currentlyActiveKey, 'true');
+                }
+
+                for (const rule of rulesToDisable) {
+                    const { ruleType, name } = rule;
+                    logger.log(`${ruleType} rule stopped: ${name}`);
+
+                    if (ruleType === RuleType.Timelapse) {
+                        // this.plugin.timelapseRuleEnded({
+                        //     rule,
+                        //     device: this.cameraDevice,
+                        //     logger,
+                        // }).catch(logger.log);
+                    }
+
+                    const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: name, ruleType });
+                    this.putMixinSetting(currentlyActiveKey, 'false');
                 }
 
                 this.runningDetectionRules = cloneDeep(allowedDetectionRules || []);
@@ -1383,17 +1387,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
         const { decibels } = props;
         logger.debug(`Audio detection: ${decibels} dB`);
-        const rules = (this.runningAudioRules ?? []);
         const now = Date.now();
 
         const { image, b64Image, imageUrl } = await this.getImage({ preferLatest: true });
 
-        for (const rule of rules) {
+        for (const rule of (this.runningAudioRules ?? [])) {
             const { name, audioDuration, decibelThreshold, customText, minDelay } = rule;
             const { lastDetection, inProgress, lastNotification } = this.audioListeners[name] ?? {};
             const isThresholdMet = decibels >= decibelThreshold;
-            const isTimePassed = !audioDuration || (lastDetection && (now - lastDetection) > audioDuration);
-            const isTimeForNotificationPassed = !minDelay || (lastNotification && (now - lastNotification) > minDelay);
+            const isTimePassed = !lastDetection || (now - lastDetection) > audioDuration;
+            const isTimeForNotificationPassed = !minDelay || !lastNotification || (now - lastNotification) > (minDelay * 1000);
 
             logger.debug(`Audio rule: ${JSON.stringify({
                 name,
@@ -1405,51 +1408,70 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             })}`);
             const currentDuration = lastDetection ? (now - lastDetection) / 1000 : 0;
 
-            if (inProgress || !audioDuration) {
-                if (isThresholdMet) {
-                    if (isTimePassed && isTimeForNotificationPassed) {
-                        logger.info(`Audio rule ${name} passed: ${JSON.stringify({ currentDuration, decibels })}`);
-                        let message = customText;
+            const trigger = async () => {
+                logger.info(`Audio rule ${name} passed: ${JSON.stringify({ currentDuration, decibels })}`);
+                let message = customText;
 
-                        message = message.toString()
-                            .replace('${decibels}', String(decibelThreshold) ?? '')
-                            .replace('${duration}', String(audioDuration) ?? '')
+                message = message.toString()
+                    .replace('${decibels}', String(decibelThreshold) ?? '')
+                    .replace('${duration}', String(audioDuration) ?? '')
 
-                        await this.plugin.notifyAudioEvent({
-                            cameraDevice: this.cameraDevice,
-                            image,
-                            message,
-                            rule,
-                            triggerTime: now,
-                        });
-
-                        if (this.isActiveForMqttReporting) {
-                            this.triggerRule({
-                                rule,
-                                b64Image,
-                                device: this.cameraDevice,
-                                triggerTime: now,
-                                image,
-                                imageUrl
-                            });
-                        }
-
-                        this.resetAudioRule(name, now);
-                    } else {
-                        logger.info(`Audio rule ${name} still in progress ${currentDuration} seconds`);
-                        // Do nothing and wait for next detection
-                    }
-                } else {
-                    logger.info(`Audio rule ${name} didn't hold the threshold, resetting after ${currentDuration} seconds`);
-                    this.resetAudioRule(name);
-                }
-            } else if (isThresholdMet) {
-                logger.info(`Audio rule ${name} started`);
+                await this.plugin.notifyAudioEvent({
+                    cameraDevice: this.cameraDevice,
+                    image,
+                    message,
+                    rule,
+                    triggerTime: now,
+                });
                 this.audioListeners[name] = {
-                    inProgress: true,
-                    lastDetection: now,
-                    resetInterval: undefined,
+                    ...this.audioListeners[name],
+                    lastNotification: now
                 };
+
+                if (this.isActiveForMqttReporting) {
+                    this.triggerRule({
+                        rule,
+                        b64Image,
+                        device: this.cameraDevice,
+                        triggerTime: now,
+                        image,
+                        imageUrl
+                    });
+                }
+
+                this.resetAudioRule(name, now);
+            }
+
+            if (!audioDuration) {
+                if (isTimeForNotificationPassed) {
+                    await trigger();
+                } else {
+                    logger.info(`Minimum amount of ${minDelay} seconds not passed yet`);
+                }
+            } else {
+                if (inProgress) {
+                    if (isThresholdMet) {
+                        if (!isTimeForNotificationPassed) {
+                            logger.info(`Minimum amount of ${minDelay} seconds not passed yet`);
+                            // Do nothing and wait for next detection
+                        } else if (!isTimePassed) {
+                            logger.info(`Audio rule ${name} still in progress ${currentDuration} seconds`);
+                            // Do nothing and wait for next detection
+                        } else {
+                            await trigger();
+                        }
+                    } else {
+                        logger.info(`Audio rule ${name} didn't hold the threshold (${decibels} < ${decibelThreshold}), resetting after ${currentDuration} seconds`);
+                        this.resetAudioRule(name);
+                    }
+                } else if (isThresholdMet) {
+                    logger.info(`Audio rule ${name} started`);
+                    this.audioListeners[name] = {
+                        inProgress: true,
+                        lastDetection: now,
+                        resetInterval: undefined,
+                    };
+                }
             }
         }
 

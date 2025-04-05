@@ -93,7 +93,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
             const [rulesToEnable, rulesToDisable] = splitRules({
                 allRules: availableDetectionRules,
-                currentlyActiveRules: this.runningDetectionRules,
+                currentlyRunningRules: this.runningDetectionRules,
                 rulesToActivate: allowedDetectionRules
             });
 
