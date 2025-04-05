@@ -957,9 +957,22 @@ export const publishRelevantDetections = async (props: {
     image?: MediaObject,
     room?: string,
     isNvrRule?: boolean,
+    skipMqtt?: boolean,
     storeImageFn?: StoreImageFn
 }) => {
-    const { mqttClient, device, detections = [], triggerTime, console, b64Image, image, room, storeImageFn, isNvrRule } = props;
+    const {
+        mqttClient,
+        device,
+        detections = [],
+        triggerTime,
+        console,
+        b64Image,
+        image,
+        room,
+        storeImageFn,
+        isNvrRule,
+        skipMqtt
+    } = props;
 
     if (!mqttClient) {
         return;
@@ -1003,7 +1016,7 @@ export const publishRelevantDetections = async (props: {
                         }).catch(console.log);
                     }
 
-                    if (value) {
+                    if (!skipMqtt && value) {
                         const { stateTopic } = getMqttTopics({ mqttEntity: entry, device });
                         await mqttClient.publish(stateTopic, value, retain);
                     }

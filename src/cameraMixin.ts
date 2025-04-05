@@ -1566,7 +1566,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let b64Image: string;
         let imageUrl: string;
 
-        const isNvrImage = parentImage && useNvrDetectionsForMqtt;
+        const isNvrImage = !!parentImage;
 
         try {
             if (this.isActiveForMqttReporting) {
@@ -1597,6 +1597,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         imageUrl,
                         room: this.cameraDevice.room,
                         isNvrRule: isNvrImage,
+                        skipMqtt: isNvrImage && !useNvrDetectionsForMqtt,
                         storeImageFn: this.plugin.storeImage
                     }).catch(logger.error);
 

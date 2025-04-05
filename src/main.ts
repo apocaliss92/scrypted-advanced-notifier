@@ -12,11 +12,11 @@ import { AiPlatform, getAiMessage } from "./aiUtils";
 import { AdvancedNotifierCamera } from "./camera";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
-import { getPluginMqttAutodiscoveryConfiguration, getRuleMqttEntities, MqttEntityIdentifier, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
+import { publishRuleEnabled, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getDetectionRulesSettings, getDetectionRules, getElegibleDevices, getFolderPaths, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, HOMEASSISTANT_PLUGIN_ID, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, StoreImageFn, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TimelapseRule, splitRules } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getFolderPaths, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, HOMEASSISTANT_PLUGIN_ID, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, splitRules, StoreImageFn, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TimelapseRule } from "./utils";
 
 const { systemManager, mediaManager } = sdk;
 const defaultNotifierNativeId = 'advancedNotifierDefaultNotifier';
@@ -367,7 +367,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             this.refreshDeviceLinksInterval = setInterval(async () => {
                 await this.refreshDevicesLinks();
-            }, 10000);
+            }, 10 * 1000);
 
             this.checkExistingDevicesInterval = setInterval(async () => {
                 await this.checkPluginConfigurations(false);
@@ -598,7 +598,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if (mqttEnabled) {
             try {
                 const mqttClient = await this.getMqttClient();
-                await this.sendAutoDiscovery();
                 const logger = this.getLogger();
 
                 this.getLogger().log(`Subscribing to mqtt topics`);
@@ -769,10 +768,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.videocameraDevicesMap = videocameraDevicesMap;
             this.deviceRoomMap = deviceRoomMap;
             this.doorbellDevices = doorbellDevices;
-
-            if (this.storageSettings.values.mqttEnabled) {
-                await this.sendAutoDiscovery();
-            }
         } catch (e) {
             logger.log('Error in refreshDevicesLinks', e);
         }
@@ -1225,6 +1220,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             triggerDevice,
         } = result;
 
+        logger.info(`NVR notification incoming ${cameraName} hasImage ${!!image} ${eventType} ${triggerDevice?.name}`);
+
         if ([EventType.ObjectDetection, EventType.Package].includes(eventType as EventType)) {
             await (this.currentMixinsMap[triggerDevice.name] as AdvancedNotifierCameraMixin)?.processDetections({
                 detect: { timestamp: triggerTime, detections: allDetections },
@@ -1237,16 +1234,17 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 triggerTime,
                 image,
             });
-        } else if ([NvrEvent.Offline, NvrEvent.Online].includes(eventType as NvrEvent) &&
-            cameraDevice.interfaces.includes(ScryptedInterface.Battery)) {
+        } else if (
+            [NvrEvent.Offline, NvrEvent.Online].includes(eventType as NvrEvent) &&
+            cameraDevice.interfaces.includes(ScryptedInterface.Battery)
+        ) {
             logger.log(`Online / Offline notification for a battery camera.Skipping: ${JSON.stringify({
                 cameraName,
                 options,
                 allDetections,
                 eventType,
                 triggerDevice,
-            })
-                } `);
+            })}`);
 
             return;
         } else {
