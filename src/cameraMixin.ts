@@ -553,27 +553,28 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         await this.refreshSettings();
     }
 
+    async toggleRule(ruleName: string, ruleType: RuleType, enabled: boolean) {
+        const logger = this.getLogger();
+        const mqttClient = await this.getMqttClient();
+        const rule = this.allAvailableRules.find(rule => rule.ruleType === ruleType && rule.name === ruleName);
+
+        logger.log(`Setting ${ruleType} rule ${ruleName} enabled to ${enabled}`);
+
+        if (rule) {
+            await publishRuleEnabled({
+                console: logger,
+                rule,
+                device: this.cameraDevice,
+                enabled,
+                mqttClient
+            });
+        }
+    };
+
     async refreshSettings() {
         const logger = this.getLogger();
         const dynamicSettings: StorageSetting[] = [];
         const zones = (await this.getObserveZones()).map(item => item.name);
-
-        const toggleRule = async (ruleName: string, ruleType: RuleType, enabled: boolean) => {
-            const mqttClient = await this.getMqttClient();
-            const rule = this.allAvailableRules.find(rule => rule.ruleType === ruleType && rule.name === ruleName);
-
-            logger.log(`Setting ${ruleType} rule ${ruleName} enabled to ${enabled}`);
-
-            if (rule) {
-                await publishRuleEnabled({
-                    console: logger,
-                    rule,
-                    device: this.cameraDevice,
-                    enabled,
-                    mqttClient
-                });
-            }
-        };
 
         const detectionRulesSettings = await getDetectionRulesSettings({
             storage: this.storageSettings,
@@ -582,7 +583,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             logger,
             ruleSource: RuleSource.Device,
             onShowMore: this.refreshSettings.bind(this),
-            onRuleToggle: async (ruleName: string, enabled: boolean) => toggleRule(ruleName, RuleType.Detection, enabled),
+            onRuleToggle: async (ruleName: string, enabled: boolean) => this.toggleRule(ruleName, RuleType.Detection, enabled),
         });
         dynamicSettings.push(...detectionRulesSettings);
 
@@ -592,7 +593,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             ruleSource: RuleSource.Device,
             logger,
             onShowMore: this.refreshSettings.bind(this),
-            onRuleToggle: async (ruleName: string, enabled: boolean) => toggleRule(ruleName, RuleType.Occupancy, enabled),
+            onRuleToggle: async (ruleName: string, enabled: boolean) => this.toggleRule(ruleName, RuleType.Occupancy, enabled),
         });
         dynamicSettings.push(...occupancyRulesSettings);
 
@@ -626,7 +627,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }).catch(logger.log);
                 }
             },
-            onRuleToggle: async (ruleName: string, enabled: boolean) => toggleRule(ruleName, RuleType.Timelapse, enabled),
+            onRuleToggle: async (ruleName: string, enabled: boolean) => this.toggleRule(ruleName, RuleType.Timelapse, enabled),
         });
         dynamicSettings.push(...timelapseRulesSettings);
 
@@ -635,7 +636,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             ruleSource: RuleSource.Device,
             logger,
             onShowMore: this.refreshSettings.bind(this),
-            onRuleToggle: async (ruleName: string, enabled: boolean) => toggleRule(ruleName, RuleType.Audio, enabled),
+            onRuleToggle: async (ruleName: string, enabled: boolean) => this.toggleRule(ruleName, RuleType.Audio, enabled),
         });
         dynamicSettings.push(...audioRulesSettings);
 

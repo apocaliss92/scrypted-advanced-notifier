@@ -12,7 +12,7 @@ import { AiPlatform, getAiMessage } from "./aiUtils";
 import { AdvancedNotifierCamera } from "./camera";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
-import { getPluginMqttAutodiscoveryConfiguration, getRuleMqttEntities, MqttEntityIdentifier, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
+import { getPluginMqttAutodiscoveryConfiguration, getRuleMqttEntities, MqttEntityIdentifier, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
@@ -593,22 +593,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         return logger;
     }
 
-    async updateActivationRuleOnMqtt(props: { deviceId?: string, active: boolean, ruleName: string, logger: Console, ruleType: RuleType }) {
-        const { active, ruleName, deviceId, logger, ruleType } = props;
-        const mqttClient = await this.getMqttClient();
-        const rule = this.allAvailableRules.find(rule => rule.ruleType === ruleType && rule.name === ruleName);
-
-        if (rule) {
-            const ruleActiveEntity = getRuleMqttEntities({ rule }).find(item => item.identifier === MqttEntityIdentifier.RuleActive);
-
-            if (ruleActiveEntity) {
-                const { stateTopic } = await getPluginMqttAutodiscoveryConfiguration({ mqttEntity: ruleActiveEntity });
-                logger.debug(`Setting ${ruleType} rule ${ruleName} to ${active} for device ${deviceId}`);
-                await mqttClient.publish(stateTopic, active ? 'true' : 'false');
-            }
-        }
-    }
-
     private async setupMqttEntities() {
         const { mqttEnabled, mqttActiveEntitiesTopic } = this.storageSettings.values;
         if (mqttEnabled) {
@@ -928,6 +912,23 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
     }
 
+    async toggleRule(ruleName: string, ruleType: RuleType, enabled: boolean) {
+        const mqttClient = await this.getMqttClient();
+        const logger = this.getLogger();
+        const rule = this.allAvailableRules.find(rule => rule.ruleType === ruleType && rule.name === ruleName);
+
+        logger.log(`Setting ${ruleType} rule ${ruleName} enabled to ${enabled}`);
+
+        if (rule) {
+            await publishRuleEnabled({
+                console: logger,
+                rule,
+                enabled,
+                mqttClient
+            });
+        }
+    };
+
     async refreshSettings() {
         const logger = this.getLogger();
         const dynamicSettings: StorageSetting[] = [];
@@ -937,14 +938,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             ruleSource: RuleSource.Plugin,
             logger,
             onShowMore: async () => await this.refreshSettings(),
-            onRuleToggle: async (ruleName: string, active: boolean) => {
-                await this.updateActivationRuleOnMqtt({
-                    active,
-                    logger,
-                    ruleName,
-                    ruleType: RuleType.Detection
-                });
-            },
+            onRuleToggle: async (ruleName: string, enabled: boolean) => this.toggleRule(ruleName, RuleType.Detection, enabled),
         });
 
         dynamicSettings.push(...getAiSettings({
