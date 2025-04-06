@@ -32,6 +32,7 @@ interface MqttEntity {
     forceStateId?: string;
     forceCommandId?: string;
     unitOfMeasurement?: string;
+    disabled?: boolean;
     stateClass?: string;
     precision?: number;
     options?: string[];
@@ -63,6 +64,7 @@ interface AutodiscoveryConfig {
     state_class?: string;
     image_topic?: string;
     image_encoding?: 'b64';
+    enabled_by_default?: boolean;
 }
 
 type MqttDeviceType = 'Plugin' | 'PeopleTracker' | ScryptedDeviceBase;
@@ -187,7 +189,7 @@ const getBasicMqttAutodiscoveryConfiguration = (props: {
     commandTopic?: string,
 }) => {
     const { mqttEntity, mqttDevice, deviceId, additionalProps = {}, stateTopic, commandTopic } = props;
-    const { entity, domain, name, icon, deviceClass, entityCategory, options, unitOfMeasurement, stateClass, precision } = mqttEntity;
+    const { entity, domain, name, icon, deviceClass, entityCategory, options, unitOfMeasurement, stateClass, precision, disabled } = mqttEntity;
 
     const config: AutodiscoveryConfig = {
         dev: mqttDevice,
@@ -206,6 +208,10 @@ const getBasicMqttAutodiscoveryConfiguration = (props: {
         options,
         ...additionalProps
     };
+
+    if (disabled) {
+        config.enabled_by_default = false;
+    }
 
     if (domain === 'binary_sensor') {
         config.payload_on = 'true';
@@ -311,6 +317,7 @@ const deviceClassMqttEntities: MqttEntity[] = defaultDetectionClasses.flatMap(cl
             icon: 'mdi:clock',
             deviceClass: 'timestamp',
             retain: true,
+            disabled: true,
             identifier: MqttEntityIdentifier.LastDetection
         },
     ];
@@ -348,7 +355,6 @@ export const getRuleMqttEntities = (props: {
     const parsedName = toTitleCase(name);
     const isPluginRuleForDevice = rule.source === RuleSource.Plugin && !!device;
 
-    const forcedId = isPluginRuleForDevice ? pluginId : undefined;
     const switchEntity: MqttEntity = {
         entity: `${entity}_active`,
         name: `${parsedName} active`,
@@ -362,8 +368,8 @@ export const getRuleMqttEntities = (props: {
         domain: 'binary_sensor',
         deviceClass: 'running',
         entityCategory: 'diagnostic',
-        forceStateId: forcedId,
-        forceCommandId: forcedId,
+        forceStateId: isPluginRuleForDevice ? pluginId : undefined,
+        forceCommandId: isPluginRuleForDevice ? pluginId : undefined,
         identifier: MqttEntityIdentifier.RuleRunning
     };
     const triggeredEntity: MqttEntity = {
@@ -371,8 +377,6 @@ export const getRuleMqttEntities = (props: {
         name: `${parsedName} triggered`,
         domain: 'binary_sensor',
         deviceClass: rule.ruleType === RuleType.Audio ? 'sound' : rule.ruleType === RuleType.Detection ? 'motion' : undefined,
-        // forceStateId: forcedId,
-        // forceCommandId: forcedId,
         identifier: MqttEntityIdentifier.Triggered
     };
     const occupiedEntity: MqttEntity = {
@@ -396,9 +400,8 @@ export const getRuleMqttEntities = (props: {
         domain: 'sensor',
         icon: 'mdi:clock',
         deviceClass: 'timestamp',
-        // forceStateId: forcedId,
-        // forceCommandId: forcedId,
         retain: true,
+        disabled: true,
         identifier: MqttEntityIdentifier.LastTrigger
     };
 
@@ -409,6 +412,13 @@ export const getRuleMqttEntities = (props: {
     if (!isPluginRuleForDevice) {
         entities.push(switchEntity);
     }
+
+    // if (isPluginRuleForDevice) {
+    //     entities.push({
+    //         ...triggeredEntity,
+    //         forceStateId: pluginId,
+    //     });
+    // }
 
     if (isDetectionRule(rule)) {
         if (isPluginRuleForDevice || rule.source === RuleSource.Device) {
