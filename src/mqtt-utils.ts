@@ -464,7 +464,7 @@ const getTrackedPersonMqttAutodiscoveryConfiguration = async (props: {
     return { config, stateTopic, discoveryTopic, personEntity };
 }
 
-const deviceClassMqttEntitiesGrouped = groupBy(deviceClassMqttEntities, entry => entry.className);
+export const deviceClassMqttEntitiesGrouped = groupBy(deviceClassMqttEntities, entry => entry.className);
 
 export const getMqttTopics = (props: {
     mqttEntity: MqttEntity,
@@ -946,11 +946,11 @@ export const publishResetRuleEntities = async (props: {
     }
 }
 
-export const publishRelevantDetections = async (props: {
+export const publishBasicDetectionData = async (props: {
     mqttClient?: MqttClient,
     device: ScryptedDeviceBase,
     console: Console,
-    detections?: ObjectDetectionResult[],
+    detection?: ObjectDetectionResult,
     triggerTime: number,
     b64Image?: string,
     imageUrl?: string,
@@ -963,7 +963,7 @@ export const publishRelevantDetections = async (props: {
     const {
         mqttClient,
         device,
-        detections = [],
+        detection,
         triggerTime,
         console,
         b64Image,
@@ -979,77 +979,75 @@ export const publishRelevantDetections = async (props: {
     }
 
     try {
-        for (const detection of detections) {
-            const detectionClass = detectionClassesDefaultMap[detection.className];
-            if (detectionClass) {
-                const parentClass = parentDetectionClassMap[detectionClass];
-                const specificClassEntries = deviceClassMqttEntitiesGrouped[detectionClass] ?? [];
-                const parentClassEntries = parentClass ? deviceClassMqttEntitiesGrouped[parentClass] ?? [] : [];
+        const detectionClass = detectionClassesDefaultMap[detection.className];
+        if (detectionClass) {
+            const parentClass = parentDetectionClassMap[detectionClass];
+            const specificClassEntries = deviceClassMqttEntitiesGrouped[detectionClass] ?? [];
+            const parentClassEntries = parentClass ? deviceClassMqttEntitiesGrouped[parentClass] ?? [] : [];
 
-                const classEntries = [...specificClassEntries, ...parentClassEntries];
-                console.debug(`Relevant detections to publish: ${JSON.stringify({ detections, classEntries, b64Image: !!b64Image })}`);
+            const classEntries = [...specificClassEntries, ...parentClassEntries];
+            console.debug(`Relevant detections to publish: ${JSON.stringify({ detection, classEntries, b64Image: !!b64Image })}`);
 
-                for (const entry of classEntries) {
-                    const { identifier, retain } = entry;
-                    let value: any;
+            for (const entry of classEntries) {
+                const { identifier, retain } = entry;
+                let value: any;
 
-                    if (identifier === MqttEntityIdentifier.Detected) {
-                        value = true;
-                    } else if (identifier === MqttEntityIdentifier.LastLabel) {
-                        value = detection?.label || null;
-                    } else if (identifier === MqttEntityIdentifier.LastDetection) {
-                        value = new Date(triggerTime).toISOString();
-                    } else if (identifier === MqttEntityIdentifier.LastImage && b64Image) {
-                        // value = imageUrl || null;
-                        value = b64Image || null;
-                        let name = `object-detection-${entry.className}`;
-                        if (isNvrRule) {
-                            name += '-NVR';
-                        }
-
-                        storeImageFn && storeImageFn({
-                            device,
-                            name,
-                            imageMo: image,
-                            timestamp: triggerTime,
-                            b64Image
-                        }).catch(console.log);
+                if (identifier === MqttEntityIdentifier.Detected) {
+                    value = true;
+                } else if (identifier === MqttEntityIdentifier.LastLabel) {
+                    value = detection?.label || null;
+                } else if (identifier === MqttEntityIdentifier.LastDetection) {
+                    value = new Date(triggerTime).toISOString();
+                } else if (identifier === MqttEntityIdentifier.LastImage && b64Image) {
+                    // value = imageUrl || null;
+                    value = b64Image || null;
+                    let name = `object-detection-${entry.className}`;
+                    if (isNvrRule) {
+                        name += '-NVR';
                     }
 
-                    if (!skipMqtt && value) {
-                        const { stateTopic } = getMqttTopics({ mqttEntity: entry, device });
-                        await mqttClient.publish(stateTopic, value, retain);
-                    }
-                }
-
-                const person = detection.label;
-                if (isFaceClassname(detection.className) && person && room) {
-                    const { stateTopic, personEntity } = await getTrackedPersonMqttAutodiscoveryConfiguration({ person });
-                    await mqttClient.publish(stateTopic, room, personEntity.retain);
-                }
-
-                if (image) {
-                    const { lastSnapshot } = await getWebooks();
-                    await storeWebhookImage({
-                        deviceId: device.id,
-                        image,
-                        logger: console,
-                        webhook: lastSnapshot
-                    }).catch(console.log);
-                    await storeWebhookImage({
-                        deviceId: device.id,
-                        image,
-                        logger: console,
-                        webhook: `${lastSnapshot}_${detectionClass}`
+                    storeImageFn && storeImageFn({
+                        device,
+                        name,
+                        imageMo: image,
+                        timestamp: triggerTime,
+                        b64Image
                     }).catch(console.log);
                 }
-            } else {
-                console.log(`${detection.className} not found`);
+
+                if (!skipMqtt && value) {
+                    const { stateTopic } = getMqttTopics({ mqttEntity: entry, device });
+                    await mqttClient.publish(stateTopic, value, retain);
+                }
             }
+
+            const person = detection.label;
+            if (isFaceClassname(detection.className) && person && room) {
+                const { stateTopic, personEntity } = await getTrackedPersonMqttAutodiscoveryConfiguration({ person });
+                await mqttClient.publish(stateTopic, room, personEntity.retain);
+            }
+
+            if (image) {
+                const { lastSnapshot } = await getWebooks();
+                await storeWebhookImage({
+                    deviceId: device.id,
+                    image,
+                    logger: console,
+                    webhook: lastSnapshot
+                }).catch(console.log);
+                await storeWebhookImage({
+                    deviceId: device.id,
+                    image,
+                    logger: console,
+                    webhook: `${lastSnapshot}_${detectionClass}`
+                }).catch(console.log);
+            }
+        } else {
+            console.log(`${detection.className} not found`);
         }
     } catch (e) {
         console.log(`Error publishing ${JSON.stringify({
-            detections,
+            detection,
             triggerTime,
         })}`, e);
     }

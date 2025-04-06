@@ -139,6 +139,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             type: 'boolean',
             immediate: true
         },
+        minMqttPublishDelay: {
+            subgroup: 'MQTT',
+            title: 'Use NVR detections',
+            description: 'Use NVR detection to publish MQTT state messages for basic detections.',
+            type: 'boolean',
+            immediate: true
+        },
         notifiers: {
             group: 'Notifier',
             title: 'Active notifiers',

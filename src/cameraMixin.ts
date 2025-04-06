@@ -1,4 +1,4 @@
-import sdk, { Camera, EventDetails, EventListenerRegister, FFmpegInput, Image, MediaObject, MediaStreamDestination, MotionSensor, ObjectDetection, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoom, PanTiltZoomCommand, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoFrame, VideoFrameGenerator, VideoFrameGeneratorOptions } from "@scrypted/sdk";
+import sdk, { Camera, EventDetails, EventListenerRegister, FFmpegInput, Image, MediaObject, MediaStreamDestination, MotionSensor, ObjectDetection, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoomCommand, ScryptedDevice, ScryptedDeviceBase, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoFrame, VideoFrameGenerator, VideoFrameGeneratorOptions } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep, uniq } from "lodash";
@@ -9,9 +9,9 @@ import { RtpPacket } from "../../scrypted/external/werift/packages/rtp/src/rtp/r
 import { startRtpForwarderProcess } from '../../scrypted/plugins/webrtc/src/rtp-forwarders';
 import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
-import { publishAudioPressureValue, publishClassnameImages, publishOccupancy, publishRelevantDetections, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
+import { publishAudioPressureValue, publishBasicDetectionData, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, getActiveRules, pcmU8ToDb, splitRules } from "./utils";
+import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, pcmU8ToDb, splitRules } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -49,6 +49,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         minSnapshotDelay: {
             title: 'Minimum snapshot acquisition delay',
             description: 'Minimum amount of seconds to wait until a new snapshot is taken from the camera',
+            type: 'number',
+            defaultValue: 5
+        },
+        minMqttPublishDelay: {
+            title: 'Minimum MQTT publish delay',
+            description: 'Minimum amount of seconds to wait a new image is published to MQTT for the basic detections',
             type: 'number',
             defaultValue: 5
         },
@@ -91,8 +97,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             type: 'number',
         },
         checkSoundPressure: {
-            title: 'Continuously check sound pressure',
-            description: 'Check the pressure of the audio via software',
+            title: 'Audio pressure (dB) detection',
+            description: 'Constinuously check the audio dBs detected by the camera',
             type: 'boolean',
             immediate: true,
         },
@@ -153,6 +159,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         disableNvrRecordingTimeout?: NodeJS.Timeout;
         turnOffTimeout?: NodeJS.Timeout;
     }> = {};
+    lastBasicDetectionsPublishedMap: Partial<Record<DetectionClass, number>> = {};
     lastObserveZonesFetched: number;
     observeZoneData: ObserveZoneData[];
     occupancyState: Record<string, OccupancyData> = {};
@@ -1071,7 +1078,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 return;
             }
 
-            logger.log(`Checking occupancy for reason ${source}`);
+            logger.info(`Checking occupancy for reason ${source}`);
 
             const mqttClient = await this.getMqttClient();
 
@@ -1256,7 +1263,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             logger.info(`Confirmation time is not passed yet ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
                         } else {
                             // Reset confirmation data because the value changed before confirmation time passed
-                            logger.log(`Confirmation failed, value changed during confirmation time ${occupancyRuleData.rule.name}`);
+                            logger.log(`Confirmation failed, value changed during confirmation time ${occupancyRuleData.rule.name}. ${occupancyRuleData.occupies} !== ${currentState.occupancyToConfirm}`);
                             logger.debug(JSON.stringify(logPayload));
 
                             occupancyData = {
@@ -1543,7 +1550,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
         const { timestamp: triggerTime, detections, detectionId } = detect;
         const { eventId } = eventDetails ?? {};
-        const { useNvrDetectionsForMqtt } = this.plugin.storageSettings.values;
+        const { useNvrDetectionsForMqtt, minMqttPublishDelay } = this.plugin.storageSettings.values;
 
         if (!detections?.length) {
             return;
@@ -1586,20 +1593,31 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const mqttClient = await this.getMqttClient();
 
                 if (mqttClient) {
-                    publishRelevantDetections({
-                        mqttClient,
-                        console: logger,
-                        detections,
-                        device: this.cameraDevice,
-                        triggerTime,
-                        b64Image,
-                        image,
-                        imageUrl,
-                        room: this.cameraDevice.room,
-                        isNvrRule: isNvrImage,
-                        skipMqtt: isNvrImage && !useNvrDetectionsForMqtt,
-                        storeImageFn: this.plugin.storeImage
-                    }).catch(logger.error);
+
+                    for (const detection of detections) {
+                        const lastDetection = this.lastBasicDetectionsPublishedMap[detection.className];
+                        const timePassed = !lastDetection || !minMqttPublishDelay || (now - lastDetection) >= (minMqttPublishDelay * 1000);
+                        if (detection.className && timePassed) {
+                            this.lastBasicDetectionsPublishedMap[detection.className] = now;
+
+                            publishBasicDetectionData({
+                                mqttClient,
+                                console: logger,
+                                detection,
+                                device: this.cameraDevice,
+                                triggerTime,
+                                b64Image,
+                                image,
+                                imageUrl,
+                                room: this.cameraDevice.room,
+                                isNvrRule: isNvrImage,
+                                skipMqtt: isNvrImage && !useNvrDetectionsForMqtt,
+                                storeImageFn: this.plugin.storeImage
+                            }).catch(logger.error);
+                        } else {
+                            console.log(`${detection.className} not found`);
+                        }
+                    }
 
                     this.resetDetectionEntities('Timeout').catch(logger.log);
                 }
