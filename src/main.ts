@@ -7,7 +7,8 @@ import fs from 'fs';
 import { cloneDeep, isEqual, keyBy, sortBy } from 'lodash';
 import path from 'path';
 import { BasePlugin, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
-import { version } from '../package.json';
+import { getRpcData } from '../../scrypted-monitor/src/utils';
+import { name as pluginName, version } from '../package.json';
 import { AiPlatform, getAiMessage } from "./aiUtils";
 import { AdvancedNotifierCamera } from "./camera";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
@@ -21,6 +22,8 @@ import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, convertSettingsToStor
 const { systemManager, mediaManager } = sdk;
 const defaultNotifierNativeId = 'advancedNotifierDefaultNotifier';
 const cameraNativeId = 'advancedNotifierCamera';
+const maxPendingResultPerCamera = 5;
+const maxRpcObjectsPerCamera = 50;
 
 interface NotifyCameraProps {
     cameraDevice?: DeviceInterface,
@@ -280,7 +283,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     public deviceRoomMap: Record<string, string> = {}
     private doorbellDevices: string[] = [];
     public currentMixinsMap: Record<string, AdvancedNotifierCameraMixin | AdvancedNotifierSensorMixin> = {};
-    private refreshDeviceLinksInterval: NodeJS.Timeout;
+    private mainFlowInterval: NodeJS.Timeout;
     defaultNotifier: AdvancedNotifierNotifier;
     camera: AdvancedNotifierCamera;
     nvrRules: DetectionRule[] = [];
@@ -354,7 +357,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     async stop() {
-        this.refreshDeviceLinksInterval && clearInterval(this.refreshDeviceLinksInterval);
+        this.mainFlowInterval && clearInterval(this.mainFlowInterval);
         this.checkExistingDevicesInterval && clearInterval(this.checkExistingDevicesInterval);
         await this.mqttClient?.disconnect();
     }
@@ -369,11 +372,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         try {
             await this.refreshSettings();
             await this.initPluginSettings();
-            await this.refreshDevicesLinks();
+            await this.mainFlow();
             await this.setupMqttEntities();
 
-            this.refreshDeviceLinksInterval = setInterval(async () => {
-                await this.refreshDevicesLinks();
+            this.mainFlowInterval = setInterval(async () => {
+                await this.mainFlow();
             }, 10 * 1000);
 
             this.checkExistingDevicesInterval = setInterval(async () => {
@@ -678,7 +681,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
     }
 
-    private async refreshDevicesLinks() {
+    private async mainFlow() {
         const logger = this.getLogger();
         try {
             const doorbellDevices: string[] = [];
@@ -742,7 +745,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         }
                     }
                 } catch (e) {
-                    logger.log(`Error in refreshDevicesLinks-${device}`, e);
+                    logger.log(`Error in mainFlow-${device}`, e);
                 }
             }
 
@@ -768,15 +771,29 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
 
             this.runningDetectionRules = cloneDeep(allowedRules) || [];
-
             this.deviceHaEntityMap = deviceHaEntityMap;
             this.haEntityDeviceMap = haEntityDeviceMap;
             this.deviceVideocameraMap = deviceVideocameraMap;
             this.videocameraDevicesMap = videocameraDevicesMap;
             this.deviceRoomMap = deviceRoomMap;
             this.doorbellDevices = doorbellDevices;
+
+            const { pendingResults, rpcObjects } = await getRpcData();
+            const pluginPendingResults = pendingResults.find(elem => elem.name === pluginName)?.count;
+            const pluginRpcObjects = rpcObjects.find(elem => elem.name === pluginName)?.count;
+            const { activeDevicesForReporting } = this.storageSettings.values;
+
+            if (
+                pluginPendingResults > (maxPendingResultPerCamera * activeDevicesForReporting) ||
+                pluginRpcObjects > (maxRpcObjectsPerCamera * activeDevicesForReporting)
+            ) {
+                logger.error(`Plugin seems stuck, ${pluginPendingResults} pending results and ${pluginRpcObjects} RPC objects. Restarting`);
+                await sdk.deviceManager.requestRestart();
+            }
+
+            logger.log('RPC data', pluginPendingResults, pluginRpcObjects);
         } catch (e) {
-            logger.log('Error in refreshDevicesLinks', e);
+            logger.log('Error in mainFlow', e);
         }
     }
 
