@@ -160,6 +160,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         turnOffTimeout?: NodeJS.Timeout;
     }> = {};
     lastBasicDetectionsPublishedMap: Partial<Record<DetectionClass, number>> = {};
+    lastTimelapseGenerated: Record<string, number> = {};
     lastObserveZonesFetched: number;
     observeZoneData: ObserveZoneData[];
     occupancyState: Record<string, OccupancyData> = {};
@@ -287,6 +288,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     device: this.cameraDevice
                 });
 
+                const now = Date.now();
                 logger.debug(`Detected rules: ${JSON.stringify({
                     rulesToEnable,
                     rulesToDisable,
@@ -318,11 +320,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     logger.log(`${ruleType} rule stopped: ${name}`);
 
                     if (ruleType === RuleType.Timelapse) {
-                        this.plugin.timelapseRuleEnded({
-                            rule,
-                            device: this.cameraDevice,
-                            logger,
-                        }).catch(logger.log);
+                        const lastGenerated = this.lastTimelapseGenerated[name];
+                        // Make sure to not spam generate timelapses if any issue occurs deferring by 1 min
+                        const isTimePassed = !lastGenerated || (now - lastGenerated) >= (1000 * 60);
+                        if (isTimePassed) {
+                            this.lastTimelapseGenerated[name] = now;
+                            this.plugin.timelapseRuleEnded({
+                                rule,
+                                device: this.cameraDevice,
+                                logger,
+                            }).catch(logger.log);
+                        }
                     }
 
                     const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: name, ruleType });
@@ -340,7 +348,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 const isDetectionListenerRunning = !!this.detectionListener || !!this.motionListener;
 
-                const now = Date.now();
                 const { entityId, occupancyCheckInterval = 0, checkSoundPressure } = this.storageSettings.values;
 
                 // logger.log(JSON.stringify({ allDetectionRules, detectionRules }))
