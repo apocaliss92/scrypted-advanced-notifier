@@ -34,6 +34,7 @@ export type OccupancyRuleData = {
     image?: MediaObject;
     b64Image?: string;
     triggerTime: number;
+    objectsDetected?: number;
 };
 
 interface AccumulatedDetection { detect: ObjectsDetected, eventId: string };
@@ -1213,7 +1214,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     occupancyRulesDataMap[name] = {
                         rule: occupancyRule,
                         occupies,
-                        triggerTime: now
+                        triggerTime: now,
+                        objectsDetected: objectsDetected
                     }
                 } else if (!existingRule.occupies && occupies) {
                     existingRule.occupies = true;
@@ -1270,7 +1272,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             logger.info(`Confirmation time is not passed yet ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
                         } else {
                             // Reset confirmation data because the value changed before confirmation time passed
-                            logger.log(`Confirmation failed, value changed during confirmation time ${occupancyRuleData.rule.name}. ${occupancyRuleData.occupies} !== ${currentState.occupancyToConfirm}`);
+                            logger.log(`Confirmation failed, value changed during confirmation time ${occupancyRuleData.rule.name}. ${occupancyRuleData.objectsDetected} !== ${currentState.objectsDetected}`);
                             logger.debug(JSON.stringify(logPayload));
 
                             occupancyData = {
@@ -1295,7 +1297,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             if (!stateActuallyChanged) {
                                 rulesToNotNotify.push(occupancyRuleData.rule.name);
                             } else {
-                                logger.log(`Confirming occupancy rule ${occupancyRuleData.rule.name}`);
+                                logger.log(`Confirming occupancy rule ${occupancyRuleData.rule.name}: ${occupancyData.objectsDetected}`);
                                 logger.debug(JSON.stringify({
                                     occupancyRuleData,
                                     currentState,
@@ -1323,7 +1325,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         }
                     }
                 } else if (occupancyRuleData.occupies !== currentState.lastOccupancy) {
-                    logger.log(`Marking the rule to confirm for next iteration ${occupancyRuleData.rule.name}`);
+                    logger.log(`Marking the rule to confirm for next iteration ${occupancyRuleData.rule.name}: ${occupancyRuleData.objectsDetected} !== ${currentState.objectsDetected}`);
                     logger.debug(JSON.stringify(logPayload));
 
                     occupancyData = {
