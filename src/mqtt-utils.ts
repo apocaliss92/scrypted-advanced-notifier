@@ -37,7 +37,6 @@ interface MqttEntity {
     precision?: number;
     options?: string[];
     retain?: boolean;
-    cleanupDiscovery?: boolean;
     identifier?: MqttEntityIdentifier;
 }
 
@@ -521,18 +520,13 @@ const publishMqttEntitiesDiscovery = async (props: { mqttClient?: MqttClient, mq
 
         console.debug(`Discovering ${JSON.stringify({ mqttEntity, discoveryTopic, config })}`)
 
-        if (mqttEntity.cleanupDiscovery) {
-            await mqttClient.publish(discoveryTopic, '', true);
-            console.info(`Entity ${mqttEntity.entity} unpublished`);
-        } else {
-            await mqttClient.publish(discoveryTopic, JSON.stringify(config), true);
-            if (mqttEntity.valueToDispatch !== undefined) {
-                await mqttClient.publish(stateTopic, mqttEntity.valueToDispatch, mqttEntity.retain);
-            }
-            console.info(`Entity ${mqttEntity.entity} published`);
-
-            autodiscoveryTopics.push(discoveryTopic);
+        await mqttClient.publish(discoveryTopic, JSON.stringify(config), true);
+        if (mqttEntity.valueToDispatch !== undefined) {
+            await mqttClient.publish(stateTopic, mqttEntity.valueToDispatch, mqttEntity.retain);
         }
+        console.info(`Entity ${mqttEntity.entity} published`);
+
+        autodiscoveryTopics.push(discoveryTopic);
     }
 
     return autodiscoveryTopics;
@@ -836,18 +830,14 @@ export const setupDeviceAutodiscovery = async (props: {
         enabledClasses.push(...(objectTypes?.classes?.map(classname => detectionClassesDefaultMap[classname]) ?? []));
     }
 
-    const detectionMqttEntities = getDeviceClassEntities(device).map(entity => {
-        let cleanupDiscovery = false;
+    const detectionMqttEntities = getDeviceClassEntities(device).filter(entity => {
         if (!enabledClasses.includes(detectionClassesDefaultMap[entity.className])) {
-            cleanupDiscovery = true;
+            return false;
         } else if (entity.identifier === MqttEntityIdentifier.Object && !occupancyEnabled) {
-            cleanupDiscovery = true
+            return false;
+        } else {
+            return true;
         }
-
-        return {
-            ...entity,
-            cleanupDiscovery,
-        };
     })
 
     const mqttEntities = [triggeredEntity, ...detectionMqttEntities];
@@ -872,11 +862,9 @@ export const setupDeviceAutodiscovery = async (props: {
         mqttEntities.push(rebootEntity);
     }
 
-    mqttEntities.push({
-        ...audioPressureEntity,
-        cleanupDiscovery: !withAudio
-    });
-
+    if (withAudio) {
+        mqttEntities.push(audioPressureEntity);
+    }
 
     if (device.interfaces.includes(ScryptedInterface.PanTiltZoom)) {
         const presets = Object.values(device.ptzCapabilities.presets ?? {});
