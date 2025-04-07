@@ -179,7 +179,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     processDetectionsInterval: NodeJS.Timeout;
     processingAccumulatedDetections = false;
 
-    currentAutodiscoveryTopics: string[] = []
+    currentAutodiscoveryTopics: string[] = [];
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -206,13 +206,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     mqttMessageCb: MqttMessageCb = async (topic, message) => {
         const logger = this.getLogger();
-        logger.log(topic, message);
+        logger.debug(topic, message);
         !!message && topic.endsWith('/config') && !this.currentAutodiscoveryTopics.includes(topic) && this.currentAutodiscoveryTopics.push(topic);
     }
 
     async getMqttClient() {
         if (!this.mqttClient && !this.initializingMqtt) {
-            const { mqttEnabled, useMqttPluginCredentials, pluginEnabled } = this.plugin.storageSettings.values;
+            const { mqttEnabled, useMqttPluginCredentials, pluginEnabled, mqttHost, mqttUsename, mqttPassword } = this.plugin.storageSettings.values;
             if (mqttEnabled && pluginEnabled) {
                 this.initializingMqtt = true;
                 const logger = this.getLogger();
@@ -226,9 +226,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     this.mqttClient = await getMqttBasicClient({
                         logger,
                         useMqttPluginCredentials,
-                        mqttHost: this.plugin.storageSettings.getItem('mqttHost'),
-                        mqttUsename: this.plugin.storageSettings.getItem('mqttUsename'),
-                        mqttPassword: this.plugin.storageSettings.getItem('mqttPassword'),
+                        mqttHost,
+                        mqttUsename,
+                        mqttPassword,
                         // clientId: `s_an_${this.id}`
                         messageCb: this.mqttMessageCb,
                     });
@@ -375,7 +375,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 console: logger,
                                 rules: allAvailableRules,
                                 occupancyEnabled: !!occupancyCheckInterval,
-                                deletedRules: [],
                                 withAudio: checkSoundPressure,
                             }).then(async (activeTopics) => {
                                 const topicsToDelete = activeTopics.filter(topic => !this.currentAutodiscoveryTopics.includes(topic));

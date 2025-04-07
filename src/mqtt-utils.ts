@@ -578,7 +578,7 @@ export const setupPluginAutodiscovery = async (props: {
         }
     }
 
-    await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, console });
+    return await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, console });
 }
 
 export const subscribeToPluginMqttTopics = async (
@@ -817,11 +817,10 @@ export const setupDeviceAutodiscovery = async (props: {
     device: ScryptedDeviceBase & ObjectDetector,
     console: Console,
     rules: BaseRule[],
-    deletedRules: BaseRule[],
     occupancyEnabled: boolean,
     withAudio: boolean,
 }) => {
-    const { device, mqttClient, rules, console, occupancyEnabled, deletedRules, withAudio } = props;
+    const { device, mqttClient, rules, console, occupancyEnabled, withAudio } = props;
 
     if (!mqttClient) {
         return;
@@ -910,16 +909,6 @@ export const setupDeviceAutodiscovery = async (props: {
     }
 
     // console.info(`Mqtt entities to discover: ${mqttEntities.map(item => item.name).join(', ')}`);
-
-    for (const rule of deletedRules) {
-        const ruleEntities = getRuleMqttEntities({ rule, device });
-        for (const mqttEntity of ruleEntities) {
-            mqttEntities.push({
-                ...mqttEntity,
-                cleanupDiscovery: true
-            });
-        }
-    }
 
     return await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, device, console });
 }

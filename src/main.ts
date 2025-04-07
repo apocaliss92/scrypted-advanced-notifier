@@ -6,18 +6,19 @@ import { once } from "events";
 import fs from 'fs';
 import { cloneDeep, isEqual, keyBy, sortBy } from 'lodash';
 import path from 'path';
-import { BasePlugin, getBaseSettings } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { BasePlugin, getBaseSettings, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { getRpcData } from '../../scrypted-monitor/src/utils';
 import { name as pluginName, version } from '../package.json';
 import { AiPlatform, getAiMessage } from "./aiUtils";
 import { AdvancedNotifierCamera } from "./camera";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
-import { publishRuleEnabled, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
+import { cleanupAutodiscoveryTopics, idPrefix, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getFolderPaths, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, HOMEASSISTANT_PLUGIN_ID, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, splitRules, StoreImageFn, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TimelapseRule } from "./utils";
+import { MqttMessageCb } from "../../scrypted-apocaliss-base/src/mqtt-client";
 
 const { systemManager, mediaManager } = sdk;
 const defaultNotifierNativeId = 'advancedNotifierDefaultNotifier';
@@ -292,6 +293,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     private checkExistingDevicesInterval: NodeJS.Timeout;
     allAvailableRules: BaseRule[] = [];
     fetchedEntities: string[] = [];
+    currentAutodiscoveryTopics: string[] = [];
 
     constructor(nativeId: string) {
         super(nativeId, {
@@ -576,12 +578,18 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const pluginStorage = this.storageSettings;
         const { availableRules } = getDetectionRules({ pluginStorage, console: logger });
 
-        await setupPluginAutodiscovery({
+        setupPluginAutodiscovery({
             mqttClient,
             people: knownPeople,
             console: logger,
             rules: availableRules,
-        });
+        }).then(async (activeTopics) => {
+            const topicsToDelete = activeTopics.filter(topic => !this.currentAutodiscoveryTopics.includes(topic));
+            if (topicsToDelete.length > 0) {
+                logger.log(`${topicsToDelete.length} topics to delete found: ${topicsToDelete.join(', ')}`);
+                await cleanupAutodiscoveryTopics({ mqttClient, logger, topics: topicsToDelete });
+            }
+        }).catch(logger.error);;
 
         this.allAvailableRules = availableRules;
     }
@@ -590,8 +598,47 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         return this.storageSettings.putSetting(key, value);
     }
 
+    mqttMessageCb: MqttMessageCb = async (topic, message) => {
+        const logger = this.getLogger();
+        logger.log(topic, message);
+        !!message && topic.endsWith('/config') && !this.currentAutodiscoveryTopics.includes(topic) && this.currentAutodiscoveryTopics.push(topic);
+    }
+
     async getMqttClient() {
-        return super.getMqttClient();
+        if (!this.mqttClient && !this.initializingMqtt) {
+            const { mqttEnabled, useMqttPluginCredentials, pluginEnabled, mqttHost, mqttUsename, mqttPassword } = this.storageSettings.values;
+            if (mqttEnabled && pluginEnabled) {
+                this.initializingMqtt = true;
+                const logger = this.getLogger();
+
+                if (this.mqttClient) {
+                    this.mqttClient.disconnect();
+                    this.mqttClient = undefined;
+                }
+
+                try {
+                    this.mqttClient = await getMqttBasicClient({
+                        logger,
+                        useMqttPluginCredentials,
+                        mqttHost,
+                        mqttUsename,
+                        mqttPassword,
+                        // clientId: `s_an_${this.id}`
+                        messageCb: this.mqttMessageCb,
+                    });
+                    await this.mqttClient?.getMqttClient();
+                    await this.mqttClient.mqttClient.subscribeAsync([
+                        `homeassistant/+/${idPrefix}-${this.pluginId}/+/config`
+                    ]);
+                } catch (e) {
+                    logger.log('Error setting up MQTT client', e);
+                } finally {
+                    this.initializingMqtt = false;
+                }
+            }
+        }
+
+        return this.mqttClient;
     }
 
     getLogger(device?: DeviceInterface) {
