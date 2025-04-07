@@ -3,13 +3,13 @@ import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/s
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep, uniq } from "lodash";
 import { getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
-import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
+import MqttClient, { MqttMessageCb } from "../../scrypted-apocaliss-base/src/mqtt-client";
 import { filterOverlappedDetections } from '../../scrypted-basic-object-detector/src/util';
 import { RtpPacket } from "../../scrypted/external/werift/packages/rtp/src/rtp/rtp";
 import { startRtpForwarderProcess } from '../../scrypted/plugins/webrtc/src/rtp-forwarders';
 import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
-import { publishAudioPressureValue, publishBasicDetectionData, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
+import { cleanupAutodiscoveryTopics, idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, pcmU8ToDb, splitRules } from "./utils";
 
@@ -179,6 +179,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     processDetectionsInterval: NodeJS.Timeout;
     processingAccumulatedDetections = false;
 
+    currentAutodiscoveryTopics: string[] = []
+
     constructor(
         options: SettingsMixinDeviceOptions<any>,
         public plugin: HomeAssistantUtilitiesProvider
@@ -202,6 +204,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.startStop(this.plugin.storageSettings.values.pluginEnabled).then().catch(logger.log);
     }
 
+    mqttMessageCb: MqttMessageCb = async (topic, message) => {
+        const logger = this.getLogger();
+        logger.log(topic, message);
+        !!message && topic.endsWith('/config') && !this.currentAutodiscoveryTopics.includes(topic) && this.currentAutodiscoveryTopics.push(topic);
+    }
+
     async getMqttClient() {
         if (!this.mqttClient && !this.initializingMqtt) {
             const { mqttEnabled, useMqttPluginCredentials, pluginEnabled } = this.plugin.storageSettings.values;
@@ -222,8 +230,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         mqttUsename: this.plugin.storageSettings.getItem('mqttUsename'),
                         mqttPassword: this.plugin.storageSettings.getItem('mqttPassword'),
                         // clientId: `s_an_${this.id}`
+                        messageCb: this.mqttMessageCb,
                     });
                     await this.mqttClient?.getMqttClient();
+                    await this.mqttClient.mqttClient.subscribeAsync([
+                        `homeassistant/+/${idPrefix}-${this.id}/+/config`
+                    ]);
                 } catch (e) {
                     logger.log('Error setting up MQTT client', e);
                 } finally {
@@ -365,6 +377,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 occupancyEnabled: !!occupancyCheckInterval,
                                 deletedRules: [],
                                 withAudio: checkSoundPressure,
+                            }).then(async (activeTopics) => {
+                                const topicsToDelete = activeTopics.filter(topic => !this.currentAutodiscoveryTopics.includes(topic));
+                                if (topicsToDelete.length > 0) {
+                                    logger.log(`${topicsToDelete.length} topics to delete found: ${topicsToDelete.join(', ')}`);
+                                    await cleanupAutodiscoveryTopics({ mqttClient, logger, topics: topicsToDelete });
+                                }
                             }).catch(logger.error);
 
                             logger.debug(`Subscribing to mqtt topics`);

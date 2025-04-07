@@ -71,7 +71,7 @@ type MqttDeviceType = 'Plugin' | 'PeopleTracker' | ScryptedDeviceBase;
 
 export const detectionClassForObjectsReporting = [DetectionClass.Animal, DetectionClass.Person, DetectionClass.Vehicle];
 
-const idPrefix = 'scrypted-an';
+export const idPrefix = 'scrypted-an';
 const namePrefix = 'Scrypted AN';
 const pluginIds = `${idPrefix}-main-settings`;
 const peopleTrackerId = 'people-tracker';
@@ -512,6 +512,7 @@ const publishMqttEntitiesDiscovery = async (props: { mqttClient?: MqttClient, mq
     if (!mqttClient) {
         return;
     }
+    const autodiscoveryTopics: string[] = [];
 
     for (const mqttEntity of mqttEntities) {
         const { discoveryTopic, config, stateTopic } = device ?
@@ -529,8 +530,12 @@ const publishMqttEntitiesDiscovery = async (props: { mqttClient?: MqttClient, mq
                 await mqttClient.publish(stateTopic, mqttEntity.valueToDispatch, mqttEntity.retain);
             }
             console.info(`Entity ${mqttEntity.entity} published`);
+
+            autodiscoveryTopics.push(discoveryTopic);
         }
     }
+
+    return autodiscoveryTopics;
 }
 
 export const setupPluginAutodiscovery = async (props: {
@@ -791,6 +796,22 @@ const getDeviceClassEntities = (device: ScryptedDeviceBase) => {
     return deviceClassMqttEntities.filter(entry => !entry.className || classes.includes(entry.className));
 }
 
+export const cleanupAutodiscoveryTopics = async (props: {
+    mqttClient?: MqttClient,
+    logger: Console,
+    topics: string[]
+}) => {
+    const { logger, topics, mqttClient } = props;
+
+    if (!mqttClient) {
+        return;
+    }
+
+    for (const topic of topics) {
+        await mqttClient.publish(topic, '', true);
+    }
+}
+
 export const setupDeviceAutodiscovery = async (props: {
     mqttClient?: MqttClient,
     device: ScryptedDeviceBase & ObjectDetector,
@@ -900,7 +921,7 @@ export const setupDeviceAutodiscovery = async (props: {
         }
     }
 
-    await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, device, console });
+    return await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, device, console });
 }
 
 export const publishResetDetectionsEntities = async (props: {

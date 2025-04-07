@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.0.31
+
+- Automatic cleanup of HA entities when not available anymore
+
 ### 3.0.30
 
 - `Minimum MQTT publish delay` setting adding on the camera, allowing to defer detection updates
