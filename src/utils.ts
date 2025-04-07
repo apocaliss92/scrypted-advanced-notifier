@@ -18,6 +18,7 @@ export type DeviceInterface = Camera & ScryptedDeviceBase & Settings & ObjectDet
 export const ADVANCED_NOTIFIER_INTERFACE = name;
 export const PUSHOVER_PLUGIN_ID = '@scrypted/pushover';
 export const HOMEASSISTANT_PLUGIN_ID = '@scrypted/homeassistant';
+export const SNAPSHOT_WIDTH = 1280;
 
 export interface ObserveZoneData {
     name: string;

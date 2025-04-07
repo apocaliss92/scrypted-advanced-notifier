@@ -17,7 +17,7 @@ import { cleanupAutodiscoveryTopics, idPrefix, publishRuleEnabled, setupPluginAu
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getFolderPaths, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, HOMEASSISTANT_PLUGIN_ID, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, splitRules, StoreImageFn, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TimelapseRule } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getFolderPaths, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, HOMEASSISTANT_PLUGIN_ID, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, SNAPSHOT_WIDTH, splitRules, StoreImageFn, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TimelapseRule } from "./utils";
 import { MqttMessageCb } from "../../scrypted-apocaliss-base/src/mqtt-client";
 
 const { systemManager, mediaManager } = sdk;
@@ -1615,15 +1615,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 rule,
             });
 
-            const notifierSnapshotScale = this.storageSettings.getItem(`notifier:${notifierId}:snapshotScale` as any) ?? 1;
-            const cameraSnapshotHeight = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:snapshotHeight')?.value as number) ?? 720;
-            const cameraSnapshotWidth = (deviceSettings.find(setting => setting.key === 'homeassistantMetadata:snapshotWidth')?.value as number) ?? 1280;
-
             const { image, b64Image } = !skipImage ? await this.getCameraSnapshot({
                 cameraDevice: device,
-                snapshotHeight: cameraSnapshotHeight * notifierSnapshotScale,
-                snapshotWidth: cameraSnapshotWidth * notifierSnapshotScale,
-                image: notifierSnapshotScale === 1 ? imageParent : undefined,
+                image: imageParent,
             }) : {};
 
 
@@ -1728,11 +1722,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     private async getCameraSnapshot(props: {
         cameraDevice: DeviceInterface,
-        snapshotWidth: number,
-        snapshotHeight: number,
         image?: MediaObject,
     }) {
-        const { cameraDevice, snapshotWidth, snapshotHeight, image: imageParent } = props;
+        const { cameraDevice, image: imageParent } = props;
 
         let image = imageParent;
 
@@ -1741,8 +1733,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 image = await cameraDevice.takePicture({
                     reason: 'event',
                     picture: {
-                        height: snapshotHeight,
-                        width: snapshotWidth,
+                        width: SNAPSHOT_WIDTH,
                     },
                 });
             } catch (e) {

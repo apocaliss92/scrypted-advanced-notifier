@@ -11,7 +11,7 @@ import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { cleanupAutodiscoveryTopics, idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, pcmU8ToDb, splitRules } from "./utils";
+import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, pcmU8ToDb, splitRules } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -70,20 +70,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             title: 'Off motion duration',
             type: 'number',
             defaultValue: 10
-        },
-        snapshotWidth: {
-            subgroup: 'Notifier',
-            title: 'Snapshot width',
-            type: 'number',
-            defaultValue: 1280,
-            placeholder: '1280',
-        },
-        snapshotHeight: {
-            subgroup: 'Notifier',
-            title: 'Snapshot height',
-            type: 'number',
-            defaultValue: 720,
-            placeholder: '720',
         },
         ignoreCameraDetections: {
             title: 'Ignore camera detections',
@@ -902,8 +888,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         reason: 'event',
                         timeout: 5000,
                         picture: {
-                            height: this.storageSettings.values.snapshotHeight,
-                            width: this.storageSettings.values.snapshotWidth,
+                            width: SNAPSHOT_WIDTH,
                         },
                     });
                     logger.info(`Image taken from snapshot because time is passed ${detectionId} ${eventId}`);
@@ -934,8 +919,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(detectImage, ScryptedMimeTypes.Image);
                         image = await convertedImage.toImage({
                             resize: {
-                                height: this.storageSettings.values.snapshotHeight,
-                                width: this.storageSettings.values.snapshotWidth,
+                                width: SNAPSHOT_WIDTH,
                             },
                         });
                         logger.info(`Image taken from the detector mixin`);
@@ -2042,8 +2026,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             return await videoFrameGenerator.generateVideoFrames(stream, {
                 queue: 0,
                 resize: {
-                    height: this.storageSettings.values.snapshotHeight,
-                    width: this.storageSettings.values.snapshotWidth,
+                    width: SNAPSHOT_WIDTH,
                 },
                 ...options
             });
