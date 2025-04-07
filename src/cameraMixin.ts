@@ -363,8 +363,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 occupancyEnabled: !!occupancyCheckInterval,
                                 withAudio: checkSoundPressure,
                             }).then(async (activeTopics) => {
-                                const topicsToDelete = activeTopics.filter(topic => !this.currentAutodiscoveryTopics.includes(topic));
-                                if (topicsToDelete.length > 0) {
+                                const topicsToDelete = this.currentAutodiscoveryTopics.filter(topic => !activeTopics.includes(topic));
+                                if (!!topicsToDelete.length) {
                                     logger.log(`${topicsToDelete.length} topics to delete found: ${topicsToDelete.join(', ')}`);
                                     await cleanupAutodiscoveryTopics({ mqttClient, logger, topics: topicsToDelete });
                                 }
@@ -1273,7 +1273,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             logger.info(`Confirmation time is not passed yet ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
                         } else {
                             // Reset confirmation data because the value changed before confirmation time passed
-                            logger.log(`Confirmation failed, value changed during confirmation time ${occupancyRuleData.rule.name}. ${occupancyRuleData.objectsDetected} !== ${currentState.objectsDetected}`);
+                            logger.log(`Confirmation failed, value changed during confirmation time ${occupancyRuleData.rule.name}: ${currentState.objectsDetected} objects`);
                             logger.debug(JSON.stringify(logPayload));
 
                             occupancyData = {
@@ -1326,7 +1326,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         }
                     }
                 } else if (occupancyRuleData.occupies !== currentState.lastOccupancy) {
-                    logger.log(`Marking the rule to confirm for next iteration ${occupancyRuleData.rule.name}: ${occupancyRuleData.objectsDetected} !== ${currentState.objectsDetected}`);
+                    logger.log(`Marking the rule to confirm for next iteration ${occupancyRuleData.rule.name}: ${currentState.objectsDetected} objects`);
                     logger.debug(JSON.stringify(logPayload));
 
                     occupancyData = {
@@ -2025,9 +2025,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         try {
             return await videoFrameGenerator.generateVideoFrames(stream, {
                 queue: 0,
-                resize: {
-                    width: SNAPSHOT_WIDTH,
-                },
+                // resize: {
+                //     width: SNAPSHOT_WIDTH,
+                // },
                 ...options
             });
         }

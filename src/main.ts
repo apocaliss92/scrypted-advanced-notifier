@@ -577,7 +577,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             console: logger,
             rules: availableRules,
         }).then(async (activeTopics) => {
-            const topicsToDelete = activeTopics.filter(topic => !this.currentAutodiscoveryTopics.includes(topic));
+            const topicsToDelete = this.currentAutodiscoveryTopics.filter(topic => !activeTopics.includes(topic));
             if (topicsToDelete.length > 0) {
                 logger.log(`${topicsToDelete.length} topics to delete found: ${topicsToDelete.join(', ')}`);
                 await cleanupAutodiscoveryTopics({ mqttClient, logger, topics: topicsToDelete });
