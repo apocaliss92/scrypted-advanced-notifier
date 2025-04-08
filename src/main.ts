@@ -263,7 +263,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             defaultValue: '${name}',
             placeholder: '${name}',
         },
-        alert300Shown: {
+        alert310Shown: {
             type: 'boolean',
             hide: true
         },
@@ -294,11 +294,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         });
 
         const [major, minor, patch] = version.split('.').map(num => parseInt(num, 10));
-        if (major === 3 && minor === 0 && !this.storageSettings.values.alert300Shown) {
+        if (major === 3 && minor === 1 && !this.storageSettings.values.alert310Shown) {
             this.log.a(`Starting from version 3.x.x, an huge rework happened on MQTT. Most of the identifiers discovered on MQTT have changed.
                 It's suggested to remove all the discovered devices on Homeassistant, clear the retained messages on MQTT and let the addon recreate them.
                 Run a test checkConfiguration to make sure everything is ok`);
-            this.storageSettings.values.alert300Shown = true;
+            this.storageSettings.values.alert310Shown = true;
         }
 
         (async () => {
