@@ -23,6 +23,7 @@ interface OccupancyData {
     lastChange: number,
     lastCheck: number,
     objectsDetected: number,
+    score: number,
     detectedResult: ObjectsDetected,
     image: MediaObject
 }
@@ -1180,10 +1181,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
 
                 let objectsDetected = 0;
+                let minScore = 0;
 
                 for (const detection of detectedResult.detections) {
                     const className = detectionClassesDefaultMap[detection.className];
                     if (detection.score >= scoreThreshold && detectionClass === className) {
+                        if (!minScore || detection.score < minScore) {
+                            minScore = detection.score;
+                        }
                         const boundingBoxInCoords = normalizeBox(detection.boundingBox, detectedResult.inputDimensions);
                         const zone = zonesData.find(zoneData => zoneData.name === observeZone);
                         if (zone) {
@@ -1208,7 +1213,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     ...this.occupancyState[name] ?? {} as OccupancyData,
                     objectsDetected,
                     detectedResult,
-                    image: imageToUse
+                    image: imageToUse,
+                    score: minScore
                 };
 
                 const existingRule = occupancyRulesDataMap[name];
@@ -1274,7 +1280,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             logger.info(`Confirmation time is not passed yet ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
                         } else {
                             // Reset confirmation data because the value changed before confirmation time passed
-                            logger.log(`Confirmation failed, value changed during confirmation time ${occupancyRuleData.rule.name}: ${currentState.objectsDetected} objects`);
+                            logger.log(`Confirmation failed, value changed during confirmation time ${occupancyRuleData.rule.name}: ${currentState.objectsDetected} objects, score ${currentState.score}`);
                             logger.debug(JSON.stringify(logPayload));
 
                             occupancyData = {
@@ -1328,7 +1334,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         }
                     }
                 } else if (occupancyRuleData.occupies !== currentState.lastOccupancy) {
-                    logger.log(`Marking the rule to confirm for next iteration ${occupancyRuleData.rule.name}: ${currentState.objectsDetected} objects`);
+                    logger.log(`Marking the rule to confirm for next iteration ${occupancyRuleData.rule.name}: ${currentState.objectsDetected} objects, score ${currentState.score}`);
                     logger.debug(JSON.stringify(logPayload));
 
                     occupancyData = {
@@ -1562,7 +1568,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
         const { timestamp: triggerTime, detections, detectionId } = detect;
         const { eventId } = eventDetails ?? {};
-        const { useNvrDetectionsForMqtt, minMqttPublishDelay } = this.plugin.storageSettings.values;
+        const { useNvrDetectionsForMqtt } = this.plugin.storageSettings.values;
 
         if (!detections?.length) {
             return;
@@ -1573,6 +1579,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const {
             minDelayTime,
             ignoreCameraDetections,
+            minMqttPublishDelay,
         } = this.storageSettings.values;
 
         const { candidates } = filterAndSortValidDetections({
@@ -1605,11 +1612,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const mqttClient = await this.getMqttClient();
 
                 if (mqttClient) {
-
                     for (const detection of detections) {
                         const lastDetection = this.lastBasicDetectionsPublishedMap[detection.className];
                         const timePassed = !lastDetection || !minMqttPublishDelay || (now - lastDetection) >= (minMqttPublishDelay * 1000);
-                        if (detection.className && timePassed) {
+                        if (detection.className) {
                             this.lastBasicDetectionsPublishedMap[detection.className] = now;
 
                             publishBasicDetectionData({
@@ -1624,10 +1630,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 room: this.cameraDevice.room,
                                 isNvrRule: isNvrImage,
                                 skipMqtt: isNvrImage && !useNvrDetectionsForMqtt,
+                                skipImage: !timePassed,
                                 storeImageFn: this.plugin.storeImage
                             }).catch(logger.error);
-                        } else {
-                            console.log(`${detection.className} not found`);
                         }
                     }
 
@@ -1647,7 +1652,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const rules = cloneDeep(this.runningDetectionRules.filter(rule => isNvrImage ? rule.isNvr : !rule.isNvr)) ?? [];
             logger.debug(`Detections incoming ${JSON.stringify({
                 candidates,
-                detections,
+                detect,
                 minDelayTime,
                 ignoreCameraDetections,
                 rules,

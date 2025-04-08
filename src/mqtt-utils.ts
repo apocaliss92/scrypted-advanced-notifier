@@ -966,6 +966,7 @@ export const publishBasicDetectionData = async (props: {
     room?: string,
     isNvrRule?: boolean,
     skipMqtt?: boolean,
+    skipImage?: boolean,
     storeImageFn?: StoreImageFn
 }) => {
     const {
@@ -979,7 +980,8 @@ export const publishBasicDetectionData = async (props: {
         room,
         storeImageFn,
         isNvrRule,
-        skipMqtt
+        skipMqtt,
+        skipImage
     } = props;
 
     if (!mqttClient) {
@@ -1006,7 +1008,7 @@ export const publishBasicDetectionData = async (props: {
                     value = detection?.label || null;
                 } else if (identifier === MqttEntityIdentifier.LastDetection) {
                     value = new Date(triggerTime).toISOString();
-                } else if (identifier === MqttEntityIdentifier.LastImage && b64Image) {
+                } else if (!skipImage && identifier === MqttEntityIdentifier.LastImage && b64Image) {
                     // value = imageUrl || null;
                     value = b64Image || null;
                     let name = `object-detection-${entry.className}`;
@@ -1212,7 +1214,7 @@ export const publishRuleData = async (props: {
         return;
     }
 
-    console.log(`Updating data for rule ${rule.name}: triggered ${triggerValue} and image is present: ${!!b64Image}`);
+    console.info(`Updating data for rule ${rule.name}: triggered ${triggerValue} and image is present: ${!!b64Image}`);
 
     let mqttEntities = getRuleMqttEntities({ rule, device });
 
