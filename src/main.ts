@@ -818,20 +818,23 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.deviceRoomMap = deviceRoomMap;
             this.doorbellDevices = doorbellDevices;
 
-            const { pendingResults, rpcObjects } = await getRpcData();
-            const pluginPendingResults = pendingResults.find(elem => elem.name === pluginName)?.count;
-            const pluginRpcObjects = rpcObjects.find(elem => elem.name === pluginName)?.count;
             const { activeDevicesForReporting } = this.storageSettings.values;
 
-            if (
-                pluginPendingResults > (maxPendingResultPerCamera * activeDevicesForReporting) ||
-                pluginRpcObjects > (maxRpcObjectsPerCamera * activeDevicesForReporting)
-            ) {
-                logger.error(`Plugin seems stuck, ${pluginPendingResults} pending results and ${pluginRpcObjects} RPC objects. Restarting`);
-                await sdk.deviceManager.requestRestart();
-            }
+            if (activeDevicesForReporting.length) {
+                const { pendingResults, rpcObjects } = await getRpcData();
+                const pluginPendingResults = pendingResults.find(elem => elem.name === pluginName)?.count;
+                const pluginRpcObjects = rpcObjects.find(elem => elem.name === pluginName)?.count;
 
-            logger.log('RPC data', pluginPendingResults, pluginRpcObjects);
+                if (
+                    pluginPendingResults > (maxPendingResultPerCamera * activeDevicesForReporting?.length) ||
+                    pluginRpcObjects > (maxRpcObjectsPerCamera * activeDevicesForReporting?.length)
+                ) {
+                    logger.error(`Plugin seems stuck, ${pluginPendingResults} pending results and ${pluginRpcObjects} RPC objects. Restarting`);
+                    await sdk.deviceManager.requestRestart();
+                }
+
+                logger.info('RPC data', pluginPendingResults, pluginRpcObjects);
+            }
         } catch (e) {
             logger.log('Error in mainFlow', e);
         }
