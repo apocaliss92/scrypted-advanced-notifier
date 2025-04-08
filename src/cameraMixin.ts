@@ -863,6 +863,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         image?: MediaObject
     }) {
         const { preferLatest, fallbackToLatest, detectionId, eventId, image: imageParent } = props ?? {};
+        const fromNvr = !!imageParent;
         const logger = this.getLogger();
         const now = Date.now();
         const { minSnapshotDelay } = this.storageSettings.values;
@@ -871,7 +872,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let bufferImage: Buffer;
         let b64Image: string;
         let imageUrl: string;
-        let imageSource: string;
+        let imageSource: 'Snapshot' | 'Latest because requested' | 'Latest because very recent' | 'Detector mixin';
 
         const msPassed = now - this.lastPictureTaken;
         const isVeryRecent = msPassed && msPassed <= 500;
@@ -938,7 +939,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 image = this.lastImage;
             }
 
-            if (image) {
+            if (image && !fromNvr) {
                 bufferImage = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg');
                 b64Image = bufferImage?.toString('base64');
                 // imageUrl = await sdk.mediaManager.convertMediaObjectToInsecureLocalUrl(image, 'image/jpeg');
@@ -1075,7 +1076,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         try {
             const now = new Date().getTime();
-            const minDelayInSeconds = !!this.runningOccupancyRules.length ? 3 : (this.storageSettings.values.occupancyCheckInterval || 0);
+            const minDelayInSeconds = !!this.runningOccupancyRules.length ? 1 : (this.storageSettings.values.occupancyCheckInterval || 0);
 
             if (!minDelayInSeconds) {
                 return;
@@ -1291,6 +1292,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 lastOccupancy: occupancyRuleData.occupies,
                                 confirmationStart: undefined,
                                 occupancyToConfirm: undefined,
+                                objectsDetected: occupancyRuleData.objectsDetected
                             };
 
                             const stateActuallyChanged = occupancyRuleData.occupies !== currentState.lastOccupancy;
@@ -1298,7 +1300,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             if (!stateActuallyChanged) {
                                 rulesToNotNotify.push(occupancyRuleData.rule.name);
                             } else {
-                                logger.log(`Confirming occupancy rule ${occupancyRuleData.rule.name}: ${occupancyData.objectsDetected}`);
+                                logger.log(`Confirming occupancy rule ${occupancyRuleData.rule.name}: ${occupancyRuleData.objectsDetected}`);
                                 logger.debug(JSON.stringify({
                                     occupancyRuleData,
                                     currentState,
@@ -1348,7 +1350,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             await this.storageSettings.putSetting('occupancyState', JSON.stringify(this.occupancyState));
 
             if (this.isActiveForMqttReporting && detectedResultParent) {
-                logger.log(`Publishing occupancy data from source ${source}`);
+                logger.info(`Publishing occupancy data from source ${source}`);
                 publishOccupancy({
                     console: logger,
                     device: this.cameraDevice,
@@ -1525,7 +1527,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         if (image && b64Image && classnames.length) {
             if (classnames.length > 1) {
-                logger.log(`Updating classname images ${classnames.join(', ')} with image source ${imageSource}`);
+                logger.info(`Updating classname images ${classnames.join(', ')} with image source ${imageSource}`);
             }
             try {
                 const mqttClient = await this.getMqttClient();
