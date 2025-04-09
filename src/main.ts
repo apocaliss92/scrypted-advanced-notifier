@@ -1458,8 +1458,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const nvrUrl = this.storageSettings.getItem('nvrUrl');
         const scryptedToken = this.storageSettings.getItem('scryptedToken');
 
-        const timelinePart = `# / timeline / ${cameraId}?time = ${time}& from=notification & serverId=${serverId}& disableTransition=true`;
-        const haUrl = `/ api / scrypted / ${scryptedToken} /endpoint/@scrypted/nvr/public / ${timelinePart} `
+        const timelinePart = `#/timeline/${cameraId}?time=${time}&from=notification&serverId=${serverId}&disableTransition=true`;
+        const haUrl = `/api/scrypted/${scryptedToken}/endpoint/@scrypted/nvr/public/${timelinePart} `
         const externalUrl = `${nvrUrl}/${timelinePart}`
         return { externalUrl: externalUrl, haUrl: `/scrypted_${scryptedToken}?url=${encodeURIComponent(haUrl)}` }
     }

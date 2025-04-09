@@ -13,6 +13,7 @@ import { cleanupAutodiscoveryTopics, idPrefix, publishAudioPressureValue, publis
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, pcmU8ToDb, splitRules } from "./utils";
 import { Deferred } from "../../scrypted/server/src/deferred";
+import { name as pluginName } from '../package.json';
 
 const { systemManager } = sdk;
 
@@ -201,6 +202,32 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.startStop(this.plugin.storageSettings.values.pluginEnabled).then().catch(logger.log);
     }
 
+    ensureMixinsOrder() {
+        const logger = this.getLogger();
+        const objectDetectorId = systemManager.getDeviceById('@scrypted/objectdetector')?.id;
+        const nvrId = systemManager.getDeviceById('@scrypted/nvr')?.id;
+        const advancedNotifierId = systemManager.getDeviceById(pluginName)?.id;
+        let shouldBeMoved = false;
+        const thisMixinOrder = this.mixins.indexOf(this.id);
+
+        if (objectDetectorId && this.mixins.indexOf(objectDetectorId) > thisMixinOrder) {
+            shouldBeMoved = true
+        }
+        if (nvrId && this.mixins.indexOf(nvrId) > thisMixinOrder) {
+            shouldBeMoved = true
+        }
+
+        if (shouldBeMoved) {
+            logger.log('This plugin needs rebroadcast and NVR plugins to come before, fixing');
+            setTimeout(() => {
+                const currentMixins = this.mixins.filter(mixin => mixin !== advancedNotifierId);
+                currentMixins.push(advancedNotifierId);
+                const realDevice = systemManager.getDeviceById(this.id);
+                realDevice.setMixins(currentMixins);
+            }, 1000);
+        }
+    }
+
     mqttMessageCb: MqttMessageCb = async (topic, message) => {
         const logger = this.getLogger();
         logger.debug(topic, message);
@@ -249,6 +276,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         if (enabled) {
             await this.startCheckInterval();
+            this.ensureMixinsOrder();
         } else {
             await this.release();
         }
@@ -392,10 +420,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                     logger.debug(`Setting ${ruleType} rule ${ruleName} to ${active}`);
                                     await this.storageSettings.putSetting(`${enabledKey}`, active);
                                 },
-                                switchRecordingCb: async (active) => {
-                                    logger.debug(`Setting NVR privacy mode to ${!active}`);
-                                    await this.enableRecording(this.cameraDevice, active);
-                                },
+                                switchRecordingCb: this.cameraDevice.interfaces.includes(ScryptedInterface.VideoRecorder) ?
+                                    async (active) => {
+                                        logger.debug(`Setting NVR privacy mode to ${!active}`);
+                                        await this.enableRecording(this.cameraDevice, active);
+                                    } :
+                                    undefined,
                                 rebootCb: this.cameraDevice.interfaces.includes(ScryptedInterface.Reboot) ?
                                     async () => {
                                         logger.log(`Rebooting camera`);
@@ -723,7 +753,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const settings = await this.mixinDevice.getSettings();
             const zonesSetting = settings.find((setting: { key: string; }) => new RegExp('objectdetectionplugin:.*:zones').test(setting.key))?.value ?? [];
 
-            const zoneNames = zonesSetting.filter(zone => {
+            const zoneNames = zonesSetting?.filter(zone => {
                 return settings.find((setting: { key: string; }) => new RegExp(`objectdetectionplugin:.*:zoneinfo-filterMode-${zone}`).test(setting.key))?.value === 'observe';
             });
 
