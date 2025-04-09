@@ -93,6 +93,8 @@ const batteryEntity: MqttEntity = {
     name: 'Battery',
     deviceClass: 'battery',
     entityCategory: 'diagnostic',
+    unitOfMeasurement: '%',
+    stateClass: 'measurement',
     retain: true,
 };
 const sleepingEntity: MqttEntity = {

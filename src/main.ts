@@ -17,14 +17,15 @@ import { cleanupAutodiscoveryTopics, idPrefix, publishRuleEnabled, setupPluginAu
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getFolderPaths, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, HOMEASSISTANT_PLUGIN_ID, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, SNAPSHOT_WIDTH, splitRules, StoreImageFn, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TimelapseRule } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getAllDevices, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getFolderPaths, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, HOMEASSISTANT_PLUGIN_ID, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, SNAPSHOT_WIDTH, splitRules, StoreImageFn, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TimelapseRule } from "./utils";
 import { MqttMessageCb } from "../../scrypted-apocaliss-base/src/mqtt-client";
 
 const { systemManager, mediaManager } = sdk;
 const defaultNotifierNativeId = 'advancedNotifierDefaultNotifier';
 const cameraNativeId = 'advancedNotifierCamera';
-const maxPendingResultPerCamera = 5;
-const maxRpcObjectsPerCamera = 50;
+const MAX_PENDING_RESULT_PER_CAMERA = 5;
+const MAX_RPC_OBJECTS_PER_CAMERA = 50;
+const PLUGIN_RPC_OBJECTS = 50;
 
 interface NotifyCameraProps {
     cameraDevice?: DeviceInterface,
@@ -820,14 +821,19 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             const { activeDevicesForReporting } = this.storageSettings.values;
 
-            if (activeDevicesForReporting.length) {
+            const activeDevices = getAllDevices().filter(device => device.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE));
+
+            const totalFactor = activeDevices.length + (activeDevicesForReporting.length * 0.3);
+
+            if (!!totalFactor) {
                 const { pendingResults, rpcObjects } = await getRpcData();
                 const pluginPendingResults = pendingResults.find(elem => elem.name === pluginName)?.count;
                 const pluginRpcObjects = rpcObjects.find(elem => elem.name === pluginName)?.count;
+                logger.info(`PLUGIN-STUCK-CHECK: total factor ${totalFactor}, pending resutls ${pluginPendingResults} RPC objects ${pluginRpcObjects}`);
 
                 if (
-                    pluginPendingResults > (maxPendingResultPerCamera * activeDevicesForReporting?.length) ||
-                    pluginRpcObjects > (maxRpcObjectsPerCamera * activeDevicesForReporting?.length)
+                    pluginPendingResults > (MAX_PENDING_RESULT_PER_CAMERA * totalFactor) ||
+                    pluginRpcObjects > (MAX_RPC_OBJECTS_PER_CAMERA * totalFactor)
                 ) {
                     logger.error(`Plugin seems stuck, ${pluginPendingResults} pending results and ${pluginRpcObjects} RPC objects. Restarting`);
                     await sdk.deviceManager.requestRestart();

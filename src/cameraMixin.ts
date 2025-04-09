@@ -93,11 +93,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             immediate: true,
         },
         useFramesGenerator: {
-            title: 'Generates snapshots from frame generator',
-            description: 'Performance intensive',
+            title: 'Snapshot from Decoder',
+            description: '[ATTENTION] Performance intensive and high cpu prone, ONLY use if you see many timeout errors on snapshot for cameras with frequent motion',
             type: 'boolean',
             immediate: true,
-            hide: true,
+            // hide: true,
         },
         // WEBHOOKS
         lastSnapshotWebhook: {
@@ -168,7 +168,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     lastAudioDetected: number;
     lastAudioConnection: number;
     lastImage?: MediaObject;
-    lastFrame?: Image & MediaObject;
+    lastFrame?: Buffer;
+    lastFrameSaved: number;
     lastB64Image?: string;
     lastPictureTaken?: number;
     lastOccupancyRegularCheck?: number;
@@ -208,7 +209,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const nvrId = systemManager.getDeviceById('@scrypted/nvr')?.id;
         const advancedNotifierId = systemManager.getDeviceById(pluginName)?.id;
         let shouldBeMoved = false;
-        const thisMixinOrder = this.mixins.indexOf(this.id);
+        const thisMixinOrder = this.mixins.indexOf(this.plugin.id);
 
         if (objectDetectorId && this.mixins.indexOf(objectDetectorId) > thisMixinOrder) {
             shouldBeMoved = true
@@ -545,6 +546,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async startFramesGenerator() {
+        const logger = this.getLogger();
         this.frameGenerationStartTime = Date.now();
         this.framesGeneratorSignal = new Deferred();
         const frameGenerator = this.createFrameGenerator();
@@ -552,7 +554,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const generator = await sdk.connectRPCObject(frameGenerator);
 
         for await (const frame of generator) {
-            this.lastFrame = frame.image;
+            const now = Date.now();
+
+            if (!this.lastFrameSaved || (now - this.lastFrameSaved) > 1000) {
+                this.lastFrame = await frame.image.toBuffer({
+                    format: 'jpg',
+                });
+                this.lastFrameSaved = now;
+            }
 
             if (this.framesGeneratorSignal.finished) {
                 break;
@@ -971,14 +980,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         try {
             if (!image) {
                 if (useFramesGenerator && this.lastFrame) {
-                    logger.log(this.lastFrame);
-                    const tmpImage = await sdk.connectRPCObject(this.lastFrame);
-                    const jpeg = await tmpImage.toBuffer({
+                    const tmp = await sdk.mediaManager.createMediaObject(this.lastFrame, 'image/jpeg');
+                    const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(tmp, ScryptedMimeTypes.Image);
+                    image = await convertedImage.toImage({
                         format: 'jpg',
+                        resize: {
+                            width: SNAPSHOT_WIDTH,
+                        },
                     });
-                    image = await sdk.mediaManager.createMediaObject(jpeg, 'image/jpeg');
                     imageSource = 'Decoder';
-                    this.lastFrame = undefined;
                 } else if (preferLatest) {
                     image = this.lastImage;
                     logger.info(`Last used image taken because periodic`);
@@ -1607,31 +1617,46 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         });
 
         if (image && b64Image && classnames.length) {
-            if (classnames.length > 1) {
-                logger.info(`Updating classname images ${classnames.join(', ')} with image source ${imageSource}`);
-            }
+            logger.info(`Updating classname images ${classnames.join(', ')} with image source ${imageSource}`);
             try {
                 const mqttClient = await this.getMqttClient();
 
                 if (mqttClient) {
+                    const allowedClassnames = classnames.filter(classname => this.isMqttImageDelayPassed(classname));
+
                     await publishClassnameImages({
                         mqttClient,
                         console: logger,
-                        classnames,
+                        classnames: allowedClassnames,
                         device: this.cameraDevice,
                         b64Image,
                         image,
                         triggerTime,
                         storeImageFn: this.plugin.storeImage
                     }).catch(logger.error);
-                }
 
+                    const now = Date.now();
+                    for (const classname of allowedClassnames) {
+                        this.lastBasicDetectionsPublishedMap[classname] = now;
+                    }
+                }
 
                 this.checkOccupancyData(image, 'Detections').catch(logger.log);
             } catch (e) {
                 logger.log(`Error on publishing data: ${JSON.stringify(dataToAnalyze)}`, e)
             }
         }
+    }
+
+    isMqttImageDelayPassed(className: string) {
+        const { minMqttPublishDelay, } = this.storageSettings.values;
+        const now = Date.now();
+        const lastDetection = this.lastBasicDetectionsPublishedMap[className];
+        const timePassed = !lastDetection || !minMqttPublishDelay || (now - lastDetection) >= (minMqttPublishDelay * 1000);
+
+        this.getLogger().debug(className, timePassed, minMqttPublishDelay, lastDetection)
+
+        return timePassed;
     }
 
     public async processDetections(props: {
@@ -1688,14 +1713,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 if (mqttClient) {
                     for (const detection of detections) {
-                        const lastDetection = this.lastBasicDetectionsPublishedMap[detection.className];
-                        const timePassed = !lastDetection || !minMqttPublishDelay || (now - lastDetection) >= (minMqttPublishDelay * 1000);
+                        const timePassed = this.isMqttImageDelayPassed(detection.className);
                         if (detection.className) {
-                            const skipMqttImage = !timePassed && !isNvrImage;
-                            if (!skipMqttImage) {
+                            const skipMqttImage = !timePassed;
+                            if (isNvrImage && !skipMqttImage) {
                                 this.lastBasicDetectionsPublishedMap[detection.className] = now;
                             }
-                            logger.info(`Publishing basic detections isNvrImage ${isNvrImage} skipMqttImage ${!timePassed} hasB64Image ${!!b64Image}`);
+                            logger.info(`Publishing basic detections class ${detection.className} isNvrImage ${isNvrImage} skipMqttImage ${!timePassed} hasB64Image ${!!b64Image}`);
 
                             publishBasicDetectionData({
                                 mqttClient,
@@ -2072,8 +2096,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         };
     }
 
-
-
     public async getTimelapseWebhookUrl(props: {
         ruleName: string,
         timelapseName: string,
@@ -2110,10 +2132,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         try {
             return await videoFrameGenerator.generateVideoFrames(stream, {
                 queue: 0,
-                fps: 1,
-                resize: {
-                    width: SNAPSHOT_WIDTH,
-                },
+                // fps: 1,
                 ...options
             });
         }

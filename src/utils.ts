@@ -726,7 +726,7 @@ export const getActiveRules = async (
         shouldListenDetections,
         shouldListenAudio,
         isActiveForMqttReporting,
-        anyAllowedNvrDetectionRule
+        anyAllowedNvrDetectionRule,
     }
 }
 
@@ -2477,7 +2477,7 @@ export const getNowFriendlyDate = () => {
     return `${now.getDate()}-${now.getMonth()}-${now.getFullYear()}_${now.getTime()}`;
 }
 
-export function getAllDevices() {
+export const getAllDevices = () => {
     return Object.keys(sdk.systemManager.getSystemState()).map(id => sdk.systemManager.getDeviceById(id));
 }
 

@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.1.9
+
+- Added option to fetch frames from prebuffer. Unsuggested for use, use it only if snapshot crashes continuously
+
 ### 3.0.31
 
 - Automatic cleanup of HA entities when not available anymore
