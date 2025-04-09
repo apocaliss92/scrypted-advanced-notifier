@@ -931,7 +931,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         image?: MediaObject
     }) {
         const { preferLatest, fallbackToLatest, detectionId, eventId, image: imageParent } = props ?? {};
-        const fromNvr = !!imageParent;
         const logger = this.getLogger();
         const now = Date.now();
         const { minSnapshotDelay, useFramesGenerator } = this.storageSettings.values;
@@ -1357,7 +1356,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         } else {
                             // Reset confirmation data because the value changed before confirmation time passed
                             logger.log(`Confirmation failed, value changed during confirmation time ${occupancyRuleData.rule.name}: ${currentState.objectsDetected} objects, score ${currentState.score}`);
-                            logger.debug(JSON.stringify(logPayload));
+                            logger.log(JSON.stringify(logPayload));
 
                             occupancyData = {
                                 ...occupancyData,
@@ -1383,7 +1382,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 rulesToNotNotify.push(occupancyRuleData.rule.name);
                             } else {
                                 logger.log(`Confirming occupancy rule ${occupancyRuleData.rule.name}: ${occupancyRuleData.objectsDetected}`);
-                                logger.debug(JSON.stringify({
+                                logger.log(JSON.stringify({
                                     occupancyRuleData,
                                     currentState,
                                     logPayload,
@@ -1411,7 +1410,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
                 } else if (occupancyRuleData.occupies !== currentState.lastOccupancy) {
                     logger.log(`Marking the rule to confirm for next iteration ${occupancyRuleData.rule.name}: ${currentState.objectsDetected} objects, score ${currentState.score}`);
-                    logger.debug(JSON.stringify(logPayload));
+                    logger.log(JSON.stringify(logPayload));
 
                     occupancyData = {
                         ...occupancyData,
@@ -1420,7 +1419,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     };
                 } else {
                     logger.info(`Refreshing lastCheck only for rule ${occupancyRuleData.rule.name}`);
-                    logger.debug(JSON.stringify(logPayload));
+                    logger.info(JSON.stringify(logPayload));
                 }
 
                 this.occupancyState[name] = {
@@ -1692,7 +1691,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         const lastDetection = this.lastBasicDetectionsPublishedMap[detection.className];
                         const timePassed = !lastDetection || !minMqttPublishDelay || (now - lastDetection) >= (minMqttPublishDelay * 1000);
                         if (detection.className) {
-                            this.lastBasicDetectionsPublishedMap[detection.className] = now;
+                            const skipMqttImage = !timePassed && !isNvrImage;
+                            if (!skipMqttImage) {
+                                this.lastBasicDetectionsPublishedMap[detection.className] = now;
+                            }
+                            logger.info(`Publishing basic detections isNvrImage ${isNvrImage} skipMqttImage ${!timePassed} hasB64Image ${!!b64Image}`);
 
                             publishBasicDetectionData({
                                 mqttClient,
@@ -1704,7 +1707,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 image,
                                 imageUrl,
                                 room: this.cameraDevice.room,
-                                skipMqttImage: !timePassed,
+                                skipMqttImage,
                                 isNvr: isNvrImage,
                                 storeImageFn: this.plugin.storeImage
                             }).catch(logger.error);
