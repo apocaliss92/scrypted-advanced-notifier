@@ -12,6 +12,7 @@ import HomeAssistantUtilitiesProvider from "./main";
 import { cleanupAutodiscoveryTopics, idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, pcmU8ToDb, splitRules } from "./utils";
+import { Deferred } from "../../scrypted/server/src/deferred";
 
 const { systemManager } = sdk;
 
@@ -90,6 +91,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             type: 'boolean',
             immediate: true,
         },
+        useFramesGenerator: {
+            title: 'Generates snapshots from frame generator',
+            description: 'Performance intensive',
+            type: 'boolean',
+            immediate: true,
+            hide: true,
+        },
         // WEBHOOKS
         lastSnapshotWebhook: {
             subgroup: 'Webhooks',
@@ -131,6 +139,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     lastRulePublishedMap: Record<string, number> = {};
     logger: Console;
     killed: boolean;
+    framesGeneratorSignal = new Deferred<void>().resolve();
+    frameGenerationStartTime: number;
     runningOccupancyRules: OccupancyRule[] = [];
     runningDetectionRules: DetectionRule[] = [];
     runningTimelapseRules: TimelapseRule[] = [];
@@ -157,12 +167,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     lastAudioDetected: number;
     lastAudioConnection: number;
     lastImage?: MediaObject;
+    lastFrame?: Image & MediaObject;
     lastB64Image?: string;
     lastPictureTaken?: number;
     lastOccupancyRegularCheck?: number;
 
     accumulatedDetections: AccumulatedDetection[] = [];
-    // processedDetectionIds = new Set<string>();
     processDetectionsInterval: NodeJS.Timeout;
     processingAccumulatedDetections = false;
 
@@ -348,7 +358,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 const isDetectionListenerRunning = !!this.detectionListener || !!this.motionListener;
 
-                const { entityId, occupancyCheckInterval = 0, checkSoundPressure } = this.storageSettings.values;
+                const { entityId, occupancyCheckInterval = 0, checkSoundPressure, useFramesGenerator } = this.storageSettings.values;
 
                 // logger.log(JSON.stringify({ allDetectionRules, detectionRules }))
                 if (isActiveForMqttReporting) {
@@ -478,7 +488,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     this.stopAccumulatedDetectionsInterval();
                 }
 
-                // this.processedDetectionIds = new Set();
+
+                if (this.framesGeneratorSignal.finished && useFramesGenerator) {
+                    logger.log(`Starting frames generator`);
+                    this.startFramesGenerator().catch(logger.log);
+                } else if (!this.framesGeneratorSignal.finished && !useFramesGenerator) {
+                    this.stopFramesGenerator();
+                }
             } catch (e) {
                 logger.log('Error in startCheckInterval funct', e);
             }
@@ -496,6 +512,27 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 logger.log('Error in mainLoopListener', e);
             }
         }, 1000 * 5);
+    }
+
+    async startFramesGenerator() {
+        this.frameGenerationStartTime = Date.now();
+        this.framesGeneratorSignal = new Deferred();
+        const frameGenerator = this.createFrameGenerator();
+
+        const generator = await sdk.connectRPCObject(frameGenerator);
+
+        for await (const frame of generator) {
+            this.lastFrame = frame.image;
+
+            if (this.framesGeneratorSignal.finished) {
+                break;
+            }
+        }
+    }
+
+    stopFramesGenerator() {
+        this.frameGenerationStartTime = undefined;
+        this.framesGeneratorSignal.resolve();
     }
 
     startAccumulatedDetectionsInterval() {
@@ -867,13 +904,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const fromNvr = !!imageParent;
         const logger = this.getLogger();
         const now = Date.now();
-        const { minSnapshotDelay } = this.storageSettings.values;
+        const { minSnapshotDelay, useFramesGenerator } = this.storageSettings.values;
 
         let image: MediaObject = imageParent;
         let bufferImage: Buffer;
         let b64Image: string;
         let imageUrl: string;
-        let imageSource: 'Snapshot' | 'Latest because requested' | 'Latest because very recent' | 'Detector mixin';
+        let imageSource: 'Snapshot' | 'Latest because requested' | 'Latest because very recent' | 'Detector mixin' | 'Decoder';
 
         const msPassed = now - this.lastPictureTaken;
         const isVeryRecent = msPassed && msPassed <= 500;
@@ -904,7 +941,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         try {
             if (!image) {
-                if (preferLatest) {
+                if (useFramesGenerator && this.lastFrame) {
+                    logger.log(this.lastFrame);
+                    const tmpImage = await sdk.connectRPCObject(this.lastFrame);
+                    const jpeg = await tmpImage.toBuffer({
+                        format: 'jpg',
+                    });
+                    image = await sdk.mediaManager.createMediaObject(jpeg, 'image/jpeg');
+                    imageSource = 'Decoder';
+                    this.lastFrame = undefined;
+                } else if (preferLatest) {
                     image = this.lastImage;
                     logger.info(`Last used image taken because periodic`);
                     imageSource = 'Latest because requested';
@@ -2032,9 +2078,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         try {
             return await videoFrameGenerator.generateVideoFrames(stream, {
                 queue: 0,
-                // resize: {
-                //     width: SNAPSHOT_WIDTH,
-                // },
+                fps: 1,
+                resize: {
+                    width: SNAPSHOT_WIDTH,
+                },
                 ...options
             });
         }
