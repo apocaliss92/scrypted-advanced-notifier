@@ -986,7 +986,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 image = this.lastImage;
             }
 
-            if (image && !fromNvr) {
+            if (image) {
                 bufferImage = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg');
                 b64Image = bufferImage?.toString('base64');
                 // imageUrl = await sdk.mediaManager.convertMediaObjectToInsecureLocalUrl(image, 'image/jpeg');
@@ -1674,9 +1674,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 image,
                                 imageUrl,
                                 room: this.cameraDevice.room,
-                                isNvrRule: isNvrImage,
-                                skipMqtt: isNvrImage && !useNvrDetectionsForMqtt,
-                                skipImage: !timePassed,
+                                skipMqttImage: !timePassed,
+                                isNvr: isNvrImage,
                                 storeImageFn: this.plugin.storeImage
                             }).catch(logger.error);
                         }
