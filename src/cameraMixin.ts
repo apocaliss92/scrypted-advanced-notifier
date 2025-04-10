@@ -51,6 +51,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             isCamera: true,
             refreshSettings: this.refreshSettings.bind(this)
         }),
+        enabledToMqtt: {
+            title: 'Report to MQTT',
+            description: 'Autodiscovery this camera on MQTT',
+            type: 'boolean',
+            defaultValue: true,
+            immediate: true,
+        },
         minSnapshotDelay: {
             title: 'Minimum snapshot acquisition delay',
             description: 'Minimum amount of seconds to wait until a new snapshot is taken from the camera',
@@ -472,8 +479,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     this.resetListeners();
                 } else if (!isDetectionListenerRunning && shouldListenDetections) {
                     logger.log(`Starting ${ScryptedInterface.ObjectDetector}/${ScryptedInterface.MotionSensor} listeners: ${JSON.stringify({
-                        Basic: shouldListenDetections,
+                        Detections: shouldListenDetections,
                         MQTT: isActiveForMqttReporting,
+                        NotificationRules: allAllowedRules.length
                     })}`);
                     await this.startListeners();
                 }

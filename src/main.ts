@@ -128,15 +128,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 await this.setupMqttEntities();
             },
         },
-        activeDevicesForReporting: {
-            subgroup: 'MQTT',
-            title: 'Active devices for MQTT reporting',
-            type: 'device',
-            multiple: true,
-            combobox: true,
-            deviceFilter: `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && ['${ScryptedDeviceType.Camera}', '${ScryptedDeviceType.Doorbell}'].includes(type)`,
-            defaultValue: [],
-        },
         useNvrDetectionsForMqtt: {
             subgroup: 'MQTT',
             title: 'Use NVR detections',
@@ -819,21 +810,17 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.deviceRoomMap = deviceRoomMap;
             this.doorbellDevices = doorbellDevices;
 
-            const { activeDevicesForReporting } = this.storageSettings.values;
+            const activeDevices = getAllDevices().filter(device => device.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE))?.length;
 
-            const activeDevices = getAllDevices().filter(device => device.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE));
-
-            const totalFactor = activeDevices.length + (activeDevicesForReporting.length * 0.3);
-
-            if (!!totalFactor) {
+            if (!!activeDevices) {
                 const { pendingResults, rpcObjects } = await getRpcData();
                 const pluginPendingResults = pendingResults.find(elem => elem.name === pluginName)?.count;
                 const pluginRpcObjects = rpcObjects.find(elem => elem.name === pluginName)?.count;
-                logger.info(`PLUGIN-STUCK-CHECK: total factor ${totalFactor}, pending resutls ${pluginPendingResults} RPC objects ${pluginRpcObjects}`);
+                logger.info(`PLUGIN-STUCK-CHECK: active devices ${activeDevices}, pending resutls ${pluginPendingResults} RPC objects ${pluginRpcObjects}`);
 
                 if (
-                    pluginPendingResults > (MAX_PENDING_RESULT_PER_CAMERA * totalFactor) ||
-                    pluginRpcObjects > (MAX_RPC_OBJECTS_PER_CAMERA * totalFactor)
+                    pluginPendingResults > (MAX_PENDING_RESULT_PER_CAMERA * activeDevices) ||
+                    pluginRpcObjects > (MAX_RPC_OBJECTS_PER_CAMERA * activeDevices)
                 ) {
                     logger.error(`Plugin seems stuck, ${pluginPendingResults} pending results and ${pluginRpcObjects} RPC objects. Restarting`);
                     await sdk.deviceManager.requestRestart();
@@ -914,7 +901,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 devNotifier,
                 sendDevNotifications,
                 imagesPath,
-                activeDevicesForReporting,
                 scryptedToken,
                 nvrUrl,
                 objectDetectionDevice,
@@ -947,7 +933,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 entitiesWithWrongEntityId: entitiesWithWrongEntityId.length ? entitiesWithWrongEntityId : undefined,
                 devicesWithoutRoom: devicesWithoutRoom.length ? devicesWithoutRoom : undefined,
                 storagePathError: storagePathError ?? (imagesPathSet ? 'No error' : 'Not set'),
-                activeDevicesForReporting: `${activeDevicesForReporting.length} devices`,
                 scryptedToken: scryptedToken ? 'Set' : 'Not set',
                 serverId: this.storageSettings.getItem('serverId') ? 'Found' : 'Not found',
                 nvrUrl: nvrUrl ? 'Set' : 'Not set',
@@ -1755,27 +1740,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const b64Image = imageBuffer.toString('base64');
 
         return { image, b64Image };
-    }
-
-    async getAllActiveDevices() {
-        const activeDevicesForNotifications = this.storageSettings.getItem('activeDevicesForNotifications') as string[];
-        const activeDevicesForReporting = this.storageSettings.getItem('activeDevicesForReporting') as string[];
-
-        const allActiveDevicesForNotifications = [...activeDevicesForNotifications];
-
-        const allActiveDevices: string[] = [];
-        allActiveDevicesForNotifications.forEach(device => !allActiveDevices.includes(device) && allActiveDevices.push(device));
-        activeDevicesForReporting.forEach(device => !allActiveDevices.includes(device) && allActiveDevices.push(device));
-
-        const notifiers = this.storageSettings.getItem('notifiers') as string[];
-
-        return {
-            allActiveDevices,
-            allActiveDevicesForNotifications,
-            activeDevicesForNotifications,
-            activeDevicesForReporting,
-            notifiers
-        }
     }
 
     public storeImage: StoreImageFn = async (props) => {

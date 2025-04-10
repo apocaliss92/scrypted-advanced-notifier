@@ -117,7 +117,8 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 this.resetListeners();
             } else if (!isCurrentlyRunning && shouldListenDetections) {
                 logger.log(`Starting ${this.metadata.interface} listener: ${JSON.stringify({
-                    Basic: shouldListenDetections,
+                    Detections: shouldListenDetections,
+                    NotificationRules: allowedDetectionRules.length
                 })}`);
                 await this.startListeners();
             }

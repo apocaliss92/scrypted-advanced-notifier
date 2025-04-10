@@ -690,9 +690,9 @@ export const getActiveRules = async (
         device,
     });
 
-    const activeDevicesForReporting = pluginStorage.getItem('activeDevicesForReporting');
     const isPluginEnabled = pluginStorage.getItem('pluginEnabled');
     const isMqttActive = pluginStorage.getItem('mqttEnabled');
+    const isDeviceEnabledToMqtt = deviceStorage?.values.enabledToMqtt;
 
     const allAvailableRules = [
         ...availableDetectionRules,
@@ -709,7 +709,7 @@ export const getActiveRules = async (
     ];
 
     const shouldListenAudio = !!allowedAudioRules.length;
-    const isActiveForMqttReporting = isPluginEnabled && isMqttActive && activeDevicesForReporting.includes(device.id);
+    const isActiveForMqttReporting = isPluginEnabled && isMqttActive && isDeviceEnabledToMqtt;
     const shouldListenDetections = !!allowedDetectionRules.length || isActiveForMqttReporting;
 
     return {
