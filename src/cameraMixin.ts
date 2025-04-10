@@ -105,8 +105,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             description: '[ATTENTION] Performance intensive and high cpu prone, ONLY use if you see many timeout errors on snapshot for cameras with frequent motion',
             type: 'boolean',
             immediate: true,
-            hide: true,
-            value: false
+            // hide: true,
+            // value: false
         },
         // WEBHOOKS
         lastSnapshotWebhook: {
@@ -540,7 +540,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 if (!this.framesGeneratorSignal.finished && this.frameGenerationStartTime && (now - this.frameGenerationStartTime) >= 1000 * 60 * 1) {
                     logger.log(`Restarting frames generator`);
                     this.stopFramesGenerator();
-                    this.startFramesGenerator().catch(logger.log);
                 }
             } catch (e) {
                 logger.log('Error in startCheckInterval funct', e);
@@ -563,29 +562,35 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async startFramesGenerator() {
         const logger = this.getLogger();
-        this.frameGenerationStartTime = Date.now();
-        this.framesGeneratorSignal = new Deferred();
-        const frameGenerator = this.createFrameGenerator();
-        const generator = await sdk.connectRPCObject(frameGenerator);
 
-        for await (const frame of generator) {
-            try {
-                const now = Date.now();
+        if (!this.framesGeneratorSignal || this.framesGeneratorSignal.finished) {
+            this.frameGenerationStartTime = Date.now();
+            this.framesGeneratorSignal = new Deferred();
+            const frameGenerator = this.createFrameGenerator();
+            const generator = await sdk.connectRPCObject(frameGenerator);
 
-                this.lastFrame = await frame.image.toBuffer({
-                    format: 'jpg',
-                });
+            for await (const frame of generator) {
+                try {
+                    if (this.framesGeneratorSignal.finished) {
+                        logger.log('Release decoder');
+                        break;
+                    }
 
-                if (this.framesGeneratorSignal.finished) {
-                    break;
+                    const now = Date.now();
+
+                    this.lastFrame = await frame.image.toBuffer({
+                        format: 'jpg',
+                    });
+                    this.lastFrameAcquired = now;
+
+                    await sleep(1000);
+                } catch (e) {
+                    logger.log(`Error acquiring a frame from generator`, e.message);
+                    this.lastFrame = undefined;
                 }
-                this.lastFrameAcquired = now;
-
-                await sleep(1000);
-            } catch (e) {
-                logger.log(`Error acquiring a frame from generator`, e.message);
-                this.lastFrame = undefined;
             }
+        } else {
+            logger.log('Streams generator not yet released');
         }
     }
 
