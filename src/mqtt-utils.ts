@@ -991,6 +991,7 @@ export const publishBasicDetectionData = async (props: {
     try {
         const detectionClass = detectionClassesDefaultMap[detection.className];
         if (detectionClass) {
+            const label = detection.label;
             const parentClass = parentDetectionClassMap[detectionClass];
             const specificClassEntries = deviceClassMqttEntitiesGrouped[detectionClass] ?? [];
             const parentClassEntries = parentClass ? deviceClassMqttEntitiesGrouped[parentClass] ?? [] : [];
@@ -1015,6 +1016,9 @@ export const publishBasicDetectionData = async (props: {
                     }
 
                     let name = `object-detection-${entry.className}`;
+                    // if (label) {
+                    //     name += `-${label}`;
+                    // }
                     if (isNvr) {
                         name += '-NVR';
                     }
@@ -1110,6 +1114,14 @@ export const publishClassnameImages = async (props: {
             const detectionClass = detectionClassesDefaultMap[classname];
             if (detectionClass) {
                 const mqttEntity = deviceClassMqttEntitiesGrouped[detectionClass].find(entry => entry.identifier === MqttEntityIdentifier.LastImage);
+
+                // let name = `object-detection-${classname}`;
+                // if (label) {
+                //     name += `-${label}`;
+                // }
+                // if (isNvr) {
+                //     name += '-NVR';
+                // }
 
                 storeImageFn && storeImageFn({
                     device,

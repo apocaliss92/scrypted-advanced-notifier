@@ -14,6 +14,7 @@ import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox 
 import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, pcmU8ToDb, splitRules } from "./utils";
 import { Deferred } from "../../scrypted/server/src/deferred";
 import { name as pluginName } from '../package.json';
+import { sleep } from "../../scrypted/server/src/sleep";
 
 const { systemManager } = sdk;
 
@@ -169,7 +170,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     lastAudioConnection: number;
     lastImage?: MediaObject;
     lastFrame?: Buffer;
-    lastFrameSaved: number;
+    lastFrameAcquired?: number;
     lastB64Image?: string;
     lastPictureTaken?: number;
     lastOccupancyRegularCheck?: number;
@@ -496,7 +497,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     logger.log(`Stopping Audio listener`);
                     await this.stopAudioListener();
                 }
-                // Restart stream every minute
+                // Restart audio stream every minute
                 if (this.isActiveForAudioDetections && this.lastAudioConnection && (now - this.lastAudioConnection) >= 1000 * 60) {
                     logger.log(`Restarting Audio listener`);
                     await this.stopAudioListener();
@@ -511,7 +512,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     logger.debug(`Entity id ${entityId} does not exists on HA`);
                 }
 
-                if (!useNvrDetectionsForMqtt && !this.processDetectionsInterval) {
+                if (!useNvrDetectionsForMqtt && !this.processDetectionsInterval && !useFramesGenerator) {
                     logger.log('Starting processing of accumulated detections');
                     this.startAccumulatedDetectionsInterval();
                 } else if (useNvrDetectionsForMqtt && this.processDetectionsInterval) {
@@ -525,6 +526,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     this.startFramesGenerator().catch(logger.log);
                 } else if (!this.framesGeneratorSignal.finished && !useFramesGenerator) {
                     this.stopFramesGenerator();
+                }
+                // Restart frame generator every 5 minutes
+                if (!this.framesGeneratorSignal.finished && this.frameGenerationStartTime && (now - this.frameGenerationStartTime) >= 1000 * 60 * 5) {
+                    logger.log(`Restarting frames generator`);
+                    this.stopFramesGenerator();
+                    this.startFramesGenerator().catch(logger.log);
                 }
             } catch (e) {
                 logger.log('Error in startCheckInterval funct', e);
@@ -550,21 +557,25 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.frameGenerationStartTime = Date.now();
         this.framesGeneratorSignal = new Deferred();
         const frameGenerator = this.createFrameGenerator();
-
         const generator = await sdk.connectRPCObject(frameGenerator);
 
         for await (const frame of generator) {
-            const now = Date.now();
+            try {
+                const now = Date.now();
 
-            if (!this.lastFrameSaved || (now - this.lastFrameSaved) > 1000) {
                 this.lastFrame = await frame.image.toBuffer({
                     format: 'jpg',
                 });
-                this.lastFrameSaved = now;
-            }
 
-            if (this.framesGeneratorSignal.finished) {
-                break;
+                if (this.framesGeneratorSignal.finished) {
+                    break;
+                }
+                this.lastFrameAcquired = now;
+
+                await sleep(1000);
+            } catch (e) {
+                logger.log(`Error acquiring a frame from generator`, e.message);
+                this.lastFrame = undefined;
             }
         }
     }
@@ -979,7 +990,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         try {
             if (!image) {
-                if (useFramesGenerator && this.lastFrame) {
+                const isLastFrameRecent = !this.lastFrameAcquired || (now - this.lastFrameAcquired) <= 2000;
+                if (useFramesGenerator && this.lastFrame && isLastFrameRecent) {
                     const tmp = await sdk.mediaManager.createMediaObject(this.lastFrame, 'image/jpeg');
                     const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(tmp, ScryptedMimeTypes.Image);
                     image = await convertedImage.toImage({
@@ -1679,7 +1691,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const {
             minDelayTime,
             ignoreCameraDetections,
-            minMqttPublishDelay,
+            useFramesGenerator
         } = this.storageSettings.values;
 
         const { candidates } = filterAndSortValidDetections({
@@ -1696,7 +1708,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         try {
             if (this.isActiveForMqttReporting) {
-                if (isNvrImage) {
+                const canStoreImage = (isNvrImage && useNvrDetectionsForMqtt) || (useFramesGenerator && !useNvrDetectionsForMqtt);
+                if (canStoreImage) {
                     // If NVR notification, just transform the image in b64 to use for MQTT
                     const { b64Image: b64ImageNew, image: imageNew, imageUrl: imageUrlNew } = await this.getImage({
                         detectionId,
@@ -1707,35 +1720,37 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     b64Image = b64ImageNew;
                     imageUrl = imageUrlNew;
 
-                    logger.log(`NVR detections received, ${!!parentImage} b64Image ${b64Image?.substring(0, 10)}`);
+                    if (isNvrImage) {
+                        logger.log(`NVR detections received, has image ${!!parentImage} b64Image ${b64Image?.substring(0, 10)}`);
+                    }
                 }
                 const mqttClient = await this.getMqttClient();
 
                 if (mqttClient) {
                     for (const detection of detections) {
-                        const timePassed = this.isMqttImageDelayPassed(detection.className);
-                        if (detection.className) {
-                            const skipMqttImage = !timePassed;
-                            if (isNvrImage && !skipMqttImage) {
-                                this.lastBasicDetectionsPublishedMap[detection.className] = now;
-                            }
-                            logger.info(`Publishing basic detections class ${detection.className} isNvrImage ${isNvrImage} skipMqttImage ${!timePassed} hasB64Image ${!!b64Image}`);
+                        const classname = detection.className;
+                        const timePassed = this.isMqttImageDelayPassed(classname);
+                        const shouldUpdateImage = canStoreImage && timePassed;
 
-                            publishBasicDetectionData({
-                                mqttClient,
-                                console: logger,
-                                detection,
-                                device: this.cameraDevice,
-                                triggerTime,
-                                b64Image,
-                                image,
-                                imageUrl,
-                                room: this.cameraDevice.room,
-                                skipMqttImage,
-                                isNvr: isNvrImage,
-                                storeImageFn: this.plugin.storeImage
-                            }).catch(logger.error);
+                        if (shouldUpdateImage) {
+                            this.lastBasicDetectionsPublishedMap[classname] = now;
                         }
+                        logger.info(`Publishing basic detections class ${classname} isNvrImage ${isNvrImage} skipMqttImage ${!timePassed} hasB64Image ${!!b64Image}`);
+
+                        publishBasicDetectionData({
+                            mqttClient,
+                            console: logger,
+                            detection,
+                            device: this.cameraDevice,
+                            triggerTime,
+                            b64Image,
+                            image,
+                            imageUrl,
+                            room: this.cameraDevice.room,
+                            skipMqttImage: !shouldUpdateImage,
+                            isNvr: isNvrImage,
+                            storeImageFn: this.plugin.storeImage
+                        }).catch(logger.error);
                     }
 
                     this.resetDetectionEntities('Timeout').catch(logger.log);
