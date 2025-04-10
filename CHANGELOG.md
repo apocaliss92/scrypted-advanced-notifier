@@ -1,6 +1,11 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.1.10
+
+- Move MQTT enabled setting on camera level, enabled by default
+- Move Notifier enabled setting on notifier level, enabled by default
+
 ### 3.1.9
 
 - Added option to fetch frames from prebuffer. Unsuggested for use, use it only if snapshot crashes continuously

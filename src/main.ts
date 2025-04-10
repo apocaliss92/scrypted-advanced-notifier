@@ -25,7 +25,6 @@ const defaultNotifierNativeId = 'advancedNotifierDefaultNotifier';
 const cameraNativeId = 'advancedNotifierCamera';
 const MAX_PENDING_RESULT_PER_CAMERA = 5;
 const MAX_RPC_OBJECTS_PER_CAMERA = 50;
-const PLUGIN_RPC_OBJECTS = 50;
 
 interface NotifyCameraProps {
     cameraDevice?: DeviceInterface,
@@ -810,7 +809,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.deviceRoomMap = deviceRoomMap;
             this.doorbellDevices = doorbellDevices;
 
-            const activeDevices = getAllDevices().filter(device => device.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE))?.length;
+            const activeDevices = (getAllDevices().filter(device => device.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE))?.length || 0) + 1;
 
             if (!!activeDevices) {
                 const { pendingResults, rpcObjects } = await getRpcData();
@@ -1069,7 +1068,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const logger = this.getLogger(cameraDevice);
 
         for (const notifierId of rule.notifiers) {
-            const notifier = systemManager.getDeviceById(notifierId) as unknown as Notifier & DeviceInterface;
+            const notifier = systemManager.getDeviceById<ScryptedDevice & Notifier & DeviceBase & Settings>(notifierId);
+            const notifierSettings = await notifier.getSettings();
             const deviceSettings = await cameraDevice.getSettings();
 
             const notifierData = await this.getNotifierData({
@@ -1094,7 +1094,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 message,
             })}`)
 
-            await notifier.sendNotification(title, notifierOptions, image, undefined);
+            await this.sendNotificationInternal({
+                logger,
+                notifier,
+                settings: notifierSettings,
+                title,
+                icon: undefined,
+                image,
+                notifierOptions
+            });
         }
     }
 
@@ -1109,7 +1117,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const logger = this.getLogger(cameraDevice);
 
         for (const notifierId of rule.notifiers) {
-            const notifier = systemManager.getDeviceById(notifierId) as unknown as Notifier & DeviceInterface;
+            const notifier = systemManager.getDeviceById<ScryptedDevice & Notifier & DeviceBase & Settings>(notifierId);
+            const notifierSettings = await notifier.getSettings();
             const deviceSettings = await cameraDevice.getSettings();
 
             const notifierData = await this.getNotifierData({
@@ -1134,7 +1143,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 message,
             }));
 
-            await notifier.sendNotification(title, notifierOptions, image, undefined);
+            await this.sendNotificationInternal({
+                logger,
+                notifier,
+                settings: notifierSettings,
+                title,
+                icon: undefined,
+                image,
+                notifierOptions
+            });
         }
     }
 
@@ -1164,7 +1181,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const isVideoValid = fileSizeInMegabytes < 50;
 
         for (const notifierId of (rule.notifiers ?? [])) {
-            const notifier = systemManager.getDeviceById(notifierId) as unknown as Notifier & DeviceInterface;
+            const notifier = systemManager.getDeviceById<ScryptedDevice & Notifier & DeviceBase & Settings>(notifierId);
+            const notifierSettings = await notifier.getSettings();
             const deviceSettings = await cameraDevice.getSettings();
 
             const notifierData = await this.getNotifierData({
@@ -1193,7 +1211,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 message,
             }));
 
-            await notifier.sendNotification(title, notifierOptions);
+            await this.sendNotificationInternal({
+                logger,
+                notifier,
+                settings: notifierSettings,
+                title,
+                icon: undefined,
+                image: undefined,
+                notifierOptions
+            });
         }
     }
 
@@ -1222,7 +1248,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         for (const rule of rules) {
             const notifiers = rule.notifiers
             for (const notifierId of notifiers) {
-                const notifier = systemManager.getDeviceById(notifierId) as unknown as Notifier & DeviceInterface;
+                const notifier = systemManager.getDeviceById<ScryptedDevice & Notifier & DeviceBase & Settings>(notifierId);
                 const notifierSettings = await notifier.getSettings();
                 notifyCameraProps.notifierId = notifierId;
                 notifyCameraProps.notifierSettings = notifierSettings;
@@ -1260,7 +1286,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     message,
                 }));
 
-                await notifier.sendNotification(title, notifierOptions, undefined, undefined);
+                await this.sendNotificationInternal({
+                    logger,
+                    notifier,
+                    settings: notifierSettings,
+                    title,
+                    icon: undefined,
+                    image: undefined,
+                    notifierOptions
+                });
             }
         }
     }
@@ -1661,11 +1695,39 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 detection,
             }));
 
-            await notifier.sendNotification(title, notifierOptions, image, undefined);
+            await this.sendNotificationInternal({
+                logger,
+                notifier,
+                settings: notifierSettings,
+                title,
+                icon: undefined,
+                image,
+                notifierOptions
+            });
         } catch (e) {
             this.getLogger().log('Error in notifyCamera', e);
         }
     }
+
+    async sendNotificationInternal(props: {
+        logger: Console,
+        settings: Setting[],
+        title: string,
+        notifierOptions?: NotifierOptions,
+        image?: MediaObject | string,
+        icon?: MediaObject | string,
+        notifier: ScryptedDevice & Notifier & DeviceBase
+    }) {
+        const { settings, title, icon, image, notifierOptions, logger, notifier } = props;
+        const isEnabled = settings.find(setting => setting.key === 'homeassistantMetadata:enabled')?.value ?? true;
+
+        if (!isEnabled) {
+            logger.log(`Notifier ${notifier.name} skipped because disabled`);
+        } else {
+            await notifier.sendNotification(title, notifierOptions, image, icon);
+        }
+    }
+
 
     async executeNotificationTest() {
         const testDevice = this.storageSettings.getItem('testDevice') as DeviceInterface;

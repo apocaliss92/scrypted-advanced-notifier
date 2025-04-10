@@ -1812,10 +1812,9 @@ const initBasicRule = (props: {
     storage?: StorageSettings<string>,
     ruleName: string,
     ruleSource: RuleSource,
-    activeNotifiers: string[],
     securitySystem?: ScryptedDeviceBase,
 }) => {
-    const { storage, ruleType, ruleName, ruleSource, activeNotifiers, securitySystem } = props;
+    const { storage, ruleType, ruleName, ruleSource, securitySystem } = props;
 
     const { common: {
         currentlyActiveKey,
@@ -1850,15 +1849,13 @@ const initBasicRule = (props: {
     const securitySystemModes = storage.getItem(securitySystemModesKey) as SecuritySystemMode[] ?? [];
     const notifiers = storage.getItem(notifiersKey) as string[];
 
-    const notifiersTouse = notifiers?.filter?.(notifierId => activeNotifiers?.includes(notifierId));
-
     const rule: BaseRule = {
         isEnabled,
         ruleType,
         useAi,
         currentlyActive,
         name: ruleName,
-        notifiers: notifiersTouse,
+        notifiers,
         priority,
         actions,
         customText,
@@ -1977,7 +1974,7 @@ export const getDetectionRules = (props: {
     const deviceId = device?.id;
     const deviceType = device?.type;
 
-    const { notifiers: activeNotifiers, activeDevicesForNotifications: onActiveDevices, securitySystem } = pluginStorage.values;
+    const { activeDevicesForNotifications: onActiveDevices, securitySystem } = pluginStorage.values;
 
     const { rulesKey } = ruleTypeMetadataMap[RuleType.Detection];
 
@@ -2024,7 +2021,6 @@ export const getDetectionRules = (props: {
             const disableNvrRecordingSeconds = storage.getItem(recordingTriggerSecondsKey) as number;
 
             const { rule, basicRuleAllowed, ...restCriterias } = initBasicRule({
-                activeNotifiers,
                 ruleName: detectionRuleName,
                 ruleSource,
                 ruleType: RuleType.Detection,
@@ -2129,7 +2125,7 @@ export const getDeviceOccupancyRules = (
     const availableRules: OccupancyRule[] = [];
     const allowedRules: OccupancyRule[] = [];
 
-    const { notifiers: activeNotifiers, securitySystem } = pluginStorage.values;
+    const { securitySystem } = pluginStorage.values;
     const { rulesKey } = ruleTypeMetadataMap[RuleType.Occupancy];
     const occupancyRuleNames = deviceStorage.getItem(rulesKey) ?? [];
 
@@ -2156,7 +2152,6 @@ export const getDeviceOccupancyRules = (
         });
 
         const { rule, basicRuleAllowed } = initBasicRule({
-            activeNotifiers,
             ruleName: occupancyRuleName,
             ruleSource: RuleSource.Device,
             ruleType: RuleType.Occupancy,
@@ -2230,7 +2225,7 @@ export const getDeviceTimelapseRules = (
     const availableRules: TimelapseRule[] = [];
     const allowedRules: TimelapseRule[] = [];
 
-    const { notifiers: activeNotifiers, securitySystem } = pluginStorage.values;
+    const { securitySystem } = pluginStorage.values;
     const { rulesKey } = ruleTypeMetadataMap[RuleType.Timelapse];
 
     const timelapseRuleNames = deviceStorage.getItem(rulesKey) ?? [];
@@ -2251,7 +2246,6 @@ export const getDeviceTimelapseRules = (
         });
 
         const { rule, basicRuleAllowed } = initBasicRule({
-            activeNotifiers,
             ruleName: timelapseRuleName,
             ruleSource: RuleSource.Device,
             ruleType: RuleType.Timelapse,
@@ -2306,7 +2300,7 @@ export const getDeviceAudioRules = (
     const availableRules: AudioRule[] = [];
     const allowedRules: AudioRule[] = [];
 
-    const { notifiers: activeNotifiers, securitySystem } = pluginStorage.values;
+    const { securitySystem } = pluginStorage.values;
     const { rulesKey } = ruleTypeMetadataMap[RuleType.Audio];
 
     const audioRuleNames = deviceStorage.getItem(rulesKey) ?? [];
@@ -2326,7 +2320,6 @@ export const getDeviceAudioRules = (
         });
 
         const { rule, basicRuleAllowed } = initBasicRule({
-            activeNotifiers,
             ruleName: audioRuleName,
             ruleSource: RuleSource.Device,
             ruleType: RuleType.Audio,

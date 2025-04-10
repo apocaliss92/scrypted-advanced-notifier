@@ -8,7 +8,13 @@ export type SendNotificationToPluginFn = (notifierId: string, title: string, opt
 
 export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> implements Settings {
     storageSettings = new StorageSettings(this, {
-        ...getTextSettings(true) as any
+        enabled: {
+            title: 'Enabled',
+            type: 'boolean',
+            defaultValue: true,
+            immediate: true,
+        },
+        ...getTextSettings(true) as any,
     });
 
     constructor(
