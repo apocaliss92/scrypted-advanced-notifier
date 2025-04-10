@@ -134,15 +134,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             type: 'boolean',
             immediate: true
         },
-        notifiers: {
-            group: 'Notifier',
-            title: 'Active notifiers',
-            type: 'device',
-            multiple: true,
-            combobox: true,
-            deviceFilter: notifierFilter,
-            defaultValue: [],
-        },
         ...getTextSettings(false),
         [ruleTypeMetadataMap[RuleType.Detection].rulesKey]: {
             title: 'Detection rules',
