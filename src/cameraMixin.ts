@@ -506,7 +506,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     await this.stopAudioListener();
                 }
                 // Restart audio stream every minute
-                if (this.isActiveForAudioDetections && this.lastAudioConnection && (now - this.lastAudioConnection) >= 1000 * 60) {
+                if (this.isActiveForAudioDetections && this.lastAudioConnection && (now - this.lastAudioConnection) >= 1000 * 60 * 1) {
                     logger.log(`Restarting Audio listener`);
                     await this.stopAudioListener();
                     await this.startAudioDetection();
@@ -535,8 +535,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 } else if (!this.framesGeneratorSignal.finished && !useFramesGenerator) {
                     this.stopFramesGenerator();
                 }
-                // Restart frame generator every 5 minutes
-                if (!this.framesGeneratorSignal.finished && this.frameGenerationStartTime && (now - this.frameGenerationStartTime) >= 1000 * 60 * 5) {
+                // Restart frame generator every minute
+                if (!this.framesGeneratorSignal.finished && this.frameGenerationStartTime && (now - this.frameGenerationStartTime) >= 1000 * 60 * 1) {
                     logger.log(`Restarting frames generator`);
                     this.stopFramesGenerator();
                     this.startFramesGenerator().catch(logger.log);
@@ -2141,9 +2141,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async createFrameGenerator(options?: VideoFrameGeneratorOptions): Promise<AsyncGenerator<VideoFrame, any, unknown>> {
         const destination: MediaStreamDestination = 'local-recorder';
-        const model = this.plugin.storageSettings.values.objectDetectionDevice;
+        // const model = this.plugin.storageSettings.values.objectDetectionDevice;
         const stream = await this.cameraDevice.getVideoStream({
-            prebuffer: model.prebuffer,
+            // prebuffer: model.prebuffer,
             destination,
         });
 
@@ -2155,7 +2155,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         try {
             return await videoFrameGenerator.generateVideoFrames(stream, {
                 queue: 0,
-                // fps: 1,
                 ...options
             });
         }
