@@ -105,7 +105,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             description: '[ATTENTION] Performance intensive and high cpu prone, ONLY use if you see many timeout errors on snapshot for cameras with frequent motion',
             type: 'boolean',
             immediate: true,
-            // hide: true,
+            hide: true,
+            value: false
         },
         // WEBHOOKS
         lastSnapshotWebhook: {
