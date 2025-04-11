@@ -1675,7 +1675,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     isMqttImageDelayPassed(className: string) {
-        const { minMqttPublishDelay, } = this.storageSettings.values;
+        const { useNvrDetectionsForMqtt } = this.plugin.storageSettings.values;
+
+        if (useNvrDetectionsForMqtt) {
+            return true;
+        }
+
+        const { minMqttPublishDelay } = this.storageSettings.values;
         const now = Date.now();
         const lastDetection = this.lastBasicDetectionsPublishedMap[className];
         const timePassed = !lastDetection || !minMqttPublishDelay || (now - lastDetection) >= (minMqttPublishDelay * 1000);
@@ -1712,16 +1718,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             useFramesGenerator
         } = this.storageSettings.values;
 
-        let candidates: ObjectDetectionResult[] = [];
-
-        if (shouldOnlyUpdateMotion) {
-            candidates = [{ className: DetectionClass.Motion, score: 1 }];
-        } else {
-            candidates = filterAndSortValidDetections({
-                detections: detections ?? [],
-                logger,
-            })?.candidates;
-        }
+        const { candidates } = filterAndSortValidDetections({
+            detections: detections ?? [],
+            logger,
+        })
 
         let image: MediaObject;
         let b64Image: string;
@@ -1751,7 +1751,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const mqttClient = await this.getMqttClient();
 
                 if (mqttClient) {
-                    for (const detection of detections) {
+                    let detectionsToUpdate = detections;
+
+                    if (shouldOnlyUpdateMotion) {
+                        logger.info(`Only updating motion, non-NVR detection incoming and using NVR detections for MQTT`);
+                        detectionsToUpdate = [{ className: DetectionClass.Motion, score: 1 }];
+                    }
+
+                    for (const detection of detectionsToUpdate) {
                         const classname = detection.className;
                         const timePassed = this.isMqttImageDelayPassed(classname);
 
