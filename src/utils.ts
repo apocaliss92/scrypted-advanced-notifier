@@ -273,27 +273,15 @@ export enum NotificationSource {
     TIMELAPSE = 'TIMELAPSE',
 }
 
-const getDetectionId = (detection: ObjectDetectionResult) => detection.id ? `${detectionClassesDefaultMap[detection.className]}-${detection.id}` : undefined;
-
 export const filterAndSortValidDetections = (props: {
     detections: ObjectDetectionResult[],
     logger: Console,
-    processedIds: Record<string, boolean>
 }) => {
-    const { detections, logger, processedIds } = props;
-    const filteredByProcessdIds = detections.filter(det => {
-        const id = getDetectionId(det);
-
-        return !id || !processedIds[id];
-    });
-    const sortedByPriorityAndScore = sortBy(filteredByProcessdIds,
+    const { detections, logger } = props;
+    const sortedByPriorityAndScore = sortBy(detections,
         (detection) => [detection?.className ? classnamePrio[detection.className] : 100,
         1 - (detection.score ?? 0)]
     );
-    // const sortedByPriorityAndScore = sortBy(detections,
-    //     (detection) => [detection?.className ? classnamePrio[detection.className] : 100,
-    //     1 - (detection.score ?? 0)]
-    // );
     let hasLabel = false;
     const uniqueByClassName = uniqBy(sortedByPriorityAndScore, det => det.className);
     const candidates = uniqueByClassName.filter(det => {
@@ -314,14 +302,10 @@ export const filterAndSortValidDetections = (props: {
             hasLabel = isLabel;
         }
 
-        const id = getDetectionId(det);
-
-        id && (processedIds[id] = true);
-
         return true;
     });
 
-    return { candidates, hasLabel, processedIds };
+    return { candidates, hasLabel };
 }
 
 export type TextSettingKey =

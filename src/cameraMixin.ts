@@ -1701,6 +1701,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
 
         const now = new Date().getTime();
+        const isFromNvr = !!parentImage;
+
+        // In case a non-NVR detection came in and user wants NVR detections to be used, just update the motion
+        const shouldOnlyUpdateMotion = useNvrDetectionsForMqtt && !isFromNvr;
 
         const {
             minDelayTime,
@@ -1708,22 +1712,28 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             useFramesGenerator
         } = this.storageSettings.values;
 
-        const { candidates } = filterAndSortValidDetections({
-            detections: detections ?? [],
-            logger,
-            processedIds: {},
-        });
+        let candidates: ObjectDetectionResult[] = [];
+
+        if (shouldOnlyUpdateMotion) {
+            candidates = [{ className: DetectionClass.Motion, score: 1 }];
+        } else {
+            candidates = filterAndSortValidDetections({
+                detections: detections ?? [],
+                logger,
+            })?.candidates;
+        }
 
         let image: MediaObject;
         let b64Image: string;
         let imageUrl: string;
 
-        const isNvrImage = !!parentImage;
-
         try {
             if (this.isActiveForMqttReporting) {
-                const canStoreImage = (isNvrImage && useNvrDetectionsForMqtt) || (useFramesGenerator && !useNvrDetectionsForMqtt);
-                if (canStoreImage) {
+                // The MQTT image should be updated in 2 cases:
+                // - the image comes already from NVR and the user wants MQTT detections to be used
+                // - the image comes from the decoder and the user does not want to use the NVR detections
+                const canUpdateMqttImage = (isFromNvr && useNvrDetectionsForMqtt) || (useFramesGenerator && !useNvrDetectionsForMqtt);
+                if (canUpdateMqttImage) {
                     // If NVR notification, just transform the image in b64 to use for MQTT
                     const { b64Image: b64ImageNew, image: imageNew, imageUrl: imageUrlNew } = await this.getImage({
                         detectionId,
@@ -1734,7 +1744,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     b64Image = b64ImageNew;
                     imageUrl = imageUrlNew;
 
-                    if (isNvrImage) {
+                    if (isFromNvr) {
                         logger.log(`NVR detections received, has image ${!!parentImage} b64Image ${b64Image?.substring(0, 10)}`);
                     }
                 }
@@ -1744,12 +1754,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     for (const detection of detections) {
                         const classname = detection.className;
                         const timePassed = this.isMqttImageDelayPassed(classname);
-                        const shouldUpdateImage = canStoreImage && timePassed;
 
-                        if (shouldUpdateImage) {
+                        // In any case the MQTT image should be updated only if allowed by previous condition and the minimum 
+                        // configured time is passed
+                        const shouldUpdateMqttImage = canUpdateMqttImage && timePassed;
+
+                        if (shouldUpdateMqttImage) {
                             this.lastBasicDetectionsPublishedMap[classname] = now;
                         }
-                        logger.info(`Publishing basic detections class ${classname} isNvrImage ${isNvrImage} skipMqttImage ${!timePassed} hasB64Image ${!!b64Image}`);
+
+                        logger.info(`Publishing basic detections class ${classname} isNvrImage ${isFromNvr} skipMqttImage ${!timePassed} hasB64Image ${!!b64Image}`);
 
                         publishBasicDetectionData({
                             mqttClient,
@@ -1761,8 +1775,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             image,
                             imageUrl,
                             room: this.cameraDevice.room,
-                            skipMqttImage: !shouldUpdateImage,
-                            isNvr: isNvrImage,
+                            skipMqttImage: !shouldUpdateMqttImage,
+                            imageSuffix: isFromNvr ? 'NVR' : undefined,
                             storeImageFn: this.plugin.storeImage
                         }).catch(logger.error);
                     }
@@ -1780,7 +1794,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             // const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
             // let shouldMarkBoundaries = false;
 
-            const rules = cloneDeep(this.runningDetectionRules.filter(rule => isNvrImage ? rule.isNvr : !rule.isNvr)) ?? [];
+            const rules = cloneDeep(this.runningDetectionRules.filter(rule => isFromNvr ? rule.isNvr : !rule.isNvr)) ?? [];
             logger.debug(`Detections incoming ${JSON.stringify({
                 candidates,
                 detect,

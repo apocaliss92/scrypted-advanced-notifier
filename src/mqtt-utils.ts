@@ -967,7 +967,7 @@ export const publishBasicDetectionData = async (props: {
     image?: MediaObject,
     room?: string,
     skipMqttImage?: boolean,
-    isNvr?: boolean,
+    imageSuffix?: string,
     storeImageFn?: StoreImageFn
 }) => {
     const {
@@ -981,7 +981,7 @@ export const publishBasicDetectionData = async (props: {
         room,
         storeImageFn,
         skipMqttImage,
-        isNvr,
+        imageSuffix,
     } = props;
 
     if (!mqttClient) {
@@ -991,7 +991,7 @@ export const publishBasicDetectionData = async (props: {
     try {
         const detectionClass = detectionClassesDefaultMap[detection.className];
         if (detectionClass) {
-            const label = detection.label;
+            // const label = detection.label;
             const parentClass = parentDetectionClassMap[detectionClass];
             const specificClassEntries = deviceClassMqttEntitiesGrouped[detectionClass] ?? [];
             const parentClassEntries = parentClass ? deviceClassMqttEntitiesGrouped[parentClass] ?? [] : [];
@@ -1019,8 +1019,8 @@ export const publishBasicDetectionData = async (props: {
                     // if (label) {
                     //     name += `-${label}`;
                     // }
-                    if (isNvr) {
-                        name += '-NVR';
+                    if (imageSuffix) {
+                        name += `-${imageSuffix}`;
                     }
 
                     storeImageFn && storeImageFn({
