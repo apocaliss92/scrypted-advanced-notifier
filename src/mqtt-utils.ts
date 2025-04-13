@@ -705,6 +705,8 @@ export const subscribeToDeviceMqttTopics = async (
         await mqttClient.subscribe([commandTopic], async (messageTopic) => {
             if (messageTopic === commandTopic) {
                 rebootCb();
+
+                await mqttClient.publish(commandTopic, '', true);
             }
         });
     }
@@ -722,18 +724,22 @@ export const subscribeToDeviceMqttTopics = async (
                         ptzCommandCb({ preset: message });
 
                         await mqttClient.publish(stateTopic, 'None');
-                    } else if (commandEntity.entity === ptzZoomInEntity.entity) {
-                        ptzCommandCb({ zoom: 0.1 });
-                    } else if (commandEntity.entity === ptzZoomOutEntity.entity) {
-                        ptzCommandCb({ zoom: -0.1 });
-                    } else if (commandEntity.entity === ptzRightEntity.entity) {
-                        ptzCommandCb({ pan: 0.1 });
-                    } else if (commandEntity.entity === ptzLeftEntity.entity) {
-                        ptzCommandCb({ pan: -0.1 });
-                    } else if (commandEntity.entity === ptzDownEntity.entity) {
-                        ptzCommandCb({ tilt: -0.1 });
-                    } else if (commandEntity.entity === ptzUpEntity.entity) {
-                        ptzCommandCb({ tilt: 0.1 });
+                    } else {
+                        if (commandEntity.entity === ptzZoomInEntity.entity) {
+                            ptzCommandCb({ zoom: 0.1 });
+                        } else if (commandEntity.entity === ptzZoomOutEntity.entity) {
+                            ptzCommandCb({ zoom: -0.1 });
+                        } else if (commandEntity.entity === ptzRightEntity.entity) {
+                            ptzCommandCb({ pan: 0.1 });
+                        } else if (commandEntity.entity === ptzLeftEntity.entity) {
+                            ptzCommandCb({ pan: -0.1 });
+                        } else if (commandEntity.entity === ptzDownEntity.entity) {
+                            ptzCommandCb({ tilt: -0.1 });
+                        } else if (commandEntity.entity === ptzUpEntity.entity) {
+                            ptzCommandCb({ tilt: 0.1 });
+                        }
+
+                        await mqttClient.publish(commandTopic, '', true);
                     }
                 }
             });

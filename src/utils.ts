@@ -1257,6 +1257,7 @@ export const getDetectionRulesSettings = async (props: {
                 {
                     key: whitelistedZonesKey,
                     title: 'Whitelisted zones',
+                    description:'Zones defined in the `Object detection` section of type `Observe`',
                     group,
                     subgroup,
                     multiple: true,
@@ -1268,6 +1269,7 @@ export const getDetectionRulesSettings = async (props: {
                 {
                     key: blacklistedZonesKey,
                     title: 'Blacklisted zones',
+                    description:'Zones defined in the `Object detection` section of type `Observe`',
                     group,
                     subgroup,
                     multiple: true,
