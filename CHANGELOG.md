@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.1.17
+
+- Fix retained button messages not cleaned up
+
 ### 3.1.15
 
 - Only update motion in case of non-NVR detections when NVR detections is enabled

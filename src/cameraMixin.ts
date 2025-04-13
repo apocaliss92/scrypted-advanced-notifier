@@ -263,7 +263,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         mqttHost,
                         mqttUsename,
                         mqttPassword,
-                        // clientId: `s_an_${this.id}`
+                        clientId: `s_an_${this.id}`,
                         messageCb: this.mqttMessageCb,
                     });
                     await this.mqttClient?.getMqttClient();
@@ -271,7 +271,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         `homeassistant/+/${idPrefix}-${this.id}/+/config`
                     ]);
                 } catch (e) {
-                    logger.log('Error setting up MQTT client', e);
+                    logger.error('Error setting up MQTT client', e.message);
                 } finally {
                     this.initializingMqtt = false;
                 }
@@ -833,9 +833,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async release() {
+        const logger = this.getLogger();
+        logger.log('Releasing mixin');
         this.killed = true;
         this.mainLoopListener && clearInterval(this.mainLoopListener);
         this.mainLoopListener = undefined;
+
+        this.mqttClient && this.mqttClient.disconnect();
         this.resetListeners();
     }
 
