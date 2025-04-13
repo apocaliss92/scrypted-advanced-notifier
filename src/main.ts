@@ -598,7 +598,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         mqttHost,
                         mqttUsename,
                         mqttPassword,
-                        // clientId: `s_an_${this.id}`
+                        clientId: `scrypted_an`,
                         messageCb: this.mqttMessageCb,
                     });
                     await this.mqttClient?.getMqttClient();

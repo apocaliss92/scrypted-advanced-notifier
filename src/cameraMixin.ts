@@ -263,11 +263,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         mqttHost,
                         mqttUsename,
                         mqttPassword,
-                        clientId: `s_an_${this.id}`,
+                        clientId: `scrypted_an_${this.id}`,
                         messageCb: this.mqttMessageCb,
                     });
                     await this.mqttClient?.getMqttClient();
-                    await this.mqttClient.mqttClient.subscribeAsync([
+                    await this.mqttClient.mqttClient?.subscribeAsync([
                         `homeassistant/+/${idPrefix}-${this.id}/+/config`
                     ]);
                 } catch (e) {
