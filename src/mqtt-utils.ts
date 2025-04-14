@@ -1209,7 +1209,6 @@ export const publishRuleData = async (props: {
 
     console.info(`Updating data for rule ${rule.name}: triggered ${triggerValue} and image is present: ${!!b64Image}. Entities ${JSON.stringify(mqttEntities)}`);
 
-    console.log(JSON.stringify(mqttEntities));
     for (const mqttEntity of mqttEntities) {
         const { identifier, retain } = mqttEntity;
         const { stateTopic } = getMqttTopics({ mqttEntity, device });
