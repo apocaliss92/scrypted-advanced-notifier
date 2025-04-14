@@ -986,6 +986,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const msPassed = now - this.lastPictureTaken;
         const isVeryRecent = msPassed && msPassed <= 500;
+        const isLatestPreferred = msPassed && msPassed <= 2000;
 
         const findFromSnapshot = async () => {
             const timePassed = !this.lastPictureTaken || msPassed >= 1000 * minSnapshotDelay;
@@ -1024,7 +1025,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         },
                     });
                     imageSource = 'Decoder';
-                } else if (preferLatest) {
+                } else if (preferLatest && isLatestPreferred) {
                     image = this.lastImage;
                     logger.info(`Last used image taken because periodic`);
                     imageSource = 'Latest because requested';
@@ -1649,44 +1650,47 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const triggerTime = dataToAnalyze[0]?.triggerTime;
         const { detectionId, eventId } = dataToAnalyze.find(item => item.detectionId && item.eventId) ?? {};
         const classnames = uniq(dataToAnalyze.flatMap(item => item.classnames));
-        const isOnlyMotion = classnames.length === 1 && detectionClassesDefaultMap[classnames[0]] === DetectionClass.Motion;
 
-        logger.info(`Accumulated data to analyze: ${JSON.stringify({ triggerTime, detectionId, eventId, classnames })}`);
+        if (classnames.length) {
+            const isOnlyMotion = classnames.length === 1 && detectionClassesDefaultMap[classnames[0]] === DetectionClass.Motion;
 
-        const { image, b64Image, imageSource } = await this.getImage({
-            detectionId,
-            eventId,
-            preferLatest: isOnlyMotion
-        });
+            logger.info(`Accumulated data to analyze: ${JSON.stringify({ triggerTime, detectionId, eventId, classnames })}`);
 
-        if (image && b64Image && classnames.length) {
-            logger.info(`Updating classname images ${classnames.join(', ')} with image source ${imageSource}`);
-            try {
-                const mqttClient = await this.getMqttClient();
+            const { image, b64Image, imageSource } = await this.getImage({
+                detectionId,
+                eventId,
+                preferLatest: isOnlyMotion
+            });
 
-                if (mqttClient) {
-                    const allowedClassnames = classnames.filter(classname => this.isMqttImageDelayPassed(classname));
+            if (image && b64Image) {
+                logger.info(`Updating classname images ${classnames.join(', ')} with image source ${imageSource}`);
+                try {
+                    const mqttClient = await this.getMqttClient();
 
-                    await publishClassnameImages({
-                        mqttClient,
-                        console: logger,
-                        classnames: allowedClassnames,
-                        device: this.cameraDevice,
-                        b64Image,
-                        image,
-                        triggerTime,
-                        storeImageFn: this.plugin.storeImage
-                    }).catch(logger.error);
+                    if (mqttClient) {
+                        const allowedClassnames = classnames.filter(classname => this.isMqttImageDelayPassed(classname));
 
-                    const now = Date.now();
-                    for (const classname of allowedClassnames) {
-                        this.lastBasicDetectionsPublishedMap[classname] = now;
+                        await publishClassnameImages({
+                            mqttClient,
+                            console: logger,
+                            classnames: allowedClassnames,
+                            device: this.cameraDevice,
+                            b64Image,
+                            image,
+                            triggerTime,
+                            storeImageFn: this.plugin.storeImage
+                        }).catch(logger.error);
+
+                        const now = Date.now();
+                        for (const classname of allowedClassnames) {
+                            this.lastBasicDetectionsPublishedMap[classname] = now;
+                        }
                     }
-                }
 
-                this.checkOccupancyData(image, 'Detections').catch(logger.log);
-            } catch (e) {
-                logger.log(`Error on publishing data: ${JSON.stringify(dataToAnalyze)}`, e)
+                    this.checkOccupancyData(image, 'Detections').catch(logger.log);
+                } catch (e) {
+                    logger.log(`Error on publishing data: ${JSON.stringify(dataToAnalyze)}`, e)
+                }
             }
         }
     }
