@@ -621,7 +621,7 @@ export const subscribeToPluginMqttTopics = async (
     for (const rule of rules) {
         const ruleActiveEntity = getRuleMqttEntities({ rule, forDiscovery: false }).find(item => item.identifier === MqttEntityIdentifier.RuleActive);
         if (ruleActiveEntity) {
-            const { commandTopic, stateTopic } = await getPluginMqttAutodiscoveryConfiguration({ mqttEntity: ruleActiveEntity });
+            const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: ruleActiveEntity });
             await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
                 if (messageTopic === commandTopic) {
                     activationRuleCb({
@@ -1254,9 +1254,7 @@ export const publishRuleCurrentlyActive = async (props: {
 
     const mqttEntity = getRuleMqttEntities({ rule, device, forDiscovery: false }).find(item => item.identifier === MqttEntityIdentifier.RuleRunning);
 
-    const { stateTopic } = device ?
-        await getVideocameraMqttAutodiscoveryConfiguration({ mqttEntity, device }) :
-        await getPluginMqttAutodiscoveryConfiguration({ mqttEntity });
+    const { stateTopic } = getMqttTopics({ mqttEntity, device });
     const isActive = active ?? false;
 
     await mqttClient.publish(stateTopic, JSON.stringify(isActive), mqttEntity.retain);
@@ -1277,9 +1275,7 @@ export const publishRuleEnabled = async (props: {
 
     const mqttEntity = getRuleMqttEntities({ rule, device, forDiscovery: false }).find(item => item.identifier === MqttEntityIdentifier.RuleActive);
 
-    const { stateTopic } = device ?
-        await getVideocameraMqttAutodiscoveryConfiguration({ mqttEntity, device }) :
-        await getPluginMqttAutodiscoveryConfiguration({ mqttEntity });
+    const { stateTopic } = getMqttTopics({ mqttEntity, device });
     const isActive = enabled ?? false;
 
     await mqttClient.publish(stateTopic, JSON.stringify(isActive), mqttEntity.retain);
