@@ -265,10 +265,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     nvrRules: DetectionRule[] = [];
     runningDetectionRules: DetectionRule[] = [];
     lastNotExistingNotifier: number;
-    private checkExistingDevicesInterval: NodeJS.Timeout;
     allAvailableRules: BaseRule[] = [];
     fetchedEntities: string[] = [];
     currentAutodiscoveryTopics: string[] = [];
+    lastAutoDiscovery: number;
 
     constructor(nativeId: string) {
         super(nativeId, {
@@ -335,7 +335,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     async stop() {
         this.mainFlowInterval && clearInterval(this.mainFlowInterval);
-        this.checkExistingDevicesInterval && clearInterval(this.checkExistingDevicesInterval);
         await this.mqttClient?.disconnect();
     }
 
@@ -350,22 +349,19 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             await this.refreshSettings();
             await this.initPluginSettings();
             await this.mainFlow();
-
-            if (this.storageSettings.values.mqttEnabled) {
-                await this.sendAutoDiscovery();
-            }
+            await this.sendAutoDiscovery();
 
             this.mainFlowInterval = setInterval(async () => {
                 await this.mainFlow();
-            }, 10 * 1000);
 
-            this.checkExistingDevicesInterval = setInterval(async () => {
-                await this.checkPluginConfigurations(false);
+                const now = Date.now();
+                if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
+                    this.lastAutoDiscovery = now;
 
-                if (this.storageSettings.values.mqttEnabled) {
+                    await this.checkPluginConfigurations(false);
                     await this.sendAutoDiscovery();
                 }
-            }, 60 * 60 * 1000);
+            }, 10 * 1000);
         } catch (e) {
             this.getLogger().log(`Error in initFLow`, e);
         }
@@ -545,33 +541,36 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     private async sendAutoDiscovery() {
-        const mqttClient = await this.getMqttClient();
-        const logger = this.getLogger();
-        const objDetectionPlugin = systemManager.getDeviceByName('Scrypted NVR Object Detection') as unknown as Settings;
-        const settings = await objDetectionPlugin.getSettings();
-        const knownPeople = settings?.find(setting => setting.key === 'knownPeople')?.choices
-            ?.filter(choice => !!choice)
-            .map(person => person.trim());
+        if (this.storageSettings.values.mqttEnabled) {
+            const mqttClient = await this.getMqttClient();
+            const logger = this.getLogger();
+            const objDetectionPlugin = systemManager.getDeviceByName('Scrypted NVR Object Detection') as unknown as Settings;
+            const settings = await objDetectionPlugin.getSettings();
+            const knownPeople = settings?.find(setting => setting.key === 'knownPeople')?.choices
+                ?.filter(choice => !!choice)
+                .map(person => person.trim());
 
-        const pluginStorage = this.storageSettings;
-        const { availableRules } = getDetectionRules({ pluginStorage, console: logger });
+            const pluginStorage = this.storageSettings;
+            const { availableRules } = getDetectionRules({ pluginStorage, console: logger });
 
-        setupPluginAutodiscovery({
-            mqttClient,
-            people: knownPeople,
-            console: logger,
-            rules: availableRules,
-        }).then(async (activeTopics) => {
-            const topicsToDelete = this.currentAutodiscoveryTopics.filter(topic => !activeTopics.includes(topic));
-            if (topicsToDelete.length > 0) {
-                logger.log(`${topicsToDelete.length} topics to delete found: ${topicsToDelete.join(', ')}`);
-                await cleanupAutodiscoveryTopics({ mqttClient, logger, topics: topicsToDelete });
-            }
-        }).catch(logger.error);
+            logger.log('Starting MQTT autodiscovery');
+            setupPluginAutodiscovery({
+                mqttClient,
+                people: knownPeople,
+                console: logger,
+                rules: availableRules,
+            }).then(async (activeTopics) => {
+                const topicsToDelete = this.currentAutodiscoveryTopics.filter(topic => !activeTopics.includes(topic));
+                if (topicsToDelete.length > 0) {
+                    logger.log(`${topicsToDelete.length} topics to delete found: ${topicsToDelete.join(', ')}`);
+                    await cleanupAutodiscoveryTopics({ mqttClient, logger, topics: topicsToDelete });
+                }
+            }).catch(logger.error);
 
-        this.allAvailableRules = availableRules;
+            this.allAvailableRules = availableRules;
 
-        await this.setupMqttEntities();
+            await this.setupMqttEntities();
+        }
     }
 
     async putSetting(key: string, value: SettingValue): Promise<void> {

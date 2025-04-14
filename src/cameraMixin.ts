@@ -407,8 +407,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     const mqttClient = await this.getMqttClient();
                     if (mqttClient) {
                         // Every 60 minutes repeat the autodiscovery
-                        // if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 30) {
                         if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
+                            logger.log('Starting MQTT autodiscovery');
                             setupDeviceAutodiscovery({
                                 mqttClient,
                                 device: this.cameraDevice,
