@@ -1059,11 +1059,9 @@ export const publishClassnameImages = async (props: {
     imageUrl?: string,
     image?: MediaObject,
     imageSuffix?: string,
-    skipMqtt?: boolean,
-    isNvr?: boolean,
     storeImageFn?: StoreImageFn
 }) => {
-    const { mqttClient, device, classnames = [], console, b64Image, image, triggerTime, storeImageFn, imageSuffix, isNvr, skipMqtt } = props;
+    const { mqttClient, device, classnames = [], console, b64Image, image, triggerTime, storeImageFn, imageSuffix } = props;
 
     if (!mqttClient) {
         return;
@@ -1074,19 +1072,14 @@ export const publishClassnameImages = async (props: {
         for (const classname of classnames) {
             const detectionClass = detectionClassesDefaultMap[classname];
             if (detectionClass) {
-                if (!skipMqtt) {
-                    const mqttEntity = deviceClassMqttEntitiesGrouped[detectionClass].find(entry => entry.identifier === MqttEntityIdentifier.LastImage);
-                    const { stateTopic } = getMqttTopics({ mqttEntity, device });
-                    await mqttClient.publish(stateTopic, b64Image, false);
-                }
+                const mqttEntity = deviceClassMqttEntitiesGrouped[detectionClass].find(entry => entry.identifier === MqttEntityIdentifier.LastImage);
+                const { stateTopic } = getMqttTopics({ mqttEntity, device });
+                await mqttClient.publish(stateTopic, b64Image, false);
 
                 let name = `object-detection-${classname}`;
                 // if (label) {
                 //     name += `-${label}`;
                 // }
-                if (isNvr) {
-                    name += '-NVR';
-                }
                 if (imageSuffix) {
                     name += `-${imageSuffix}`;
                 }

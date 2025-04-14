@@ -847,10 +847,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.resetListeners();
     }
 
-    public getLogger() {
+    public getLogger(forceNew?: boolean) {
         const deviceConsole = this.console;
 
-        if (!this.logger) {
+        if (!this.logger || forceNew) {
             const log = (type: 'log' | 'error' | 'debug' | 'warn' | 'info', message?: any, ...optionalParams: any[]) => {
                 const now = new Date().toLocaleString();
 
@@ -867,13 +867,19 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     deviceConsole.log(` ${now} - `, message, ...optionalParams);
                 }
             };
-            this.logger = {
+            const newLogger = {
                 log: (message?: any, ...optionalParams: any[]) => log('log', message, ...optionalParams),
                 info: (message?: any, ...optionalParams: any[]) => log('info', message, ...optionalParams),
                 debug: (message?: any, ...optionalParams: any[]) => log('debug', message, ...optionalParams),
                 error: (message?: any, ...optionalParams: any[]) => log('error', message, ...optionalParams),
                 warn: (message?: any, ...optionalParams: any[]) => log('warn', message, ...optionalParams),
-            } as Console
+            } as Console;
+
+            if (forceNew) {
+                return newLogger;
+            } else {
+                this.logger = newLogger;
+            }
         }
 
         return this.logger;
@@ -1077,11 +1083,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async startAudioDetection() {
-        const logger = this.getLogger();
+        const logger = this.getLogger(true);
         try {
             const loggerForFfmpeg = {
                 ...logger,
-                log: logger.info
+                warn: logger.info,
+                error: logger.info,
+                log: logger.info,
             };
             if (this.audioForwarder) {
                 this.stopAudioListener();
@@ -1110,7 +1118,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                         const packet = RtpPacket.deSerialize(rtp);
                         const decibels = pcmU8ToDb(packet.payload);
-                        this.processAudioDetection({ decibels }).catch(logger.error);
+                        this.processAudioDetection({ decibels }).catch(this.getLogger().error);
                     },
                 }
             });
@@ -1718,7 +1726,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         image?: MediaObject,
         isFromNvr?: boolean
     }) {
-        const { detect, eventDetails, image: parentImage, isFromNvr } = props;
+        const { detect, eventDetails, image: parentImage, isFromNvr = false } = props;
         const logger = this.getLogger();
         const { timestamp: triggerTime, detections, detectionId } = detect;
         const { eventId } = eventDetails ?? {};
@@ -1753,9 +1761,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 // The MQTT image should be updated in 2 cases:
                 // - the image comes already from NVR and the user wants MQTT detections to be used
                 // - the image comes from the decoder and the user does not want to use the NVR detections
-                const canUpdateMqttImage = (isFromNvr && useNvrDetectionsForMqtt) || (useFramesGenerator && !useNvrDetectionsForMqtt);
-                if (canUpdateMqttImage) {
-                    // If NVR notification, just transform the image in b64 to use for MQTT
+
+                const canTransformImage = (isFromNvr && parentImage) || useFramesGenerator;
+                if (canTransformImage) {
+                    const classnames = uniq(detections.map(d => d.className));
                     const { b64Image: b64ImageNew, image: imageNew, imageUrl: imageUrlNew } = await this.getImage({
                         detectionId,
                         eventId,
@@ -1766,9 +1775,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     imageUrl = imageUrlNew;
 
                     if (isFromNvr) {
-                        logger.log(`NVR detections received, has image ${!!parentImage} b64Image ${b64Image?.substring(0, 10)}`);
+                        logger.log(`NVR detections received, classnames ${classnames.join(', ')}. b64Image ${b64Image?.substring(0, 10)}`);
+                    } else {
+                        logger.debug(`Generating decoded frame`);
                     }
                 }
+
                 const mqttClient = await this.getMqttClient();
 
                 if (mqttClient) {
@@ -1794,30 +1806,30 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         }).catch(logger.error);
 
                         if (b64Image) {
+                            const canUpdateMqttImage = (isFromNvr && useNvrDetectionsForMqtt) || (useFramesGenerator && !useNvrDetectionsForMqtt);
                             const timePassed = this.isMqttImageDelayPassed(classname);
 
                             // In any case the MQTT image should be updated only if allowed by previous condition and the minimum 
                             // configured time is passed
-                            const shouldUpdateMqttImage = canUpdateMqttImage && timePassed;
+                            const shouldUpdateImage = canUpdateMqttImage && timePassed;
 
-                            if (shouldUpdateMqttImage) {
+                            if (shouldUpdateImage) {
                                 this.lastBasicDetectionsPublishedMap[classname] = now;
+
+                                logger.info(`Updating image for classname ${classname} source: ${isFromNvr ? 'NVR' : 'Decoder'}`);
+
+                                await publishClassnameImages({
+                                    mqttClient,
+                                    console: logger,
+                                    classnames: [classname],
+                                    device: this.cameraDevice,
+                                    b64Image,
+                                    image,
+                                    triggerTime,
+                                    imageSuffix: isFromNvr ? 'NVR' : undefined,
+                                    storeImageFn: this.plugin.storeImage
+                                }).catch(logger.error);
                             }
-
-                            logger.info(`Updating image for classname ${classname} isNvrImage ${isFromNvr}`);
-
-                            await publishClassnameImages({
-                                mqttClient,
-                                console: logger,
-                                classnames: [classname],
-                                device: this.cameraDevice,
-                                b64Image,
-                                image,
-                                triggerTime,
-                                imageSuffix: isFromNvr ? 'NVR' : undefined,
-                                skipMqtt: !shouldUpdateMqttImage,
-                                storeImageFn: this.plugin.storeImage
-                            }).catch(logger.error);
                         }
                     }
 
