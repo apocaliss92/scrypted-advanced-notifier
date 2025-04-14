@@ -1716,8 +1716,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         detect: ObjectsDetected,
         eventDetails?: EventDetails,
         image?: MediaObject,
+        isFromNvr?: boolean
     }) {
-        const { detect, eventDetails, image: parentImage } = props;
+        const { detect, eventDetails, image: parentImage, isFromNvr } = props;
         const logger = this.getLogger();
         const { timestamp: triggerTime, detections, detectionId } = detect;
         const { eventId } = eventDetails ?? {};
@@ -1728,7 +1729,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
 
         const now = new Date().getTime();
-        const isFromNvr = !!parentImage;
 
         // In case a non-NVR detection came in and user wants NVR detections to be used, just update the motion
         const shouldOnlyUpdateMotion = useNvrDetectionsForMqtt && !isFromNvr;
@@ -1781,17 +1781,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                     for (const detection of detectionsToUpdate) {
                         const classname = detection.className;
-                        const timePassed = this.isMqttImageDelayPassed(classname);
 
-                        // In any case the MQTT image should be updated only if allowed by previous condition and the minimum 
-                        // configured time is passed
-                        const shouldUpdateMqttImage = canUpdateMqttImage && timePassed;
-
-                        if (shouldUpdateMqttImage) {
-                            this.lastBasicDetectionsPublishedMap[classname] = now;
-                        }
-
-                        logger.info(`Publishing basic detections class ${classname} isNvrImage ${isFromNvr} skipMqttImage ${!timePassed} hasB64Image ${!!b64Image}`);
+                        logger.info(`Triggering classname ${classname}`);
 
                         publishBasicDetectionData({
                             mqttClient,
@@ -1799,14 +1790,35 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             detection,
                             device: this.cameraDevice,
                             triggerTime,
-                            b64Image,
-                            image,
-                            imageUrl,
                             room: this.cameraDevice.room,
-                            skipMqttImage: !shouldUpdateMqttImage,
-                            imageSuffix: isFromNvr ? 'NVR' : undefined,
-                            storeImageFn: this.plugin.storeImage
                         }).catch(logger.error);
+
+                        if (b64Image) {
+                            const timePassed = this.isMqttImageDelayPassed(classname);
+
+                            // In any case the MQTT image should be updated only if allowed by previous condition and the minimum 
+                            // configured time is passed
+                            const shouldUpdateMqttImage = canUpdateMqttImage && timePassed;
+
+                            if (shouldUpdateMqttImage) {
+                                this.lastBasicDetectionsPublishedMap[classname] = now;
+                            }
+
+                            logger.info(`Updating image for classname ${classname} isNvrImage ${isFromNvr}`);
+
+                            await publishClassnameImages({
+                                mqttClient,
+                                console: logger,
+                                classnames: [classname],
+                                device: this.cameraDevice,
+                                b64Image,
+                                image,
+                                triggerTime,
+                                imageSuffix: isFromNvr ? 'NVR' : undefined,
+                                skipMqtt: !shouldUpdateMqttImage,
+                                storeImageFn: this.plugin.storeImage
+                            }).catch(logger.error);
+                        }
                     }
 
                     this.resetDetectionEntities('Timeout').catch(logger.log);

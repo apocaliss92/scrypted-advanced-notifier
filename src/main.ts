@@ -1309,6 +1309,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             await (this.currentMixinsMap[triggerDevice.name] as AdvancedNotifierCameraMixin)?.processDetections({
                 detect: { timestamp: triggerTime, detections: allDetections },
                 image,
+                isFromNvr: !!image
             });
         } else if ([EventType.Contact, EventType.Doorbell, EventType.Doorlock].includes(eventType as EventType)) {
             await (this.currentMixinsMap[triggerDevice.name] as AdvancedNotifierSensorMixin)?.processEvent({

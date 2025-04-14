@@ -968,13 +968,7 @@ export const publishBasicDetectionData = async (props: {
     console: Console,
     detection?: ObjectDetectionResult,
     triggerTime: number,
-    b64Image?: string,
-    imageUrl?: string,
-    image?: MediaObject,
     room?: string,
-    skipMqttImage?: boolean,
-    imageSuffix?: string,
-    storeImageFn?: StoreImageFn
 }) => {
     const {
         mqttClient,
@@ -982,12 +976,7 @@ export const publishBasicDetectionData = async (props: {
         detection,
         triggerTime,
         console,
-        b64Image,
-        image,
         room,
-        storeImageFn,
-        skipMqttImage,
-        imageSuffix,
     } = props;
 
     if (!mqttClient) {
@@ -1002,8 +991,8 @@ export const publishBasicDetectionData = async (props: {
             const specificClassEntries = deviceClassMqttEntitiesGrouped[detectionClass] ?? [];
             const parentClassEntries = parentClass ? deviceClassMqttEntitiesGrouped[parentClass] ?? [] : [];
 
-            const classEntries = [...specificClassEntries, ...parentClassEntries];
-            console.debug(`Relevant detections to publish: ${JSON.stringify({ detection, classEntries, b64Image: !!b64Image })}`);
+            const classEntries = [...specificClassEntries, ...parentClassEntries].filter(entity => entity.identifier !== MqttEntityIdentifier.LastImage);
+            console.debug(`Relevant detections to publish: ${JSON.stringify({ detection, classEntries })}`);
 
             for (const entry of classEntries) {
                 const { identifier, retain } = entry;
@@ -1015,27 +1004,6 @@ export const publishBasicDetectionData = async (props: {
                     value = detection?.label || null;
                 } else if (identifier === MqttEntityIdentifier.LastDetection) {
                     value = new Date(triggerTime).toISOString();
-                } else if (identifier === MqttEntityIdentifier.LastImage && b64Image) {
-                    // value = imageUrl || null;
-                    if (!skipMqttImage) {
-                        value = b64Image || null;
-                    }
-
-                    let name = `object-detection-${entry.className}`;
-                    // if (label) {
-                    //     name += `-${label}`;
-                    // }
-                    if (imageSuffix) {
-                        name += `-${imageSuffix}`;
-                    }
-
-                    storeImageFn && storeImageFn({
-                        device,
-                        name,
-                        imageMo: image,
-                        timestamp: triggerTime,
-                        b64Image
-                    }).catch(console.log);
                 }
 
                 if (value) {
@@ -1048,22 +1016,6 @@ export const publishBasicDetectionData = async (props: {
             if (isFaceClassname(detection.className) && person && room) {
                 const { stateTopic, personEntity } = await getTrackedPersonMqttAutodiscoveryConfiguration({ person });
                 await mqttClient.publish(stateTopic, room, personEntity.retain);
-            }
-
-            if (image) {
-                const { lastSnapshot } = await getWebooks();
-                await storeWebhookImage({
-                    deviceId: device.id,
-                    image,
-                    logger: console,
-                    webhook: lastSnapshot
-                }).catch(console.log);
-                await storeWebhookImage({
-                    deviceId: device.id,
-                    image,
-                    logger: console,
-                    webhook: `${lastSnapshot}_${detectionClass}`
-                }).catch(console.log);
             }
         } else {
             console.log(`${detection.className} not found`);
@@ -1106,9 +1058,12 @@ export const publishClassnameImages = async (props: {
     b64Image?: string,
     imageUrl?: string,
     image?: MediaObject,
+    imageSuffix?: string,
+    skipMqtt?: boolean,
+    isNvr?: boolean,
     storeImageFn?: StoreImageFn
 }) => {
-    const { mqttClient, device, classnames = [], console, b64Image, image, triggerTime, storeImageFn } = props;
+    const { mqttClient, device, classnames = [], console, b64Image, image, triggerTime, storeImageFn, imageSuffix, isNvr, skipMqtt } = props;
 
     if (!mqttClient) {
         return;
@@ -1119,26 +1074,31 @@ export const publishClassnameImages = async (props: {
         for (const classname of classnames) {
             const detectionClass = detectionClassesDefaultMap[classname];
             if (detectionClass) {
-                const mqttEntity = deviceClassMqttEntitiesGrouped[detectionClass].find(entry => entry.identifier === MqttEntityIdentifier.LastImage);
+                if (!skipMqtt) {
+                    const mqttEntity = deviceClassMqttEntitiesGrouped[detectionClass].find(entry => entry.identifier === MqttEntityIdentifier.LastImage);
+                    const { stateTopic } = getMqttTopics({ mqttEntity, device });
+                    await mqttClient.publish(stateTopic, b64Image, false);
+                }
 
-                // let name = `object-detection-${classname}`;
+                let name = `object-detection-${classname}`;
                 // if (label) {
                 //     name += `-${label}`;
                 // }
-                // if (isNvr) {
-                //     name += '-NVR';
-                // }
+                if (isNvr) {
+                    name += '-NVR';
+                }
+                if (imageSuffix) {
+                    name += `-${imageSuffix}`;
+                }
+
 
                 storeImageFn && storeImageFn({
                     device,
-                    name: `object-detection-${classname}`,
+                    name,
                     imageMo: image,
                     timestamp: triggerTime,
                     b64Image
                 });
-
-                const { stateTopic } = getMqttTopics({ mqttEntity, device });
-                await mqttClient.publish(stateTopic, b64Image, false);
 
                 const { lastSnapshot } = await getWebooks();
                 await storeWebhookImage({
