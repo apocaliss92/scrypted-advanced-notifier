@@ -214,13 +214,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     ensureMixinsOrder() {
         const logger = this.getLogger();
-        const objectDetectorId = systemManager.getDeviceById('@scrypted/objectdetector')?.id;
+        const nvrObjectDetector = systemManager.getDeviceById('@scrypted/nvr', 'detection')?.id;
+        const basicObjectDetector = systemManager.getDeviceById('@apocaliss92/scrypted-basic-object-detector')?.id;
         const nvrId = systemManager.getDeviceById('@scrypted/nvr')?.id;
         const advancedNotifierId = systemManager.getDeviceById(pluginName)?.id;
         let shouldBeMoved = false;
         const thisMixinOrder = this.mixins.indexOf(this.plugin.id);
 
-        if (objectDetectorId && this.mixins.indexOf(objectDetectorId) > thisMixinOrder) {
+        if (nvrObjectDetector && this.mixins.indexOf(nvrObjectDetector) > thisMixinOrder) {
+            shouldBeMoved = true
+        }
+        if (basicObjectDetector && this.mixins.indexOf(basicObjectDetector) > thisMixinOrder) {
             shouldBeMoved = true
         }
         if (nvrId && this.mixins.indexOf(nvrId) > thisMixinOrder) {
@@ -228,7 +232,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
 
         if (shouldBeMoved) {
-            logger.log('This plugin needs rebroadcast and NVR plugins to come before, fixing');
+            logger.log('This plugin needs object detection and NVR plugins to come before, fixing');
             setTimeout(() => {
                 const currentMixins = this.mixins.filter(mixin => mixin !== advancedNotifierId);
                 currentMixins.push(advancedNotifierId);
@@ -805,7 +809,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             this.lastObserveZonesFetched = now;
             return this.observeZoneData;
         } catch (e) {
-            this.getLogger().log('Error in getObserveZones', e);
+            this.getLogger().log('Error in getObserveZones', e.message);
             return [];
         }
     }
@@ -834,7 +838,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async release() {
         const logger = this.getLogger();
-        logger.log('Releasing mixin');
+        logger.info('Releasing mixin');
         this.killed = true;
         this.mainLoopListener && clearInterval(this.mainLoopListener);
         this.mainLoopListener = undefined;
@@ -1073,52 +1077,60 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async startAudioDetection() {
         const logger = this.getLogger();
-        if (this.audioForwarder) {
-            this.stopAudioListener();
-        }
-
-        const mo = await this.cameraDevice.getVideoStream({
-            video: null,
-            audio: {},
-        });
-        const ffmpegInput = await sdk.mediaManager.convertMediaObjectToJSON<FFmpegInput>(mo, ScryptedMimeTypes.FFmpegInput);
-
-        const fp = startRtpForwarderProcess(logger, ffmpegInput, {
-            video: null,
-            audio: {
-                codecCopy: 'pcm_u8',
-                encoderArguments: [
-                    '-acodec', 'pcm_u8',
-                    '-ac', '1',
-                    '-ar', '8000',
-                ],
-                onRtp: rtp => {
-                    const now = Date.now();
-                    if (this.lastAudioDetected && now - this.lastAudioDetected < 1000)
-                        return;
-                    this.lastAudioDetected = now;
-
-                    const packet = RtpPacket.deSerialize(rtp);
-                    const decibels = pcmU8ToDb(packet.payload);
-                    this.processAudioDetection({ decibels }).catch(logger.error);
-                },
+        try {
+            const loggerForFfmpeg = {
+                ...logger,
+                log: logger.info
+            };
+            if (this.audioForwarder) {
+                this.stopAudioListener();
             }
-        });
 
-        this.audioForwarder = fp;
+            const mo = await this.cameraDevice.getVideoStream({
+                video: null,
+                audio: {},
+            });
+            const ffmpegInput = await sdk.mediaManager.convertMediaObjectToJSON<FFmpegInput>(mo, ScryptedMimeTypes.FFmpegInput);
 
-        fp.catch(() => {
-            if (this.audioForwarder === fp)
-                this.audioForwarder = undefined;
-        });
+            const fp = startRtpForwarderProcess(loggerForFfmpeg, ffmpegInput, {
+                video: null,
+                audio: {
+                    codecCopy: 'pcm_u8',
+                    encoderArguments: [
+                        '-acodec', 'pcm_u8',
+                        '-ac', '1',
+                        '-ar', '8000',
+                    ],
+                    onRtp: rtp => {
+                        const now = Date.now();
+                        if (this.lastAudioDetected && now - this.lastAudioDetected < 1000)
+                            return;
+                        this.lastAudioDetected = now;
 
-        this.audioForwarder.then(f => {
-            f.killPromise.then(() => {
+                        const packet = RtpPacket.deSerialize(rtp);
+                        const decibels = pcmU8ToDb(packet.payload);
+                        this.processAudioDetection({ decibels }).catch(logger.error);
+                    },
+                }
+            });
+
+            this.audioForwarder = fp;
+
+            fp.catch(() => {
                 if (this.audioForwarder === fp)
                     this.audioForwarder = undefined;
             });
-        });
-        this.lastAudioConnection = Date.now();
+
+            this.audioForwarder.then(f => {
+                f.killPromise.then(() => {
+                    if (this.audioForwarder === fp)
+                        this.audioForwarder = undefined;
+                });
+            });
+            this.lastAudioConnection = Date.now();
+        } catch (e) {
+            logger.log('Error in startAudioDetection', e.message);
+        }
     }
 
     async checkOutdatedRules() {
