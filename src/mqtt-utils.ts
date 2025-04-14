@@ -416,10 +416,13 @@ export const getRuleMqttEntities = (props: {
         },
     ];
 
+    if (isOwnRule) {
+        entities.push(switchEntity);
+    }
+
     if (isDetectionRule(rule)) {
         if (isOwnRule) {
             entities.push(
-                switchEntity,
                 triggeredEntity,
                 lastImageEntity,
                 lastTriggerEntity,
