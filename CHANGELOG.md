@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.1.23
+
+- Link plugin rule entities on devices and vice-versa, plugin triggers will activate the plugin entity as well
+
 ### 3.1.17
 
 - Fix retained button messages not cleaned up

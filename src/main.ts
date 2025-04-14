@@ -350,7 +350,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             await this.refreshSettings();
             await this.initPluginSettings();
             await this.mainFlow();
-            await this.setupMqttEntities();
+
+            if (this.storageSettings.values.mqttEnabled) {
+                await this.sendAutoDiscovery();
+            }
 
             this.mainFlowInterval = setInterval(async () => {
                 await this.mainFlow();
@@ -564,9 +567,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 logger.log(`${topicsToDelete.length} topics to delete found: ${topicsToDelete.join(', ')}`);
                 await cleanupAutodiscoveryTopics({ mqttClient, logger, topics: topicsToDelete });
             }
-        }).catch(logger.error);;
+        }).catch(logger.error);
 
         this.allAvailableRules = availableRules;
+
+        await this.setupMqttEntities();
     }
 
     async putSetting(key: string, value: SettingValue): Promise<void> {
@@ -575,7 +580,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     mqttMessageCb: MqttMessageCb = async (topic, message) => {
         const logger = this.getLogger();
-        logger.log(topic, message);
         !!message && topic.endsWith('/config') && !this.currentAutodiscoveryTopics.includes(topic) && this.currentAutodiscoveryTopics.push(topic);
     }
 
@@ -636,14 +640,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 await subscribeToPluginMqttTopics({
                     entitiesActiveTopic: mqttActiveEntitiesTopic,
                     mqttClient,
+                    console: logger,
                     rules: this.allAvailableRules,
                     activeEntitiesCb: async (message) => {
                         logger.debug(`Received update for ${mqttActiveEntitiesTopic} topic: ${JSON.stringify(message)}`);
                         await this.syncHaEntityIds(message);
                     },
-                    ruleCb: async ({ active, ruleName }) => {
+                    activationRuleCb: async ({ active, ruleName }) => {
                         const { common: { enabledKey } } = getRuleKeys({ ruleName, ruleType: RuleType.Detection });
-                        logger.log(`Setting rule ${ruleName} to ${active}`);
+                        logger.debug(`Setting rule ${ruleName} to ${active}`);
                         await this.putSetting(enabledKey, active);
                     },
                 });
