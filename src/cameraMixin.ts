@@ -18,7 +18,7 @@ import { sleep } from "../../scrypted/server/src/sleep";
 
 const { systemManager } = sdk;
 
-interface MatchRule { match?: ObjectDetectionResult, rule: BaseRule, dataToReport: any }
+interface MatchRule { match?: ObjectDetectionResult, rule: BaseRule, dataToReport?: any }
 interface OccupancyData {
     lastOccupancy: boolean,
     occupancyToConfirm?: boolean,
@@ -182,6 +182,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     lastB64Image?: string;
     lastPictureTaken?: number;
     lastOccupancyRegularCheck?: number;
+    lastOccupancyRuleNotified: Record<string, number> = {};
 
     accumulatedDetections: AccumulatedDetection[] = [];
     accumulatedRules: MatchRule[] = [];
@@ -1515,9 +1516,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             for (const occupancyRuleData of occupancyRulesData) {
                 const rule = occupancyRuleData.rule;
-                const currentState = this.occupancyState[rule.name];
+                const timePassed = this.isDelayPassed({ type: 'OccupancyNotification', matchRule: { rule } });
 
-                if (!rulesToNotNotify.includes(rule.name)) {
+                if (!rulesToNotNotify.includes(rule.name) && timePassed) {
+                    const currentState = this.occupancyState[rule.name];
+
                     let message = occupancyRuleData.occupies ?
                         rule.zoneOccupiedText :
                         rule.zoneNotOccupiedText;
@@ -1691,7 +1694,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 if (mqttClient) {
                     logger.info(`Updating classname images ${classnames.join(', ')} with image source ${imageSource}`);
 
-                    const allowedClassnames = classnames.filter(classname => this.isMqttImageDelayPassed({
+                    const allowedClassnames = classnames.filter(classname => this.isDelayPassed({
                         classname,
                         type: 'BasicDetection'
                     }));
@@ -1709,7 +1712,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                     logger.info(`Updating rules ${rulesToUpdate.map(rule => rule.rule.name).join(', ')} with image source ${imageSource}`);
                     for (const matchRule of rulesToUpdate) {
-                        const timePassedForImageUpdate = this.isMqttImageDelayPassed({
+                        const timePassedForImageUpdate = this.isDelayPassed({
                             type: 'RuleImageUpdate',
                             matchRule
                         });
@@ -1728,7 +1731,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             });
                         }
 
-                        const timePassedForNotification = this.isMqttImageDelayPassed({ type: 'RuleNotification', matchRule });
+                        const timePassedForNotification = this.isDelayPassed({ type: 'RuleNotification', matchRule });
 
                         if (timePassedForNotification) {
                             logger.log(`Starting notifiers for detection rule ${rule.name}, b64Image ${b64Image?.substring(0, 10)}`);
@@ -1752,9 +1755,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    isMqttImageDelayPassed(props: {
+    isDelayPassed(props: {
         classname?: string;
-        type: 'BasicDetection' | 'RuleImageUpdate' | 'RuleNotification',
+        type: 'BasicDetection' | 'RuleImageUpdate' | 'RuleNotification' | 'OccupancyNotification',
         matchRule?: MatchRule
     }) {
         const { classname, type, matchRule } = props;
@@ -1800,6 +1803,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             if (timePassed) {
                 this.lastRuleNotifiedMap[lastDetectionkey] = now;
+            }
+
+            return timePassed;
+        } else if (type === 'OccupancyNotification') {
+            const ruleName = matchRule.rule.name;
+            const lastNotified = this.lastOccupancyRuleNotified[ruleName];
+            const delay = 5;
+
+            const timePassed = !lastNotified || (now - lastNotified) >= delay * 1000;
+
+            if (timePassed) {
+                this.lastOccupancyRuleNotified[ruleName] = now;
             }
 
             return timePassed;
@@ -1883,7 +1898,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         }).catch(logger.error);
 
                         if (b64Image) {
-                            const timePassed = this.isMqttImageDelayPassed({
+                            const timePassed = this.isDelayPassed({
                                 classname,
                                 type: 'BasicDetection'
                             });
@@ -2041,7 +2056,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 for (const matchRule of matchRules) {
                     try {
                         const { match, rule } = matchRule;
-                        const canUpdateMqttImage = isFromNvr && rule.isNvr && this.isMqttImageDelayPassed({ type: 'RuleImageUpdate', matchRule });
+                        const canUpdateMqttImage = isFromNvr && rule.isNvr && this.isDelayPassed({ type: 'RuleImageUpdate', matchRule });
 
                         if (this.isActiveForMqttReporting) {
                             logger.info(`Publishing detection rule ${matchRule.rule.name} data, b64Image ${b64Image?.substring(0, 10)} skipMqttImage ${!canUpdateMqttImage}`);
@@ -2056,7 +2071,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             });
                         }
 
-                        if (isFromNvr && rule.isNvr && this.isMqttImageDelayPassed({ type: 'RuleNotification', matchRule })) {
+                        if (isFromNvr && rule.isNvr && this.isDelayPassed({ type: 'RuleNotification', matchRule })) {
                             if (rule.ruleType === RuleType.Detection) {
                                 logger.log(`Starting notifiers for detection rule ${rule.name}, b64Image ${b64Image?.substring(0, 10)}`);
                             }
