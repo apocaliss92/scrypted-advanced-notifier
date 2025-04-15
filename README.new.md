@@ -34,7 +34,12 @@ The plugin will export to MQTT the following entities:
 - Recording switch (NVR privacy mode)
 
 ## Notifications
+The plugin provides customized way to deliver notifications. It is based on rules. Each rule can be activated based on several factors, i.e. active sensors, time ranges, security system status. Any notifier can be used but the only fully supported currently are (can be extended for any other):
+- Homeassistant push notifications
+- Pushover
 
+Rules can be of following types:
+### Detection
 
 <!-- ## Homeassistant
 It's possbile to configure an homeassistant connection (or utilize the one configured in the `Homeassistant` plugin) to fetch configured Rooms and Entities which are identified by one of the `Entity regex patterns`, these can be then assigned to a camera or sensor to add metadata used to render the notification. The fetched data will be visible in the `METADATA` group, and edited 

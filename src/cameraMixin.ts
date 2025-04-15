@@ -976,12 +976,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     public async getImage(props?: {
         preferLatest?: boolean,
+        preferSnapshot?: boolean,
         fallbackToLatest?: boolean,
         detectionId?: string,
         eventId?: string,
         image?: MediaObject
     }) {
-        const { preferLatest, fallbackToLatest, detectionId, eventId, image: imageParent } = props ?? {};
+        const { preferLatest, fallbackToLatest, detectionId, eventId, image: imageParent, preferSnapshot } = props ?? {};
         const logger = this.getLogger();
         const now = Date.now();
         const { minSnapshotDelay, useFramesGenerator } = this.storageSettings.values;
@@ -999,7 +1000,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const findFromSnapshot = async () => {
             const timePassed = !this.lastPictureTaken || msPassed >= 1000 * minSnapshotDelay;
 
-            if (timePassed) {
+            if (timePassed || preferSnapshot) {
                 try {
                     this.lastPictureTaken = now;
                     this.lastImage = undefined;
@@ -1011,7 +1012,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             width: SNAPSHOT_WIDTH,
                         },
                     });
-                    logger.info(`Image taken from snapshot because time is passed ${detectionId} ${eventId}`);
+                    logger.info(`Image taken from snapshot because time is passed`);
                     imageSource = 'Snapshot';
                 } catch (e) {
                     logger.log(`Error taking a snapshot`, e.message);
@@ -2017,15 +2018,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let image = imageParent;
         let b64Image = b64ImageParent;
 
-        // if (!image) {
-        //     // In case of non-NVR detections, take a snapshot preferring the one from the detection
-        //     const { image: newImage, b64Image: newB64Image } = await this.getImage({
-        //         eventId,
-        //         detectionId,
-        //     });
-        //     image = newImage;
-        //     b64Image = newB64Image;
-        // }
+        if (!image || !b64Image) {
+            const { image: newImage, b64Image: newB64Image, imageSource } = await this.getImage({
+                eventId,
+                detectionId,
+                preferSnapshot: true
+            });
+            image = newImage;
+            b64Image = newB64Image;
+            logger.log(`Image not present for rules publishing, trying to fetch one now, eventId ${eventId}, detectionId ${detectionId}. Received from ${imageSource}`);
+        }
 
         for (const matchRule of matchRules) {
             try {
@@ -2055,16 +2057,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
 
                 if (rule.ruleType === RuleType.Detection) {
-                    // if (this.isActiveForMqttReporting) {
-                    //     this.triggerRule({
-                    //         rule,
-                    //         b64Image,
-                    //         device: this.cameraDevice,
-                    //         triggerTime,
-                    //         image,
-                    //     });
-                    // }
-
                     logger.log(`Starting notifiers for detection rule ${rule.name}, b64Image ${b64Image?.substring(0, 10)}`);
                 }
 
