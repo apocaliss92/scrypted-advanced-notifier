@@ -1195,7 +1195,7 @@ export const publishRuleData = async (props: {
     isValueChanged?: boolean
     skipMqttImage?: boolean
 }) => {
-    const { isValueChanged, console, device, mqttClient, rule, b64Image, image, imageUrl, triggerTime, storeImageFn, triggerValue, skipMqttImage } = props;
+    const { isValueChanged, console, device, mqttClient, rule, b64Image, image, triggerTime, storeImageFn, triggerValue, skipMqttImage } = props;
 
     if (!mqttClient) {
         return;
@@ -1216,17 +1216,19 @@ export const publishRuleData = async (props: {
         let value: any;
 
         if ([MqttEntityIdentifier.Triggered, MqttEntityIdentifier.Occupied].includes(identifier)) {
-            value = triggerValue ?? false;
+            if (triggerValue != undefined) {
+                value = triggerValue ?? false;
+            }
         } else if (identifier === MqttEntityIdentifier.LastTrigger) {
-            value = new Date(triggerTime).toISOString();
+            if (triggerValue != undefined) {
+                value = new Date(triggerTime).toISOString();
+            }
         } else if (identifier === MqttEntityIdentifier.LastImage && b64Image) {
-            // value = imageUrl;
-
             if (!skipMqttImage) {
                 value = b64Image || null;
             }
 
-            storeImageFn && storeImageFn({
+            storeImageFn && b64Image && storeImageFn({
                 device,
                 name: `rule-${rule.name}`,
                 imageMo: image,
