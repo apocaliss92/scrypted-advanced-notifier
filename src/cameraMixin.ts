@@ -1082,8 +1082,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         } catch (e) {
             logger.log(`Error during getImage`, e);
         } finally {
-            this.lastImage = image;
-            this.lastB64Image = b64Image;
+            if (!imageParent) {
+                this.lastImage = image;
+                this.lastB64Image = b64Image;
+            }
 
             return { image, b64Image, bufferImage, imageUrl, imageSource };
         }
