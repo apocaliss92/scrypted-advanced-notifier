@@ -1181,33 +1181,83 @@ export const reportDeviceValues = async (props: {
     }
 }
 
+// export const publishRuleData = async (props: {
+//     device: ScryptedDeviceBase,
+//     rule: BaseRule,
+//     console: Console,
+//     mqttClient?: MqttClient,
+//     image: MediaObject,
+//     b64Image: string,
+//     imageUrl?: string,
+//     triggerTime: number,
+//     storeImageFn?: StoreImageFn,
+//     triggerValue?: boolean,
+//     isValueChanged?: boolean
+//     skipMqttImage?: boolean
+// }) => {
+//     const { isValueChanged, console, device, mqttClient, rule, b64Image, image, imageUrl, triggerTime, storeImageFn, triggerValue, skipMqttImage } = props;
+
+//     if (!mqttClient) {
+//         return;
+//     }
+
+//     let mqttEntities = getRuleMqttEntities({ rule, device, forDiscovery: false });
+
+//     if (rule.ruleType === RuleType.Occupancy && !isValueChanged) {
+//         mqttEntities = mqttEntities.filter(item => item.identifier === MqttEntityIdentifier.Occupied);
+//     }
+
+//     console.info(`Updating data for rule ${rule.name}: triggered ${triggerValue} and image is present: ${!!b64Image}. Entities ${JSON.stringify(mqttEntities)}`);
+
+//     for (const mqttEntity of mqttEntities) {
+//         const { identifier, retain } = mqttEntity;
+//         const { stateTopic } = getMqttTopics({ mqttEntity, device });
+
+//         let value: any;
+
+//         if ([MqttEntityIdentifier.Triggered, MqttEntityIdentifier.Occupied].includes(identifier)) {
+//             value = triggerValue ?? false;
+//         } else if (identifier === MqttEntityIdentifier.LastTrigger) {
+//             value = new Date(triggerTime).toISOString();
+//         } else if (identifier === MqttEntityIdentifier.LastImage && b64Image) {
+//             // value = imageUrl;
+
+//             if (!skipMqttImage) {
+//                 value = b64Image || null;
+//             }
+
+//             storeImageFn && storeImageFn({
+//                 device,
+//                 name: `rule-${rule.name}`,
+//                 imageMo: image,
+//                 timestamp: triggerTime,
+//                 b64Image
+//             }).catch(console.log);
+//         }
+
+//         if (value !== undefined) {
+//             await mqttClient.publish(stateTopic, value, retain);
+//         }
+//     }
+// }
+
 export const publishRuleData = async (props: {
     device: ScryptedDeviceBase,
     rule: BaseRule,
     console: Console,
     mqttClient?: MqttClient,
-    image: MediaObject,
-    b64Image: string,
-    imageUrl?: string,
     triggerTime: number,
-    storeImageFn?: StoreImageFn,
     triggerValue?: boolean,
-    isValueChanged?: boolean
-    skipMqttImage?: boolean
 }) => {
-    const { isValueChanged, console, device, mqttClient, rule, b64Image, image, imageUrl, triggerTime, storeImageFn, triggerValue, skipMqttImage } = props;
+    const { console, device, mqttClient, rule, triggerTime, triggerValue } = props;
 
     if (!mqttClient) {
         return;
     }
 
-    let mqttEntities = getRuleMqttEntities({ rule, device, forDiscovery: false });
+    let mqttEntities = getRuleMqttEntities({ rule, device, forDiscovery: false }).filter(entity => entity.identifier !== MqttEntityIdentifier.LastImage);;
 
-    if (rule.ruleType === RuleType.Occupancy && !isValueChanged) {
-        mqttEntities = mqttEntities.filter(item => item.identifier === MqttEntityIdentifier.Occupied);
-    }
-
-    console.info(`Updating data for rule ${rule.name}: triggered ${triggerValue} and image is present: ${!!b64Image}. Entities ${JSON.stringify(mqttEntities)}`);
+    console.info(`Updating data for rule ${rule.name}: triggered ${triggerValue}. Entities ${JSON.stringify(mqttEntities)}`);
 
     for (const mqttEntity of mqttEntities) {
         const { identifier, retain } = mqttEntity;
@@ -1218,26 +1268,56 @@ export const publishRuleData = async (props: {
         if ([MqttEntityIdentifier.Triggered, MqttEntityIdentifier.Occupied].includes(identifier)) {
             value = triggerValue ?? false;
         } else if (identifier === MqttEntityIdentifier.LastTrigger) {
-            value = new Date(triggerTime).toISOString();
-        } else if (identifier === MqttEntityIdentifier.LastImage && b64Image) {
-            // value = imageUrl;
-
-            if (!skipMqttImage) {
-                value = b64Image || null;
+            if (triggerValue) {
+                value = new Date(triggerTime).toISOString();
             }
-
-            storeImageFn && storeImageFn({
-                device,
-                name: `rule-${rule.name}`,
-                imageMo: image,
-                timestamp: triggerTime,
-                b64Image
-            }).catch(console.log);
         }
 
         if (value !== undefined) {
             await mqttClient.publish(stateTopic, value, retain);
         }
+    }
+}
+
+export const publishRuleImages = async (props: {
+    mqttClient?: MqttClient,
+    device: ScryptedDeviceBase,
+    console: Console,
+    triggerTime: number,
+    rules?: BaseRule[],
+    b64Image?: string,
+    imageUrl?: string,
+    image?: MediaObject,
+    imageSuffix?: string,
+    storeImageFn?: StoreImageFn
+}) => {
+    const { mqttClient, device, rules = [], console, b64Image, image, triggerTime, storeImageFn, imageSuffix } = props;
+
+    if (!mqttClient) {
+        return;
+    }
+    console.info(`Publishing image for rules: ${rules.map(rule => rule.name).join(', ')}`);
+
+    try {
+        for (const rule of rules) {
+            const mqttEntities = getRuleMqttEntities({ rule, device, forDiscovery: false }).filter(entity => entity.identifier === MqttEntityIdentifier.LastImage);;
+
+            for (const mqttEntity of mqttEntities) {
+                const { stateTopic } = getMqttTopics({ mqttEntity, device });
+                await mqttClient.publish(stateTopic, b64Image, false);
+
+                storeImageFn && storeImageFn({
+                    device,
+                    name: `rule-${rule.name}`,
+                    imageMo: image,
+                    timestamp: triggerTime,
+                    b64Image
+                });
+
+            }
+        }
+    } catch (e) {
+        console.log(`Error publishing ${JSON.stringify({ rules })}`, e);
     }
 }
 
@@ -1311,17 +1391,26 @@ export const publishOccupancy = async (props: {
             const { occupies, rule, b64Image, image, triggerTime, changed } = occupancyRuleData;
 
             await publishRuleData({
-                b64Image,
                 console,
                 device,
-                image,
                 mqttClient,
                 rule,
                 triggerTime,
-                storeImageFn,
                 triggerValue: occupies,
-                isValueChanged: changed
             });
+
+            if (changed) {
+                await publishRuleImages({
+                    console,
+                    b64Image,
+                    device,
+                    image,
+                    mqttClient,
+                    rules: [rule],
+                    triggerTime,
+                    storeImageFn,
+                });
+            }
         }
     } catch (e) {
         console.log(`Error in publishOccupancy ${JSON.stringify({
