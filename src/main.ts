@@ -179,7 +179,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         },
         testNotifier: {
             group: 'Test',
-            title: 'Notiier',
+            title: 'Notifier',
             type: 'device',
             deviceFilter: notifierFilter,
             immediate: true,
@@ -363,7 +363,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 }
             }, 10 * 1000);
         } catch (e) {
-            this.getLogger().log(`Error in initFLow`, e);
+            this.getLogger().log(`Error in initFlow`, e);
         }
     }
 
@@ -1023,7 +1023,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         let entityIds: string[] = [];
 
         try {
-            logger.log(`Fetching homeasisstant data`);
+            logger.log(`Fetching homeassistant data`);
             const haApi = await this.getHaApi();
             const entitiesResponse = await haApi.getStatesData();
 
