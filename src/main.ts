@@ -262,7 +262,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     private mainFlowInterval: NodeJS.Timeout;
     defaultNotifier: AdvancedNotifierNotifier;
     camera: AdvancedNotifierCamera;
-    nvrRules: DetectionRule[] = [];
     runningDetectionRules: DetectionRule[] = [];
     lastNotExistingNotifier: number;
     allAvailableRules: BaseRule[] = [];
@@ -1221,7 +1220,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     async notifyNvrEvent(props: ParseNotificationMessageResult & { cameraDevice: DeviceInterface, triggerTime: number }) {
         const { eventType, textKey, triggerDevice, cameraDevice, triggerTime, label } = props;
         const logger = this.getLogger(cameraDevice);
-        const rules = this.nvrRules.filter(rule => rule.nvrEvents.includes(eventType as NvrEvent));
+        const rules = this.runningDetectionRules.filter(rule =>
+            rule.isNvr &&
+            rule.nvrEvents.includes(eventType as NvrEvent)
+        );
 
         const notifyCameraProps: Partial<NotifyCameraProps> = {
             triggerDevice,
@@ -1321,19 +1323,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 triggerTime,
                 image,
             });
-        } else if (
-            [NvrEvent.Offline, NvrEvent.Online].includes(eventType as NvrEvent) &&
-            cameraDevice.interfaces.includes(ScryptedInterface.Battery)
-        ) {
-            logger.log(`Online / Offline notification for a battery camera.Skipping: ${JSON.stringify({
-                cameraName,
-                options,
-                allDetections,
-                eventType,
-                triggerDevice,
-            })}`);
-
-            return;
         } else {
             if (eventType) {
                 await this.notifyNvrEvent(
