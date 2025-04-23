@@ -1129,6 +1129,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     if (this.audioForwarder === fp)
                         this.audioForwarder = undefined;
                 });
+            }).catch(e => {
+                logger.log(`Error in audio forwarder`, e?.message);
             });
             this.lastAudioConnection = Date.now();
         } catch (e) {
