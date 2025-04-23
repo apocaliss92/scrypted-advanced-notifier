@@ -3,7 +3,7 @@ import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/s
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep, uniq } from "lodash";
 import { getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
-import MqttClient, { MqttMessageCb } from "../../scrypted-apocaliss-base/src/mqtt-client";
+import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import { filterOverlappedDetections } from '../../scrypted-basic-object-detector/src/util';
 import { RtpPacket } from "../../scrypted/external/werift/packages/rtp/src/rtp/rtp";
 import { startRtpForwarderProcess } from '../../scrypted/plugins/webrtc/src/rtp-forwarders';
@@ -1362,8 +1362,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const toConfirm = currentState.occupancyToConfirm != undefined && !!currentState.confirmationStart;
 
                 let occupancyData: Partial<OccupancyData> = {
-                    lastCheck: now
-                }
+                    ...(currentState ?? {}),
+                    lastCheck: now,
+                };
                 const logPayload: any = {
                     occupancyRuleData,
                     currentState,
