@@ -1243,30 +1243,24 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const occupancyRulesDataMap: Record<string, OccupancyRuleData> = {};
             const zonesData = await this.getObserveZones();
 
-            let objectDetectorParent: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
+            const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
 
-            if (!objectDetectorParent) {
+            if (!objectDetector) {
                 logger.log(`No detection plugin selected. skipping occupancy`);
                 return;
             }
 
-            const detectedResultParent = await objectDetectorParent.detectObjects(imageParent);
+            const detectedResultParent = await objectDetector.detectObjects(imageParent);
 
-            if (objectDetectorParent.name !== 'Scrypted NVR Object Detection') {
+            if (!objectDetector.interfaces.includes(ScryptedInterface.ObjectDetectionGenerator)) {
                 detectedResultParent.detections = filterOverlappedDetections(detectedResultParent.detections);
             }
 
-
-
             for (const occupancyRule of this.runningOccupancyRules) {
-                const { name, zoneType, observeZone, scoreThreshold, detectionClass, maxObjects, objectDetector: ruleObjectDetector, captureZone } = occupancyRule;
+                const { name, zoneType, observeZone, scoreThreshold, detectionClass, maxObjects, captureZone } = occupancyRule;
 
-                let objectDetector = objectDetectorParent;
                 let detectedResult = detectedResultParent;
 
-                if (ruleObjectDetector) {
-                    objectDetector = systemManager.getDeviceById<ObjectDetection & ScryptedDeviceBase>(ruleObjectDetector);
-                }
                 let imageToUse = imageParent;
 
                 if (captureZone?.length >= 3) {
@@ -1323,8 +1317,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         d.boundingBox[1] += top;
                     }
                     detectedResult.inputDimensions = [image.width, image.height];
-                } else if (ruleObjectDetector && !detectedResult) {
-                    detectedResult = await objectDetector.detectObjects(imageParent);
                 }
 
                 let objectsDetected = 0;

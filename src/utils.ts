@@ -810,7 +810,6 @@ export const getRuleKeys = (props: {
 
     // Specific for occupancy rules
     const detectionClassKey = `${prefix}:${ruleName}:detecionClassKey`;
-    const objectDetectorKey = `${prefix}:${ruleName}:objectDetector`;
     const captureZoneKey = `${prefix}:${ruleName}:captureZone`;
     const zoneKey = `${prefix}:${ruleName}:zone`;
     const zoneMatchTypeKey = `${prefix}:${ruleName}:zoneMatchType`;
@@ -864,7 +863,6 @@ export const getRuleKeys = (props: {
             cleanDataKey,
         },
         occupancy: {
-            objectDetectorKey,
             captureZoneKey,
             zoneKey,
             zoneMatchTypeKey,
@@ -1430,7 +1428,6 @@ export const getOccupancyRulesSettings = async (props: {
             changeStateConfirmKey,
             forceUpdateKey,
             maxObjectsKey,
-            objectDetectorKey,
             zoneKey,
             zoneMatchTypeKey,
             zoneNotOccupiedTextKey,
@@ -1521,18 +1518,7 @@ export const getOccupancyRulesSettings = async (props: {
                 group,
                 subgroup,
                 type: 'string',
-            },
-            {
-                key: objectDetectorKey,
-                title: 'Object Detector',
-                description: 'Select the object detection plugin to use for detecting objects. (overrides the configuration in plugin)',
-                type: 'device',
-                group,
-                subgroup,
-                deviceFilter: `interfaces.includes('${ScryptedInterface.ObjectDetectionPreview}') && id !== '${nvrAcceleratedMotionSensorId}'`,
-                immediate: true,
-                hide: !showMore
-            },
+            }
         );
 
         return settings;
@@ -2087,7 +2073,6 @@ export const getDetectionRules = (props: {
 }
 
 export interface OccupancyRule extends BaseRule {
-    objectDetector: string;
     detectionClass?: DetectionClass;
     scoreThreshold?: number;
     changeStateConfirm?: number;
@@ -2126,7 +2111,6 @@ export const getDeviceOccupancyRules = (
                 detectionClassKey,
                 forceUpdateKey,
                 maxObjectsKey,
-                objectDetectorKey,
                 zoneKey,
                 zoneMatchTypeKey,
                 zoneNotOccupiedTextKey,
@@ -2147,7 +2131,6 @@ export const getDeviceOccupancyRules = (
 
         const zoneOccupiedText = deviceStorage.getItem(zoneOccupiedTextKey) as string;
         const zoneNotOccupiedText = deviceStorage.getItem(zoneNotOccupiedTextKey) as string;
-        const objectDetector = deviceStorage.getItem(objectDetectorKey) as ScryptedDevice;
         const detectionClass = deviceStorage.getItem(detectionClassKey) as DetectionClass;
         const scoreThreshold = deviceStorage.getItem(scoreThresholdKey) as number || 0.5;
         const changeStateConfirm = deviceStorage.getItem(changeStateConfirmKey) as number || 30;
@@ -2159,7 +2142,6 @@ export const getDeviceOccupancyRules = (
 
         const occupancyRule: OccupancyRule = {
             ...rule,
-            objectDetector: objectDetector?.id,
             zoneNotOccupiedText,
             zoneOccupiedText,
             detectionClass,
