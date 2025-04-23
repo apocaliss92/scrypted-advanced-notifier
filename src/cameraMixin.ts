@@ -91,12 +91,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         },
         occupancyCheckInterval: {
             title: 'Check objects occupancy in seconds',
-            description: 'Regularly check objects presence, performance intensive. Set to 0 to disable',
+            description: 'Regularly check objects presence and report it to MQTT, performance intensive. Set to 0 to disable',
             type: 'number',
         },
         checkSoundPressure: {
             title: 'Audio pressure (dB) detection',
-            description: 'Constinuously check the audio dBs detected by the camera',
+            description: 'Constinuously check the audio dBs detected and report it to MQTT',
             type: 'boolean',
             immediate: true,
         },
@@ -256,11 +256,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             if (mqttEnabled && pluginEnabled) {
                 this.initializingMqtt = true;
                 const logger = this.getLogger();
-
-                if (this.mqttClient) {
-                    this.mqttClient.disconnect();
-                    this.mqttClient = undefined;
-                }
 
                 try {
                     this.mqttClient = await getMqttBasicClient({
@@ -819,6 +814,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async getMixinSettings(): Promise<Setting[]> {
         try {
+            const { enabledToMqtt } = this.storageSettings.values;
+            this.storageSettings.settings.minMqttPublishDelay.hide = !enabledToMqtt;
+            this.storageSettings.settings.checkSoundPressure.hide = !enabledToMqtt;
+            this.storageSettings.settings.occupancyCheckInterval.hide = !enabledToMqtt;
             return this.storageSettings.getSettings();
         } catch (e) {
             this.getLogger().log('Error in getMixinSettings', e);
