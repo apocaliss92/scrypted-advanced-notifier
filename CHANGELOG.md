@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.2.0
+
+- Update images for rule in the same asynqueue to make sure an image is always available
+
 ### 3.1.23
 
 - Link plugin rule entities on devices and vice-versa, plugin triggers will activate the plugin entity as well

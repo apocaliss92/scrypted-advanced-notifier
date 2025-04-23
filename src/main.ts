@@ -13,12 +13,11 @@ import { AiPlatform, getAiMessage } from "./aiUtils";
 import { AdvancedNotifierCamera } from "./camera";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
-import { cleanupAutodiscoveryTopics, idPrefix, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
+import { idPrefix, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getAllDevices, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getFolderPaths, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, HOMEASSISTANT_PLUGIN_ID, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, SNAPSHOT_WIDTH, splitRules, StoreImageFn, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TimelapseRule } from "./utils";
-import { MqttMessageCb } from "../../scrypted-apocaliss-base/src/mqtt-client";
 
 const { systemManager, mediaManager } = sdk;
 const defaultNotifierNativeId = 'advancedNotifierDefaultNotifier';
@@ -262,12 +261,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     private mainFlowInterval: NodeJS.Timeout;
     defaultNotifier: AdvancedNotifierNotifier;
     camera: AdvancedNotifierCamera;
-    nvrRules: DetectionRule[] = [];
     runningDetectionRules: DetectionRule[] = [];
     lastNotExistingNotifier: number;
     allAvailableRules: BaseRule[] = [];
     fetchedEntities: string[] = [];
-    currentAutodiscoveryTopics: string[] = [];
     lastAutoDiscovery: number;
 
     constructor(nativeId: string) {
@@ -560,11 +557,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 console: logger,
                 rules: availableRules,
             }).then(async (activeTopics) => {
-                const topicsToDelete = this.currentAutodiscoveryTopics.filter(topic => !activeTopics.includes(topic));
-                if (topicsToDelete.length > 0) {
-                    logger.log(`${topicsToDelete.length} topics to delete found: ${topicsToDelete.join(', ')}`);
-                    await cleanupAutodiscoveryTopics({ mqttClient, logger, topics: topicsToDelete });
-                }
+                await this.mqttClient.cleanupAutodiscoveryTopics(activeTopics);
             }).catch(logger.error);
 
             this.allAvailableRules = availableRules;
@@ -575,11 +568,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     async putSetting(key: string, value: SettingValue): Promise<void> {
         return this.storageSettings.putSetting(key, value);
-    }
-
-    mqttMessageCb: MqttMessageCb = async (topic, message) => {
-        const logger = this.getLogger();
-        !!message && topic.endsWith('/config') && !this.currentAutodiscoveryTopics.includes(topic) && this.currentAutodiscoveryTopics.push(topic);
     }
 
     async getMqttClient() {
@@ -602,12 +590,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         mqttUsename,
                         mqttPassword,
                         clientId: `scrypted_an`,
-                        messageCb: this.mqttMessageCb,
+                        configTopicPattern: `homeassistant/+/${idPrefix}-${this.pluginId}/+/config`
                     });
                     await this.mqttClient?.getMqttClient();
-                    await this.mqttClient.mqttClient.subscribeAsync([
-                        `homeassistant/+/${idPrefix}-${this.pluginId}/+/config`
-                    ]);
                 } catch (e) {
                     logger.log('Error setting up MQTT client', e);
                 } finally {
@@ -1221,7 +1206,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     async notifyNvrEvent(props: ParseNotificationMessageResult & { cameraDevice: DeviceInterface, triggerTime: number }) {
         const { eventType, textKey, triggerDevice, cameraDevice, triggerTime, label } = props;
         const logger = this.getLogger(cameraDevice);
-        const rules = this.nvrRules.filter(rule => rule.nvrEvents.includes(eventType as NvrEvent));
+        const rules = this.runningDetectionRules.filter(rule =>
+            rule.isNvr &&
+            rule.nvrEvents.includes(eventType as NvrEvent)
+        );
 
         const notifyCameraProps: Partial<NotifyCameraProps> = {
             triggerDevice,
@@ -1321,19 +1309,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 triggerTime,
                 image,
             });
-        } else if (
-            [NvrEvent.Offline, NvrEvent.Online].includes(eventType as NvrEvent) &&
-            cameraDevice.interfaces.includes(ScryptedInterface.Battery)
-        ) {
-            logger.log(`Online / Offline notification for a battery camera.Skipping: ${JSON.stringify({
-                cameraName,
-                options,
-                allDetections,
-                eventType,
-                triggerDevice,
-            })}`);
-
-            return;
         } else {
             if (eventType) {
                 await this.notifyNvrEvent(
