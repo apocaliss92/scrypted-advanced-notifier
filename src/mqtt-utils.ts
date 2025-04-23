@@ -814,22 +814,6 @@ const getDeviceClassEntities = (device: ScryptedDeviceBase) => {
     return deviceClassMqttEntities.filter(entry => !entry.className || classes.includes(entry.className));
 }
 
-export const cleanupAutodiscoveryTopics = async (props: {
-    mqttClient?: MqttClient,
-    logger: Console,
-    topics: string[]
-}) => {
-    const { logger, topics, mqttClient } = props;
-
-    if (!mqttClient) {
-        return;
-    }
-
-    for (const topic of topics) {
-        await mqttClient.publish(topic, '', true);
-    }
-}
-
 export const setupDeviceAutodiscovery = async (props: {
     mqttClient?: MqttClient,
     device: ScryptedDeviceBase & ObjectDetector,
