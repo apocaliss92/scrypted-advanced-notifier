@@ -481,10 +481,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
                 this.isActiveForNvrNotifications = anyAllowedNvrDetectionRule;
 
-                if (isActiveForMqttReporting) {
-                    await this.checkOutdatedRules();
-                }
-
                 const shouldCheckAudio = shouldListenAudio || checkSoundPressure;
                 if (shouldCheckAudio && !this.isActiveForAudioDetections) {
                     logger.log(`Starting Audio listener`);
@@ -517,7 +513,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 //     this.stopAccumulatedDetectionsInterval();
                 // }
 
-
                 if (this.framesGeneratorSignal.finished && useFramesGenerator) {
                     logger.log(`Starting frames generator`);
                     this.startFramesGenerator().catch(logger.log);
@@ -529,6 +524,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     logger.log(`Restarting frames generator`);
                     this.stopFramesGenerator();
                 }
+
+                await this.checkOutdatedRules();
             } catch (e) {
                 logger.log('Error in startCheckInterval funct', e);
             }
@@ -545,7 +542,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             } catch (e) {
                 logger.log('Error in mainLoopListener', e);
             }
-        }, 1000 * 5);
+        }, 1000 * 2);
     }
 
     async startFramesGenerator() {
@@ -604,7 +601,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             } catch (e) {
                 logger.log('Error in startCheckInterval', e);
             }
-        }, 1000);
+        }, 500);
     }
 
     resetAudioRule(ruleName: string, lastNotification?: number) {
@@ -1011,7 +1008,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         try {
             if (!image) {
-                const isLastFrameRecent = !this.lastFrameAcquired || (now - this.lastFrameAcquired) <= 2000;
+                const isLastFrameRecent = !this.lastFrameAcquired || (now - this.lastFrameAcquired) <= 500;
                 if (useFramesGenerator && this.lastFrame && isLastFrameRecent) {
                     const tmp = await sdk.mediaManager.createMediaObject(this.lastFrame, 'image/jpeg');
                     const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(tmp, ScryptedMimeTypes.Image);
@@ -1373,7 +1370,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     tooOld,
                 };
 
-                // If the zone is not inizialized or last state change is too old, proceed with update regardless
+                // If the rule is not inizialized or last state change is too old, proceed with update regardless
                 const image = this.occupancyState[name].image;
                 const b64Image = (await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg'))?.toString('base64')
                 if (!currentState || tooOld) {
@@ -1473,10 +1470,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     logger.info(JSON.stringify(logPayload));
                 }
 
-                this.occupancyState[name] = {
-                    ...this.occupancyState[name],
+                const updatedState: OccupancyData = {
+                    ...currentState,
                     ...occupancyData
                 };
+
+                if (!currentState) {
+                    logger.log(`Initializing occupancy deta for rule ${name} to ${JSON.stringify(updatedState)}`);
+                }
+
+                this.occupancyState[name] = updatedState;
             }
 
             await this.storageSettings.putSetting('occupancyState', JSON.stringify(this.occupancyState));
@@ -1658,7 +1661,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const isOnlyMotion = classnames.length === 1 && detectionClassesDefaultMap[classnames[0]] === DetectionClass.Motion;
 
-        logger.info(`Accumulated data to analyze: ${JSON.stringify({ triggerTime, detectionId, eventId, classnames, rules: rulesToUpdate.map(rule => rule.rule.name) })}`);
+        logger.debug(`Accumulated data to analyze: ${JSON.stringify({ triggerTime, detectionId, eventId, classnames, rules: rulesToUpdate.map(rule => rule.rule.name) })}`);
 
         const { image, b64Image, imageSource } = await this.getImage({
             detectionId,
@@ -1834,9 +1837,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         try {
             if (this.isActiveForMqttReporting) {
-                // The MQTT image should be updated in 2 cases:
+                // The MQTT image should be updated only if:
                 // - the image comes already from NVR and the user wants MQTT detections to be used
-                // - the image comes from the decoder and the user does not want to use the NVR detections
 
                 if (isFromNvr && parentImage) {
                     const classnames = uniq(detections.map(d => d.className));
@@ -1887,7 +1889,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             if (canUpdateMqttImage && timePassed) {
                                 logger.info(`Updating image for classname ${classname} source: ${isFromNvr ? 'NVR' : 'Decoder'}`);
 
-                                await publishClassnameImages({
+                                publishClassnameImages({
                                     mqttClient,
                                     console: logger,
                                     classnames: [classname],

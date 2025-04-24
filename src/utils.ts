@@ -282,7 +282,6 @@ export const filterAndSortValidDetections = (props: {
         (detection) => [detection?.className ? classnamePrio[detection.className] : 100,
         1 - (detection.score ?? 0)]
     );
-    let hasLabel = false;
     const uniqueByClassName = uniqBy(sortedByPriorityAndScore, det => det.className);
     const candidates = uniqueByClassName.filter(det => {
         const { className, label, movement } = det;
@@ -298,14 +297,11 @@ export const filterAndSortValidDetections = (props: {
             logger.debug(`Movement data ${JSON.stringify(movement)} not valid: ${JSON.stringify(det)}`);
             return false;
         }
-        if (hasLabel) {
-            hasLabel = isLabel;
-        }
 
         return true;
     });
 
-    return { candidates, hasLabel };
+    return { candidates };
 }
 
 export type TextSettingKey =
