@@ -572,7 +572,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     });
                     this.lastFrameAcquired = now;
 
-                    await sleep(1000);
+                    await sleep(500);
                 } catch (e) {
                     logger.log(`Error acquiring a frame from generator`, e.message);
                     this.lastFrame = undefined;
@@ -2141,7 +2141,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const isFromSensor = resetSource === 'MotionSensor';
         const logger = this.getLogger();
         const mqttClient = await this.getMqttClient();
-
 
         const funct = async () => {
             logger.log(`Reset detections signal coming from ${resetSource}`);
