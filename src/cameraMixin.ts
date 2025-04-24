@@ -28,7 +28,9 @@ interface OccupancyData {
     objectsDetected: number,
     score: number,
     detectedResult: ObjectsDetected,
-    image: MediaObject
+    image: MediaObject;
+    // confirmedFrames: number;
+    // rejectedFrames: number;
 }
 
 export type OccupancyRuleData = {
@@ -347,10 +349,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 logger,
                             });
                         }
-                    }
 
-                    const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: name, ruleType });
-                    this.putMixinSetting(currentlyActiveKey, 'true');
+                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: name, ruleType });
+                        this.putMixinSetting(currentlyActiveKey, 'true');
+                    }
                 }
 
                 for (const rule of rulesToDisable) {
@@ -371,8 +373,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         }
                     }
 
-                    const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: name, ruleType });
-                    this.putMixinSetting(currentlyActiveKey, 'false');
+                    if (rule.currentlyActive) {
+                        const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: name, ruleType });
+                        this.putMixinSetting(currentlyActiveKey, 'false');
+                    }
                 }
 
                 this.runningDetectionRules = cloneDeep(allowedDetectionRules || []);
@@ -1174,10 +1178,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const anyTimelapseToRefresh = !!timelapsesToRefresh.length;
 
         if (anyOutdatedOccupancyRule || anyTimelapseToRefresh) {
-            const { image } = await this.getImage({ fallbackToLatest: true });
-            if (image) {
+            const { image, b64Image } = await this.getImage({ fallbackToLatest: true });
+            if (image && b64Image) {
                 if (anyOutdatedOccupancyRule) {
-                    this.checkOccupancyData(image, 'MainFlow').catch(logger.log);
+                    this.checkOccupancyData({ image, b64Image, source: 'MainFlow' }).catch(logger.log);
                 }
 
                 if (anyTimelapseToRefresh) {
@@ -1199,10 +1203,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    async checkOccupancyData(imageParent: MediaObject, source: 'Detections' | 'MainFlow') {
+    async checkOccupancyData(props: {
+        image: MediaObject,
+        b64Image: string,
+        source: 'Detections' | 'MainFlow'
+    }) {
+        const { image: imageParent, source } = props;
         if (!imageParent) {
             return;
         }
+
         const logger = this.getLogger();
 
         try {
@@ -1218,6 +1228,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             if (!timePassed) {
                 return;
             }
+
+            let shouldUpdateStorage = false;
 
             logger.info(`Checking occupancy for reason ${source}`);
 
@@ -1240,17 +1252,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }
 
             for (const occupancyRule of this.runningOccupancyRules) {
+                let image = imageParent;
+
                 const { name, zoneType, observeZone, scoreThreshold, detectionClass, maxObjects, captureZone } = occupancyRule;
 
                 let detectedResult = detectedResultParent;
 
-                let imageToUse = imageParent;
-
                 if (captureZone?.length >= 3) {
                     const zone = zonesData.find(zoneData => zoneData.name === observeZone)?.path;
-                    const image = await sdk.mediaManager.convertMediaObject<Image>(imageParent, ScryptedMimeTypes.Image);
-                    let left = image.width;
-                    let top = image.height;
+                    const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(imageParent, ScryptedMimeTypes.Image);
+                    let left = convertedImage.width;
+                    let top = convertedImage.height;
                     let right = 0;
                     let bottom = 0;
                     for (const point of zone) {
@@ -1260,10 +1272,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         bottom = Math.max(bottom, point[1]);
                     }
 
-                    left = left * image.width;
-                    top = top * image.height;
-                    right = right * image.width;
-                    bottom = bottom * image.height;
+                    left = left * convertedImage.width;
+                    top = top * convertedImage.height;
+                    right = right * convertedImage.width;
+                    bottom = bottom * convertedImage.height;
 
                     let width = right - left;
                     let height = bottom - top;
@@ -1275,11 +1287,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     // ensure bounds are within image.
                     left = Math.max(0, left);
                     top = Math.max(0, top);
-                    width = Math.min(width, image.width - left);
-                    height = Math.min(height, image.height - top);
+                    width = Math.min(width, convertedImage.width - left);
+                    height = Math.min(height, convertedImage.height - top);
 
                     if (!Number.isNaN(left) && !Number.isNaN(top) && !Number.isNaN(width) && !Number.isNaN(height)) {
-                        imageToUse = await image.toImage({
+                        image = await convertedImage.toImage({
                             crop: {
                                 left,
                                 top,
@@ -1287,10 +1299,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 height,
                             },
                         });
-                        detectedResult = await objectDetector.detectObjects(imageToUse);
+                        detectedResult = await objectDetector.detectObjects(image);
                     }
 
-                    if (objectDetector.name !== 'Scrypted NVR Object Detection') {
+                    if (!objectDetector.interfaces.includes(ScryptedInterface.ObjectDetectionGenerator)) {
                         detectedResult.detections = filterOverlappedDetections(detectedResult.detections);
                     }
 
@@ -1299,7 +1311,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         d.boundingBox[0] += left;
                         d.boundingBox[1] += top;
                     }
-                    detectedResult.inputDimensions = [image.width, image.height];
+                    detectedResult.inputDimensions = [convertedImage.width, convertedImage.height];
                 }
 
                 let objectsDetected = 0;
@@ -1335,7 +1347,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     ...this.occupancyState[name] ?? {} as OccupancyData,
                     objectsDetected,
                     detectedResult,
-                    image: imageToUse,
+                    image,
                     score: minScore
                 };
 
@@ -1372,13 +1384,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 // If the rule is not inizialized or last state change is too old, proceed with update regardless
                 const image = this.occupancyState[name].image;
-                const b64Image = (await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg'))?.toString('base64')
                 if (!currentState || tooOld) {
                     logger.info(`Force pushing rule ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
                     occupancyRulesData.push({
                         ...occupancyRuleData,
                         image,
-                        b64Image,
                         triggerTime: now,
                     });
 
@@ -1440,10 +1450,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             occupancyRulesData.push({
                                 ...occupancyRuleData,
                                 image,
-                                b64Image,
                                 triggerTime: currentState.confirmationStart,
                                 changed: stateActuallyChanged
                             });
+                            shouldUpdateStorage = true;
                         } else {
                             // Time is passed and value changed, restart confirmation flow
                             occupancyData = {
@@ -1482,7 +1492,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 this.occupancyState[name] = updatedState;
             }
 
-            await this.storageSettings.putSetting('occupancyState', JSON.stringify(this.occupancyState));
+            if (shouldUpdateStorage) {
+                await this.storageSettings.putSetting('occupancyState', JSON.stringify(this.occupancyState));
+            }
 
             if (this.isActiveForMqttReporting && detectedResultParent) {
                 logger.info(`Publishing occupancy data from source ${source}`);
@@ -1730,7 +1742,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
                 }
 
-                this.checkOccupancyData(image, 'Detections').catch(logger.log);
+                this.checkOccupancyData({
+                    image,
+                    b64Image,
+                    source: 'Detections'
+                }).catch(logger.log);
             } catch (e) {
                 logger.log(`Error on publishing data: ${JSON.stringify(dataToAnalyze)}`, e)
             }
