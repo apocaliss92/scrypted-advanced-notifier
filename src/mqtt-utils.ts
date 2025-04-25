@@ -1045,41 +1045,46 @@ export const publishAudioPressureValue = async (props: {
     }
 }
 
+export interface ClassnameImage { classname: string, label?: string };
+
 export const publishClassnameImages = async (props: {
     mqttClient?: MqttClient,
     device: ScryptedDeviceBase,
     console: Console,
     triggerTime: number,
-    classnames?: string[],
+    classnamesData?: ClassnameImage[],
     b64Image?: string,
     imageUrl?: string,
     image?: MediaObject,
     imageSuffix?: string,
+    skipMqtt?: boolean,
     storeImageFn?: StoreImageFn
 }) => {
-    const { mqttClient, device, classnames = [], console, b64Image, image, triggerTime, storeImageFn, imageSuffix } = props;
+    const { mqttClient, device, classnamesData = [], console, b64Image, image, triggerTime, storeImageFn, imageSuffix, skipMqtt } = props;
 
     if (!mqttClient) {
         return;
     }
-    console.info(`Publishing image for classnames: ${classnames.join(', ')}`);
+    console.info(`Publishing image for classnames: ${classnamesData.map(data => data.classname).join(', ')}`);
 
     try {
-        for (const classname of classnames) {
+        for (const { classname, label } of classnamesData) {
             const detectionClass = detectionClassesDefaultMap[classname];
             if (detectionClass) {
-                const mqttEntity = deviceClassMqttEntitiesGrouped[detectionClass].find(entry => entry.identifier === MqttEntityIdentifier.LastImage);
-                const { stateTopic } = getMqttTopics({ mqttEntity, device });
-                await mqttClient.publish(stateTopic, b64Image, false);
+                if (!skipMqtt) {
+                    const mqttEntity = deviceClassMqttEntitiesGrouped[detectionClass].find(entry => entry.identifier === MqttEntityIdentifier.LastImage);
+                    const { stateTopic } = getMqttTopics({ mqttEntity, device });
+                    await mqttClient.publish(stateTopic, b64Image, false);
+                }
 
                 let name = `object-detection-${classname}`;
-                // if (label) {
-                //     name += `-${label}`;
-                // }
+
+                if (label) {
+                    name += `-${label}`;
+                }
                 if (imageSuffix) {
                     name += `-${imageSuffix}`;
                 }
-
 
                 storeImageFn && storeImageFn({
                     device,
@@ -1107,7 +1112,7 @@ export const publishClassnameImages = async (props: {
             }
         }
     } catch (e) {
-        console.log(`Error publishing ${JSON.stringify({ classnames })}`, e);
+        console.log(`Error publishing ${JSON.stringify({ classnamesData })}`, e);
     }
 }
 
