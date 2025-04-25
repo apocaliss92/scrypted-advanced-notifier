@@ -351,7 +351,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         }
 
                         const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: name, ruleType });
-                        this.putMixinSetting(currentlyActiveKey, 'true');
+                        await this.putMixinSetting(currentlyActiveKey, 'true');
                     }
                 }
 
@@ -359,23 +359,23 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     const { ruleType, name } = rule;
                     logger.log(`${ruleType} rule stopped: ${name}`);
 
-                    if (ruleType === RuleType.Timelapse) {
-                        const lastGenerated = this.lastTimelapseGenerated[name];
-                        // Make sure to not spam generate timelapses if any issue occurs deferring by 1 min
-                        const isTimePassed = !lastGenerated || (now - lastGenerated) >= (1000 * 60);
-                        if (isTimePassed) {
-                            this.lastTimelapseGenerated[name] = now;
-                            this.plugin.timelapseRuleEnded({
-                                rule,
-                                device: this.cameraDevice,
-                                logger,
-                            }).catch(logger.log);
-                        }
-                    }
-
                     if (rule.currentlyActive) {
+                        if (ruleType === RuleType.Timelapse) {
+                            const lastGenerated = this.lastTimelapseGenerated[name];
+                            // Make sure to not spam generate timelapses if any issue occurs deferring by 1 min
+                            const isTimePassed = !lastGenerated || (now - lastGenerated) >= (1000 * 60);
+                            if (isTimePassed) {
+                                this.lastTimelapseGenerated[name] = now;
+                                this.plugin.timelapseRuleEnded({
+                                    rule,
+                                    device: this.cameraDevice,
+                                    logger,
+                                }).catch(logger.log);
+                            }
+                        }
+
                         const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: name, ruleType });
-                        this.putMixinSetting(currentlyActiveKey, 'false');
+                        await this.putMixinSetting(currentlyActiveKey, 'false');
                     }
                 }
 
@@ -653,8 +653,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     async initValues() {
         const logger = this.getLogger();
         const { lastSnapshotCloudUrl, lastSnapshotLocalUrl } = await getWebookUrls(this.name, console);
-        this.storageSettings.putSetting('lastSnapshotWebhookCloudUrl', lastSnapshotCloudUrl);
-        this.storageSettings.putSetting('lastSnapshotWebhookLocalUrl', lastSnapshotLocalUrl);
+
+        await this.storageSettings.putSetting('lastSnapshotWebhookCloudUrl', lastSnapshotCloudUrl);
+        await this.storageSettings.putSetting('lastSnapshotWebhookLocalUrl', lastSnapshotLocalUrl);
+
+        this.occupancyState = this.storageSettings.values.occupancyState ?? {};
 
         await this.refreshSettings();
     }
@@ -760,8 +763,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         if (this.storageSettings.settings.lastSnapshotWebhookLocalUrl) {
             this.storageSettings.settings.lastSnapshotWebhookLocalUrl.hide = !lastSnapshotWebhook;
         }
-
-        this.occupancyState = this.storageSettings.values.occupancyState ?? {};
     }
 
     async getObserveZones() {
