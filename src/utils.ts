@@ -493,7 +493,6 @@ export type MixinBaseSettingKey =
     | 'info'
     | 'debug'
     | 'entityId'
-    | 'haDeviceClass'
     | 'useNvrDetections'
     | 'haActions'
     | typeof rulesKey;
@@ -534,10 +533,6 @@ export const getMixinBaseSettings = (props: {
                 type: 'string',
                 defaultValue: defaultEntityId,
                 immediate: true,
-            },
-            haDeviceClass: {
-                title: 'Device class',
-                type: 'string'
             },
             // DETECTION
             useNvrDetections: {

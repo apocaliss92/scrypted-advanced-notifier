@@ -1756,6 +1756,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     b64Image,
                     source: 'Detections'
                 }).catch(logger.log);
+
+                if (!isOnlyMotion && this.runningTimelapseRules?.length) {
+                    for (const rule of this.runningTimelapseRules) {
+                        this.plugin.storeTimelapseFrame({
+                            imageMo: image,
+                            timestamp: triggerTime,
+                            device: this.cameraDevice,
+                            rule
+                        }).catch(logger.log);
+                    }
+                }
             } catch (e) {
                 logger.log(`Error on publishing data: ${JSON.stringify(dataToAnalyze)}`, e)
             }
@@ -1772,7 +1783,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { classname, type, isNvr = false, label, matchRule } = props;
 
         const { useNvrDetectionsForMqtt } = this.plugin.storageSettings.values;
-        const { minDelayTime, } = this.storageSettings.values;
+        const { minDelayTime } = this.storageSettings.values;
 
         if (useNvrDetectionsForMqtt) {
             return true;

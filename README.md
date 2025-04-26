@@ -54,7 +54,7 @@ These rules can be created for multiple cameras (on the plugin page) or per sing
 - Set the notifiers to notify on the detection
 - Check `Use NVR detections` to trigger the rule only as effect of detections from NVR plugin. This will include cropped images stored on MQTT and will be in sync with the NVR app events reel
 - Set the detection classes and the minimum score to trigger the notification
-- Set `Minimum notification delay` to debounce further notifications
+- Set `Minimum notification delay` to debounce further notifications (overrides the camera settings)
 - Set `Minimum MQTT publish delay` to debounce the image update on MQTT for this rule
 - Set `Whitelisted zones` to use only detections on these zones
 - Set `Blacklisted zones` to ignore detections coming from these zones
@@ -87,7 +87,7 @@ Define a timeframe, the plugin will collect frames from the camera and generate 
 - Set the notifiers to notify the generated clip
     - If an homeassistant notifier is used and the final clip will be <50bm, the clip will be shown as preview of the push notification!
 - Set a `Notification text` for the notification message
-- Set a `Frames acquisition delay`, a frame will be generated according to this.
+- Set a `Frames acquisition delay`, a frame will be generated according to this. Each non-motion detection will always add a frame
     - In future will be possible to add frames based on specific detection classes and even small clips
 - Set a `Timelapse framerate`, this will depend on the timespan you will chose and how long you want the final clip to be
 - Use the `Generate now` button to reuse the frames collected the previous session. They will be stored until the following session starts
@@ -100,10 +100,17 @@ Audio rules will monitor the audio received by the camera
 - Set a `Decibel threshold` for the audio level to alert
 - Set `Duration in seconds` if the audio should last at least these seconds to trigger a notification. Leave blank to notify right away
 
-## Homeassistant
-It's possbile to configure an homeassistant connection (or utilize the one configured in the `Homeassistant` plugin) to fetch configured entity IDs which are identified by one of the `Entity regex patterns`, these can be then assigned to a camera or sensor to add metadata used to render the notification.
-
 ## Stored images
 The plugin will store on filesystem, if configured, images for every basic detection and rule. Set the following configurations on the plugin page under the Storage tab
  - `Storage path`: If set, the images used to populate MQTT topic will be also stored on the drive path
  - `Images name`: The name pattern to use to generate image files. The placeholders ${name} and ${timestamp} will be available. Using only ${name} will ensure the image to be overriden on every detection instead of saving one additional copy
+
+## Additional camera settings
+- `Minimum snapshot acquisition delay`, minimum seconds to wait until a new snapshot can be taken from a camera, keep it around 5 seconds for cameras with weak hardware
+- `Off motion duration`, amount of seconds to consider motion as ended for rules/detections affecting the camera. It will override the motion off events
+- `Snapshot from Decoder`, take snapshots from the camera decoded stream, use it only if you have many timeout errors and cannot rely on updated images on MQTT, this is CPU intensive
+- Set `Minimum notification delay` to debounce further notifications
+- Set `Minimum MQTT publish delay` to debounce the image update on MQTT for this basic detections
+
+## Homeassistant
+It's possbile to configure an homeassistant connection (or utilize the one configured in the `Homeassistant` plugin) to fetch configured entity IDs which are identified by one of the `Entity regex patterns`. The entities fetched will be available as selection on each camera/sensor to alias them with an homeassistant entity. This helps the `OnActive` rules to send entityIds instead of Scrypted identifiers.
