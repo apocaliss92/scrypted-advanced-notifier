@@ -1356,7 +1356,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     public matchDetectionFound = async (props: {
         image?: MediaObject,
         match?: ObjectDetectionResult,
-        rule: DetectionRule | TimelapseRule,
+        rule: BaseRule,
         eventType: EventType,
         triggerDeviceId: string,
         triggerTime: number,
@@ -1404,6 +1404,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 id: this.id
             })
                 } `);
+
             this.storeTimelapseFrame({
                 imageMo: image,
                 timestamp: triggerTime,

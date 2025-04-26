@@ -659,6 +659,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         this.occupancyState = this.storageSettings.values.occupancyState ?? {};
 
+        if (Object.entries(this.occupancyState).length) {
+            logger.log('Occupancy state restored', JSON.stringify(this.occupancyState));
+        }
+
         await this.refreshSettings();
     }
 
@@ -1663,7 +1667,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             classnamesData: det.detect.detections.map(innerDet => ({
                 classname: innerDet.className,
                 label: innerDet.label
-            }))
+            })) as ClassnameImage[]
         }));
         const rulesToUpdate = cloneDeep(this.accumulatedRules);
 
@@ -1673,7 +1677,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const triggerTime = dataToAnalyze[0]?.triggerTime;
         const { detectionId, eventId } = dataToAnalyze.find(item => item.detectionId && item.eventId) ?? {};
-        const classnamesData = uniqBy(dataToAnalyze.flatMap(item => item.classnamesData), item => `${item.classname}-${item.label}`);
+        const classnamesData: ClassnameImage[] = uniqBy(dataToAnalyze.flatMap(item => item.classnamesData), item => `${item.classname}-${item.label}`);
 
         const isOnlyMotion = classnamesData.length === 1 && detectionClassesDefaultMap[classnamesData[0]?.classname] === DetectionClass.Motion;
 
@@ -1909,6 +1913,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             device: this.cameraDevice,
                             triggerTime,
                             room: this.cameraDevice.room,
+                            b64Image
                         }).catch(logger.error);
 
                         if (b64Image) {
@@ -2170,10 +2175,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         };
 
         if (isFromSensor) {
-            await funct();
+            if (this.mqttDetectionMotionTimeout) {
+                await funct();
+                this.resetMqttMotionTimeout();
+            }
         } else {
             this.resetMqttMotionTimeout();
-            const { motionDuration, } = this.storageSettings.values;
+
+            const { motionDuration } = this.storageSettings.values;
             this.mqttDetectionMotionTimeout = setTimeout(async () => {
                 await funct();
             }, motionDuration * 1000);

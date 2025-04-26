@@ -793,7 +793,6 @@ export const getRuleKeys = (props: {
     const whitelistedZonesKey = `${prefix}:${ruleName}:whitelistedZones`;
     const blacklistedZonesKey = `${prefix}:${ruleName}:blacklistedZones`;
     const markDetectionsKey = `${prefix}:${ruleName}:markDetections`;
-    // Deprecated, use events-recorder-plugin
     const recordingTriggerSecondsKey = `${prefix}:${ruleName}:recordingTriggerSeconds`;
 
     // Specific for timelapse rules
@@ -1044,11 +1043,12 @@ export const getRuleSettings = (props: {
 
         settings.push(...getSpecificRules({ ruleName, subgroup, group, showMore: showMoreConfigurations }));
 
+        const isDetectionRule = ruleType === RuleType.Detection;
         const isAudioRule = ruleType === RuleType.Audio;
         if (ruleType !== RuleType.Occupancy) {
             settings.push({
                 key: textKey,
-                title: isAudioRule ? 'Notification text' : 'Custom text',
+                title: isDetectionRule ? 'Custom text' : 'Notification text',
                 description: isAudioRule ?
                     'Available arguments ${duration} ${decibels}' :
                     'Available arguments ${room} ${time} ${nvrLink} ${zone} ${class} ${label}',
@@ -1306,7 +1306,7 @@ export const getDetectionRulesSettings = async (props: {
                 {
                     key: recordingTriggerSecondsKey,
                     title: 'Disable recording in seconds',
-                    description: '[DEPRECATED] Set a value here in seconds to enable the camera recording when the rule is triggered. After the seconds specified, recording will be disabled',
+                    description: 'Set a value here in seconds to enable the camera recording when the rule is triggered. After the seconds specified, recording will be disabled',
                     group,
                     subgroup,
                     type: 'number',

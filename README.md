@@ -2,111 +2,108 @@
 
 https://github.com/apocaliss92/scrypted-advanced-notifier - For requests and bugs
 
-This plugin is feature rich notifier to handle detection notifications.
+# Getting started
+## MQTT
+To enable MQTT exporting:
+- enable `MQTT enabled` in the general -> general tab
+- setup the authentication parameters in the tab general -> MQTT, check the `Use MQTT plugin credentials` to use the credentials set on the MQTT plugin
+- Check `Use NVR detections` if you want the images stored on MQTT to be the clipped ones from NVR. 
+- Check `Audio pressure (dB) detection` if you want a continuous reporting of the audio kept by the camera (dBs)
+- Set a positive number to `Check objects occupancy in seconds` to regularly check the static objects on the frame
+- Cameras enabled to the plugin will be automatically enabled to MQTT. Can be disabled in the camera's section Advanced notifier -> Report to MQTT
 
-## Homeassistant
-It's possbile to configure an homeassistant connection (or utilize the one configured in the `Homeassistant` plugin) to fetch configured Rooms and Entities which are identified by one of the `Entity regex patterns`, these can be then assigned to a camera or sensor to add metadata used to render the notification. The fetched data will be visible in the `METADATA` group, and edited 
+The plugin will export to MQTT the following entities:
+- PTZ controls
+- Restart control
+- Basic detection information (motion, animal, person, vehicle, face, plate). Same information will be available for every rule associated to a camera
+    - Latest image
+    - Triggered
+    - Last trigger time (disabled by default)
+    - Amount of objects (if enabled)
+- Online status
+- Sleeping status
+- Battery status
+- Recording switch (NVR privacy mode)
+- Current dBs (if enabled)
 
-## General
+## Notifications
+The plugin provides customized way to deliver notifications. It is based on rules. Each rule can be activated based on several factors, i.e. active sensors, time ranges, security system status. Any notifier can be used but the only fully supported currently are (can be extended for any other):
+- Homeassistant push notifications
+- Pushover
+It's useful to use both notifiers, homeassistant as push rich notification and pushover as low priority just to store all the events
+Set the following parameters to allow rich notifications
  - `Scrypted token`: Token stored on the scrypted entity on homeassistant
  - `NVR url`: Url pointing to the NVR instance, should be accessible from outside
+
+Rules can be of following types: Detection, Occupancy, Audio, Timelapse. These properties are in common with all, some are hidden until the `Show more configurations` gets activated
+- `Activation type`: when the rule shoul be active
+    - Always
+    - Schedule, defined in a time range during the day
+    - OnActive, will be active only if the camera will be listed in the `"OnActive" devices` selector (plugin => rules => general). This selector can be driven by MQTT with a topic specified in `Active entities topic` under General => MQTT. The message to this topic can contain either a list of device IDs, names or homeassistant entityId (check homeassistant section)
+- `Notifiers`: notifiers to notify, additional properties will be applied depending on the selected ones
+    - `Pushover priority` priority to use on pushover
+    - `Homeassistant Actions` actions to show on the homessistant push notifications, of type `{"action":"open_door","title":"Open door","icon":"sfsymbols:door"}`, check homeassistant documentation for further info
+- `Open sensors` which sensors should be open to enable the rule
+- `Closed sensors` which sensors should be closed to enable the rule
+- `Alarm modes` which alarm states should enable the rule. The alarm system device can be defined in the plugin page under Rules => `Security system` 
+
+### Detection
+These rules can be created for multiple cameras (on the plugin page) or per single camera. They allow to specify which object detections should trigger a notification:
+- Create a new rule adding a new text in the `Detection rules` selector and hit save. A new tab will appear
+- Set the activation type
+- Set the notifiers to notify on the detection
+- Check `Use NVR detections` to trigger the rule only as effect of detections from NVR plugin. This will include cropped images stored on MQTT and will be in sync with the NVR app events reel
+- Set the detection classes and the minimum score to trigger the notification
+- Set `Minimum notification delay` to debounce further notifications
+- Set `Minimum MQTT publish delay` to debounce the image update on MQTT for this rule
+- Set `Whitelisted zones` to use only detections on these zones
+- Set `Blacklisted zones` to ignore detections coming from these zones
+- Set `Disable recording in seconds` to enable NVR recording for some seconds and disable it afterwords
+- Set a `Custom text` if a specific text should be applied. By default detection rules will use the texts defined in the plugin tab `Texts`, many placeholder are available to enrich the content
+- Check `Enable AI to generate descriptions` if you want to let AI generate a description text out of the image. AI settings are available on the plugin page under the AI, currently supported: GoogleAi, OpenAi, Claude, Groq
+
+### Occupancy (only on camera)
+These rules will monitor a specific area to mark it as occupied or not
+- Make sure to set an object detector on the plugin page under Rules => `Object Detector`
+- Create a new rule adding a new text in the `Occupancy rules` selector and hit save. A new tab will appear
+- Set the activation type
+- Set the notifiers to notify on the occupancy change
+- Set the detection class to monitor
+- Set the camera zone to monitor, must be an `Observe` type zone defined in the `Object detection` section of the camera
+- (Optional) set a capture zone to reduce the frame used for the detection, may increase success rate
+- Set `Zone type`
+    - `Intersect` if the objects can be considered detected if falling in any portion of the zone
+    - `Contain` if the objects should be completely included in the detection zone
+- Set a `Score threshold`, in case of static detections should be pretty low (default 0.3)
+- Set `Occupancy confirmation`, it's a confirmation period in seconds to avoid false results. Set it depending on your specific case
+- Set `Force update in seconds` to force an occupancy check if no detection happens. Any detection running on the camera will anyways check all the occupancy rules
+- Set the `Max objects` the zone can contain. The zone will be marked as occupied if the detected objects are >= of the number set here
+- Set a text in both `Zone occupied text` and `Zone not occupied text` for the notification texts
+
+### Timelapse (only on camera)
+Define a timeframe, the plugin will collect frames from the camera and generate a clip out of it at the end of the defined range. All the generated timelapses will be available as videoclip on the NVR app, only if the `Enable Camera` on the plugin page will be enabled.
+- Create a new rule adding a new text in the `Timelapse rules` selector and hit save. A new tab will appear
+- Define the week days and the start/end times. i.e. start at 11pm and end at 8am
+- Set the notifiers to notify the generated clip
+    - If an homeassistant notifier is used and the final clip will be <50bm, the clip will be shown as preview of the push notification!
+- Set a `Notification text` for the notification message
+- Set a `Frames acquisition delay`, a frame will be generated according to this.
+    - In future will be possible to add frames based on specific detection classes and even small clips
+- Set a `Timelapse framerate`, this will depend on the timespan you will chose and how long you want the final clip to be
+- Use the `Generate now` button to reuse the frames collected the previous session. They will be stored until the following session starts
+
+### Audio (only on camera)
+Audio rules will monitor the audio received by the camera
+- Create a new rule adding a new text in the `Audio rules` selector and hit save. A new tab will appear
+- Set the notifiers to notify the event
+- Set a `Notification text` for the notification message
+- Set a `Decibel threshold` for the audio level to alert
+- Set `Duration in seconds` if the audio should last at least these seconds to trigger a notification. Leave blank to notify right away
+
+## Homeassistant
+It's possbile to configure an homeassistant connection (or utilize the one configured in the `Homeassistant` plugin) to fetch configured entity IDs which are identified by one of the `Entity regex patterns`, these can be then assigned to a camera or sensor to add metadata used to render the notification.
+
+## Stored images
+The plugin will store on filesystem, if configured, images for every basic detection and rule. Set the following configurations on the plugin page under the Storage tab
  - `Storage path`: If set, the images used to populate MQTT topic will be also stored on the drive path
  - `Images name`: The name pattern to use to generate image files. The placeholders ${name} and ${timestamp} will be available. Using only ${name} will ensure the image to be overriden on every detection instead of saving one additional copy
-
-## MQTT
- It's possible to use MQTT to report data to homeassistant, can be configured standalone or use the configuration from the main `MQTT` plugin. 
- - `Active entities topic`: topic the plugin will subscribe to activate the rules `OnActive`. Useful to sync the plugin with an alarm system connected to homeassistant (i.e. Alarmo)
- - `Active devices for MQTT reporting`: devices selected will be periodically reported to MQTT with several information, i.e. last detections happened, images, status and so on
- - `Use NVR detections`: MQTT topics will be published using the detections coming from NVR detections, instead of the one provided by the plugin
-
-## Notifier
-Mainly supported notifiers are from `Homeassistant` and `Pushover` plugins
-- `Active notifiers`: master controller of active notifiers. Each rule will specify it's own set of notifiers
-
-## Texts
-List of strings that will be shown on the notifications based on the detection type. Useful to have localized text, many placeholders are available and specified in each text
-## Detection rules
-Fine grained rules can be defined to filter out detections and dispatch to specific notiries at specific conditions, called `Detection rules`. These rules can be added on Plugin level or on Camera level. Each rule has the following settings:
-- `Enabled`: Enable or disable the rule (On homeassistant will be available a switch to enable/disable each rule)
-- `Activation`: One of Always, OnActive, Schedule
-    - Always - the rule will always be active (besides enabled flag being off)
-    - OnActive - the rule will be active only for the devices selected in the `"OnActive" devices` selector (in Detection Rules -> General). This target is automatically synced with the MQTT topic defined in the setting "Active entities topic" under MQTT. MQTT Must be enabled
-    - Schedule - the rule will be active based on a schedule defined in the rule
-    - AlarmSystem - the rule will be active based on the current status of the alarm system defined in Plugin => Detection Rules => General => Security System
-- `Priority`: Priority of the notification, will have effect only for pushover
-- `Custom text`: override text to show on each notification. Will override the defaults
-- `Detection classes`: detection classes to trigger the notification
-- `Disable recording in seconds`: if set, when the rule is triggered will enable the NVR recordings for the same amount of seconds, will disable afterwards
-- `Score threshold`: minimum score to trigger a notification
-- `Notifiers`: notifiers to notify
-- `Open sensors`: sensors that must be open to trigger a notification
-- `Closed sensors`: sensors that must be closed to trigger a notification
-- `Alarm modes`: alarm modes to be active to enable this rule (only available for activation AlarmSystem)
-- `Actions`: actions that will be shown on the notification. Rendering will vary depending on the notifier. For HA will be an actionable notification, for pushover will be additional links in the text. Both of them require homeassistant to work, the same event will be triggered with the specified action type
-- `Devices`: Only available for `Always` and `Schedule` activations. Devices for which notification is active
-- `Day - Start time - End time`: properties required for the `Schedule` activation
-
-The same detection rules can be defined on each camera level with some additional properties
-- `Whitelisted zones`: Only detections on these zones will trigger a notification
-- `Blacklisted zones`: Detections on these zones will be ignored
-
-## Occupancy rules
-Similar concept applied to occupancy, a combination of observe zone + detection class can be set to check if the zone is occupied or not
-### General configurations
-- `Object detector`: Plugin to use to execute the object detection (Overrides the setting specified in the plugin section)
-- `Score threshold`: minimum score to trigger the occupancy in bulk (not used for now)
-
-### Rule configurations
-- `Enabled`: Enable or disable the rule (On homeassistant will be available a switch to enable/disable each rule)
-- `Detection class`: Detection class to match in the zone
-- `Observe zone`: Zone of type 'Observe' that will be matched
-- `Zone type`: Intersect if the match can happen on any intersection, Contain if the detection must happen completely inside the zone
-- `Score threshold`: minimum score to trigger the occupancy
-- `Occupancy confirmation`: minimum amount of seconds to wait if the state should be updated. This should avoid some false positives
-- `Zone occupied text`: Text that will be notified when the zone gets occupied
-- `Zone not occupied text`: Text that will be notified when the zone becomes free
-- `Notifiers`: notifiers to notify
-- `Priority`: Priority of the notification, will have effect only for pushover
-- `Actions`: actions that will be shown on the notification. Rendering will vary depending on the notifier. For HA will be an actionable notification, for pushover will be additional links in the text. Both of them require homeassistant to work, the same event will be triggered with the specified action type
-
-## Timelapse rules
-Allow to generate regular timelapses for a specific camera. The output folder will be `Images path`, if not set, the plugin folder will be used instead. The frames of a session will be persisted until the start of the next one, to give the possibility to finetune the result after a session
-### General configurations
-- `Notificataion message`: Message sent when the timelapse will be notified
-- `Timelapse framerate`: FPS of the final timelapse. The higher the value, the faster will be the timelapse
-- `Force snapshot seconds`: A new snapshot will be pushed to the timelapse on regular intervals
-- Schedule properties for the time period to capture. This functionality is very well implemented with the homeassistant notifications, the video will be shown in the preview of the notifications
-
-### Rule configurations
-- `Enabled`: Enable or disable the rule (On homeassistant will be available a switch to enable/disable each rule)
-- `Detection class`: Detection class to match in the zone
-- `Observe zone`: Zone of type 'Observe' that will be matched
-- `Zone type`: Intersect if the match can happen on any intersection, Contain if the detection must happen completely inside the zone
-- `Score threshold`: minimum score to trigger the occupancy
-- `Occupancy confirmation`: minimum amount of seconds to wait if the state should be updated. This should avoid some false positives
-- `Zone occupied text`: Text that will be notified when the zone gets occupied
-- `Zone not occupied text`: Text that will be notified when the zone becomes free
-- `Notifiers`: notifiers to notify
-- `Priority`: Priority of the notification, will have effect only for pushover
-- `Actions`: actions that will be shown on the notification. Rendering will vary depending on the notifier. For HA will be an actionable notification, for pushover will be additional links in the text. Both of them require homeassistant to work, the same event will be triggered with the specified action type
-
-## Test
-A test notification can be send with the specified settings
-
-## Device mixin
-On each camera/sensor can be set some metadata to enhance the notifications
-#### General
-- `Room`: room where the camera is located
-- `EntityID`: alias of the camera (i.e. on homeassistant). Only used to identify the camera when syncing the `OnActive` devices from Homeassistant
-- `Device class`: homeassistant device class to specify the type of the sensor created on MQTT. Defaults will be fine
-#### Notifier
-- `Actions`: actionable notifications added to the notification
-- `Minimum notification delay`: minimum amount of seconds to wait between notification for the same combination of room-detectionClass
-- `Snapshot width/height`: dimensions of the snapshot (only for cameras)
-- `Ignore camera detections`: ignore detections from the camera. Should always be disabled if the camera is not active on the NVR, otherwise no detections would ever happen  (only for cameras)
-- `Linked camera`: camera linked to this sensor. Any event happening on the sensor will use the provided camera for the snapshot
-#### Webhook (only for cameras)
-Simple webooks to retrieve information, only the last snapshot is for now available, could be extended with something else in the future
-## Notifier mixin
-- `Snapshot scale`: scale up/down the snapshot of a camera. If 1 will use the originated on camera and will improve performances
-- `Texts`: override of the plugin level texts

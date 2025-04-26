@@ -964,6 +964,7 @@ export const publishBasicDetectionData = async (props: {
     console: Console,
     detection?: ObjectDetectionResult,
     triggerTime: number,
+    b64Image?: string,
     room?: string,
 }) => {
     const {
