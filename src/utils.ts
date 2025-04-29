@@ -10,7 +10,7 @@ import path from 'path';
 import sharp from 'sharp';
 import { name, scrypted } from '../package.json';
 import { AiPlatform, defaultModel } from "./aiUtils";
-import { classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detecionClasses";
+import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detecionClasses";
 import AdvancedNotifierPlugin from "./main";
 const { endpointManager } = sdk;
 
@@ -1462,7 +1462,7 @@ export const getOccupancyRulesSettings = async (props: {
                 title: 'Detection class',
                 group,
                 subgroup,
-                choices: defaultDetectionClasses,
+                choices: basicDetectionClasses,
             },
             {
                 key: zoneKey,
