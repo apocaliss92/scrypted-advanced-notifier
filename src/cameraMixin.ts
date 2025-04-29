@@ -1428,11 +1428,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 ...occupancyData,
                                 confirmedFrames: (currentState.confirmedFrames ?? 0) + 1,
                             };
-                            logger.info(`Confirmation time is not passed yet for rule ${name}: toConfirm ${currentState.occupancyToConfirm} started ${elpasedTimeMs / 1000} seconds ago`);
+                            logger.log(`Confirmation time is not passed yet for rule ${name}: toConfirm ${currentState.occupancyToConfirm} started ${elpasedTimeMs / 1000} seconds ago`);
                         } else {
                             // TODO: Implement here flow with discarded frames instead of discard right away
                             // Reset confirmation data because the value changed before confirmation time passed
-                            logger.info(`Confirmation failed for rule ${name}: toConfirm ${currentState.occupancyToConfirm} after ${elpasedTimeMs / 1000} seconds`);
+                            logger.log(`Confirmation failed for rule ${name}: toConfirm ${currentState.occupancyToConfirm} after ${elpasedTimeMs / 1000} seconds`);
 
                             occupancyData = {
                                 ...initOccupancyState,
@@ -1453,7 +1453,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 rulesToNotNotify.push(occupancyRuleData.rule.name);
                             } else {
                                 logger.log(`Confirming occupancy rule ${name}: ${occupancyRuleData.occupies} ${occupancyRuleData.objectsDetected}`);
-                                logger.info(JSON.stringify({
+                                logger.log(JSON.stringify({
                                     occupancyRuleData,
                                     currentState,
                                     occupancyData,
