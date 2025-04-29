@@ -1463,6 +1463,7 @@ export const getOccupancyRulesSettings = async (props: {
                 group,
                 subgroup,
                 choices: basicDetectionClasses,
+                immediate: true
             },
             {
                 key: zoneKey,
