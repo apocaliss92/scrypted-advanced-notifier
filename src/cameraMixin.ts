@@ -1207,7 +1207,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     const device = systemManager.getDeviceById<DeviceInterface>(this.id);
 
                     for (const rule of timelapsesToRefresh) {
-                        logger.log(`Adding frame to the timelapse rule ${rule.name}`);
+                        logger.log(`Adding regular frame to the timelapse rule ${rule.name}`);
                         this.plugin.storeTimelapseFrame({
                             imageMo: image,
                             timestamp: now,
@@ -1704,9 +1704,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         if (image && b64Image) {
             try {
                 const mqttClient = await this.getMqttClient();
+                const classnamesString = classnamesData.map(item => `${item.classname}${item.label ? '-' + item.label : ''}`).join(', ');
 
                 if (mqttClient) {
-                    logger.info(`Updating classname images ${classnamesData.map(item => `${item.classname}-${item.label}`).join(', ')} with image source ${imageSource}`);
+                    logger.info(`Updating classname images ${classnamesString} with image source ${imageSource}`);
 
                     const allowedClassnames = classnamesData.filter(classname => this.isDelayPassed({
                         classname: classname.classname,
@@ -1771,6 +1772,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 if (!isOnlyMotion && this.runningTimelapseRules?.length) {
                     for (const rule of this.runningTimelapseRules) {
+                        logger.log(`Adding detection frame (${classnamesString}) to the timelapse rule ${rule.name}`);
+
                         this.plugin.storeTimelapseFrame({
                             imageMo: image,
                             timestamp: triggerTime,
