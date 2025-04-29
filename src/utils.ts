@@ -1471,7 +1471,8 @@ export const getOccupancyRulesSettings = async (props: {
                 group,
                 subgroup,
                 choices: zones,
-                readonly: !zones.length
+                readonly: !zones.length,
+                immediate: true
             },
             {
                 key: captureZoneKey,
@@ -1487,7 +1488,8 @@ export const getOccupancyRulesSettings = async (props: {
                 group,
                 subgroup,
                 choices: Object.values(ZoneMatchType),
-                defaultValue: ZoneMatchType.Intersect
+                defaultValue: ZoneMatchType.Intersect,
+                immediate: true
             },
             {
                 key: scoreThresholdKey,
