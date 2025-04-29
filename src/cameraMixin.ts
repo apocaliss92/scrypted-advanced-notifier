@@ -1,36 +1,45 @@
 import sdk, { Camera, EventDetails, EventListenerRegister, FFmpegInput, Image, MediaObject, MediaStreamDestination, MotionSensor, ObjectDetection, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoomCommand, ScryptedDevice, ScryptedDeviceBase, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoFrame, VideoFrameGenerator, VideoFrameGeneratorOptions } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
-import { cloneDeep, unionBy, uniq, uniqBy } from "lodash";
+import { cloneDeep, uniq, uniqBy } from "lodash";
 import { getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import { filterOverlappedDetections } from '../../scrypted-basic-object-detector/src/util';
+import { FrigateObjectDetection } from '../../scrypted-frigate-object-detector/src/utils';
 import { RtpPacket } from "../../scrypted/external/werift/packages/rtp/src/rtp/rtp";
 import { startRtpForwarderProcess } from '../../scrypted/plugins/webrtc/src/rtp-forwarders';
+import { Deferred } from "../../scrypted/server/src/deferred";
+import { sleep } from "../../scrypted/server/src/sleep";
+import { name as pluginName } from '../package.json';
 import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { ClassnameImage, idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, pcmU8ToDb, splitRules } from "./utils";
-import { Deferred } from "../../scrypted/server/src/deferred";
-import { name as pluginName } from '../package.json';
-import { sleep } from "../../scrypted/server/src/sleep";
+import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, pcmU8ToDb, splitRules } from "./utils";
 
 const { systemManager } = sdk;
 
 interface MatchRule { match?: ObjectDetectionResult, rule: BaseRule, dataToReport?: any }
-interface OccupancyData {
-    lastOccupancy: boolean,
+interface CurrentOccupancyState {
     occupancyToConfirm?: boolean,
     confirmationStart?: number,
     lastChange: number,
     lastCheck: number,
-    objectsDetected: number,
     score: number,
-    detectedResult: ObjectsDetected,
     image: MediaObject;
-    // confirmedFrames: number;
-    // rejectedFrames: number;
+    confirmedFrames: number;
+    rejectedFrames: number;
+}
+
+const initOccupancyState: CurrentOccupancyState = {
+    lastChange: undefined,
+    confirmationStart: undefined,
+    occupancyToConfirm: undefined,
+    confirmedFrames: 0,
+    rejectedFrames: 0,
+    lastCheck: undefined,
+    score: undefined,
+    image: undefined,
 }
 
 export type OccupancyRuleData = {
@@ -129,10 +138,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             title: 'Local URL',
             readonly: true,
         },
-        occupancyState: {
-            json: true,
-            hide: true,
-        }
     };
     storageSettings = new StorageSettings(this, this.initStorage);
 
@@ -173,7 +178,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     lastTimelapseGenerated: Record<string, number> = {};
     lastObserveZonesFetched: number;
     observeZoneData: ObserveZoneData[];
-    occupancyState: Record<string, OccupancyData> = {};
+    occupancyState: Record<string, CurrentOccupancyState> = {};
     timelapseLastCheck: Record<string, number> = {};
     audioForwarder: ReturnType<typeof startRtpForwarderProcess>;
     lastAudioDetected: number;
@@ -656,12 +661,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         await this.storageSettings.putSetting('lastSnapshotWebhookCloudUrl', lastSnapshotCloudUrl);
         await this.storageSettings.putSetting('lastSnapshotWebhookLocalUrl', lastSnapshotLocalUrl);
-
-        this.occupancyState = this.storageSettings.values.occupancyState ?? {};
-
-        if (Object.entries(this.occupancyState).length) {
-            logger.log('Occupancy state restored', JSON.stringify(this.occupancyState));
-        }
 
         await this.refreshSettings();
     }
@@ -1153,6 +1152,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const currentState = this.occupancyState[name];
             const shouldForceFrame = !currentState || (now - (currentState?.lastCheck ?? 0)) >= (1000 * (forceUpdate - 1));
 
+            if (!this.occupancyState[name]) {
+                logger.log(`Initializing occupancy data for rule ${name} to ${JSON.stringify(initOccupancyState)}`);
+                this.occupancyState[name] = cloneDeep(initOccupancyState);
+            }
+
             logger.info(`Should force occupancy data update: ${JSON.stringify({
                 shouldForceFrame,
                 lastCheck: currentState?.lastCheck,
@@ -1233,8 +1237,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             if (!timePassed) {
                 return;
             }
-
-            let shouldUpdateStorage = false;
 
             logger.info(`Checking occupancy for reason ${source}`);
 
@@ -1320,13 +1322,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
 
                 let objectsDetected = 0;
-                let minScore = 0;
+                let maxScore = 0;
 
                 for (const detection of detectedResult.detections) {
                     const className = detectionClassesDefaultMap[detection.className];
                     if (detection.score >= scoreThreshold && detectionClass === className) {
-                        if (!minScore || detection.score < minScore) {
-                            minScore = detection.score;
+                        if (!maxScore || detection.score > maxScore) {
+                            maxScore = detection.score;
                         }
                         const boundingBoxInCoords = normalizeBox(detection.boundingBox, detectedResult.inputDimensions);
                         const zone = zonesData.find(zoneData => zoneData.name === observeZone);
@@ -1348,13 +1350,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 const occupies = ((maxObjects || 1) - objectsDetected) <= 0;
 
-                this.occupancyState[name] = {
-                    ...this.occupancyState[name] ?? {} as OccupancyData,
-                    objectsDetected,
-                    detectedResult,
+                const updatedState: CurrentOccupancyState = {
+                    ...this.occupancyState[name] ?? {} as CurrentOccupancyState,
                     image,
-                    score: minScore
+                    score: maxScore
                 };
+
+                this.occupancyState[name] = updatedState;
 
                 const existingRule = occupancyRulesDataMap[name];
                 if (!existingRule) {
@@ -1374,23 +1376,19 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             for (const occupancyRuleData of Object.values(occupancyRulesDataMap)) {
                 const { name, changeStateConfirm } = occupancyRuleData.rule;
                 const currentState = this.occupancyState[occupancyRuleData.rule.name];
-                const tooOld = currentState && (now - (currentState?.lastChange ?? 0)) >= (1000 * 60 * 10); // Force an update every 10 minutes
+                const lastChangeElpasedMs = now - (currentState?.lastChange ?? 0);
+                const tooOld = !currentState || lastChangeElpasedMs >= (1000 * 60 * 10); // Force an update every 10 minutes
                 const toConfirm = currentState.occupancyToConfirm != undefined && !!currentState.confirmationStart;
 
-                let occupancyData: Partial<OccupancyData> = {
-                    ...(currentState ?? {}),
+                let occupancyData: Partial<CurrentOccupancyState> = {
+                    ...(currentState ?? initOccupancyState),
                     lastCheck: now,
                 };
-                const logPayload: any = {
-                    occupancyRuleData,
-                    currentState,
-                    tooOld,
-                };
 
-                // If the rule is not inizialized or last state change is too old, proceed with update regardless
-                const image = this.occupancyState[name].image;
-                if (!currentState || tooOld) {
-                    logger.info(`Force pushing rule ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
+                // If last state change is too old, proceed with update regardless
+                const image = currentState?.image;
+                if (tooOld) {
+                    logger.info(`Force pushing rule ${name}, last change ${lastChangeElpasedMs / 1000} seconds ago`);
                     occupancyRulesData.push({
                         ...occupancyRuleData,
                         image,
@@ -1400,55 +1398,51 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     occupancyData = {
                         ...occupancyData,
                         lastChange: now,
-                        lastOccupancy: occupancyRuleData.occupies,
                     };
 
-                    // Avoid sending a notification if it's just a force updated due to time elpased
-                    if (currentState) {
-                        rulesToNotNotify.push(occupancyRuleData.rule.name);
-                    }
+                    rulesToNotNotify.push(occupancyRuleData.rule.name);
                 } else if (toConfirm) {
-                    const isConfirmationTimePassed = (now - (currentState?.confirmationStart ?? 0)) >= (1000 * changeStateConfirm);
+                    const elpasedTimeMs = now - (currentState?.confirmationStart ?? 0);
+                    const isConfirmationTimePassed = elpasedTimeMs >= (1000 * changeStateConfirm);
                     const isStateConfirmed = occupancyRuleData.occupies === currentState.occupancyToConfirm;
 
                     // If confirmation time is not done but value is changed, discard new state
                     if (!isConfirmationTimePassed) {
                         if (isStateConfirmed) {
                             // Do nothing and wait for next iteration
-                            logger.info(`Confirmation time is not passed yet ${occupancyRuleData.rule.name}: ${JSON.stringify(logPayload)}`);
-                        } else {
-                            // Reset confirmation data because the value changed before confirmation time passed
-                            logger.log(`Confirmation failed, value changed during confirmation time ${occupancyRuleData.rule.name}: ${currentState.objectsDetected} objects, score ${currentState.score}`);
-                            logger.log(JSON.stringify(logPayload));
-
                             occupancyData = {
                                 ...occupancyData,
-                                confirmationStart: undefined,
-                                occupancyToConfirm: undefined,
+                                confirmedFrames: (currentState.confirmedFrames ?? 0) + 1,
+                            };
+                            logger.info(`Confirmation time is not passed yet for rule ${name}: toConfirm ${currentState.occupancyToConfirm} started ${elpasedTimeMs / 1000} seconds ago`);
+                        } else {
+                            // TODO: Implement here flow with discarded frames instead of discard right away
+                            // Reset confirmation data because the value changed before confirmation time passed
+                            logger.info(`Confirmation failed for rule ${name}: toConfirm ${currentState.occupancyToConfirm} after ${elpasedTimeMs / 1000} seconds`);
+
+                            occupancyData = {
+                                ...initOccupancyState,
+                                lastCheck: now,
                             };
                         }
                     } else {
                         if (isStateConfirmed) {
                             // Time is passed and value didn't change, update the state
                             occupancyData = {
-                                ...occupancyData,
+                                ...initOccupancyState,
                                 lastChange: now,
-                                lastOccupancy: occupancyRuleData.occupies,
-                                confirmationStart: undefined,
-                                occupancyToConfirm: undefined,
-                                objectsDetected: occupancyRuleData.objectsDetected
                             };
 
-                            const stateActuallyChanged = occupancyRuleData.occupies !== currentState.lastOccupancy;
+                            const stateActuallyChanged = occupancyRuleData.occupies !== occupancyRuleData.rule.occupies;
 
                             if (!stateActuallyChanged) {
                                 rulesToNotNotify.push(occupancyRuleData.rule.name);
                             } else {
-                                logger.log(`Confirming occupancy rule ${occupancyRuleData.rule.name}: ${occupancyRuleData.objectsDetected}`);
-                                logger.log(JSON.stringify({
+                                logger.log(`Confirming occupancy rule ${name}: ${occupancyRuleData.occupies} ${occupancyRuleData.objectsDetected}`);
+                                logger.info(JSON.stringify({
                                     occupancyRuleData,
                                     currentState,
-                                    logPayload,
+                                    occupancyData,
                                 }));
                             }
 
@@ -1458,7 +1452,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 triggerTime: currentState.confirmationStart,
                                 changed: stateActuallyChanged
                             });
-                            shouldUpdateStorage = true;
+
+                            const {
+                                occupancy: {
+                                    occupiesKey,
+                                    detectedObjectsKey
+                                }
+                            } = getRuleKeys({
+                                ruleType: RuleType.Occupancy,
+                                ruleName: name,
+                            });
+
+                            await this.storageSettings.putSetting(occupiesKey, occupancyRuleData.occupies);
+                            await this.storageSettings.putSetting(detectedObjectsKey, occupancyRuleData.objectsDetected);
+
                         } else {
                             // Time is passed and value changed, restart confirmation flow
                             occupancyData = {
@@ -1467,38 +1474,30 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 occupancyToConfirm: occupancyRuleData.occupies
                             };
 
-                            logger.log(`Restarting confirmation flow (because time is passed and value changed) for occupancy rule ${occupancyRuleData.rule.name}`);
-                            logger.debug(JSON.stringify(logPayload));
+                            logger.log(`Restarting confirmation flow (because time is passed and value changed) for occupancy rule ${name}: toConfirm ${occupancyRuleData.occupies}`);
                         }
                     }
-                } else if (occupancyRuleData.occupies !== currentState.lastOccupancy) {
-                    logger.log(`Marking the rule to confirm for next iteration ${occupancyRuleData.rule.name}: ${currentState.objectsDetected} objects, score ${currentState.score}`);
-                    logger.log(JSON.stringify(logPayload));
+                } else if (occupancyRuleData.occupies !== occupancyRuleData.rule.occupies) {
+                    logger.log(`Marking the rule to confirm ${occupancyRuleData.occupies} for next iteration ${name}: ${occupancyRuleData.objectsDetected} objects, score ${currentState.score}`);
 
                     occupancyData = {
                         ...occupancyData,
                         confirmationStart: now,
+                        confirmedFrames: 0,
+                        rejectedFrames: 0,
+                        score: 0,
                         occupancyToConfirm: occupancyRuleData.occupies
                     };
                 } else {
-                    logger.info(`Refreshing lastCheck only for rule ${occupancyRuleData.rule.name}`);
-                    logger.info(JSON.stringify(logPayload));
+                    logger.info(`Refreshing lastCheck only for rule ${name}`);
                 }
 
-                const updatedState: OccupancyData = {
+                const updatedState: CurrentOccupancyState = {
                     ...currentState,
                     ...occupancyData
                 };
 
-                if (!currentState) {
-                    logger.log(`Initializing occupancy deta for rule ${name} to ${JSON.stringify(updatedState)}`);
-                }
-
                 this.occupancyState[name] = updatedState;
-            }
-
-            if (shouldUpdateStorage) {
-                await this.storageSettings.putSetting('occupancyState', JSON.stringify(this.occupancyState));
             }
 
             if (this.isActiveForMqttReporting && detectedResultParent) {
@@ -1526,7 +1525,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                     if (message) {
                         message = message.toString()
-                            .replace('${detectedObjects}', String(currentState.objectsDetected) ?? '')
+                            .replace('${detectedObjects}', String(occupancyRuleData.objectsDetected) ?? '')
                             .replace('${maxObjects}', String(rule.maxObjects) ?? '')
 
                         const triggerTime = (occupancyRuleData?.triggerTime ?? now) - 5000;
@@ -1776,11 +1775,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     isDelayPassed(props: {
         classname?: string;
         label?: string;
-        isNvr?: boolean;
+        eventSource?: ScryptedEventSource;
         type: 'BasicDetection' | 'RuleImageUpdate' | 'RuleNotification' | 'OccupancyNotification',
         matchRule?: MatchRule
     }) {
-        const { classname, type, isNvr = false, label, matchRule } = props;
+        const { classname, type, eventSource = ScryptedEventSource.RawDetection, label, matchRule } = props;
 
         const { useNvrDetectionsForMqtt } = this.plugin.storageSettings.values;
         const { minDelayTime } = this.storageSettings.values;
@@ -1792,7 +1791,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         if (type === 'BasicDetection' && classname) {
             let key = label ? `${classname}-${label}` : classname;
-            key += `-${isNvr}`
+            key += `-${eventSource}`
             const { minMqttPublishDelay } = this.storageSettings.values;
             const lastDetection = this.lastBasicDetectionsPublishedMap[key];
             const timePassed = !lastDetection || !minMqttPublishDelay || (now - lastDetection) >= (minMqttPublishDelay * 1000);
@@ -1847,20 +1846,21 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         detect: ObjectsDetected,
         eventDetails?: EventDetails,
         image?: MediaObject,
-        isFromNvr?: boolean
+        eventSource?: ScryptedEventSource
     }) {
-        const { detect, eventDetails, image: parentImage, isFromNvr = false } = props;
+        const { detect, eventDetails, image: parentImage, eventSource } = props;
+        const isFromNvr = eventSource === ScryptedEventSource.NVR;
+        const isFromFrigate = eventSource === ScryptedEventSource.Frigate;
+        const isRawDetection = eventSource === ScryptedEventSource.RawDetection;
         const logger = this.getLogger();
         const { timestamp: triggerTime, detections, detectionId } = detect;
         const { eventId } = eventDetails ?? {};
         const { useNvrDetectionsForMqtt } = this.plugin.storageSettings.values;
-        const canUpdateMqttImage = (isFromNvr && useNvrDetectionsForMqtt);
+        const canUpdateMqttImage = (isFromNvr && useNvrDetectionsForMqtt) || isFromFrigate;
 
         if (!detections?.length) {
             return;
         }
-
-        const now = new Date().getTime();
 
         const {
             minDelayTime,
@@ -1888,7 +1888,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 // The MQTT image should be updated only if:
                 // - the image comes already from NVR and the user wants MQTT detections to be used
 
-                if (isFromNvr && parentImage) {
+                if ((isFromNvr && parentImage) || isFromFrigate) {
                     const classnames = uniq(detections.map(d => d.className));
                     const { b64Image: b64ImageNew, image: imageNew } = await this.getImage({
                         detectionId,
@@ -1907,7 +1907,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     let detectionsToUpdate = candidates;
 
                     // In case a non-NVR detection came in and user wants NVR detections to be used, just update the motion
-                    if (useNvrDetectionsForMqtt && !isFromNvr) {
+                    if (useNvrDetectionsForMqtt && eventSource === ScryptedEventSource.RawDetection) {
                         logger.info(`Only updating motion, non-NVR detection incoming and using NVR detections for MQTT`);
                         detectionsToUpdate = [{ className: DetectionClass.Motion, score: 1 }];
                     }
@@ -1931,12 +1931,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             const timePassed = this.isDelayPassed({
                                 classname: className,
                                 label,
-                                isNvr: isFromNvr,
+                                eventSource,
                                 type: 'BasicDetection'
                             });
 
                             if (timePassed) {
-                                logger.info(`Updating image for classname ${className} source: ${isFromNvr ? 'NVR' : 'Decoder'}`);
+                                logger.info(`Updating image for classname ${className} source: ${eventSource ? 'NVR' : 'Decoder'}`);
 
                                 publishClassnameImages({
                                     mqttClient,
@@ -1946,7 +1946,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                     b64Image,
                                     image,
                                     triggerTime,
-                                    imageSuffix: isFromNvr ? 'NVR' : undefined,
+                                    imageSuffix: !isRawDetection ? eventSource : undefined,
                                     skipMqtt: !canUpdateMqttImage,
                                     storeImageFn: this.plugin.storeImage,
                                 }).catch(logger.error);
@@ -2087,7 +2087,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 for (const matchRule of matchRules) {
                     try {
                         const { match, rule } = matchRule;
-                        const canUpdateMqttImage = isFromNvr && rule.isNvr && this.isDelayPassed({ type: 'RuleImageUpdate', matchRule });
+                        const canUpdateMqttImage = isFromNvr && rule.isNvr && this.isDelayPassed({ type: 'RuleImageUpdate', matchRule, eventSource });
 
                         if (this.isActiveForMqttReporting) {
                             logger.info(`Publishing detection rule ${matchRule.rule.name} data, b64Image ${b64Image?.substring(0, 10)} skipMqttImage ${!canUpdateMqttImage}`);
@@ -2102,7 +2102,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             });
                         }
 
-                        if (isFromNvr && rule.isNvr && this.isDelayPassed({ type: 'RuleNotification', matchRule })) {
+                        if (isFromNvr && rule.isNvr && this.isDelayPassed({ type: 'RuleNotification', matchRule, eventSource })) {
                             if (rule.ruleType === RuleType.Detection) {
                                 logger.log(`Starting notifiers for detection rule ${rule.name}, b64Image ${b64Image?.substring(0, 10)}`);
                             }
@@ -2146,9 +2146,22 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             this.detectionListener = systemManager.listenDevice(this.id, {
                 event: ScryptedInterface.ObjectDetector,
             }, async (_, eventDetails, data) => {
-                const detect: ObjectsDetected = data;
+                const detect: ObjectsDetected | FrigateObjectDetection = data;
 
-                this.processDetections({ detect, eventDetails }).catch(logger.log);
+                let eventSource = ScryptedEventSource.RawDetection;
+                const frigateEvent = (detect as FrigateObjectDetection)?.frigateEvent;
+
+                if (frigateEvent) {
+                    logger.log('Frigate event received', JSON.stringify(detect));
+
+                    if (frigateEvent.type !== 'end' || !frigateEvent.after.has_snapshot) {
+                        logger.log('Discarding frigate event');
+                        return;
+                    }
+                    eventSource = ScryptedEventSource.Frigate;
+                }
+
+                this.processDetections({ detect, eventDetails, eventSource }).catch(logger.log);
             });
 
             this.motionListener = systemManager.listenDevice(this.id, {
@@ -2160,7 +2173,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         className: 'motion',
                         score: 1,
                     }];
-                    this.processDetections({ detect: { timestamp, detections } }).catch(logger.log);
+                    this.processDetections({ detect: { timestamp, detections }, eventSource: ScryptedEventSource.RawDetection }).catch(logger.log);
                 } else {
                     this.resetDetectionEntities('MotionSensor').catch(logger.log);
                 }

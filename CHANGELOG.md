@@ -1,6 +1,11 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.3.1
+
+- Occupancy data persisting improved. Current status and detected objects added to settings. 
+Should fix false resetting on startup
+
 ### 3.2.0
 
 - Update images for rule in the same asynqueue to make sure an image is always available

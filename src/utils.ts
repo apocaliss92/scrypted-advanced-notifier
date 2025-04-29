@@ -20,6 +20,12 @@ export const PUSHOVER_PLUGIN_ID = '@scrypted/pushover';
 export const HOMEASSISTANT_PLUGIN_ID = '@scrypted/homeassistant';
 export const SNAPSHOT_WIDTH = 1280;
 
+export enum ScryptedEventSource {
+    RawDetection = 'RawDetection',
+    NVR = 'NVR',
+    Frigate = 'Frigate'
+}
+
 export interface ObserveZoneData {
     name: string;
     path: Point[]
@@ -808,6 +814,8 @@ export const getRuleKeys = (props: {
     const changeStateConfirmKey = `${prefix}:${ruleName}:changeStateConfirm`;
     const maxObjectsKey = `${prefix}:${ruleName}:maxObjects`;
     const forceUpdateKey = `${prefix}:${ruleName}:forceUpdate`;
+    const occupiesKey = `${prefix}:${ruleName}:occupies`;
+    const detectedObjectsKey = `${prefix}:${ruleName}:detectedObjects`;
 
     // Specific for audio rules
     const decibelThresholdKey = `${prefix}:${ruleName}:decibelThreshold`;
@@ -862,6 +870,8 @@ export const getRuleKeys = (props: {
             maxObjectsKey,
             forceUpdateKey,
             detectionClassKey,
+            occupiesKey,
+            detectedObjectsKey
         },
         audio: {
             decibelThresholdKey,
@@ -1246,7 +1256,7 @@ export const getDetectionRulesSettings = async (props: {
                 {
                     key: whitelistedZonesKey,
                     title: 'Whitelisted zones',
-                    description:'Zones defined in the `Object detection` section of type `Observe`',
+                    description: 'Zones defined in the `Object detection` section of type `Observe`',
                     group,
                     subgroup,
                     multiple: true,
@@ -1258,7 +1268,7 @@ export const getDetectionRulesSettings = async (props: {
                 {
                     key: blacklistedZonesKey,
                     title: 'Blacklisted zones',
-                    description:'Zones defined in the `Object detection` section of type `Observe`',
+                    description: 'Zones defined in the `Object detection` section of type `Observe`',
                     group,
                     subgroup,
                     multiple: true,
@@ -1424,9 +1434,27 @@ export const getOccupancyRulesSettings = async (props: {
             zoneNotOccupiedTextKey,
             zoneOccupiedTextKey,
             detectionClassKey,
+            detectedObjectsKey,
+            occupiesKey,
         } = occupancy;
 
         settings.push(
+            {
+                key: occupiesKey,
+                title: 'Occupies',
+                type: 'boolean',
+                group,
+                subgroup,
+                readonly: true,
+            },
+            {
+                key: detectedObjectsKey,
+                title: 'Detected objects',
+                type: 'number',
+                group,
+                subgroup,
+                readonly: true,
+            },
             {
                 key: detectionClassKey,
                 title: 'Detection class',
@@ -2074,6 +2102,8 @@ export interface OccupancyRule extends BaseRule {
     zoneNotOccupiedText: string;
     zoneType: ZoneMatchType;
     captureZone?: Point[];
+    occupies: boolean;
+    detectedObjects: number;
 }
 
 export const getDeviceOccupancyRules = (
@@ -2106,6 +2136,8 @@ export const getDeviceOccupancyRules = (
                 zoneMatchTypeKey,
                 zoneNotOccupiedTextKey,
                 zoneOccupiedTextKey,
+                detectedObjectsKey,
+                occupiesKey
             }
         } = getRuleKeys({
             ruleType: RuleType.Occupancy,
@@ -2129,7 +2161,9 @@ export const getDeviceOccupancyRules = (
         const maxObjects = deviceStorage.getItem(maxObjectsKey) as number || 1;
         const observeZone = deviceStorage.getItem(zoneKey) as string;
         const zoneMatchType = deviceStorage.getItem(zoneMatchTypeKey) as ZoneMatchType;
-        const captureZone = deviceStorage.getItem(captureZoneKey) as Point[]
+        const captureZone = deviceStorage.getItem(captureZoneKey) as Point[];
+        const occupies = deviceStorage.getItem(occupiesKey) as boolean ?? false;
+        const detectedObjects = deviceStorage.getItem(detectedObjectsKey) as number || 0;
 
         const occupancyRule: OccupancyRule = {
             ...rule,
@@ -2144,6 +2178,8 @@ export const getDeviceOccupancyRules = (
             zoneType: zoneMatchType,
             maxObjects,
             captureZone,
+            occupies,
+            detectedObjects,
         };
 
         const ruleAllowed = basicRuleAllowed && !!detectionClass && !!observeZone;
