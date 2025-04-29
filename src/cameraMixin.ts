@@ -15,7 +15,8 @@ import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { ClassnameImage, idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, pcmU8ToDb, splitRules } from "./utils";
+import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMinutes, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, pcmU8ToDb, splitRules } from "./utils";
+import moment from "moment";
 
 const { systemManager } = sdk;
 
@@ -175,7 +176,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         turnOffTimeout?: NodeJS.Timeout;
     }> = {};
     lastBasicDetectionsPublishedMap: Partial<Record<DetectionClass, number>> = {};
-    lastTimelapseGenerated: Record<string, number> = {};
     lastObserveZonesFetched: number;
     observeZoneData: ObserveZoneData[];
     occupancyState: Record<string, CurrentOccupancyState> = {};
@@ -366,11 +366,21 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                     if (rule.currentlyActive) {
                         if (ruleType === RuleType.Timelapse) {
-                            const lastGenerated = this.lastTimelapseGenerated[name];
-                            // Make sure to not spam generate timelapses if any issue occurs deferring by 1 min
-                            const isTimePassed = !lastGenerated || (now - lastGenerated) >= (1000 * 60);
+                            const { common: { endTimeKey }, timelapse: { lastGeneratedKey } } = getRuleKeys({
+                                ruleType,
+                                ruleName: rule.name,
+                            });
+                            // const endTime = this.storageSettings.getItem(endTimeKey) as number;
+                            // const referenceEnd = moment(Number(endTime));
+                            // const endMinutes = getMinutes(referenceEnd);
+                            // const nowMoment = moment();
+
+                            // Make sure to not spam generate timelapses if any issue occurs deferring by 1 hour
+                            const lastGenerated = (rule as TimelapseRule).lastGenerated;
+                            const isTimePassed = !lastGenerated || (now - lastGenerated) >= (1000 * 60 * 60 * 1);
                             if (isTimePassed) {
-                                this.lastTimelapseGenerated[name] = now;
+                                await this.storageSettings.putSetting(lastGeneratedKey, lastGenerated);
+
                                 this.plugin.timelapseRuleEnded({
                                     rule,
                                     device: this.cameraDevice,

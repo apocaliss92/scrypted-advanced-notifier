@@ -803,6 +803,7 @@ export const getRuleKeys = (props: {
     const additionalFfmpegParametersKey = `${prefix}:${ruleName}:additionalFfmpegParameters`;
     const generateKey = `${prefix}:${ruleName}:generate`;
     const cleanDataKey = `${prefix}:${ruleName}:clenup`;
+    const lastGeneratedKey = `${prefix}:${ruleName}:lastGenerated`;
 
     // Specific for occupancy rules
     const detectionClassKey = `${prefix}:${ruleName}:detecionClassKey`;
@@ -859,6 +860,7 @@ export const getRuleKeys = (props: {
             additionalFfmpegParametersKey,
             generateKey,
             cleanDataKey,
+            lastGeneratedKey,
         },
         occupancy: {
             captureZoneKey,
@@ -1798,6 +1800,8 @@ export interface DetectionRule extends BaseRule {
     disableNvrRecordingSeconds?: number;
 }
 
+export const getMinutes = (date: Moment) => date.minutes() + (date.hours() * 60);
+
 const initBasicRule = (props: {
     ruleType: RuleType,
     storage?: StorageSettings<string>,
@@ -1873,7 +1877,6 @@ const initBasicRule = (props: {
             const referenceEnd = moment(Number(endTime));
             const now = moment();
 
-            const getMinutes = (date: Moment) => date.minutes() + (date.hours() * 60);
             const startMinutes = getMinutes(referenceStart);
             const nowMinutes = getMinutes(now);
             const endMinutes = getMinutes(referenceEnd);
@@ -2200,6 +2203,7 @@ export const getDeviceOccupancyRules = (
 export interface TimelapseRule extends BaseRule {
     timelapseFramerate?: number;
     regularSnapshotInterval?: number;
+    lastGenerated?: number;
     additionalFfmpegParameters?: string;
 }
 
@@ -2234,6 +2238,7 @@ export const getDeviceTimelapseRules = (
                 framesAcquisitionDelayKey,
                 regularSnapshotIntervalKey,
                 timelapseFramerateKey,
+                lastGeneratedKey,
             }
         } = getRuleKeys({
             ruleType: RuleType.Timelapse,
@@ -2252,6 +2257,7 @@ export const getDeviceTimelapseRules = (
         const additionalFfmpegParameters = deviceStorage.getItem(additionalFfmpegParametersKey) as string;
         const minDelay = deviceStorage.getItem(framesAcquisitionDelayKey) as number;
         const timelapseFramerate = deviceStorage.getItem(timelapseFramerateKey) as number;
+        const lastGenerated = deviceStorage.getItem(lastGeneratedKey) as number;
         const regularSnapshotInterval = deviceStorage.getItem(regularSnapshotIntervalKey) as number;
 
         const timelapseRule: TimelapseRule = {
@@ -2261,7 +2267,8 @@ export const getDeviceTimelapseRules = (
             timelapseFramerate,
             additionalFfmpegParameters,
             regularSnapshotInterval,
-            deviceId: device.id
+            deviceId: device.id,
+            lastGenerated
         };
 
 
