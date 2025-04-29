@@ -20,6 +20,12 @@ export const classnamePrio: Partial<Record<DetectionClass, number>> = {
     [DetectionClass.Motion]: 6,
 }
 
+export const basicDetectionClasses = [
+    DetectionClass.Vehicle,
+    DetectionClass.Person,
+    DetectionClass.Animal,
+];
+
 export const defaultDetectionClasses = Object.values(DetectionClass);
 
 export const animalClasses = [
