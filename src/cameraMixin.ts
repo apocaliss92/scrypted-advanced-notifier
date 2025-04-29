@@ -1375,10 +1375,24 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const rulesToNotNotify: string[] = [];
             for (const occupancyRuleData of Object.values(occupancyRulesDataMap)) {
                 const { name, changeStateConfirm } = occupancyRuleData.rule;
-                const currentState = this.occupancyState[occupancyRuleData.rule.name];
+                const currentState = this.occupancyState[name];
                 const lastChangeElpasedMs = now - (currentState?.lastChange ?? 0);
                 const tooOld = !currentState || lastChangeElpasedMs >= (1000 * 60 * 10); // Force an update every 10 minutes
                 const toConfirm = currentState.occupancyToConfirm != undefined && !!currentState.confirmationStart;
+
+                const {
+                    occupancy: {
+                        occupiesKey,
+                        detectedObjectsKey
+                    }
+                } = getRuleKeys({
+                    ruleType: RuleType.Occupancy,
+                    ruleName: name,
+                });
+
+                if (occupancyRuleData.rule.detectedObjects !== occupancyRuleData.objectsDetected) {
+                    await this.storageSettings.putSetting(detectedObjectsKey, occupancyRuleData.objectsDetected);
+                }
 
                 let occupancyData: Partial<CurrentOccupancyState> = {
                     ...(currentState ?? initOccupancyState),
@@ -1453,18 +1467,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 changed: stateActuallyChanged
                             });
 
-                            const {
-                                occupancy: {
-                                    occupiesKey,
-                                    detectedObjectsKey
-                                }
-                            } = getRuleKeys({
-                                ruleType: RuleType.Occupancy,
-                                ruleName: name,
-                            });
-
                             await this.storageSettings.putSetting(occupiesKey, occupancyRuleData.occupies);
-                            await this.storageSettings.putSetting(detectedObjectsKey, occupancyRuleData.objectsDetected);
 
                         } else {
                             // Time is passed and value changed, restart confirmation flow
