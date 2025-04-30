@@ -543,7 +543,7 @@ export const getMixinBaseSettings = (props: {
             // DETECTION
             useNvrDetections: {
                 title: 'Use NVR detections',
-                description: 'If enabled, the NVR notifications will be used. Make sure to extend the notifiers with this extension',
+                description: 'If enabled, the NVR notifications will be used (cropped images and more precise). If not raw detections will be used (snapshot will be roughlty taken at the beginning of the event) Make sure to extend the notifiers with this extension',
                 type: 'boolean',
                 subgroup: 'Detection',
                 immediate: true,
@@ -1201,6 +1201,7 @@ export const getDetectionRulesSettings = async (props: {
             {
                 key: scoreThresholdKey,
                 title: 'Score threshold',
+                description: 'Applied after detections. Threshold defined on the object detector will still take precedence',
                 group,
                 subgroup,
                 type: 'number',

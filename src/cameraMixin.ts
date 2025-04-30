@@ -2,10 +2,10 @@ import sdk, { Camera, EventDetails, EventListenerRegister, FFmpegInput, Image, M
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep, uniq, uniqBy } from "lodash";
-import { getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
+import { getBaseLogger, getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import { filterOverlappedDetections } from '../../scrypted-basic-object-detector/src/util';
-import { FrigateObjectDetection } from '../../scrypted-frigate-object-detector/src/utils';
+import { FrigateObjectDetection } from '../../scrypted-frigate-bridge/src/utils';
 import { RtpPacket } from "../../scrypted/external/werift/packages/rtp/src/rtp/rtp";
 import { startRtpForwarderProcess } from '../../scrypted/plugins/webrtc/src/rtp-forwarders';
 import { Deferred } from "../../scrypted/server/src/deferred";
@@ -195,6 +195,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     accumulatedRules: MatchRule[] = [];
     processDetectionsInterval: NodeJS.Timeout;
     processingAccumulatedDetections = false;
+    clientId: string;
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -202,6 +203,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     ) {
         super(options);
         const logger = this.getLogger();
+
+        this.clientId = `scrypted_an_${this.id}`;
 
         this.storageSettings.settings.entityId.onGet = async () => {
             const entities = this.plugin.fetchedEntities;
@@ -263,7 +266,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         mqttHost,
                         mqttUsename,
                         mqttPassword,
-                        clientId: `scrypted_an_${this.id}`,
+                        clientId: this.clientId,
                         configTopicPattern: `homeassistant/+/${idPrefix}-${this.id}/+/config`
                     });
                     await this.mqttClient?.getMqttClient();
@@ -850,32 +853,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     public getLogger(forceNew?: boolean) {
-        const deviceConsole = this.console;
-
         if (!this.logger || forceNew) {
-            const log = (type: 'log' | 'error' | 'debug' | 'warn' | 'info', message?: any, ...optionalParams: any[]) => {
-                const now = new Date().toLocaleString();
-
-                let canLog = false;
-                if (type === 'debug') {
-                    canLog = this.storageSettings.getItem('debug')
-                } else if (type === 'info') {
-                    canLog = this.storageSettings.getItem('info')
-                } else {
-                    canLog = true;
-                }
-
-                if (canLog) {
-                    deviceConsole.log(` ${now} - `, message, ...optionalParams);
-                }
-            };
-            const newLogger = {
-                log: (message?: any, ...optionalParams: any[]) => log('log', message, ...optionalParams),
-                info: (message?: any, ...optionalParams: any[]) => log('info', message, ...optionalParams),
-                debug: (message?: any, ...optionalParams: any[]) => log('debug', message, ...optionalParams),
-                error: (message?: any, ...optionalParams: any[]) => log('error', message, ...optionalParams),
-                warn: (message?: any, ...optionalParams: any[]) => log('warn', message, ...optionalParams),
-            } as Console;
+            const newLogger = getBaseLogger({
+                deviceConsole: this.console,
+                storage: this.storageSettings,
+                friendlyName: this.clientId
+            });
 
             if (forceNew) {
                 return newLogger;

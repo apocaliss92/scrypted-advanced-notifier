@@ -1295,7 +1295,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             triggerDevice,
         } = result;
 
-        logger.info(`NVR notification incoming ${cameraName} hasImage ${!!image} ${eventType} ${triggerDevice?.name}`);
+        logger.log(`NVR notification incoming ${cameraName} hasImage ${!!image} ${eventType} ${triggerDevice?.name}`);
 
         if ([EventType.ObjectDetection, EventType.Package].includes(eventType as EventType)) {
             await (this.currentMixinsMap[triggerDevice.name] as AdvancedNotifierCameraMixin)?.processDetections({
@@ -1308,6 +1308,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 triggered: true,
                 triggerTime,
                 image,
+                eventSource: ScryptedEventSource.NVR,
             });
         } else {
             if (eventType) {

@@ -3,8 +3,9 @@ import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/s
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import HomeAssistantUtilitiesProvider from "./main";
-import { BinarySensorMetadata, binarySensorMetadataMap, convertSettingsToStorageSettings, DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, getRuleKeys, getActiveRules, RuleSource, RuleType, splitRules } from "./utils";
+import { BinarySensorMetadata, binarySensorMetadataMap, convertSettingsToStorageSettings, DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, getRuleKeys, getActiveRules, RuleSource, RuleType, splitRules, ScryptedEventSource } from "./utils";
 import { cloneDeep } from "lodash";
+import { getBaseLogger } from "../../scrypted-apocaliss-base/src/basePlugin";
 
 const { systemManager } = sdk;
 
@@ -188,33 +189,19 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         this.resetListeners();
     }
 
-    public getLogger() {
-        const deviceConsole = this.console;
+    public getLogger(forceNew?: boolean) {
+        if (!this.logger || forceNew) {
+            const newLogger = getBaseLogger({
+                deviceConsole: this.console,
+                storage: this.storageSettings,
+                friendlyName: `scrypted_an_${this.id}`
+            });
 
-        if (!this.logger) {
-            const log = (type: 'log' | 'error' | 'debug' | 'warn' | 'info', message?: any, ...optionalParams: any[]) => {
-                const now = new Date().toLocaleString();
-
-                let canLog = false;
-                if (type === 'debug') {
-                    canLog = this.storageSettings.getItem('debug')
-                } else if (type === 'info') {
-                    canLog = this.storageSettings.getItem('info')
-                } else {
-                    canLog = true;
-                }
-
-                if (canLog) {
-                    deviceConsole.log(` ${now} - `, message, ...optionalParams);
-                }
-            };
-            this.logger = {
-                log: (message?: any, ...optionalParams: any[]) => log('log', message, ...optionalParams),
-                info: (message?: any, ...optionalParams: any[]) => log('info', message, ...optionalParams),
-                debug: (message?: any, ...optionalParams: any[]) => log('debug', message, ...optionalParams),
-                error: (message?: any, ...optionalParams: any[]) => log('error', message, ...optionalParams),
-                warn: (message?: any, ...optionalParams: any[]) => log('warn', message, ...optionalParams),
-            } as Console
+            if (forceNew) {
+                return newLogger;
+            } else {
+                this.logger = newLogger;
+            }
         }
 
         return this.logger;
@@ -225,19 +212,20 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             const timestamp = new Date().getTime();
 
             const isTriggered = this.metadata.isActiveFn(undefined, data);
-            this.processEvent({ triggered: isTriggered, triggerTime: timestamp })
+            this.processEvent({ triggered: isTriggered, triggerTime: timestamp, eventSource: ScryptedEventSource.RawDetection })
         });
     }
 
     public async processEvent(props: {
         triggerTime: number,
         triggered: boolean,
-        image?: MediaObject
+        image?: MediaObject,
+        eventSource: ScryptedEventSource
     }) {
         const { minDelayTime } = this.storageSettings.values;
-        const { triggerTime, triggered, image: imageParent } = props;
+        const { triggerTime, triggered, image: imageParent, eventSource } = props;
         const logger = this.getLogger();
-        const isFromNvr = !!imageParent;
+        const isFromNvr = eventSource === ScryptedEventSource.NVR;
 
         logger.log(`Event received triggered ${triggered} isFromNvr ${!!isFromNvr}`);
 
