@@ -15,7 +15,7 @@ To enable MQTT exporting:
 The plugin will export to MQTT the following entities:
 - PTZ controls
 - Restart control
-- Basic detection information (motion, animal, person, vehicle, face, plate). Same information will be available for every rule associated to a camera
+- Basic detection information (motion, animal, person, vehicle, face, plate, generic object). Same information will be available for every rule associated to a camera
     - Latest image
     - Triggered
     - Last trigger time (disabled by default)

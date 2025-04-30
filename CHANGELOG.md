@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.3.6
+
+- Any object entities added on MQTT and file system, will be triggered for any object detection (animal, vehicle, person)
+
 ### 3.3.1
 
 - Occupancy data persisting improved. Current status and detected objects added to settings. 

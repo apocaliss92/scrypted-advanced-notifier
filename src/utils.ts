@@ -711,7 +711,7 @@ export const getActiveRules = async (
     }
 }
 
-const textKeyClassnameMap: Record<DetectionClass, TextSettingKey> = {
+const textKeyClassnameMap: Partial<Record<DetectionClass, TextSettingKey>> = {
     [DetectionClass.Person]: 'personDetectedText',
     [DetectionClass.Face]: 'familiarDetectedText',
     [DetectionClass.Plate]: 'plateDetectedText',

@@ -1,5 +1,5 @@
 import sdk, { MediaObject, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoomCommand, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface } from '@scrypted/sdk';
-import { cloneDeep, groupBy } from 'lodash';
+import { cloneDeep, groupBy, uniq } from 'lodash';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 import { OccupancyRuleData } from './cameraMixin';
 import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, parentDetectionClassMap } from './detecionClasses';
@@ -514,15 +514,6 @@ export const getMqttTopics = (props: {
     };
 }
 
-export const getObserveZoneStrings = (zoneName: string, className: DetectionClass) => {
-    const parsedClassName = toTitleCase(className);
-    const parsedZoneName = zoneName.trim().replaceAll(' ', '_');
-    const entityId = `${parsedZoneName}_${className}_Objects`;
-    const name = `${parsedZoneName} ${parsedClassName} objects`;
-
-    return { entityId, name };
-}
-
 const publishMqttEntitiesDiscovery = async (props: { mqttClient?: MqttClient, mqttEntities: MqttEntity[], device?: ScryptedDeviceBase, console: Console }) => {
     const { mqttClient, mqttEntities, device, console } = props;
 
@@ -793,24 +784,25 @@ const getMqttDevice = async (device: MqttDeviceType) => {
     }
 }
 
-const getDeviceClassEntities = (device: ScryptedDeviceBase) => {
-    let classes: DetectionClass[] = [];
-    if (device.type === ScryptedDeviceType.Camera || device.type === ScryptedDeviceType.Doorbell) {
-        classes = [
-            DetectionClass.Motion,
-            DetectionClass.Person,
-            DetectionClass.Vehicle,
-            DetectionClass.Animal,
-            DetectionClass.Face,
-            DetectionClass.Plate,
-            DetectionClass.Package,
-        ]
-    } else if (device.type === ScryptedDeviceType.Sensor) {
-        classes = [DetectionClass.DoorSensor];
-    } else if (device.type === ScryptedDeviceType.Lock) {
-        classes = [DetectionClass.DoorLock]
+const getCameraEnabledClasses = async (device: ScryptedDeviceBase & ObjectDetector) => {
+    const enabledClasses: DetectionClass[] = [];
+    if (device.interfaces.includes(ScryptedInterface.MotionSensor)) {
+        enabledClasses.push(DetectionClass.Motion);
     }
 
+    if (device.interfaces.includes(ScryptedInterface.ObjectDetector)) {
+        const objectTypes = await device.getObjectTypes();
+        enabledClasses.push(
+            ...(objectTypes?.classes?.map(classname => detectionClassesDefaultMap[classname]) ?? []),
+            DetectionClass.AnyObject,
+        );
+    }
+
+    return uniq(enabledClasses);
+}
+
+const getCameraClassEntities = async (device: ScryptedDeviceBase & ObjectDetector) => {
+    const classes = await getCameraEnabledClasses(device);
     return deviceClassMqttEntities.filter(entry => !entry.className || classes.includes(entry.className));
 }
 
@@ -828,20 +820,8 @@ export const setupDeviceAutodiscovery = async (props: {
         return;
     }
 
-    const enabledClasses: string[] = [];
-    if (device.interfaces.includes(ScryptedInterface.MotionSensor)) {
-        enabledClasses.push(DetectionClass.Motion);
-    }
-
-    if (device.interfaces.includes(ScryptedInterface.ObjectDetector)) {
-        const objectTypes = await device.getObjectTypes();
-        enabledClasses.push(...(objectTypes?.classes?.map(classname => detectionClassesDefaultMap[classname]) ?? []));
-    }
-
-    const detectionMqttEntities = getDeviceClassEntities(device).filter(entity => {
-        if (!enabledClasses.includes(detectionClassesDefaultMap[entity.className])) {
-            return false;
-        } else if (entity.identifier === MqttEntityIdentifier.Object && !occupancyEnabled) {
+    const detectionMqttEntities = (await getCameraClassEntities(device)).filter(entity => {
+        if (entity.identifier === MqttEntityIdentifier.Object && !occupancyEnabled) {
             return false;
         } else {
             return true;
@@ -911,7 +891,7 @@ export const setupDeviceAutodiscovery = async (props: {
 
 export const publishResetDetectionsEntities = async (props: {
     mqttClient?: MqttClient,
-    device: ScryptedDeviceBase,
+    device: ScryptedDeviceBase & ObjectDetector,
     console: Console
 }) => {
     const { device, mqttClient, console } = props;
@@ -921,7 +901,7 @@ export const publishResetDetectionsEntities = async (props: {
     }
 
     const mqttEntities: MqttEntity[] = [
-        ...getDeviceClassEntities(device).filter(item => item.identifier === MqttEntityIdentifier.Detected),
+        ...(await getCameraClassEntities(device)).filter(item => item.identifier === MqttEntityIdentifier.Detected),
     ];
 
     console.info(`Resetting detection entities: ${mqttEntities.map(item => item.className).join(', ')}`);

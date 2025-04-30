@@ -3,6 +3,7 @@ export enum DetectionClass {
     Person = 'person',
     Vehicle = 'vehicle',
     Animal = 'animal',
+    AnyObject = 'any_object',
     Face = 'face',
     Plate = 'plate',
     Package = 'package',
@@ -205,6 +206,11 @@ export const packageClasses = [
     'packet',
 ]
 
+export const objectClasses = [
+    DetectionClass.AnyObject,
+    'object',
+]
+
 export const isFaceClassname = (classname: string) => faceClasses.includes(classname);
 export const isPlateClassname = (classname: string) => licensePlateClasses.includes(classname);
 export const isAnimalClassname = (classname: string) => animalClasses.includes(classname);
@@ -213,6 +219,11 @@ export const isVehicleClassname = (classname: string) => vehicleClasses.includes
 export const isMotionClassname = (classname: string) => motionClasses.includes(classname);
 export const isPackageClassname = (classname: string) => packageClasses.includes(classname);
 export const isLabelDetection = (classname: string) => isFaceClassname(classname) || isPlateClassname(classname);
+export const isObjectClassname = (classname: string) =>
+    isPackageClassname(classname) ||
+    isAnimalClassname(classname) ||
+    isPersonClassname(classname) ||
+    isVehicleClassname(classname);
 
 export const detectionClassesDefaultMap: Record<string, DetectionClass> = {
     ...animalClasses.reduce((tot, curr) => ({ ...tot, [curr]: DetectionClass.Animal }), {}),
@@ -222,6 +233,7 @@ export const detectionClassesDefaultMap: Record<string, DetectionClass> = {
     ...packageClasses.reduce((tot, curr) => ({ ...tot, [curr]: DetectionClass.Package }), {}),
     ...faceClasses.reduce((tot, curr) => ({ ...tot, [curr]: DetectionClass.Face }), {}),
     ...licensePlateClasses.reduce((tot, curr) => ({ ...tot, [curr]: DetectionClass.Plate }), {}),
+    ...objectClasses.reduce((tot, curr) => ({ ...tot, [curr]: DetectionClass.AnyObject }), {}),
 }
 
 export const parentDetectionClassMap: Partial<Record<DetectionClass, DetectionClass>> = {

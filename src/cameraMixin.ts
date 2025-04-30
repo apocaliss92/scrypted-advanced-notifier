@@ -11,7 +11,7 @@ import { startRtpForwarderProcess } from '../../scrypted/plugins/webrtc/src/rtp-
 import { Deferred } from "../../scrypted/server/src/deferred";
 import { sleep } from "../../scrypted/server/src/sleep";
 import { name as pluginName } from '../package.json';
-import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
+import { DetectionClass, detectionClassesDefaultMap, isObjectClassname } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { ClassnameImage, idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
@@ -1908,9 +1908,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     let detectionsToUpdate = candidates;
 
                     // In case a non-NVR detection came in and user wants NVR detections to be used, just update the motion
-                    if (useNvrDetectionsForMqtt && eventSource === ScryptedEventSource.RawDetection) {
+                    if (useNvrDetectionsForMqtt && isRawDetection) {
                         logger.info(`Only updating motion, non-NVR detection incoming and using NVR detections for MQTT`);
                         detectionsToUpdate = [{ className: DetectionClass.Motion, score: 1 }];
+                    }
+
+                    if (candidates.some(elem => isObjectClassname(elem.className))) {
+                        detectionsToUpdate.push(
+                            { className: DetectionClass.AnyObject, score: 1 }
+                        );
                     }
 
                     for (const detection of detectionsToUpdate) {
