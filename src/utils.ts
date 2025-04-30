@@ -131,7 +131,7 @@ export const getWebookUrls = async (cameraDeviceOrAction: string | undefined, co
         lastSnapshotLocalUrl = `${localEndpoint}${lastSnapshot}/${cameraDeviceOrAction}`;
         haActionUrl = `${cloudEndpoint}${haAction}/${cameraDeviceOrAction}`;
     } catch (e) {
-        console.log('Error fetching webhookUrls', e);
+        console.log('Error fetching webhookUrls. Probably Cloud plugin is not setup correctly', e.message);
     }
 
     return {

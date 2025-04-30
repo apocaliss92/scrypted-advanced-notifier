@@ -266,6 +266,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     allAvailableRules: BaseRule[] = [];
     fetchedEntities: string[] = [];
     lastAutoDiscovery: number;
+    hasCloudPlugin: boolean;
 
     constructor(nativeId: string) {
         super(nativeId, {
@@ -679,8 +680,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const serverId = url.searchParams.get('server_id');
             this.putSetting('serverId', serverId);
             logger.log(`Server id found: ${serverId}`);
+            this.hasCloudPlugin = true;
         } else {
             logger.log(`Cloud plugin not found`);
+            this.hasCloudPlugin = false;
         }
 
         const localIp = (await sdk.endpointManager.getLocalAddresses())?.[0];
@@ -1295,16 +1298,18 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             triggerDevice,
         } = result;
 
-        logger.log(`NVR notification incoming ${cameraName} hasImage ${!!image} ${eventType} ${triggerDevice?.name}`);
+        const foundDevice = this.currentMixinsMap[triggerDevice.name];
+        logger.log(`NVR notification incoming ${cameraName} hasImage ${!!image} ${eventType} ${triggerDevice?.name}, device found ${!!foundDevice}`);
+        logger.info(JSON.stringify(allDetections));
 
         if ([EventType.ObjectDetection, EventType.Package].includes(eventType as EventType)) {
-            await (this.currentMixinsMap[triggerDevice.name] as AdvancedNotifierCameraMixin)?.processDetections({
+            await (foundDevice as AdvancedNotifierCameraMixin)?.processDetections({
                 detect: { timestamp: triggerTime, detections: allDetections },
                 image,
                 eventSource: ScryptedEventSource.NVR,
             });
         } else if ([EventType.Contact, EventType.Doorbell, EventType.Doorlock].includes(eventType as EventType)) {
-            await (this.currentMixinsMap[triggerDevice.name] as AdvancedNotifierSensorMixin)?.processEvent({
+            await (foundDevice as AdvancedNotifierSensorMixin)?.processEvent({
                 triggered: true,
                 triggerTime,
                 image,

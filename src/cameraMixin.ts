@@ -15,8 +15,7 @@ import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { ClassnameImage, idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMinutes, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, pcmU8ToDb, splitRules } from "./utils";
-import moment from "moment";
+import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, pcmU8ToDb, splitRules } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -205,6 +204,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
 
         this.clientId = `scrypted_an_${this.id}`;
+        this.plugin.currentMixinsMap[this.name] = this;
 
         this.storageSettings.settings.entityId.onGet = async () => {
             const entities = this.plugin.fetchedEntities;
@@ -216,8 +216,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.cameraDevice = systemManager.getDeviceById<DeviceInterface>(this.id);
 
         this.initValues().then().catch(logger.log);
-
-        this.plugin.currentMixinsMap[this.name] = this;
 
         this.startStop(this.plugin.storageSettings.values.pluginEnabled).then().catch(logger.log);
     }
@@ -670,10 +668,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async initValues() {
         const logger = this.getLogger();
-        const { lastSnapshotCloudUrl, lastSnapshotLocalUrl } = await getWebookUrls(this.name, console);
+        try {
+            if (this.plugin.hasCloudPlugin) {
+                const { lastSnapshotCloudUrl, lastSnapshotLocalUrl } = await getWebookUrls(this.name, console);
 
-        await this.storageSettings.putSetting('lastSnapshotWebhookCloudUrl', lastSnapshotCloudUrl);
-        await this.storageSettings.putSetting('lastSnapshotWebhookLocalUrl', lastSnapshotLocalUrl);
+                await this.storageSettings.putSetting('lastSnapshotWebhookCloudUrl', lastSnapshotCloudUrl);
+                await this.storageSettings.putSetting('lastSnapshotWebhookLocalUrl', lastSnapshotLocalUrl);
+            }
+        } catch { };
 
         await this.refreshSettings();
     }
@@ -1883,23 +1885,23 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let b64Image: string;
 
         try {
+            // The MQTT image should be updated only if:
+            // - the image comes already from NVR and the user wants MQTT detections to be used
+
+            if ((isFromNvr && parentImage) || isFromFrigate) {
+                const classnames = uniq(detections.map(d => d.className));
+                const { b64Image: b64ImageNew, image: imageNew } = await this.getImage({
+                    detectionId,
+                    eventId,
+                    image: parentImage
+                });
+                image = imageNew;
+                b64Image = b64ImageNew;
+
+                logger.log(`NVR detections received, classnames ${classnames.join(', ')}. b64Image ${b64Image?.substring(0, 10)}`);
+            }
+
             if (this.isActiveForMqttReporting) {
-                // The MQTT image should be updated only if:
-                // - the image comes already from NVR and the user wants MQTT detections to be used
-
-                if ((isFromNvr && parentImage) || isFromFrigate) {
-                    const classnames = uniq(detections.map(d => d.className));
-                    const { b64Image: b64ImageNew, image: imageNew } = await this.getImage({
-                        detectionId,
-                        eventId,
-                        image: parentImage
-                    });
-                    image = imageNew;
-                    b64Image = b64ImageNew;
-
-                    logger.log(`NVR detections received, classnames ${classnames.join(', ')}. b64Image ${b64Image?.substring(0, 10)}`);
-                }
-
                 const mqttClient = await this.getMqttClient();
 
                 if (mqttClient) {
