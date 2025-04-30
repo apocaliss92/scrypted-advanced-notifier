@@ -1688,10 +1688,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         if (image && b64Image) {
             try {
-                const mqttClient = await this.getMqttClient();
                 const classnamesString = classnamesData.map(item => `${item.classname}${item.label ? '-' + item.label : ''}`).join(', ');
 
-                if (mqttClient) {
+                const mqttClient = await this.getMqttClient();
+                if (mqttClient && this.isActiveForMqttReporting) {
                     logger.info(`Updating classname images ${classnamesString} with image source ${imageSource}`);
 
                     const allowedClassnames = classnamesData.filter(classname => this.isDelayPassed({
@@ -1710,42 +1710,42 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         triggerTime,
                         storeImageFn: this.plugin.storeImage
                     }).catch(logger.error);
+                }
 
-                    logger.info(`Updating rules ${rulesToUpdate.map(rule => rule.rule.name).join(', ')} with image source ${imageSource}`);
-                    for (const matchRule of rulesToUpdate) {
-                        const timePassedForImageUpdate = this.isDelayPassed({
-                            type: 'RuleImageUpdate',
-                            matchRule
+                logger.info(`Updating rules ${rulesToUpdate.map(rule => rule.rule.name).join(', ')} with image source ${imageSource}`);
+                for (const matchRule of rulesToUpdate) {
+                    const timePassedForImageUpdate = this.isDelayPassed({
+                        type: 'RuleImageUpdate',
+                        matchRule
+                    });
+                    const { rule, match } = matchRule;
+
+                    if (this.isActiveForMqttReporting && timePassedForImageUpdate) {
+                        logger.info(`Publishing accumulated detection rule ${rule.name} data, b64Image ${b64Image?.substring(0, 10)} skipMqttImage ${!timePassedForImageUpdate}`);
+
+                        this.triggerRule({
+                            rule,
+                            skipTrigger: true,
+                            b64Image,
+                            device: this.cameraDevice,
+                            triggerTime,
+                            image,
                         });
-                        const { rule, match } = matchRule;
+                    }
 
-                        if (this.isActiveForMqttReporting && timePassedForImageUpdate) {
-                            logger.info(`Publishing accumulated detection rule ${rule.name} data, b64Image ${b64Image?.substring(0, 10)} skipMqttImage ${!timePassedForImageUpdate}`);
+                    const timePassedForNotification = this.isDelayPassed({ type: 'RuleNotification', matchRule });
 
-                            this.triggerRule({
-                                rule,
-                                skipTrigger: true,
-                                b64Image,
-                                device: this.cameraDevice,
-                                triggerTime,
-                                image,
-                            });
-                        }
+                    if (timePassedForNotification) {
+                        logger.log(`Starting notifiers for detection rule ${rule.name}, b64Image ${b64Image?.substring(0, 10)}`);
 
-                        const timePassedForNotification = this.isDelayPassed({ type: 'RuleNotification', matchRule });
-
-                        if (timePassedForNotification) {
-                            logger.log(`Starting notifiers for detection rule ${rule.name}, b64Image ${b64Image?.substring(0, 10)}`);
-
-                            this.plugin.matchDetectionFound({
-                                triggerDeviceId: this.id,
-                                match,
-                                rule,
-                                image,
-                                eventType: EventType.ObjectDetection,
-                                triggerTime,
-                            });
-                        }
+                        this.plugin.matchDetectionFound({
+                            triggerDeviceId: this.id,
+                            match,
+                            rule,
+                            image,
+                            eventType: EventType.ObjectDetection,
+                            triggerTime,
+                        });
                     }
                 }
 
