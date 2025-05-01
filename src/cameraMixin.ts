@@ -13,9 +13,9 @@ import { sleep } from "../../scrypted/server/src/sleep";
 import { name as pluginName } from '../package.json';
 import { DetectionClass, detectionClassesDefaultMap, isObjectClassname } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
-import { ClassnameImage, idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
+import { idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, pcmU8ToDb, splitRules } from "./utils";
+import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, ZoneMatchType, addBoundingBoxesToImage, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAudioRulesSettings, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, pcmU8ToDb, splitRules } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -1661,10 +1661,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             triggerTime: det.detect.timestamp,
             detectionId: det.detect.detectionId,
             eventId: det.eventId,
-            classnamesData: det.detect.detections.map(innerDet => ({
-                classname: innerDet.className,
-                label: innerDet.label
-            })) as ClassnameImage[]
+            detections: det.detect.detections
         }));
         const rulesToUpdate = cloneDeep(this.accumulatedRules);
 
@@ -1674,28 +1671,51 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const triggerTime = dataToAnalyze[0]?.triggerTime;
         const { detectionId, eventId } = dataToAnalyze.find(item => item.detectionId && item.eventId) ?? {};
-        const classnamesData: ClassnameImage[] = uniqBy(dataToAnalyze.flatMap(item => item.classnamesData), item => `${item.classname}-${item.label}`);
+        const classnamesData = uniqBy(dataToAnalyze.flatMap(item => item.detections), item => `${item.className}-${item.label}`);
 
-        const isOnlyMotion = classnamesData.length === 1 && detectionClassesDefaultMap[classnamesData[0]?.classname] === DetectionClass.Motion;
+        const isOnlyMotion = classnamesData.length === 1 && detectionClassesDefaultMap[classnamesData[0]?.className] === DetectionClass.Motion;
 
         logger.info(`Accumulated data to analyze: ${JSON.stringify({ triggerTime, detectionId, eventId, classnamesData, rules: rulesToUpdate.map(rule => rule.rule.name) })}`);
 
-        const { image, b64Image, imageSource } = await this.getImage({
+        let { bufferImage, image, b64Image, imageSource } = await this.getImage({
             detectionId,
             eventId,
             preferLatest: isOnlyMotion
         });
 
         if (image && b64Image) {
+            // if (bufferImage) {
+            //     try {
+            //         const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
+
+            //         if (!objectDetector) {
+            //             return;
+            //         }
+            //         logger.log('Adding bounding boxes');
+
+            //         const detection = await objectDetector.detectObjects(image);
+            //         const { newB64Image, newImage } = await addBoundingBoxesToImage({
+            //             console: logger,
+            //             detection,
+            //             bufferImage,
+            //         });
+
+            //         image = newImage;
+            //         b64Image = newB64Image;
+            //     } catch (e) {
+            //         logger.log(`Error adding bounding boxes`, e);
+            //     }
+            // }
+
             try {
-                const classnamesString = classnamesData.map(item => `${item.classname}${item.label ? '-' + item.label : ''}`).join(', ');
+                const classnamesString = classnamesData.map(item => `${item.className}${item.label ? '-' + item.label : ''}`).join(', ');
 
                 const mqttClient = await this.getMqttClient();
                 if (mqttClient && this.isActiveForMqttReporting) {
                     logger.info(`Updating classname images ${classnamesString} with image source ${imageSource}`);
 
                     const allowedClassnames = classnamesData.filter(classname => this.isDelayPassed({
-                        classname: classname.classname,
+                        classname: classname.className,
                         label: classname.label,
                         type: 'BasicDetection'
                     }));
@@ -1948,7 +1968,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 publishClassnameImages({
                                     mqttClient,
                                     console: logger,
-                                    classnamesData: [{ classname: className, label }],
+                                    classnamesData: [detection],
                                     device: this.cameraDevice,
                                     b64Image,
                                     image,

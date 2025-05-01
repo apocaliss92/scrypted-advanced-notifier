@@ -1228,7 +1228,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if (eventType === NvrEvent.RecordingInterrupted) {
             notifyCameraProps.detection = {
                 label,
-            } as ObjectDetectionResult
+            } as ObjectDetectionResult;
         }
 
         for (const rule of rules) {

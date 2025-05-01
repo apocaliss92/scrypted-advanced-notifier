@@ -1026,14 +1026,12 @@ export const publishAudioPressureValue = async (props: {
     }
 }
 
-export interface ClassnameImage { classname: string, label?: string };
-
 export const publishClassnameImages = async (props: {
     mqttClient?: MqttClient,
     device: ScryptedDeviceBase,
     console: Console,
     triggerTime: number,
-    classnamesData?: ClassnameImage[],
+    classnamesData?: ObjectDetectionResult[],
     b64Image?: string,
     imageUrl?: string,
     image?: MediaObject,
@@ -1046,11 +1044,11 @@ export const publishClassnameImages = async (props: {
     if (!mqttClient) {
         return;
     }
-    console.info(`Publishing image for classnames: ${classnamesData.map(data => data.classname).join(', ')}`);
+    console.info(`Publishing image for classnames: ${classnamesData.map(data => data.className).join(', ')}`);
 
     try {
-        for (const { classname, label } of classnamesData) {
-            const detectionClass = detectionClassesDefaultMap[classname];
+        for (const { className, label } of classnamesData) {
+            const detectionClass = detectionClassesDefaultMap[className];
             if (detectionClass) {
                 if (!skipMqtt) {
                     const mqttEntity = deviceClassMqttEntitiesGrouped[detectionClass].find(entry => entry.identifier === MqttEntityIdentifier.LastImage);
@@ -1058,7 +1056,7 @@ export const publishClassnameImages = async (props: {
                     await mqttClient.publish(stateTopic, b64Image, false);
                 }
 
-                let name = `object-detection-${classname}`;
+                let name = `object-detection-${className}`;
 
                 if (label) {
                     name += `-${label}`;
@@ -1089,7 +1087,7 @@ export const publishClassnameImages = async (props: {
                     webhook: `${lastSnapshot}_${detectionClass}`
                 }).catch(console.log);
             } else {
-                console.log(`${classname} not found`);
+                console.log(`${className} not found`);
             }
         }
     } catch (e) {

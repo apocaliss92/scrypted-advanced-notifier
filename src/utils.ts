@@ -1,4 +1,4 @@
-import sdk, { BinarySensor, Camera, DeviceBase, EntrySensor, LockState, MediaObject, NotifierOptions, ObjectDetectionResult, ObjectDetector, PanTiltZoom, Point, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, VideoCamera } from "@scrypted/sdk";
+import sdk, { BinarySensor, Camera, DeviceBase, EntrySensor, LockState, MediaObject, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoom, Point, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, VideoCamera } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDevice, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import fs from 'fs';
@@ -1244,6 +1244,7 @@ export const getDetectionRulesSettings = async (props: {
             settings.push({
                 key: devicesKey,
                 title: 'Devices',
+                description: 'If empty, all devices will apply',
                 group,
                 subgroup,
                 type: 'device',
@@ -1971,6 +1972,7 @@ export const getDetectionRules = (props: {
 
     const deviceId = device?.id;
     const deviceType = device?.type;
+    const allDevices = getElegibleDevices().map(device => device.id);
 
     const { activeDevicesForNotifications: onActiveDevices, securitySystem } = pluginStorage.values;
 
@@ -1978,6 +1980,7 @@ export const getDetectionRules = (props: {
 
     const processDetectionRules = (storage: StorageSettings<any>, ruleSource: RuleSource) => {
         const detectionRuleNames = storage.getItem(rulesKey) ?? [];
+        const isPlugin = ruleSource === RuleSource.Plugin;
 
         for (const detectionRuleName of detectionRuleNames) {
             const {
@@ -2008,7 +2011,7 @@ export const getDetectionRules = (props: {
             const customText = storage.getItem(textKey) as string || undefined;
             const mainDevices = storage.getItem(devicesKey) as string[] ?? [];
 
-            const devices = ruleSource === RuleSource.Device ? [deviceId] : mainDevices;
+            const devices = !isPlugin ? [deviceId] : mainDevices.length ? mainDevices : allDevices;
             const devicesToUse = activationType === DetectionRuleActivation.OnActive ? onActiveDevices : devices;
 
             const detectionClasses = storage.getItem(detectionClassesKey) as DetectionClass[] ?? [];
@@ -2041,14 +2044,14 @@ export const getDetectionRules = (props: {
                 isNvr: useNvrDetections
             };
 
-            if (ruleSource === RuleSource.Device) {
+            if (!isPlugin) {
                 detectionRule.whitelistedZones = storage.getItem(whitelistedZonesKey) as string[] ?? [];
                 detectionRule.blacklistedZones = storage.getItem(blacklistedZonesKey) as string[] ?? [];
             }
 
             let isSensorEnabled = true;
             if (
-                ruleSource === RuleSource.Plugin &&
+                isPlugin &&
                 deviceType &&
                 [ScryptedDeviceType.Lock, ScryptedDeviceType.Sensor].includes(deviceType) &&
                 !mainDevices.length
@@ -2060,7 +2063,7 @@ export const getDetectionRules = (props: {
                 }
             }
 
-            const deviceOk = !!devicesToUse?.length && (deviceId ? devicesToUse.includes(deviceId) : true);
+            const deviceOk = (!!devicesToUse?.length && (deviceId ? devicesToUse.includes(deviceId) : true));
             const ruleAllowed =
                 basicRuleAllowed &&
                 deviceOk &&
@@ -2076,8 +2079,7 @@ export const getDetectionRules = (props: {
                 ...restCriterias,
             })}`);
 
-            // if (deviceOk || (activationType === DetectionRuleActivation.OnActive && (device ? onActiveDevices.includes(deviceId) : true))) {
-            if (deviceOk || activationType === DetectionRuleActivation.OnActive) {
+            if (deviceOk || isPlugin || activationType === DetectionRuleActivation.OnActive) {
                 availableRules.push(cloneDeep(detectionRule));
             }
 
@@ -2366,104 +2368,159 @@ export const getDeviceAudioRules = (
     };
 }
 
-export const addBoundingToImage = async (boundingBox: number[], imageBuffer: Buffer, console: Console, label: string) => {
-    const [x, y, width, height] = boundingBox;
-    console.log(`Trying to add boundingBox ${boundingBox}`);
-    const borderWidth = 5;
-    try {
-        const createRectangle = async () => {
-            // Buffer per il rettangolo pieno
-            const fullRect = await sharp({
-                create: {
-                    width,
-                    height,
-                    channels: 3,
-                    background: { r: 255, g: 255, b: 255, alpha: 1 }, // Bianco
-                },
-            })
-                .png()
-                .toBuffer();
+export const addBoundingBoxesToImage = async (props: {
+    detection: ObjectsDetected,
+    bufferImage: Buffer;
+    console: Console;
+}) => {
+    const { detection, bufferImage } = props;
+    const fontSize = 20;
+    const color = '#00FF00';
+    const thickness = 4;
 
-            // Crea il rettangolo vuoto
-            const hollowRect = await sharp(fullRect)
-                .extract({ // Rimuovi la parte interna
-                    left: borderWidth,
-                    top: borderWidth,
-                    width: width - borderWidth * 2,
-                    height: height - borderWidth * 2,
-                })
-                .toBuffer();
+    const svgRectsAndTexts = detection.detections.map(({ boundingBox, label, className, score }) => {
+        const labelText = `${label || className}: ${score.toFixed(2)}`;
+        const [x, y, width, height] = boundingBox;
+        const textY = y - 5 < fontSize ? y + fontSize + 5 : y - 5;
+        return `
+          <rect x="${x}" y="${y}" width="${width}" height="${height}"
+            fill="none" stroke="${color}" stroke-width="${thickness}"/>
+          <text x="${x}" y="${textY}" class="label">${labelText}</text>
+        `;
+    }).join('\n');
 
-            return sharp(fullRect)
-                .composite([{
-                    input: hollowRect,
-                    blend: 'dest-out' // Rende l'interno trasparente
-                }])
-                .toBuffer();
-        };
-
-        const rectangle = await createRectangle();
-
-        const newImageBuffer = await sharp(imageBuffer)
-            .composite([{
-                input: rectangle,
-                top: y,
-                left: x,
-            }])
-            .png()
-            .toBuffer();
-
-        const newB64Image = newImageBuffer.toString('base64');
-        const newImage = await sdk.mediaManager.createMediaObject(imageBuffer, ScryptedMimeTypes.Image);
-        console.log(`Bounding box added ${boundingBox}: ${newB64Image}`);
-
-        return { newImageBuffer, newImage, newB64Image };
-    } catch (e) {
-        console.log('Error adding bounding box', e);
-        return {}
-    }
-}
-
-export const addBoundingBoxes = async (base64Image: string, detections: ObjectDetectionResult[]) => {
-    try {
-
-        const imageBuffer = Buffer.from(base64Image, 'base64');
-        let image = await Jimp.read(imageBuffer);
-
-        const borderColor = rgbaToInt(255, 0, 0, 255); // Rosso
-        const font = await loadFont(SANS_16_WHITE);
-
-        detections.forEach(({ boundingBox, className }) => {
-            const text = detectionClassesDefaultMap[className];
-            const [x, y, width, height] = boundingBox;
-            // image.scan(x, y, width, height, function (dx, dy, idx) {
-            //     // Bordo rosso (RGB: 255, 0, 0)
-            //     this.bitmap.data[idx] = 255;   // Rosso
-            //     this.bitmap.data[idx + 1] = 0; // Verde
-            //     this.bitmap.data[idx + 2] = 0; // Blu
-            //     this.bitmap.data[idx + 3] = 255; // Alpha
-            // });
-            function iterator(x, y, offset) {
-                this.bitmap.data.writeUInt32BE(0x00000088, offset, true);
+    const svgOverlay = `
+        <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+          <style>
+            .label {
+              fill: ${color};
+              font-size: ${fontSize}px;
+              font-family: Arial, sans-serif;
+              font-weight: bold;
             }
+          </style>
+          ${svgRectsAndTexts}
+        </svg>
+      `;
 
-            image.scan(236, 100, 240, 1, iterator);
-            image.scan(236, 100 + 110, 240, 1, iterator);
-            image.scan(236, 100, 1, 110, iterator);
-            image.scan(236 + 240, 100, 1, 110, iterator);
-        });
-        const outputBuffer = await image.getBuffer('image/jpeg');
+    const outputBuffer = await sharp(bufferImage)
+        .composite([
+            {
+                input: Buffer.from(svgOverlay),
+                top: 0,
+                left: 0,
+                blend: 'over',
+            }
+        ])
+        .toBuffer();
 
-        const newB64Image = outputBuffer.toString('base64');
-        const newImage = await sdk.mediaManager.createMediaObject(imageBuffer, ScryptedMimeTypes.Image);
+    const newB64Image = outputBuffer.toString('base64');
+    const newImage = await sdk.mediaManager.createMediaObject(outputBuffer, ScryptedMimeTypes.Image);
 
-        return { newB64Image, newImage };
-
-    } catch (error) {
-        console.error("Errore:", error.message);
-        return null;
-    }
+    return {
+        newB64Image,
+        newImage,
+    };
 }
+
+// export const addBoundingToImage = async (boundingBox: number[], imageBuffer: Buffer, console: Console, label: string) => {
+//     const [x, y, width, height] = boundingBox;
+//     console.log(`Trying to add boundingBox ${boundingBox}`);
+//     const borderWidth = 5;
+//     try {
+//         const createRectangle = async () => {
+//             // Buffer per il rettangolo pieno
+//             const fullRect = await sharp({
+//                 create: {
+//                     width,
+//                     height,
+//                     channels: 3,
+//                     background: { r: 255, g: 255, b: 255, alpha: 1 }, // Bianco
+//                 },
+//             })
+//                 .png()
+//                 .toBuffer();
+
+//             // Crea il rettangolo vuoto
+//             const hollowRect = await sharp(fullRect)
+//                 .extract({ // Rimuovi la parte interna
+//                     left: borderWidth,
+//                     top: borderWidth,
+//                     width: width - borderWidth * 2,
+//                     height: height - borderWidth * 2,
+//                 })
+//                 .toBuffer();
+
+//             return sharp(fullRect)
+//                 .composite([{
+//                     input: hollowRect,
+//                     blend: 'dest-out' // Rende l'interno trasparente
+//                 }])
+//                 .toBuffer();
+//         };
+
+//         const rectangle = await createRectangle();
+
+//         const newImageBuffer = await sharp(imageBuffer)
+//             .composite([{
+//                 input: rectangle,
+//                 top: y,
+//                 left: x,
+//             }])
+//             .png()
+//             .toBuffer();
+
+//         const newB64Image = newImageBuffer.toString('base64');
+//         const newImage = await sdk.mediaManager.createMediaObject(imageBuffer, ScryptedMimeTypes.Image);
+//         console.log(`Bounding box added ${boundingBox}: ${newB64Image}`);
+
+//         return { newImageBuffer, newImage, newB64Image };
+//     } catch (e) {
+//         console.log('Error adding bounding box', e);
+//         return {}
+//     }
+// }
+
+// export const addBoundingBoxes = async (base64Image: string, detections: ObjectDetectionResult[]) => {
+//     try {
+
+//         const imageBuffer = Buffer.from(base64Image, 'base64');
+//         let image = await Jimp.read(imageBuffer);
+
+//         const borderColor = rgbaToInt(255, 0, 0, 255); // Rosso
+//         const font = await loadFont(SANS_16_WHITE);
+
+//         detections.forEach(({ boundingBox, className }) => {
+//             const text = detectionClassesDefaultMap[className];
+//             const [x, y, width, height] = boundingBox;
+//             // image.scan(x, y, width, height, function (dx, dy, idx) {
+//             //     // Bordo rosso (RGB: 255, 0, 0)
+//             //     this.bitmap.data[idx] = 255;   // Rosso
+//             //     this.bitmap.data[idx + 1] = 0; // Verde
+//             //     this.bitmap.data[idx + 2] = 0; // Blu
+//             //     this.bitmap.data[idx + 3] = 255; // Alpha
+//             // });
+//             function iterator(x, y, offset) {
+//                 this.bitmap.data.writeUInt32BE(0x00000088, offset, true);
+//             }
+
+//             image.scan(236, 100, 240, 1, iterator);
+//             image.scan(236, 100 + 110, 240, 1, iterator);
+//             image.scan(236, 100, 1, 110, iterator);
+//             image.scan(236 + 240, 100, 1, 110, iterator);
+//         });
+//         const outputBuffer = await image.getBuffer('image/jpeg');
+
+//         const newB64Image = outputBuffer.toString('base64');
+//         const newImage = await sdk.mediaManager.createMediaObject(imageBuffer, ScryptedMimeTypes.Image);
+
+//         return { newB64Image, newImage };
+
+//     } catch (error) {
+//         console.error("Errore:", error.message);
+//         return null;
+//     }
+// }
 
 export const getPushoverPriority = (priority: NotificationPriority) => priority === NotificationPriority.High ? 1 :
     (!priority || priority === NotificationPriority.Normal) ? 0 :
