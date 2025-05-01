@@ -12,6 +12,7 @@ import { name, scrypted } from '../package.json';
 import { AiPlatform, defaultModel } from "./aiUtils";
 import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detecionClasses";
 import AdvancedNotifierPlugin from "./main";
+import { RtpPacket } from "../../scrypted/external/werift/packages/rtp/src/rtp/rtp";
 const { endpointManager } = sdk;
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Settings & ObjectDetector & VideoCamera & EntrySensor & Lock & BinarySensor & Reboot & PanTiltZoom;
@@ -2617,23 +2618,27 @@ export const supportedInterfaces = [
     ScryptedInterface.Notifier
 ];
 
-export const pcmU8ToDb = (payload: Uint8Array): number => {
-    let sum = 0;
-    const count = payload.length;
+export const getDecibelsFromRtp_PCMU8 = (rtpPacket: Buffer, logger: Console) => {
+    const RTP_HEADER_SIZE = 12;
+    if (rtpPacket.length <= RTP_HEADER_SIZE) return null;
 
-    if (count === 0) return 0;
+    const payload = rtpPacket.slice(RTP_HEADER_SIZE);
+    const sampleCount = payload.length;
+    if (sampleCount === 0) return null;
 
-    for (let i = 0; i < count; i++) {
-        const sample = payload[i] - 128;
-        sum += sample * sample;
+    let sumSquares = 0;
+    for (let i = 0; i < payload.length; i++) {
+        const sample = payload[i];
+        const centered = sample - 128;
+        const normalized = centered / 128;
+        sumSquares += normalized * normalized;
     }
 
-    const rms = Math.sqrt(sum / count);
-    const minRMS = 1.0;
+    const rms = Math.sqrt(sumSquares / sampleCount);
+    const db = 20 * Math.log10(rms || 0.00001);
 
-    if (rms < minRMS) return 0;
+    logger.debug(`Audio detections: ${JSON.stringify({ sumSquares, rms, db })}`);
 
-    const db = 20 * Math.log10(rms / minRMS);
     return db;
 }
 
