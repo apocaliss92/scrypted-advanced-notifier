@@ -22,6 +22,8 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
         public plugin: HomeAssistantUtilitiesProvider
     ) {
         super(options);
+
+        this.plugin.currentNotifierMixinsMap[this.id] = this;
     }
 
     async getMixinSettings(): Promise<Setting[]> {

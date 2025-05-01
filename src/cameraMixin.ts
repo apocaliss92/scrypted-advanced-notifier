@@ -62,6 +62,28 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             isCamera: true,
             refreshSettings: this.refreshSettings.bind(this)
         }),
+        notificationsEnabled: {
+            title: 'Notifications enabled',
+            description: 'Enable notifications related to this camera',
+            type: 'boolean',
+            subgroup: 'Notifier',
+            immediate: true,
+            defaultValue: true,
+        },
+        ignoreCameraDetections: {
+            title: 'Ignore camera detections',
+            description: 'If checked, the detections reported by the camera will be ignored. Make sure to have an object detector mixin enabled',
+            type: 'boolean',
+            subgroup: 'Notifier',
+            immediate: true,
+        },
+        haActions: {
+            title: 'Homeassistant Actions',
+            description: 'Actions to show on the notification, i.e. {"action":"open_door","title":"Open door","icon":"sfsymbols:door"}',
+            subgroup: 'Notifier',
+            type: 'string',
+            multiple: true
+        },
         enabledToMqtt: {
             title: 'Report to MQTT',
             description: 'Autodiscovery this camera on MQTT',
@@ -92,13 +114,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             title: 'Off motion duration',
             type: 'number',
             defaultValue: 10
-        },
-        ignoreCameraDetections: {
-            title: 'Ignore camera detections',
-            description: 'If checked, the detections reported by the camera will be ignored. Make sure to have an object detector mixin enabled',
-            type: 'boolean',
-            subgroup: 'Notifier',
-            immediate: true,
         },
         occupancyCheckInterval: {
             title: 'Check objects occupancy in seconds',
@@ -204,7 +219,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
 
         this.clientId = `scrypted_an_${this.id}`;
-        this.plugin.currentMixinsMap[this.name] = this;
+        this.plugin.currentCameraMixinsMap[this.id] = this;
 
         this.storageSettings.settings.entityId.onGet = async () => {
             const entities = this.plugin.fetchedEntities;
@@ -406,7 +421,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 const isDetectionListenerRunning = !!this.detectionListener || !!this.motionListener;
 
-                const { entityId, occupancyCheckInterval = 0, checkSoundPressure, useFramesGenerator } = this.storageSettings.values;
+                const { entityId, occupancyCheckInterval = 0, checkSoundPressure, useFramesGenerator, notificationsEnabled } = this.storageSettings.values;
 
                 // logger.log(JSON.stringify({ allDetectionRules, detectionRules }))
                 if (isActiveForMqttReporting) {
@@ -436,6 +451,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                     const { common: { enabledKey } } = getRuleKeys({ ruleName, ruleType });
                                     logger.debug(`Setting ${ruleType} rule ${ruleName} to ${active}`);
                                     await this.storageSettings.putSetting(`${enabledKey}`, active);
+                                },
+                                switchNotificationsEnabledCb: async (active) => {
+                                    logger.debug(`Setting notifications active to ${!active}`);
+                                    await this.storageSettings.putSetting(`notificationsEnabled`, active);
                                 },
                                 switchRecordingCb: this.cameraDevice.interfaces.includes(ScryptedInterface.VideoRecorder) ?
                                     async (active) => {
@@ -475,6 +494,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             console: logger,
                             device: this.cameraDevice,
                             mqttClient,
+                            notificationsEnabled,
                             isRecording,
                             rulesToEnable,
                             rulesToDisable
@@ -670,7 +690,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
         try {
             if (this.plugin.hasCloudPlugin) {
-                const { lastSnapshotCloudUrl, lastSnapshotLocalUrl } = await getWebookUrls(this.name, console);
+                const { lastSnapshotCloudUrl, lastSnapshotLocalUrl } = await getWebookUrls(this.id, console);
 
                 await this.storageSettings.putSetting('lastSnapshotWebhookCloudUrl', lastSnapshotCloudUrl);
                 await this.storageSettings.putSetting('lastSnapshotWebhookLocalUrl', lastSnapshotLocalUrl);
@@ -1515,26 +1535,30 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const timePassed = this.isDelayPassed({ type: 'OccupancyNotification', matchRule: { rule } });
 
                 if (!rulesToNotNotify.includes(rule.name) && timePassed) {
-                    const currentState = this.occupancyState[rule.name];
+                    if (!this.storageSettings.values.notificationsEnabled) {
+                        logger.log(`Skipping notification because disabled`);
+                    } else {
+                        const currentState = this.occupancyState[rule.name];
 
-                    let message = occupancyRuleData.occupies ?
-                        rule.zoneOccupiedText :
-                        rule.zoneNotOccupiedText;
+                        let message = occupancyRuleData.occupies ?
+                            rule.zoneOccupiedText :
+                            rule.zoneNotOccupiedText;
 
-                    if (message) {
-                        message = message.toString()
-                            .replace('${detectedObjects}', String(occupancyRuleData.objectsDetected) ?? '')
-                            .replace('${maxObjects}', String(rule.maxObjects) ?? '')
+                        if (message) {
+                            message = message.toString()
+                                .replace('${detectedObjects}', String(occupancyRuleData.objectsDetected) ?? '')
+                                .replace('${maxObjects}', String(rule.maxObjects) ?? '')
 
-                        const triggerTime = (occupancyRuleData?.triggerTime ?? now) - 5000;
+                            const triggerTime = (occupancyRuleData?.triggerTime ?? now) - 5000;
 
-                        await this.plugin.notifyOccupancyEvent({
-                            cameraDevice: this.cameraDevice,
-                            message,
-                            rule,
-                            triggerTime,
-                            image: currentState?.image ?? imageParent
-                        });
+                            await this.plugin.notifyOccupancyEvent({
+                                cameraDevice: this.cameraDevice,
+                                message,
+                                rule,
+                                triggerTime,
+                                image: currentState?.image ?? imageParent
+                            });
+                        }
                     }
                 }
             }
@@ -1572,24 +1596,28 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const currentDuration = lastDetection ? (now - lastDetection) / 1000 : 0;
 
             const trigger = async () => {
-                logger.info(`Audio rule ${name} passed: ${JSON.stringify({ currentDuration, decibels })}`);
-                let message = customText;
+                if (!this.storageSettings.values.notificationsEnabled) {
+                    logger.log(`Skipping notification because disabled`);
+                } else {
+                    logger.info(`Audio rule ${name} passed: ${JSON.stringify({ currentDuration, decibels })}`);
+                    let message = customText;
 
-                message = message.toString()
-                    .replace('${decibels}', String(decibelThreshold) ?? '')
-                    .replace('${duration}', String(audioDuration) ?? '')
+                    message = message.toString()
+                        .replace('${decibels}', String(decibelThreshold) ?? '')
+                        .replace('${duration}', String(audioDuration) ?? '')
 
-                await this.plugin.notifyAudioEvent({
-                    cameraDevice: this.cameraDevice,
-                    image,
-                    message,
-                    rule,
-                    triggerTime: now,
-                });
-                this.audioListeners[name] = {
-                    ...this.audioListeners[name],
-                    lastNotification: now
-                };
+                    await this.plugin.notifyAudioEvent({
+                        cameraDevice: this.cameraDevice,
+                        image,
+                        message,
+                        rule,
+                        triggerTime: now,
+                    });
+                    this.audioListeners[name] = {
+                        ...this.audioListeners[name],
+                        lastNotification: now
+                    };
+                }
 
                 if (this.isActiveForMqttReporting) {
                     this.triggerRule({
@@ -2273,16 +2301,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const cloudEndpoint = await sdk.endpointManager.getCloudEndpoint(undefined, { public: true });
         const [endpoint, parameters] = cloudEndpoint.split('?') ?? '';
         const { timelapseDownload, timelapseStream, timelapseThumbnail } = await getWebooks();
-        const encodedName = encodeURIComponent(this.name);
+        const encodedId = encodeURIComponent(this.id);
         const encodedRuleName = encodeURIComponent(ruleName);
 
         const paramString = parameters ? `?${parameters}` : '';
 
-        const streameUrl = `${endpoint}${timelapseStream}/${encodedName}/${encodedRuleName}/${timelapseName}${paramString}`;
-        const downloadUrl = `${endpoint}${timelapseDownload}/${encodedName}/${encodedRuleName}/${timelapseName}${paramString}`;
-        const thumbnailUrl = `${endpoint}${timelapseThumbnail}/${encodedName}/${encodedRuleName}/${timelapseName}${paramString}`;
+        const streamUrl = `${endpoint}${timelapseStream}/${encodedId}/${encodedRuleName}/${timelapseName}${paramString}`;
+        const downloadUrl = `${endpoint}${timelapseDownload}/${encodedId}/${encodedRuleName}/${timelapseName}${paramString}`;
+        const thumbnailUrl = `${endpoint}${timelapseThumbnail}/${encodedId}/${encodedRuleName}/${timelapseName}${paramString}`;
 
-        return { streameUrl, downloadUrl, thumbnailUrl };
+        return { streamUrl, downloadUrl, thumbnailUrl };
     }
 
     async createFrameGenerator(options?: VideoFrameGeneratorOptions): Promise<AsyncGenerator<VideoFrame, any, unknown>> {

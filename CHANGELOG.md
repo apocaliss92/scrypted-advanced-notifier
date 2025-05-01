@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.3.7
+
+- Add setting to disable notifications for a specific camera, on MQTT as well
+
 ### 3.3.6
 
 - Any object entities added on MQTT and file system, will be triggered for any object detection (animal, vehicle, person)

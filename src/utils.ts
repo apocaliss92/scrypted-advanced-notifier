@@ -116,7 +116,7 @@ export const storeWebhookImage = async (props: {
     await fs.promises.writeFile(lastSnapshotFilePath, jpeg).catch(e => logger.log(`Error saving webhook ${webhook} image`, e));
 }
 
-export const getWebookUrls = async (cameraDeviceOrAction: string | undefined, console: Console) => {
+export const getWebookUrls = async (cameraIdOrAction: string | undefined, console: Console) => {
     let lastSnapshotCloudUrl: string;
     let lastSnapshotLocalUrl: string;
     let haActionUrl: string;
@@ -127,9 +127,9 @@ export const getWebookUrls = async (cameraDeviceOrAction: string | undefined, co
         const cloudEndpoint = await endpointManager.getPublicCloudEndpoint();
         const localEndpoint = await endpointManager.getPublicLocalEndpoint();
 
-        lastSnapshotCloudUrl = `${cloudEndpoint}${lastSnapshot}/${cameraDeviceOrAction}`;
-        lastSnapshotLocalUrl = `${localEndpoint}${lastSnapshot}/${cameraDeviceOrAction}`;
-        haActionUrl = `${cloudEndpoint}${haAction}/${cameraDeviceOrAction}`;
+        lastSnapshotCloudUrl = `${cloudEndpoint}${lastSnapshot}/${cameraIdOrAction}`;
+        lastSnapshotLocalUrl = `${localEndpoint}${lastSnapshot}/${cameraIdOrAction}`;
+        haActionUrl = `${cloudEndpoint}${haAction}/${cameraIdOrAction}`;
     } catch (e) {
         console.log('Error fetching webhookUrls. Probably Cloud plugin is not setup correctly', e.message);
     }
@@ -548,14 +548,6 @@ export const getMixinBaseSettings = (props: {
                 subgroup: 'Detection',
                 immediate: true,
                 hide: true,
-            },
-            // NOTIFIER
-            haActions: {
-                title: 'Homeassistant Actions',
-                description: 'Actions to show on the notification, i.e. {"action":"open_door","title":"Open door","icon":"sfsymbols:door"}',
-                subgroup: 'Notifier',
-                type: 'string',
-                multiple: true
             },
             [ruleTypeMetadataMap[RuleType.Detection].rulesKey]: {
                 title: 'Detection rules',

@@ -60,7 +60,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             }
         }
 
-        this.plugin.currentMixinsMap[this.name] = this;
+        this.plugin.currentSensorMixinsMap[this.id] = this;
 
         this.startStop(this.plugin.storageSettings.values.pluginEnabled).then().catch(logger.log);
     }
@@ -244,7 +244,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 const { isDoorbell, device } = await this.plugin.getLinkedCamera(this.id);
                 const isDoorlock = this.type === ScryptedDeviceType.Lock;
 
-                const mixinDevice = this.plugin.currentMixinsMap[device.name] as AdvancedNotifierCameraMixin;
+                const mixinDevice = this.plugin.currentCameraMixinsMap[device.id];
 
                 if (!this.runningDetectionRules.length || !mixinDevice) {
                     return;

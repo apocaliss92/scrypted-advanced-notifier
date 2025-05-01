@@ -105,6 +105,14 @@ const sleepingEntity: MqttEntity = {
     retain: true,
     icon: 'mdi:sleep'
 };
+const notificationsEnabledEntity: MqttEntity = {
+    domain: 'switch',
+    entity: 'notifications_enabled',
+    name: 'Notifications enabled',
+    entityCategory: 'diagnostic',
+    retain: true,
+    icon: 'mdi:bell'
+};
 const audioPressureEntity: MqttEntity = {
     domain: 'sensor',
     entity: 'sound_pressure',
@@ -653,6 +661,7 @@ export const subscribeToDeviceMqttTopics = async (
         device: ScryptedDeviceBase,
         console: Console,
         switchRecordingCb?: (active: boolean) => void,
+        switchNotificationsEnabledCb: (active: boolean) => void,
         rebootCb?: () => void,
         ptzCommandCb?: (command: PanTiltZoomCommand) => void,
         activationRuleCb: (props: {
@@ -667,6 +676,7 @@ export const subscribeToDeviceMqttTopics = async (
         rules,
         activationRuleCb,
         switchRecordingCb,
+        switchNotificationsEnabledCb,
         rebootCb,
         ptzCommandCb,
         device,
@@ -703,6 +713,17 @@ export const subscribeToDeviceMqttTopics = async (
                 switchRecordingCb(message === 'true');
 
                 await mqttClient.publish(stateTopic, message, recordingEntity.retain);
+            }
+        });
+    }
+
+    if (switchNotificationsEnabledCb) {
+        const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: notificationsEnabledEntity, device });
+        await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
+            if (messageTopic === commandTopic) {
+                switchNotificationsEnabledCb(message === 'true');
+
+                await mqttClient.publish(stateTopic, message, notificationsEnabledEntity.retain);
             }
         });
     }
@@ -828,7 +849,11 @@ export const setupDeviceAutodiscovery = async (props: {
         }
     })
 
-    const mqttEntities = [triggeredEntity, ...detectionMqttEntities];
+    const mqttEntities = [
+        triggeredEntity,
+        notificationsEnabledEntity,
+        ...detectionMqttEntities
+    ];
 
     if (device.interfaces.includes(ScryptedInterface.Battery)) {
         mqttEntities.push(cloneDeep(batteryEntity));
@@ -1099,11 +1124,12 @@ export const reportDeviceValues = async (props: {
     mqttClient?: MqttClient,
     device?: ScryptedDeviceBase,
     isRecording?: boolean,
+    notificationsEnabled: boolean,
     console: Console,
     rulesToEnable: BaseRule[],
     rulesToDisable: BaseRule[],
 }) => {
-    const { device, mqttClient, isRecording, rulesToDisable, rulesToEnable, console } = props;
+    const { device, mqttClient, isRecording, notificationsEnabled, rulesToDisable, rulesToEnable, console } = props;
 
     if (!mqttClient) {
         return;
@@ -1126,6 +1152,9 @@ export const reportDeviceValues = async (props: {
             const { stateTopic } = getMqttTopics({ mqttEntity: recordingEntity, device });
             await mqttClient.publish(stateTopic, isRecording ? 'true' : 'false', recordingEntity.retain);
         }
+
+        const { stateTopic } = getMqttTopics({ mqttEntity: notificationsEnabledEntity, device });
+        await mqttClient.publish(stateTopic, notificationsEnabled ? 'true' : 'false', notificationsEnabledEntity.retain);
     }
 
     for (const rule of rulesToEnable) {
