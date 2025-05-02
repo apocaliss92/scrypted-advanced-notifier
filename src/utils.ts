@@ -75,6 +75,7 @@ export const getWebooks = async () => {
     const timelapseDownload = 'timelapseDownload';
     const timelapseStream = 'timelapseStream';
     const timelapseThumbnail = 'timelapseThumbnail';
+    const snoozeNotification = 'snoozeNotification';
 
     return {
         lastSnapshot,
@@ -82,6 +83,7 @@ export const getWebooks = async () => {
         timelapseDownload,
         timelapseStream,
         timelapseThumbnail,
+        snoozeNotification,
     }
 }
 
@@ -117,20 +119,58 @@ export const storeWebhookImage = async (props: {
     await fs.promises.writeFile(lastSnapshotFilePath, jpeg).catch(e => logger.log(`Error saving webhook ${webhook} image`, e));
 }
 
-export const getWebookUrls = async (cameraIdOrAction: string | undefined, console: Console) => {
+export const getWebookUrls = async (props: {
+    cameraIdOrAction?: string,
+    console: Console,
+    device: ScryptedDeviceBase,
+    rule?: TimelapseRule,
+    timelapseName?: string,
+    snoozes?: number[],
+    detectionKey?: string,
+}) => {
+    const { cameraIdOrAction, console, rule, device, timelapseName, snoozes, detectionKey } = props;
     let lastSnapshotCloudUrl: string;
     let lastSnapshotLocalUrl: string;
     let haActionUrl: string;
+    let timelapseStreamUrl: string;
+    let timelapseDownloadUrl: string;
+    let timelapseThumbnailUrl: string;
 
-    const { lastSnapshot, haAction } = await getWebooks();
+    const snoozeUrls: { url: string, text: string, snooze: number }[] = [];
+
+    const { lastSnapshot, haAction, timelapseDownload, timelapseStream, timelapseThumbnail, snoozeNotification } = await getWebooks();
 
     try {
-        const cloudEndpoint = await endpointManager.getPublicCloudEndpoint();
+        const cloudEndpointRaw = await endpointManager.getCloudEndpoint(undefined, { public: true });
         const localEndpoint = await endpointManager.getPublicLocalEndpoint();
 
-        lastSnapshotCloudUrl = `${cloudEndpoint}${lastSnapshot}/${cameraIdOrAction}`;
-        lastSnapshotLocalUrl = `${localEndpoint}${lastSnapshot}/${cameraIdOrAction}`;
-        haActionUrl = `${cloudEndpoint}${haAction}/${cameraIdOrAction}`;
+        const [cloudEndpoint, parameters] = cloudEndpointRaw.split('?') ?? '';
+        const encodedId = encodeURIComponent(cameraIdOrAction ?? device.id);
+
+        const paramString = parameters ? `?${parameters}` : '';
+
+        lastSnapshotCloudUrl = `${cloudEndpoint}${lastSnapshot}/${encodedId}${paramString}`;
+        lastSnapshotLocalUrl = `${localEndpoint}${lastSnapshot}/${encodedId}${paramString}`;
+        haActionUrl = `${cloudEndpoint}${haAction}/${encodedId}${paramString}`;
+
+        if (rule) {
+            const encodedRuleName = encodeURIComponent(rule.name);
+
+            timelapseStreamUrl = `${cloudEndpoint}${timelapseStream}/${encodedId}/${encodedRuleName}/${timelapseName}${paramString}`;
+            timelapseDownloadUrl = `${cloudEndpoint}${timelapseDownload}/${encodedId}/${encodedRuleName}/${timelapseName}${paramString}`;
+            timelapseThumbnailUrl = `${cloudEndpoint}${timelapseThumbnail}/${encodedId}/${encodedRuleName}/${timelapseName}${paramString}`;
+        }
+
+        if (snoozes) {
+            for (const snooze of snoozes) {
+                snoozeUrls.push({
+                    url: `${cloudEndpoint}${snoozeNotification}/${encodedId}/${detectionKey}/${snooze}${paramString}`,
+                    // TODO: Translate this
+                    text: `Snooze: ${snooze} minutes`,
+                    snooze,
+                })
+            }
+        }
     } catch (e) {
         console.log('Error fetching webhookUrls. Probably Cloud plugin is not setup correctly', e.message);
     }
@@ -139,6 +179,10 @@ export const getWebookUrls = async (cameraIdOrAction: string | undefined, consol
         lastSnapshotCloudUrl,
         lastSnapshotLocalUrl,
         haActionUrl,
+        timelapseStreamUrl,
+        timelapseDownloadUrl,
+        timelapseThumbnailUrl,
+        snoozeUrls
     }
 }
 

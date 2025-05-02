@@ -16,6 +16,7 @@ import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAudioRulesSettings, getDecibelsFromRtp_PCMU8, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, splitRules } from "./utils";
+import moment from "moment";
 
 const { systemManager } = sdk;
 
@@ -140,6 +141,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             title: 'Last snapshot webhook',
             type: 'boolean',
             immediate: true,
+            onPut: async () => await this.refreshSettings()
         },
         lastSnapshotWebhookCloudUrl: {
             subgroup: 'Webhooks',
@@ -210,6 +212,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     processDetectionsInterval: NodeJS.Timeout;
     processingAccumulatedDetections = false;
     clientId: string;
+
+    snoozeUntilDic: Record<string, number> = {};
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -690,7 +694,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
         try {
             if (this.plugin.hasCloudPlugin) {
-                const { lastSnapshotCloudUrl, lastSnapshotLocalUrl } = await getWebookUrls(this.id, console);
+                const { lastSnapshotCloudUrl, lastSnapshotLocalUrl } = await getWebookUrls({
+                    cameraIdOrAction: this.id,
+                    console: logger,
+                    device: this.cameraDevice
+                });
 
                 await this.storageSettings.putSetting('lastSnapshotWebhookCloudUrl', lastSnapshotCloudUrl);
                 await this.storageSettings.putSetting('lastSnapshotWebhookLocalUrl', lastSnapshotLocalUrl);
@@ -698,6 +706,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         } catch { };
 
         await this.refreshSettings();
+    }
+
+    snoozeNotification(props: {
+        detectionKey: string;
+        snoozeTime: number;
+    }) {
+        const { detectionKey, snoozeTime } = props;
+
+        const snoozedUntil = moment().add(snoozeTime, 'minutes').toDate().getTime();
+        this.snoozeUntilDic[detectionKey] = snoozedUntil;
     }
 
     async toggleRule(ruleName: string, ruleType: RuleType, enabled: boolean) {
@@ -965,15 +983,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         return systemManager.getDeviceById(this.id) as (ObjectDetector & MotionSensor & ScryptedDevice & Camera);
     }
 
-    getLastDetectionkey(matchRule: MatchRule) {
+    getDetectionIdentifier(matchRule: MatchRule) {
         const { match, rule } = matchRule;
         let key = `rule-${rule.name}`;
         if (rule.ruleType === RuleType.Timelapse) {
             return key;
         } else {
-            const { label } = match;
-            const className = detectionClassesDefaultMap[match.className];
-            key = `${key}-${className}`;
+            const { label, className } = match;
+            const classname = detectionClassesDefaultMap[className];
+            key = `${key}-${classname}`;
             if (label) {
                 key += `-${label}`;
             }
@@ -1784,6 +1802,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     const timePassedForNotification = this.isDelayPassed({ type: 'RuleNotification', matchRule });
 
                     if (timePassedForNotification) {
+                        const detectionKey = this.getDetectionIdentifier(matchRule);
                         logger.log(`Starting notifiers for detection rule ${rule.name}, b64Image ${b64Image?.substring(0, 10)}`);
 
                         this.plugin.matchDetectionFound({
@@ -1793,6 +1812,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             image,
                             eventType: EventType.ObjectDetection,
                             triggerTime,
+                            detectionKey,
                         });
                     }
                 }
@@ -1853,7 +1873,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             return timePassed;
         } else if (type === 'RuleImageUpdate' && matchRule) {
-            const lastDetectionkey = this.getLastDetectionkey(matchRule);
+            const lastDetectionkey = this.getDetectionIdentifier(matchRule);
 
             const lastPublished = this.lastRulePublishedMap[lastDetectionkey];
             const timePassed = !lastPublished || !matchRule.rule.minMqttPublishDelay || (now - lastPublished) >= (matchRule.rule.minMqttPublishDelay) * 1000;
@@ -1864,15 +1884,24 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             return timePassed;
         } else if (type === 'RuleNotification' && matchRule) {
-            const lastDetectionkey = this.getLastDetectionkey(matchRule);
+            const lastDetectionkey = this.getDetectionIdentifier(matchRule);
 
             const lastNotified = this.lastRuleNotifiedMap[lastDetectionkey];
             const delay = matchRule.rule.minDelay ?? minDelayTime;
 
-            const timePassed = !lastNotified || (now - lastNotified) >= delay * 1000;
+            let timePassed = !lastNotified || (now - lastNotified) >= delay * 1000;
 
             if (timePassed) {
-                this.lastRuleNotifiedMap[lastDetectionkey] = now;
+                const lastSnoozed = this.snoozeUntilDic[lastDetectionkey];
+                const isSnoozed = lastSnoozed && now < lastSnoozed;
+
+                if (!isSnoozed) {
+                    this.lastRuleNotifiedMap[lastDetectionkey] = now;
+                } else {
+                    this.logger.log(`Notification ${lastDetectionkey} still snoozed for ${(lastSnoozed - now) / 1000} seconds`);
+
+                    timePassed = false;
+                }
             }
 
             return timePassed;
@@ -2158,6 +2187,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         }
 
                         if (isFromNvr && rule.isNvr && this.isDelayPassed({ type: 'RuleNotification', matchRule, eventSource })) {
+                            const detectionKey = this.getDetectionIdentifier(matchRule);
                             if (rule.ruleType === RuleType.Detection) {
                                 logger.log(`Starting notifiers for detection rule ${rule.name}, b64Image ${b64Image?.substring(0, 10)}`);
                             }
@@ -2169,6 +2199,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 image,
                                 eventType: EventType.ObjectDetection,
                                 triggerTime,
+                                detectionKey,
                             });
                         }
                     } catch (e) {
@@ -2291,26 +2322,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             ...this.detectionRuleListeners[ruleName],
             turnOffTimeout
         };
-    }
-
-    public async getTimelapseWebhookUrl(props: {
-        ruleName: string,
-        timelapseName: string,
-    }) {
-        const { ruleName, timelapseName } = props;
-        const cloudEndpoint = await sdk.endpointManager.getCloudEndpoint(undefined, { public: true });
-        const [endpoint, parameters] = cloudEndpoint.split('?') ?? '';
-        const { timelapseDownload, timelapseStream, timelapseThumbnail } = await getWebooks();
-        const encodedId = encodeURIComponent(this.id);
-        const encodedRuleName = encodeURIComponent(ruleName);
-
-        const paramString = parameters ? `?${parameters}` : '';
-
-        const streamUrl = `${endpoint}${timelapseStream}/${encodedId}/${encodedRuleName}/${timelapseName}${paramString}`;
-        const downloadUrl = `${endpoint}${timelapseDownload}/${encodedId}/${encodedRuleName}/${timelapseName}${paramString}`;
-        const thumbnailUrl = `${endpoint}${timelapseThumbnail}/${encodedId}/${encodedRuleName}/${timelapseName}${paramString}`;
-
-        return { streamUrl, downloadUrl, thumbnailUrl };
     }
 
     async createFrameGenerator(options?: VideoFrameGeneratorOptions): Promise<AsyncGenerator<VideoFrame, any, unknown>> {

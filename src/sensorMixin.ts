@@ -269,6 +269,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                         triggerTime,
                         rule,
                         image,
+                        detectionKey: `sensor_${this.id}`
                     });
                 }
             }
