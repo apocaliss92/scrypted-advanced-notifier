@@ -1,9 +1,7 @@
-import sdk, { BinarySensor, Camera, DeviceBase, EntrySensor, LockState, MediaObject, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoom, Point, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, VideoCamera } from "@scrypted/sdk";
+import sdk, { BinarySensor, Camera, DeviceBase, EntrySensor, LockState, MediaObject, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoom, Point, Reboot, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, VideoCamera } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDevice, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import fs from 'fs';
-import { Jimp, loadFont, rgbaToInt } from "jimp";
-import { SANS_16_WHITE } from "jimp/fonts";
 import { cloneDeep, sortBy, uniq, uniqBy } from "lodash";
 import moment, { Moment } from "moment";
 import path from 'path';
@@ -12,7 +10,6 @@ import { name, scrypted } from '../package.json';
 import { AiPlatform, defaultModel } from "./aiUtils";
 import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detecionClasses";
 import AdvancedNotifierPlugin from "./main";
-import { RtpPacket } from "../../scrypted/external/werift/packages/rtp/src/rtp/rtp";
 const { endpointManager } = sdk;
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Settings & ObjectDetector & VideoCamera & EntrySensor & Lock & BinarySensor & Reboot & PanTiltZoom;
@@ -20,6 +17,7 @@ export const ADVANCED_NOTIFIER_INTERFACE = name;
 export const PUSHOVER_PLUGIN_ID = '@scrypted/pushover';
 export const HOMEASSISTANT_PLUGIN_ID = '@scrypted/homeassistant';
 export const SNAPSHOT_WIDTH = 1280;
+export const LATEST_IMAGE_SUFFIX = '-latest';
 
 export enum ScryptedEventSource {
     RawDetection = 'RawDetection',
@@ -70,7 +68,7 @@ export const getDefaultEntityId = (name: string) => {
 }
 
 export const getWebooks = async () => {
-    const lastSnapshot = 'lastSnapshot';
+    const lastSnapshot = 'snapshot';
     const haAction = 'haAction';
     const timelapseDownload = 'timelapseDownload';
     const timelapseStream = 'timelapseStream';
@@ -87,37 +85,10 @@ export const getWebooks = async () => {
     }
 }
 
-export const getFolderPaths = async (deviceId: string) => {
-    const basePath = process.env.SCRYPTED_PLUGIN_VOLUME;
-    const snapshotsFolder = path.join(basePath, 'snapshots', deviceId);
-
-    try {
-        await fs.promises.access(snapshotsFolder);
-    } catch {
-        await fs.promises.mkdir(snapshotsFolder, { recursive: true });
-    }
-
-    return { snapshotsFolder };
-}
-
 export const isDetectionRule = (rule: BaseRule) => [
     RuleType.Audio,
     RuleType.Detection,
 ].includes(rule.ruleType);
-
-export const storeWebhookImage = async (props: {
-    deviceId: string,
-    image: MediaObject,
-    logger: Console,
-    webhook: string,
-}) => {
-    const { deviceId, image, logger, webhook } = props;
-    const { snapshotsFolder } = await getFolderPaths(deviceId);
-    const lastSnapshotFilePath = path.join(snapshotsFolder, `${webhook}.jpg`);
-    const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpg');
-    logger.debug(`Storing image for webhook ${webhook}, size is ${jpeg.byteLength}`);
-    await fs.promises.writeFile(lastSnapshotFilePath, jpeg).catch(e => logger.log(`Error saving webhook ${webhook} image`, e));
-}
 
 export const getWebookUrls = async (props: {
     cameraIdOrAction?: string,
@@ -138,7 +109,7 @@ export const getWebookUrls = async (props: {
 
     const snoozeUrls: { url: string, text: string, snooze: number }[] = [];
 
-    const { lastSnapshot, haAction, timelapseDownload, timelapseStream, timelapseThumbnail, snoozeNotification } = await getWebooks();
+    const {lastSnapshot, haAction, timelapseDownload, timelapseStream, timelapseThumbnail, snoozeNotification } = await getWebooks();
 
     try {
         const cloudEndpointRaw = await endpointManager.getCloudEndpoint(undefined, { public: true });
@@ -149,8 +120,8 @@ export const getWebookUrls = async (props: {
 
         const paramString = parameters ? `?${parameters}` : '';
 
-        lastSnapshotCloudUrl = `${cloudEndpoint}${lastSnapshot}/${encodedId}${paramString}`;
-        lastSnapshotLocalUrl = `${localEndpoint}${lastSnapshot}/${encodedId}${paramString}`;
+        lastSnapshotCloudUrl = `${cloudEndpoint}${lastSnapshot}/${encodedId}/{IMAGE_NAME}${paramString}`;
+        lastSnapshotLocalUrl = `${localEndpoint}${lastSnapshot}/${encodedId}/{IMAGE_NAME}${paramString}`;
         haActionUrl = `${cloudEndpoint}${haAction}/${encodedId}${paramString}`;
 
         if (rule) {

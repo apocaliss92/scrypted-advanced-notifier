@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.4.0
+
+- Latest snapshots webhook changed, add a Webhook section to the README with all the possible snapshots available
+
 ### 3.3.7
 
 - Add setting to disable notifications for a specific camera, on MQTT as well

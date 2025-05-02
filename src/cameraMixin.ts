@@ -138,20 +138,21 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         // WEBHOOKS
         lastSnapshotWebhook: {
             subgroup: 'Webhooks',
-            title: 'Last snapshot webhook',
+            title: 'Last snapshot',
+            description: 'Check README for possible IMAGE_NAME to use',
             type: 'boolean',
             immediate: true,
             onPut: async () => await this.refreshSettings()
         },
         lastSnapshotWebhookCloudUrl: {
             subgroup: 'Webhooks',
-            type: 'string',
+            type: 'html',
             title: 'Cloud URL',
             readonly: true,
         },
         lastSnapshotWebhookLocalUrl: {
             subgroup: 'Webhooks',
-            type: 'string',
+            type: 'html',
             title: 'Local URL',
             readonly: true,
         },
@@ -1723,7 +1724,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         logger.info(`Accumulated data to analyze: ${JSON.stringify({ triggerTime, detectionId, eventId, classnamesData, rules: rulesToUpdate.map(rule => rule.rule.name) })}`);
 
-        let { bufferImage, image, b64Image, imageSource } = await this.getImage({
+        let { image, b64Image, imageSource } = await this.getImage({
             detectionId,
             eventId,
             preferLatest: isOnlyMotion
@@ -2051,7 +2052,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             // const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
             // let shouldMarkBoundaries = false;
 
-            const rules = cloneDeep(this.runningDetectionRules.filter(rule => isFromNvr ? rule.isNvr : !rule.isNvr)) ?? [];
+            const rules = cloneDeep(this.runningDetectionRules.filter(rule => !!rule.isNvr === !!isFromNvr)) ?? [];
             logger.debug(`Detections incoming ${JSON.stringify({
                 candidates,
                 detect,
@@ -2060,12 +2061,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 rules,
             })}`);
 
-            for (const ruleParent of rules) {
-                const rule = ruleParent as DetectionRule
+            for (const rule of rules) {
                 const { detectionClasses, scoreThreshold, whitelistedZones, blacklistedZones } = rule;
 
                 if (!detectionClasses.length || !rule.currentlyActive) {
-                    return;
+                    continue;
                 }
 
                 const match = candidates.find(d => {
@@ -2079,7 +2079,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     if (!className) {
                         logger.log(`Classname ${classnameRaw} not mapped. Candidates ${JSON.stringify(candidates)}`);
 
-                        return;
+                        return false;
                     }
 
                     if (!detectionClasses.includes(className)) {

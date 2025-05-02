@@ -17,7 +17,7 @@ import { idPrefix, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPlug
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getAllDevices, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getFolderPaths, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, getWebookUrls, HOMEASSISTANT_PLUGIN_ID, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, ScryptedEventSource, SNAPSHOT_WIDTH, splitRules, StoreImageFn, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TimelapseRule } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getAllDevices, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, getWebookUrls, HOMEASSISTANT_PLUGIN_ID, LATEST_IMAGE_SUFFIX, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, ScryptedEventSource, SNAPSHOT_WIDTH, splitRules, StoreImageFn, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TimelapseRule } from "./utils";
 
 const { systemManager, mediaManager } = sdk;
 const defaultNotifierNativeId = 'advancedNotifierDefaultNotifier';
@@ -244,9 +244,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             defaultValue: '${name}',
             placeholder: '${name}',
         },
-        alert310Shown: {
+        cleanup340: {
             type: 'boolean',
-            hide: true
+            hide: true,
         },
     };
     storageSettings = new StorageSettings(this, this.initStorage);
@@ -275,12 +275,30 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             pluginFriendlyName: 'Advanced notifier'
         });
 
+        const logger = this.getLogger();
+
+        const cloudPlugin = systemManager.getDeviceByName('Scrypted Cloud') as unknown as Settings;
+        if (cloudPlugin) {
+            this.hasCloudPlugin = true;
+        } else {
+            logger.log('Cloud plugin not found');
+            this.hasCloudPlugin = false;
+        }
+
         const [major, minor, patch] = version.split('.').map(num => parseInt(num, 10));
-        if (major === 3 && minor === 1 && !this.storageSettings.values.alert310Shown) {
-            this.log.a(`Starting from version 3.x.x, an huge rework happened on MQTT. Most of the identifiers discovered on MQTT have changed.
-                It's suggested to remove all the discovered devices on Homeassistant, clear the retained messages on MQTT and let the addon recreate them.
-                Run a test checkConfiguration to make sure everything is ok`);
-            this.storageSettings.values.alert310Shown = true;
+
+        if (major === 3 && minor === 4 && !this.storageSettings.values.cleanup340) {
+            (async () => {
+                const basePath = process.env.SCRYPTED_PLUGIN_VOLUME;
+                const snapshotsFolder = path.join(basePath, 'snapshots');
+
+                fs.promises.rm(snapshotsFolder, { force: true, recursive: true })
+                    .then(() => {
+                        logger.log('Old snapshots folder cleaned up');
+                        this.storageSettings.values.cleanup340 = true;
+                    })
+                    .catch(logger.log);
+            })();
         }
 
         (async () => {
@@ -377,14 +395,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         const { filename } = JSON.parse(params);
         const [_, __, ___, ____, _____, webhook, ...rest] = url.pathname.split('/');
-        const [deviceIdOrActionRaw, ruleNameOrSnoozeId, timelapseNameOrSnoozeTime] = rest
+        const [deviceIdOrActionRaw, ruleNameOrSnoozeIdOrSnapshotId, timelapseNameOrSnoozeTime] = rest
         const deviceIdOrAction = decodeURIComponent(deviceIdOrActionRaw);
         logger.info(`Webhook request: ${JSON.stringify({
             url: request.url,
             webhook,
             deviceIdOrActionRaw,
             deviceIdOrAction,
-            ruleNameOrSnoozeId,
+            ruleNameOrSnoozeIdOrSnapshotId,
             timelapseNameOrSnoozeTime,
         })}`);
 
@@ -407,17 +425,18 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 return;
             } else if (webhook === lastSnapshot) {
                 const device = this.currentCameraMixinsMap[deviceIdOrAction];
-                const isWebhookEnabled = device?.storageSettings.getItem('lastSnapshotWebhook');
+                const isWebhookEnabled = device?.storageSettings.values.lastSnapshotWebhook;
 
                 if (isWebhookEnabled) {
-                    const { snapshotsFolder } = await getFolderPaths(device.id);
+                    const realDevice = systemManager.getDeviceById<ScryptedDeviceBase>(device.id);
 
-                    const lastSnapshotFilePath = path.join(snapshotsFolder, `${webhook}.jpg`);
+                    const imageIdentifier = `${ruleNameOrSnoozeIdOrSnapshotId}${LATEST_IMAGE_SUFFIX}`;
+                    const { filePath: imagePath } = this.getImagePath({ device: realDevice, imageIdentifier });
 
-                    if (lastSnapshotFilePath) {
+                    try {
                         const mo = await sdk.mediaManager.createFFmpegMediaObject({
                             inputArguments: [
-                                '-i', lastSnapshotFilePath,
+                                '-i', imagePath,
                             ]
                         });
                         const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
@@ -427,8 +446,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                             }
                         });
                         return;
-                    } else {
-                        response.send(`Last snapshot not found for device ${deviceIdOrAction}`, {
+                    } catch (e) {
+                        const message = `Error getting snapshot ${ruleNameOrSnoozeIdOrSnapshotId} for device ${device.name}`;
+                        logger.log(message)
+                        response.send(message, {
                             code: 404,
                         });
                         return;
@@ -436,7 +457,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 }
             } else if (webhook === timelapseDownload) {
                 const decodedTimelapseName = decodeURIComponent(timelapseNameOrSnoozeTime);
-                const decodedRuleName = decodeURIComponent(ruleNameOrSnoozeId);
+                const decodedRuleName = decodeURIComponent(ruleNameOrSnoozeIdOrSnapshotId);
                 const { generatedPath } = this.getTimelapseFolder({
                     ruleName: decodedRuleName
                 });
@@ -446,7 +467,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     generatedPath,
                     timelapseName: timelapseNameOrSnoozeTime,
                     decodedTimelapseName,
-                    ruleName: ruleNameOrSnoozeId,
+                    ruleName: ruleNameOrSnoozeIdOrSnapshotId,
                     decodedRuleName,
                     timelapsePath,
                 })}`);
@@ -527,7 +548,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 });
             } else if (webhook === snoozeNotification) {
                 const decodedSnoozeTime = decodeURIComponent(timelapseNameOrSnoozeTime);
-                const decodedSnoozeId = decodeURIComponent(ruleNameOrSnoozeId);
+                const decodedSnoozeId = decodeURIComponent(ruleNameOrSnoozeIdOrSnapshotId);
                 const device = this.currentCameraMixinsMap[deviceIdOrAction];
 
                 const message = `Snoozing notifications ${decodedSnoozeId} for device ${device?.name} for ${decodedSnoozeTime} seconds`;
@@ -693,17 +714,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     private async initPluginSettings() {
         const logger = this.getLogger();
-        const cloudPlugin = systemManager.getDeviceByName('Scrypted Cloud') as unknown as Settings;
-        if (cloudPlugin) {
+        if (this.hasCloudPlugin) {
+            const cloudPlugin = systemManager.getDeviceByName('Scrypted Cloud') as unknown as Settings;
             const oauthUrl = await (cloudPlugin as any).getOauthUrl();
             const url = new URL(oauthUrl);
             const serverId = url.searchParams.get('server_id');
             this.putSetting('serverId', serverId);
             logger.log(`Server id found: ${serverId}`);
-            this.hasCloudPlugin = true;
-        } else {
-            logger.log(`Cloud plugin not found`);
-            this.hasCloudPlugin = false;
         }
 
         const localIp = (await sdk.endpointManager.getLocalAddresses())?.[0];
@@ -1793,12 +1810,21 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         return { image, b64Image };
     }
 
+    public getImagePath = (props: { imageIdentifier: string, device: ScryptedDeviceBase }) => {
+        const { device, imageIdentifier } = props;
+        const { imagesPath } = this.storageSettings.values;
+        const savePath = path.join(imagesPath, device.name);
+        const filePath = path.join(savePath, `${imageIdentifier}.jpg`);
+
+        return { savePath, filePath };
+    }
+
     public storeImage: StoreImageFn = async (props) => {
         const { device, name, timestamp, imageMo, b64Image } = props;
         const { imagesPath, imagesRegex } = this.storageSettings.values;
 
         if (imagesPath && (imageMo || b64Image)) {
-            const savePath = path.join(imagesPath, device.name);
+            const { savePath } = this.getImagePath({ device, imageIdentifier: name });
 
             try {
                 await fs.promises.access(savePath);
@@ -1810,12 +1836,18 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 .replace('${name}', name)
                 .replace('${timestamp}', timestamp);
 
+            const latestImage = `${name}${LATEST_IMAGE_SUFFIX}`;
+            const { filePath: imagePath } = this.getImagePath({ device, imageIdentifier: filename });
+            const { filePath: latestPath } = this.getImagePath({ device, imageIdentifier: latestImage });
+
             if (imageMo) {
                 const jpeg = await mediaManager.convertMediaObjectToBuffer(imageMo, 'image/jpeg');
-                await fs.promises.writeFile(path.join(savePath, `${filename}.jpg`), jpeg);
+                await fs.promises.writeFile(imagePath, jpeg);
+                await fs.promises.writeFile(latestPath, jpeg);
             } else if (b64Image) {
                 const base64Data = b64Image.replace(/^data:image\/png;base64,/, "");
-                await fs.promises.writeFile(path.join(savePath, `${filename}.jpg`), base64Data, 'base64');
+                await fs.promises.writeFile(imagePath, base64Data, 'base64');
+                await fs.promises.writeFile(latestPath, base64Data, 'base64');
             }
         }
     }

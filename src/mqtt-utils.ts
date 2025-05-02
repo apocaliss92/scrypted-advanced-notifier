@@ -3,7 +3,7 @@ import { cloneDeep, groupBy, uniq } from 'lodash';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 import { OccupancyRuleData } from './cameraMixin';
 import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, parentDetectionClassMap } from './detecionClasses';
-import { BaseRule, getWebooks, isDetectionRule, RuleSource, RuleType, StoreImageFn, storeWebhookImage, toKebabCase, toSnakeCase, toTitleCase } from './utils';
+import { BaseRule, getWebooks, isDetectionRule, RuleSource, RuleType, StoreImageFn, toKebabCase, toSnakeCase, toTitleCase } from './utils';
 
 export enum MqttEntityIdentifier {
     Triggered = 'Triggered',
@@ -1097,20 +1097,6 @@ export const publishClassnameImages = async (props: {
                     timestamp: triggerTime,
                     b64Image
                 });
-
-                const { lastSnapshot } = await getWebooks();
-                await storeWebhookImage({
-                    deviceId: device.id,
-                    image,
-                    logger: console,
-                    webhook: lastSnapshot
-                }).catch(console.log);
-                await storeWebhookImage({
-                    deviceId: device.id,
-                    image,
-                    logger: console,
-                    webhook: `${lastSnapshot}_${detectionClass}`
-                }).catch(console.log);
             } else {
                 console.log(`${className} not found`);
             }
