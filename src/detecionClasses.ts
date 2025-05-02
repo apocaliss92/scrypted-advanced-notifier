@@ -3,6 +3,7 @@ export enum DetectionClass {
     Person = 'person',
     Vehicle = 'vehicle',
     Animal = 'animal',
+    Audio = 'audio',
     AnyObject = 'any_object',
     Face = 'face',
     Plate = 'plate',

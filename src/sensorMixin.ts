@@ -142,7 +142,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             } catch (e) {
                 logger.log('Error in startCheckInterval', e);
             }
-        }, 5 * 1000);
+        }, 2 * 1000);
     }
 
     resetListeners() {

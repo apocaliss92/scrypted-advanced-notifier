@@ -33,15 +33,6 @@ export interface ObserveZoneData {
     path: Point[]
 };
 
-export type StoreImageFn = (props: {
-    device: ScryptedDeviceBase,
-    name: string,
-    timestamp: number,
-    b64Image?: string,
-    classname?: string, 
-    label?: string,
-}) => Promise<void>
-
 export const getElegibleDevices = () => {
     const allDevices = Object.keys(sdk.systemManager.getSystemState()).map(deviceId => sdk.systemManager.getDeviceById(deviceId) as unknown as DeviceInterface);
 

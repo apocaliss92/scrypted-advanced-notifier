@@ -1,10 +1,10 @@
-import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SecuritySystem, SecuritySystemMode, Setting, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SecuritySystem, SecuritySystemMode, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
 import child_process from 'child_process';
 import { once } from "events";
 import fs from 'fs';
-import { cloneDeep, isEqual, keyBy, sortBy } from 'lodash';
+import { cloneDeep, isEqual, sortBy } from 'lodash';
 import path from 'path';
 import { BasePlugin, getBaseSettings, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { getRpcData } from '../../scrypted-monitor/src/utils';
@@ -17,7 +17,7 @@ import { idPrefix, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPlug
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, AudioRule, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getAllDevices, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, getWebookUrls, HOMEASSISTANT_PLUGIN_ID, LATEST_IMAGE_SUFFIX, NotificationPriority, NotificationSource, notifierFilter, NVR_NOTIFIER_INTERFACE, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeAction, splitRules, StoreImageFn, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TimelapseRule } from "./utils";
+import { ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, AudioRule, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getAllDevices, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, getWebookUrls, HOMEASSISTANT_PLUGIN_ID, LATEST_IMAGE_SUFFIX, NotificationPriority, NotificationSource, notifierFilter, NVR_NOTIFIER_INTERFACE, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeAction, splitRules, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TimelapseRule } from "./utils";
 
 const { systemManager, mediaManager } = sdk;
 const defaultNotifierNativeId = 'advancedNotifierDefaultNotifier';
@@ -323,7 +323,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             ScryptedInterface.VideoClips,
             ADVANCED_NOTIFIER_CAMERA_INTERFACE
         ];
-        
+
         if (active) {
             interfaces.push(ScryptedInterface.VideoCamera);
         }
@@ -1036,9 +1036,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     async getSettings() {
         try {
-            const { haEnabled } = this.storageSettings.values;
+            const { haEnabled, mqttEnabled } = this.storageSettings.values;
             this.storageSettings.settings.domains.hide = !haEnabled;
             this.storageSettings.settings.fetchHaEntities.hide = !haEnabled;
+
+            this.storageSettings.settings.mqttActiveEntitiesTopic.hide = !mqttEnabled;
+            this.storageSettings.settings.useNvrDetectionsForMqtt.hide = !mqttEnabled;
 
             return super.getSettings();
         } catch (e) {
@@ -1829,31 +1832,39 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         return { savePath, filePath };
     }
 
-    public storeImage: StoreImageFn = async (props) => {
+    public storeImage = async (props: {
+        device: ScryptedDeviceBase,
+        name: string,
+        timestamp: number,
+        b64Image?: string,
+        classname?: string,
+        label?: string,
+    }) => {
         const { device, name, timestamp, b64Image, classname, label } = props;
         const { imagesPath, imagesRegex } = this.storageSettings.values;
         const logger = this.getLogger(device);
+        if (b64Image) {
+            if (imagesPath) {
+                const { savePath } = this.getImagePath({ device, imageIdentifier: name });
 
-        if (imagesPath && b64Image) {
-            const { savePath } = this.getImagePath({ device, imageIdentifier: name });
+                try {
+                    await fs.promises.access(savePath);
+                } catch {
+                    await fs.promises.mkdir(savePath, { recursive: true });
+                }
 
-            try {
-                await fs.promises.access(savePath);
-            } catch {
-                await fs.promises.mkdir(savePath, { recursive: true });
+                const filename = imagesRegex
+                    .replace('${name}', name)
+                    .replace('${timestamp}', timestamp);
+
+                const latestImage = `${name}${LATEST_IMAGE_SUFFIX}`;
+                const { filePath: imagePath } = this.getImagePath({ device, imageIdentifier: filename });
+                const { filePath: latestPath } = this.getImagePath({ device, imageIdentifier: latestImage });
+
+                const base64Data = b64Image.replace(/^data:image\/png;base64,/, "");
+                await fs.promises.writeFile(imagePath, base64Data, 'base64');
+                await fs.promises.writeFile(latestPath, base64Data, 'base64');
             }
-
-            const filename = imagesRegex
-                .replace('${name}', name)
-                .replace('${timestamp}', timestamp);
-
-            const latestImage = `${name}${LATEST_IMAGE_SUFFIX}`;
-            const { filePath: imagePath } = this.getImagePath({ device, imageIdentifier: filename });
-            const { filePath: latestPath } = this.getImagePath({ device, imageIdentifier: latestImage });
-
-            const base64Data = b64Image.replace(/^data:image\/png;base64,/, "");
-            await fs.promises.writeFile(imagePath, base64Data, 'base64');
-            await fs.promises.writeFile(latestPath, base64Data, 'base64');
 
             const mixin = this.currentCameraMixinsMap[device.id];
             const {

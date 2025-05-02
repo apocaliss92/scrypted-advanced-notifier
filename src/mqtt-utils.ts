@@ -1,9 +1,9 @@
-import sdk, { MediaObject, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoomCommand, ScryptedDeviceBase, ScryptedInterface } from '@scrypted/sdk';
+import sdk, { ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoomCommand, ScryptedDeviceBase, ScryptedInterface } from '@scrypted/sdk';
 import { cloneDeep, groupBy, uniq } from 'lodash';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 import { OccupancyRuleData } from './cameraMixin';
 import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, parentDetectionClassMap } from './detecionClasses';
-import { BaseRule, isDetectionRule, RuleSource, RuleType, StoreImageFn, toKebabCase, toSnakeCase, toTitleCase } from './utils';
+import { BaseRule, isDetectionRule, RuleSource, RuleType, toKebabCase, toSnakeCase, toTitleCase } from './utils';
 
 export enum MqttEntityIdentifier {
     Triggered = 'Triggered',
@@ -1059,11 +1059,8 @@ export const publishClassnameImages = async (props: {
     classnamesData?: ObjectDetectionResult[],
     b64Image?: string,
     imageUrl?: string,
-    imageSuffix?: string,
-    skipMqtt?: boolean,
-    storeImageFn?: StoreImageFn
 }) => {
-    const { mqttClient, device, classnamesData = [], console, b64Image, triggerTime, storeImageFn, imageSuffix, skipMqtt } = props;
+    const { mqttClient, device, classnamesData = [], console, b64Image } = props;
 
     if (!mqttClient) {
         return;
@@ -1071,32 +1068,12 @@ export const publishClassnameImages = async (props: {
     console.info(`Publishing image for classnames: ${classnamesData.map(data => data.className).join(', ')}`);
 
     try {
-        for (const { className, label } of classnamesData) {
+        for (const { className } of classnamesData) {
             const detectionClass = detectionClassesDefaultMap[className];
             if (detectionClass) {
-                if (!skipMqtt) {
-                    const mqttEntity = deviceClassMqttEntitiesGrouped[detectionClass].find(entry => entry.identifier === MqttEntityIdentifier.LastImage);
-                    const { stateTopic } = getMqttTopics({ mqttEntity, device });
-                    await mqttClient.publish(stateTopic, b64Image, false);
-                }
-
-                let name = `object-detection-${className}`;
-
-                if (label) {
-                    name += `-${label}`;
-                }
-                if (imageSuffix) {
-                    name += `-${imageSuffix}`;
-                }
-
-                storeImageFn && storeImageFn({
-                    device,
-                    name,
-                    timestamp: triggerTime,
-                    b64Image,
-                    classname: className,
-                    label
-                });
+                const mqttEntity = deviceClassMqttEntitiesGrouped[detectionClass].find(entry => entry.identifier === MqttEntityIdentifier.LastImage);
+                const { stateTopic } = getMqttTopics({ mqttEntity, device });
+                await mqttClient.publish(stateTopic, b64Image, false);
             } else {
                 console.log(`${className} not found`);
             }
@@ -1170,14 +1147,22 @@ export const publishRuleData = async (props: {
     console: Console,
     mqttClient?: MqttClient,
     b64Image: string,
-    imageUrl?: string,
     triggerTime: number,
-    storeImageFn?: StoreImageFn,
     triggerValue?: boolean,
     isValueChanged?: boolean
-    skipMqttImage?: boolean
+    skipMqttImage?: boolean,
 }) => {
-    const { isValueChanged, console, device, mqttClient, rule, b64Image, triggerTime, storeImageFn, triggerValue, skipMqttImage } = props;
+    const {
+        isValueChanged,
+        console,
+        device,
+        mqttClient,
+        rule,
+        b64Image,
+        triggerTime,
+        triggerValue,
+        skipMqttImage,
+    } = props;
 
     if (!mqttClient) {
         return;
@@ -1209,13 +1194,6 @@ export const publishRuleData = async (props: {
             if (!skipMqttImage) {
                 value = b64Image || null;
             }
-
-            storeImageFn && b64Image && storeImageFn({
-                device,
-                name: `rule-${rule.name}`,
-                timestamp: triggerTime,
-                b64Image,
-            }).catch(console.log);
         }
 
         if (value !== undefined) {
@@ -1272,9 +1250,8 @@ export const publishOccupancy = async (props: {
     console: Console,
     objectsDetected: ObjectsDetected,
     occupancyRulesData: OccupancyRuleData[],
-    storeImageFn: StoreImageFn
 }) => {
-    const { mqttClient, device, objectsDetected, occupancyRulesData, console, storeImageFn } = props;
+    const { mqttClient, device, objectsDetected, occupancyRulesData, console } = props;
 
     if (!mqttClient) {
         return;
@@ -1300,9 +1277,8 @@ export const publishOccupancy = async (props: {
                 mqttClient,
                 rule,
                 triggerTime,
-                storeImageFn,
                 triggerValue: occupies,
-                isValueChanged: changed
+                isValueChanged: changed,
             });
         }
     } catch (e) {
