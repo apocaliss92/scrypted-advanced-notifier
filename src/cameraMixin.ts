@@ -900,9 +900,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     async getMixinSettings(): Promise<Setting[]> {
         try {
             const { enabledToMqtt } = this.storageSettings.values;
-            this.storageSettings.settings.minMqttPublishDelay.hide = !enabledToMqtt;
-            this.storageSettings.settings.checkSoundPressure.hide = !enabledToMqtt;
-            this.storageSettings.settings.occupancyCheckInterval.hide = !enabledToMqtt;
+
+            if (this.storageSettings.settings.minMqttPublishDelay) {
+                this.storageSettings.settings.minMqttPublishDelay.hide = !enabledToMqtt;
+            }
+            if (this.storageSettings.settings.occupancyCheckInterval) {
+                this.storageSettings.settings.occupancyCheckInterval.hide = !enabledToMqtt;
+            }
+            if (this.storageSettings.settings.checkSoundPressure) {
+                this.storageSettings.settings.checkSoundPressure.hide = !enabledToMqtt;
+            }
+
             return this.storageSettings.getSettings();
         } catch (e) {
             this.getLogger().log('Error in getMixinSettings', e);
