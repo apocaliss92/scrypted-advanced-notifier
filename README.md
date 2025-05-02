@@ -19,6 +19,7 @@ The plugin will export to MQTT the following entities:
 
 - PTZ controls
 - Restart control
+- Notifications enabled
 - Basic detection information (motion, animal, person, vehicle, face, plate, generic object). Same information will be available for every rule associated to a camera
   - Latest image
   - Triggered
@@ -37,9 +38,12 @@ The plugin provides customized way to deliver notifications. It is based on rule
 - Homeassistant push notifications
 - Pushover
   It's useful to use both notifiers, homeassistant as push rich notification and pushover as low priority just to store all the events
-  Set the following parameters to allow rich notifications
+  Set the following parameters on the plugin page to allow rich notifications
 - `Scrypted token`: Token stored on the scrypted entity on homeassistant
 - `NVR url`: Url pointing to the NVR instance, should be accessible from outside
+
+It's also possible to enable snoozing actions enabling the `Add snoozing actions` settings on the notifier page (experimental, it will open a browser tab. Will probably require an automation importing in future to use homeassistant actions)
+Notifications can be disabled for a specific camera on the camera page, Advanced notifier => Notifier => `Notifications enabled` (available on MQTT as well)
 
 Rules can be of following types: Detection, Occupancy, Audio, Timelapse. These properties are in common with all, some are hidden until the `Show more configurations` gets activated
 
@@ -147,3 +151,8 @@ Will provide the latest registered image for each type, on the camera settings w
 - `object-detection-face-{ known person label }` (full frame images)
 - `object-detection-face-{ known person label }-NVR` (cropped images from NVR)
 - `rule-{ rule name }`
+
+# POST detection images
+
+Provide multiple urls, for each detection, POST a b64 image with some additional metadata. Filter
+on some classes and define a minimum delay.

@@ -1,13 +1,19 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.4.1
+
+- Add setting to enable snoozing actions on a notifier (Pushover and homeassistant)
+
 ### 3.4.0
 
 - Latest snapshots webhook changed, add a Webhook section to the README with all the possible snapshots available
+- Added POST webhook for detections, set multiple URL and preferred cameras to send images to external services
 
 ### 3.3.7
 
 - Add setting to disable notifications for a specific camera, on MQTT as well
+- Implement snooze actions on Homeassistant notifiers
 
 ### 3.3.6
 

@@ -34,8 +34,9 @@ export type StoreImageFn = (props: {
     device: ScryptedDeviceBase,
     name: string,
     timestamp: number,
-    imageMo?: MediaObject,
     b64Image?: string,
+    classname?: string, 
+    label?: string,
 }) => Promise<void>
 
 export const getElegibleDevices = () => {
@@ -90,6 +91,12 @@ export const isDetectionRule = (rule: BaseRule) => [
     RuleType.Detection,
 ].includes(rule.ruleType);
 
+export interface SnoozeAction {
+    url: string,
+    text: string,
+    snooze: number,
+}
+
 export const getWebookUrls = async (props: {
     cameraIdOrAction?: string,
     console: Console,
@@ -107,7 +114,7 @@ export const getWebookUrls = async (props: {
     let timelapseDownloadUrl: string;
     let timelapseThumbnailUrl: string;
 
-    const snoozeUrls: { url: string, text: string, snooze: number }[] = [];
+    const snoozeUrls: SnoozeAction[] = [];
 
     const {lastSnapshot, haAction, timelapseDownload, timelapseStream, timelapseThumbnail, snoozeNotification } = await getWebooks();
 

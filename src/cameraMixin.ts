@@ -11,7 +11,7 @@ import { startRtpForwarderProcess } from '../../scrypted/plugins/webrtc/src/rtp-
 import { Deferred } from "../../scrypted/server/src/deferred";
 import { sleep } from "../../scrypted/server/src/sleep";
 import { name as pluginName } from '../package.json';
-import { DetectionClass, detectionClassesDefaultMap, isObjectClassname } from "./detecionClasses";
+import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isObjectClassname } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
@@ -156,6 +156,36 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             title: 'Local URL',
             readonly: true,
         },
+        postDetectionImageWebhook: {
+            subgroup: 'Webhooks',
+            title: 'Post detection image',
+            description: 'Execute a POST call to multiple URLs with the selected detection classes',
+            type: 'boolean',
+            immediate: true,
+            onPut: async () => await this.refreshSettings()
+        },
+        postDetectionImageUrls: {
+            subgroup: 'Webhooks',
+            title: 'URLs',
+            type: 'string',
+            multiple: true,
+            defaultValue: [],
+        },
+        postDetectionImageClasses: {
+            subgroup: 'Webhooks',
+            title: 'Detection classes',
+            multiple: true,
+            combobox: true,
+            type: 'string',
+            choices: defaultDetectionClasses,
+            defaultValue: []
+        },
+        postDetectionImageMinDelay: {
+            subgroup: 'Webhooks',
+            title: 'Minimum posting delay',
+            type: 'number',
+            defaultValue: 15,
+        }
     };
     storageSettings = new StorageSettings(this, this.initStorage);
 
@@ -207,6 +237,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     lastPictureTaken?: number;
     lastOccupancyRegularCheck?: number;
     lastOccupancyRuleNotified: Record<string, number> = {};
+    lastWebhookImagePosted: Partial<Record<DetectionClass, number>> = {};
 
     accumulatedDetections: AccumulatedDetection[] = [];
     accumulatedRules: MatchRule[] = [];
@@ -543,7 +574,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 this.isActiveForAudioDetections = shouldCheckAudio;
 
 
-                const { haEnabled, useNvrDetectionsForMqtt } = this.plugin.storageSettings.values;
+                const { haEnabled } = this.plugin.storageSettings.values;
 
                 if (haEnabled && entityId && !this.plugin.fetchedEntities.includes(entityId)) {
                     logger.debug(`Entity id ${entityId} does not exists on HA`);
@@ -644,7 +675,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
                 }
             } catch (e) {
-                logger.log('Error in startCheckInterval', e);
+                logger.log('Error in processDetectionsInterval', e);
             }
         }, 500);
     }
@@ -812,13 +843,23 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             initStorage: this.initStorage
         });
 
-        const lastSnapshotWebhook = this.storageSettings.values.lastSnapshotWebhook;
+        const { lastSnapshotWebhook, postDetectionImageWebhook } = this.storageSettings.values
 
         if (this.storageSettings.settings.lastSnapshotWebhookCloudUrl) {
             this.storageSettings.settings.lastSnapshotWebhookCloudUrl.hide = !lastSnapshotWebhook;
         }
         if (this.storageSettings.settings.lastSnapshotWebhookLocalUrl) {
             this.storageSettings.settings.lastSnapshotWebhookLocalUrl.hide = !lastSnapshotWebhook;
+        }
+
+        if (this.storageSettings.settings.postDetectionImageUrls) {
+            this.storageSettings.settings.postDetectionImageUrls.hide = !postDetectionImageWebhook;
+        }
+        if (this.storageSettings.settings.postDetectionImageClasses) {
+            this.storageSettings.settings.postDetectionImageClasses.hide = !postDetectionImageWebhook;
+        }
+        if (this.storageSettings.settings.postDetectionImageMinDelay) {
+            this.storageSettings.settings.postDetectionImageMinDelay.hide = !postDetectionImageWebhook;
         }
     }
 
@@ -935,7 +976,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         triggerValue: !skipTrigger ? true : undefined,
                         console: logger,
                         b64Image,
-                        image,
                         rule,
                         triggerTime,
                         imageUrl,
@@ -1773,7 +1813,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         classnamesData: allowedClassnames,
                         device: this.cameraDevice,
                         b64Image,
-                        image,
                         triggerTime,
                         storeImageFn: this.plugin.storeImage
                     }).catch(logger.error);
@@ -1846,7 +1885,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         classname?: string;
         label?: string;
         eventSource?: ScryptedEventSource;
-        type: 'BasicDetection' | 'RuleImageUpdate' | 'RuleNotification' | 'OccupancyNotification',
+        type: 'BasicDetection' | 'RuleImageUpdate' | 'RuleNotification' | 'OccupancyNotification' | 'PostWebhookImage',
         matchRule?: MatchRule
     }) {
         const { classname, type, eventSource = ScryptedEventSource.RawDetection, label, matchRule } = props;
@@ -1915,6 +1954,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             if (timePassed) {
                 this.lastOccupancyRuleNotified[ruleName] = now;
+            }
+
+            return timePassed;
+        } else if (type === 'PostWebhookImage') {
+            const lastPost = this.lastWebhookImagePosted[classname];
+            const { postDetectionImageMinDelay } = this.storageSettings.values;
+
+            const timePassed = !lastPost || (now - lastPost) >= postDetectionImageMinDelay * 1000;
+
+            if (timePassed) {
+                this.lastWebhookImagePosted[classname] = now;
             }
 
             return timePassed;
@@ -2029,7 +2079,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                     classnamesData: [detection],
                                     device: this.cameraDevice,
                                     b64Image,
-                                    image,
                                     triggerTime,
                                     imageSuffix: !isRawDetection ? eventSource : undefined,
                                     skipMqtt: !canUpdateMqttImage,

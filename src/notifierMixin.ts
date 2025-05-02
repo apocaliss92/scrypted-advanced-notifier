@@ -14,6 +14,12 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
             defaultValue: true,
             immediate: true,
         },
+        addSnoozeActions: {
+            title: 'Add snoozing actions',
+            type: 'boolean',
+            defaultValue: false,
+            immediate: true,
+        },
         ...getTextSettings(true) as any,
     });
 
