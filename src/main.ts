@@ -17,7 +17,7 @@ import { idPrefix, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPlug
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getAllDevices, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, getWebookUrls, HOMEASSISTANT_PLUGIN_ID, LATEST_IMAGE_SUFFIX, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeAction, splitRules, StoreImageFn, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TimelapseRule } from "./utils";
+import { ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, AudioRule, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getAllDevices, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getTextKey, getTextSettings, getWebooks, getWebookUrls, HOMEASSISTANT_PLUGIN_ID, LATEST_IMAGE_SUFFIX, NotificationPriority, NotificationSource, notifierFilter, NVR_NOTIFIER_INTERFACE, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeAction, splitRules, StoreImageFn, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TimelapseRule } from "./utils";
 
 const { systemManager, mediaManager } = sdk;
 const defaultNotifierNativeId = 'advancedNotifierDefaultNotifier';
@@ -306,7 +306,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 {
                     name: 'Advanced notifier NVR notifier',
                     nativeId: defaultNotifierNativeId,
-                    interfaces: [ScryptedInterface.Notifier],
+                    interfaces: [ScryptedInterface.Notifier, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE],
                     type: ScryptedDeviceType.Notifier,
                 },
             );
@@ -318,7 +318,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     async executeCameraDiscovery(active: boolean) {
-        const interfaces: ScryptedInterface[] = [ScryptedInterface.Camera, ScryptedInterface.VideoClips];
+        const interfaces: string[] = [
+            ScryptedInterface.Camera,
+            ScryptedInterface.VideoClips,
+            ADVANCED_NOTIFIER_CAMERA_INTERFACE
+        ];
+        
         if (active) {
             interfaces.push(ScryptedInterface.VideoCamera);
         }
@@ -1070,7 +1075,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     async canMixin(type: ScryptedDeviceType, interfaces: string[]): Promise<string[]> {
         if (
-            supportedInterfaces.some(int => interfaces.includes(int))
+            supportedInterfaces.some(int => interfaces.includes(int)) &&
+            !interfaces.includes(NVR_NOTIFIER_INTERFACE) &&
+            !interfaces.includes(ADVANCED_NOTIFIER_NOTIFIER_INTERFACE) &&
+            !interfaces.includes(ADVANCED_NOTIFIER_CAMERA_INTERFACE)
         ) {
             return [ScryptedInterface.Settings, ADVANCED_NOTIFIER_INTERFACE]
         }

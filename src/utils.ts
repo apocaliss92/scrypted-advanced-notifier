@@ -14,8 +14,11 @@ const { endpointManager } = sdk;
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Settings & ObjectDetector & VideoCamera & EntrySensor & Lock & BinarySensor & Reboot & PanTiltZoom;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
+export const ADVANCED_NOTIFIER_CAMERA_INTERFACE = `${ADVANCED_NOTIFIER_INTERFACE}:Camera`;
+export const ADVANCED_NOTIFIER_NOTIFIER_INTERFACE = `${ADVANCED_NOTIFIER_INTERFACE}:Notifier`;
 export const PUSHOVER_PLUGIN_ID = '@scrypted/pushover';
 export const HOMEASSISTANT_PLUGIN_ID = '@scrypted/homeassistant';
+export const NVR_NOTIFIER_INTERFACE = '@scrypted/nvr:Notifier';
 export const SNAPSHOT_WIDTH = 1280;
 export const LATEST_IMAGE_SUFFIX = '-latest';
 
