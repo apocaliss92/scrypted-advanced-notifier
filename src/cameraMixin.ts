@@ -843,7 +843,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             initStorage: this.initStorage
         });
 
-        const { lastSnapshotWebhook, postDetectionImageWebhook } = this.storageSettings.values
+        const { lastSnapshotWebhook, postDetectionImageWebhook, enabledToMqtt } = this.storageSettings.values
 
         if (this.storageSettings.settings.lastSnapshotWebhookCloudUrl) {
             this.storageSettings.settings.lastSnapshotWebhookCloudUrl.hide = !lastSnapshotWebhook;
@@ -860,6 +860,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
         if (this.storageSettings.settings.postDetectionImageMinDelay) {
             this.storageSettings.settings.postDetectionImageMinDelay.hide = !postDetectionImageWebhook;
+        }
+
+        if (this.storageSettings.settings.minMqttPublishDelay) {
+            this.storageSettings.settings.minMqttPublishDelay.hide = !enabledToMqtt;
+        }
+        if (this.storageSettings.settings.occupancyCheckInterval) {
+            this.storageSettings.settings.occupancyCheckInterval.hide = !enabledToMqtt;
+        }
+        if (this.storageSettings.settings.checkSoundPressure) {
+            this.storageSettings.settings.checkSoundPressure.hide = !enabledToMqtt;
         }
     }
 
@@ -899,18 +909,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async getMixinSettings(): Promise<Setting[]> {
         try {
-            const { enabledToMqtt } = this.storageSettings.values;
-
-            if (this.storageSettings.settings.minMqttPublishDelay) {
-                this.storageSettings.settings.minMqttPublishDelay.hide = !enabledToMqtt;
-            }
-            if (this.storageSettings.settings.occupancyCheckInterval) {
-                this.storageSettings.settings.occupancyCheckInterval.hide = !enabledToMqtt;
-            }
-            if (this.storageSettings.settings.checkSoundPressure) {
-                this.storageSettings.settings.checkSoundPressure.hide = !enabledToMqtt;
-            }
-
             return this.storageSettings.getSettings();
         } catch (e) {
             this.getLogger().log('Error in getMixinSettings', e);
