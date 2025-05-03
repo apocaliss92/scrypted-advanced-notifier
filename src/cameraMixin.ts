@@ -2,6 +2,7 @@ import sdk, { Camera, EventDetails, EventListenerRegister, FFmpegInput, Image, M
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep, uniq, uniqBy } from "lodash";
+import moment from "moment";
 import { getBaseLogger, getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import { filterOverlappedDetections } from '../../scrypted-basic-object-detector/src/util';
@@ -11,12 +12,11 @@ import { startRtpForwarderProcess } from '../../scrypted/plugins/webrtc/src/rtp-
 import { Deferred } from "../../scrypted/server/src/deferred";
 import { sleep } from "../../scrypted/server/src/sleep";
 import { name as pluginName } from '../package.json';
-import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isObjectClassname } from "./detecionClasses";
+import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, isObjectClassname } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAudioRulesSettings, getDecibelsFromRtp_PCMU8, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebookUrls, getWebooks, splitRules } from "./utils";
-import moment from "moment";
+import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAudioRulesSettings, getDecibelsFromRtp_PCMU8, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebHookUrls, splitRules } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -726,7 +726,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
         try {
             if (this.plugin.hasCloudPlugin) {
-                const { lastSnapshotCloudUrl, lastSnapshotLocalUrl } = await getWebookUrls({
+                const { lastSnapshotCloudUrl, lastSnapshotLocalUrl } = await getWebHookUrls({
                     cameraIdOrAction: this.id,
                     console: logger,
                     device: this.cameraDevice
@@ -741,13 +741,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     snoozeNotification(props: {
-        detectionKey: string;
+        snoozeId: string;
         snoozeTime: number;
     }) {
-        const { detectionKey, snoozeTime } = props;
+        const { snoozeId, snoozeTime } = props;
 
         const snoozedUntil = moment().add(snoozeTime, 'minutes').toDate().getTime();
-        this.snoozeUntilDic[detectionKey] = snoozedUntil;
+        this.snoozeUntilDic[snoozeId] = snoozedUntil;
     }
 
     async toggleRule(ruleName: string, ruleType: RuleType, enabled: boolean) {
@@ -2010,16 +2010,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             let timePassed = !lastNotified || (now - lastNotified) >= delay * 1000;
 
             if (timePassed) {
-                const lastSnoozed = this.snoozeUntilDic[lastDetectionkey];
-                const isSnoozed = lastSnoozed && now < lastSnoozed;
-
-                if (!isSnoozed) {
-                    this.lastRuleNotifiedMap[lastDetectionkey] = now;
-                } else {
-                    this.logger.log(`Notification ${lastDetectionkey} still snoozed for ${(lastSnoozed - now) / 1000} seconds`);
-
-                    timePassed = false;
-                }
+                this.lastRuleNotifiedMap[lastDetectionkey] = now;
             }
 
             return timePassed;

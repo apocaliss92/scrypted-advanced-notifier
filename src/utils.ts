@@ -1,10 +1,8 @@
-import sdk, { BinarySensor, Camera, DeviceBase, EntrySensor, LockState, MediaObject, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoom, Point, Reboot, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, VideoCamera } from "@scrypted/sdk";
+import sdk, { BinarySensor, Camera, DeviceBase, EntrySensor, LockState, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoom, Point, Reboot, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, VideoCamera } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDevice, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
-import fs from 'fs';
 import { cloneDeep, sortBy, uniq, uniqBy } from "lodash";
 import moment, { Moment } from "moment";
-import path from 'path';
 import sharp from 'sharp';
 import { name, scrypted } from '../package.json';
 import { AiPlatform, defaultModel } from "./aiUtils";
@@ -91,16 +89,16 @@ export interface SnoozeAction {
     snooze: number,
 }
 
-export const getWebookUrls = async (props: {
+export const getWebHookUrls = async (props: {
     cameraIdOrAction?: string,
     console: Console,
     device: ScryptedDeviceBase,
     rule?: TimelapseRule,
     timelapseName?: string,
     snoozes?: number[],
-    detectionKey?: string,
+    snoozeId?: string,
 }) => {
-    const { cameraIdOrAction, console, rule, device, timelapseName, snoozes, detectionKey } = props;
+    const { cameraIdOrAction, console, rule, device, timelapseName, snoozes, snoozeId } = props;
     let lastSnapshotCloudUrl: string;
     let lastSnapshotLocalUrl: string;
     let haActionUrl: string;
@@ -110,7 +108,7 @@ export const getWebookUrls = async (props: {
 
     const snoozeUrls: SnoozeAction[] = [];
 
-    const {lastSnapshot, haAction, timelapseDownload, timelapseStream, timelapseThumbnail, snoozeNotification } = await getWebooks();
+    const { lastSnapshot, haAction, timelapseDownload, timelapseStream, timelapseThumbnail, snoozeNotification } = await getWebooks();
 
     try {
         const cloudEndpointRaw = await endpointManager.getCloudEndpoint(undefined, { public: true });
@@ -136,7 +134,7 @@ export const getWebookUrls = async (props: {
         if (snoozes) {
             for (const snooze of snoozes) {
                 snoozeUrls.push({
-                    url: `${cloudEndpoint}${snoozeNotification}/${encodedId}/${detectionKey}/${snooze}${paramString}`,
+                    url: `${cloudEndpoint}${snoozeNotification}/${encodedId}/${snoozeId}/${snooze}${paramString}`,
                     // TODO: Translate this
                     text: `Snooze: ${snooze} minutes`,
                     snooze,
@@ -898,6 +896,7 @@ export enum ZoneMatchType {
 
 export const deviceFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && ['${ScryptedDeviceType.Camera}', '${ScryptedDeviceType.Doorbell}', '${ScryptedDeviceType.Sensor}', '${ScryptedDeviceType.Lock}', '${ScryptedDeviceType.Entry}'].includes(type)`;
 export const notifierFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && ['${ScryptedDeviceType.Notifier}'].includes(type)`;
+// export const notifierFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && !interfaces.includes('${NVR_NOTIFIER_INTERFACE}') && ['${ScryptedDeviceType.Notifier}'].includes(type)`;
 export const sensorsFilter: StorageSetting['deviceFilter'] = `['${ScryptedDeviceType.Sensor}', '${ScryptedDeviceType.Entry}', '${ScryptedDeviceType.Lock}'].includes(type)`;
 
 type GetSpecificRules = (props: { group: string, subgroup: string, ruleName: string, showMore: boolean }) => StorageSetting[];
@@ -2702,4 +2701,8 @@ export const splitRules = (props: {
         rulesToEnable,
         rulesToDisable,
     ];
+}
+
+export const getSnoozeId = (detectionId: string, notifierId: string) => {
+    return `${notifierId}_${detectionId}`;
 }
