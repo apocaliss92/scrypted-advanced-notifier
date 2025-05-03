@@ -14,16 +14,8 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         ...getMixinBaseSettings({
             plugin: this.plugin,
             mixin: this,
-            isCamera: false,
             refreshSettings: this.refreshSettings.bind(this)
         }),
-        minDelayTime: {
-            subgroup: 'Notifier',
-            title: 'Minimum notification delay',
-            description: 'Minimum amount of seconds to wait until a notification is sent. Set 0 to disable',
-            type: 'number',
-            defaultValue: 0,
-        },
         linkedCamera: {
             title: 'Linked camera',
             type: 'device',

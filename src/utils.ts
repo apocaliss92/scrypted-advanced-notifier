@@ -519,6 +519,7 @@ export type MixinBaseSettingKey =
     | 'info'
     | 'debug'
     | 'entityId'
+    | 'enabledToMqtt'
     | 'useNvrDetections'
     | 'haActions'
     | typeof rulesKey;
@@ -533,12 +534,15 @@ export enum NotificationPriority {
 export const getMixinBaseSettings = (props: {
     mixin: SettingsMixinDeviceBase<any>,
     plugin: AdvancedNotifierPlugin,
-    isCamera: boolean,
     refreshSettings: () => Promise<void>
 }) => {
     try {
-        const { mixin, isCamera, refreshSettings } = props;
+        const { mixin, refreshSettings } = props;
         const device = sdk.systemManager.getDeviceById<ScryptedDeviceBase>(mixin.id);
+        const deviceType = device.type;
+        const isCamera = deviceType === ScryptedDeviceType.Camera || deviceType === ScryptedDeviceType.Doorbell;
+        const isNotifier = deviceType === ScryptedDeviceType.Notifier;
+        const isSensor = !isCamera || !isNotifier;
         const defaultEntityId = !isCamera ? device.nativeId.split(':')[1] : getDefaultEntityId(device.name);
 
         const settings: StorageSettingsDict<MixinBaseSettingKey> = {
@@ -618,6 +622,26 @@ export const getMixinBaseSettings = (props: {
                     await refreshSettings()
                 }
             };
+        }
+
+        if (isCamera || isNotifier) {
+            settings['enabledToMqtt'] = {
+                title: 'Report to MQTT',
+                description: 'Autodiscovery this device on MQTT',
+                type: 'boolean',
+                defaultValue: true,
+                immediate: true,
+            }
+        }
+
+        if (isCamera || isSensor) {
+            settings['minDelayTime'] = {
+                subgroup: 'Notifier',
+                title: 'Minimum notification delay',
+                description: 'Minimum amount of seconds to wait until a notification is sent. Set 0 to disable',
+                type: 'number',
+                defaultValue: 0,
+            }
         }
 
         return settings;

@@ -1,6 +1,11 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.4.9
+
+- Add audio detection and decoder snapshots entities to MQTT
+- Enable decoder only during motion events
+
 ### 3.4.8
 
 - Add support for NVR notifiers to enable/disable notifications globally or per camera, if the camera flag is off. This allows to script NVR notifications without implementing any rule

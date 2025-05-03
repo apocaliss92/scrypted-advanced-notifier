@@ -1,7 +1,7 @@
 import sdk, { NotifierOptions, MediaObject, Setting, Settings, Notifier, ScryptedInterface } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DeviceInterface, getTextSettings, NVR_NOTIFIER_INTERFACE } from "./utils";
+import { DeviceInterface, getMixinBaseSettings, getTextSettings, NVR_NOTIFIER_INTERFACE } from "./utils";
 import HomeAssistantUtilitiesProvider from "./main";
 import { getBaseLogger, getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
@@ -11,6 +11,11 @@ export type SendNotificationToPluginFn = (notifierId: string, title: string, opt
 
 export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> implements Settings, Notifier {
     storageSettings = new StorageSettings(this, {
+        ...getMixinBaseSettings({
+            plugin: this.plugin,
+            mixin: this,
+            refreshSettings: async () => { return; }
+        }),
         enabled: {
             title: 'Enabled',
             type: 'boolean',
@@ -21,13 +26,6 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
             title: 'Add snoozing actions',
             type: 'boolean',
             defaultValue: false,
-            immediate: true,
-        },
-        enabledToMqtt: {
-            title: 'Report to MQTT',
-            description: 'Autodiscovery this notifier on MQTT',
-            type: 'boolean',
-            defaultValue: true,
             immediate: true,
         },
         ...getTextSettings(true) as any,

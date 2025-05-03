@@ -60,7 +60,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         ...getMixinBaseSettings({
             plugin: this.plugin,
             mixin: this,
-            isCamera: true,
             refreshSettings: this.refreshSettings.bind(this)
         }),
         notificationsEnabled: {
@@ -96,13 +95,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             description: 'Minimum amount of seconds to wait a new image is published to MQTT for the basic detections',
             type: 'number',
             defaultValue: 5
-        },
-        minDelayTime: {
-            subgroup: 'Notifier',
-            title: 'Minimum notification delay',
-            description: 'Minimum amount of seconds to wait until a notification is sent for the same detection type',
-            type: 'number',
-            defaultValue: 15,
         },
         motionDuration: {
             title: 'Off motion duration',
@@ -485,6 +477,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                     logger.log(`Setting notifications active to ${!active}`);
                                     await this.storageSettings.putSetting(`notificationsEnabled`, active);
                                 },
+                                switchAudioDetectionCb: async (active) => {
+                                    logger.log(`Setting audio detecion to ${!active}`);
+                                    await this.storageSettings.putSetting(`checkSoundPressure`, active);
+                                },
+                                switchDecoderSnapshotsCb: async (active) => {
+                                    logger.log(`Setting decoder snapshots to ${!active}`);
+                                    await this.storageSettings.putSetting(`useFramesGenerator`, active);
+                                },
                                 switchRecordingCb: this.cameraDevice.interfaces.includes(ScryptedInterface.VideoRecorder) ?
                                     async (active) => {
                                         logger.log(`Setting NVR privacy mode to ${!active}`);
@@ -526,7 +526,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             notificationsEnabled,
                             isRecording,
                             rulesToEnable,
-                            rulesToDisable
+                            rulesToDisable,
+                            checkSoundPressure,
+                            useFramesGenerator
                         }).catch(logger.error);
                     }
                 }
@@ -577,22 +579,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     logger.log('Starting processing of accumulated detections');
                     this.startAccumulatedDetectionsInterval();
                 }
-                //  else if (useNvrDetectionsForMqtt && this.processDetectionsInterval) {
-                //     logger.log('Stopping processing of accumulated detections');
-                //     this.stopAccumulatedDetectionsInterval();
-                // }
 
-                if (this.framesGeneratorSignal.finished && useFramesGenerator) {
-                    logger.log(`Starting frames generator`);
-                    this.startFramesGenerator().catch(logger.log);
-                } else if (!this.framesGeneratorSignal.finished && !useFramesGenerator) {
-                    this.stopFramesGenerator();
-                }
                 // Restart frame generator every minute
-                if (!this.framesGeneratorSignal.finished && this.frameGenerationStartTime && (now - this.frameGenerationStartTime) >= 1000 * 60 * 1) {
-                    logger.log(`Restarting frames generator`);
-                    this.stopFramesGenerator();
-                }
+                // if (!this.framesGeneratorSignal.finished && this.frameGenerationStartTime && (now - this.frameGenerationStartTime) >= 1000 * 60 * 1) {
+                //     logger.log(`Restarting frames generator`);
+                //     this.stopFramesGenerator();
+                // }
 
                 await this.checkOutdatedRules();
             } catch (e) {
@@ -618,6 +610,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
 
         if (!this.framesGeneratorSignal || this.framesGeneratorSignal.finished) {
+            logger.log(`Starting frames generator`);
             this.frameGenerationStartTime = Date.now();
             this.framesGeneratorSignal = new Deferred();
             const frameGenerator = this.createFrameGenerator();
@@ -637,18 +630,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     });
                     this.lastFrameAcquired = now;
 
-                    await sleep(500);
+                    await sleep(200);
                 } catch (e) {
                     logger.log(`Error acquiring a frame from generator`, e.message);
                     this.lastFrame = undefined;
                 }
             }
         } else {
-            logger.log('Streams generator not yet released');
+            logger.info('Streams generator not yet released');
         }
     }
 
     stopFramesGenerator() {
+        const logger = this.getLogger();
+        logger.log(`Stopping frames generator`);
         this.frameGenerationStartTime = undefined;
         this.framesGeneratorSignal.resolve();
     }
@@ -2369,6 +2364,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             this.motionListener = systemManager.listenDevice(this.id, {
                 event: ScryptedInterface.MotionSensor,
             }, async (_, __, data) => {
+                const { useFramesGenerator } = this.storageSettings.values;
+
                 if (data) {
                     const timestamp = Date.now();
                     const detections: ObjectDetectionResult[] = [{
@@ -2376,8 +2373,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         score: 1,
                     }];
                     this.processDetections({ detect: { timestamp, detections }, eventSource: ScryptedEventSource.RawDetection }).catch(logger.log);
+
+                    if (useFramesGenerator) {
+                        this.startFramesGenerator().catch(logger.error);
+                    }
                 } else {
                     this.resetDetectionEntities('MotionSensor').catch(logger.log);
+
+                    if (useFramesGenerator) {
+                        this.stopFramesGenerator();
+                    }
                 }
             });
         } catch (e) {
