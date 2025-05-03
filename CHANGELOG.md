@@ -1,6 +1,11 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.4.8
+
+- Add support for NVR notifiers to enable/disable notifications globally or per camera, if the camera flag is off. This allows to script NVR notifications without implementing any rule
+- Notifiers device discovered on MQTT
+
 ### 3.4.1
 
 - Add setting to enable snoozing actions on a notifier (Pushover and homeassistant)

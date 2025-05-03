@@ -18,6 +18,7 @@ import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getAllDevices, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getSnoozeId, getTextKey, getTextSettings, getWebHookUrls, getWebooks, HOMEASSISTANT_PLUGIN_ID, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeAction, splitRules, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TimelapseRule } from "./utils";
+// import { AdvancedNotifierBaseMixin } from "./baseMixin";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -362,6 +363,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             await mixin.startStop(enabled);
         }
         for (const mixin of Object.values(this.currentSensorMixinsMap)) {
+            await mixin.startStop(enabled);
+        }
+        for (const mixin of Object.values(this.currentNotifierMixinsMap)) {
             await mixin.startStop(enabled);
         }
     }
@@ -1589,7 +1593,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.getLogger().log(`Error building ha actions: ${JSON.stringify({ haActions, actions })}.`, e);
         }
 
-        const mixin = this.currentNotifierMixinsMap[notifier.id];
+        const mixin = this.currentNotifierMixinsMap[notifier.id] as AdvancedNotifierNotifierMixin;
         if (rule.ruleType === RuleType.Detection && mixin.storageSettings.values.addSnoozeActions) {
             const snoozes = [5, 15, 60];
             const { snoozeUrls } = await getWebHookUrls({
@@ -1754,7 +1758,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         notifier: ScryptedDevice & Notifier & DeviceBase
     }) {
         const { title, icon, image, notifierOptions, logger, notifier, source } = props;
-        const isEnabled = this.currentNotifierMixinsMap[notifier.id]?.storageSettings.values.enabled ?? true;
+        const mixin = this.currentNotifierMixinsMap[notifier.id] as AdvancedNotifierNotifierMixin
+        const isEnabled = mixin?.storageSettings.values.enabled ?? true;
 
         if (!isEnabled) {
             logger.log(`Notifier ${notifier.name} skipped because disabled`);

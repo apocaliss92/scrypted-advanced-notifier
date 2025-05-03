@@ -14,7 +14,7 @@ import { sleep } from "../../scrypted/server/src/sleep";
 import { name as pluginName } from '../package.json';
 import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, isObjectClassname } from "./detecionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
-import { idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, reportDeviceValues, setupDeviceAutodiscovery, subscribeToDeviceMqttTopics } from "./mqtt-utils";
+import { idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, reportCameraValues, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAudioRulesSettings, getDecibelsFromRtp_PCMU8, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebHookUrls, splitRules } from "./utils";
 
@@ -84,13 +84,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             subgroup: 'Notifier',
             type: 'string',
             multiple: true
-        },
-        enabledToMqtt: {
-            title: 'Report to MQTT',
-            description: 'Autodiscovery this camera on MQTT',
-            type: 'boolean',
-            defaultValue: true,
-            immediate: true,
         },
         minSnapshotDelay: {
             title: 'Minimum snapshot acquisition delay',
@@ -254,7 +247,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         super(options);
         const logger = this.getLogger();
 
-        this.clientId = `scrypted_an_${this.id}`;
+        this.clientId = `scrypted_an_camera_${this.id}`;
         this.plugin.currentCameraMixinsMap[this.id] = this;
 
         this.storageSettings.settings.entityId.onGet = async () => {
@@ -466,7 +459,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         // Every 60 minutes repeat the autodiscovery
                         if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
                             logger.log('Starting MQTT autodiscovery');
-                            setupDeviceAutodiscovery({
+                            setupCameraAutodiscovery({
                                 mqttClient,
                                 device: this.cameraDevice,
                                 console: logger,
@@ -478,23 +471,23 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             }).catch(logger.error);
 
                             logger.debug(`Subscribing to mqtt topics`);
-                            subscribeToDeviceMqttTopics({
+                            subscribeToCameraMqttTopics({
                                 mqttClient,
                                 rules: allAvailableRules,
                                 device: this.cameraDevice,
                                 console: logger,
                                 activationRuleCb: async ({ active, ruleName, ruleType }) => {
                                     const { common: { enabledKey } } = getRuleKeys({ ruleName, ruleType });
-                                    logger.debug(`Setting ${ruleType} rule ${ruleName} to ${active}`);
+                                    logger.log(`Setting ${ruleType} rule ${ruleName} to ${active}`);
                                     await this.storageSettings.putSetting(`${enabledKey}`, active);
                                 },
                                 switchNotificationsEnabledCb: async (active) => {
-                                    logger.debug(`Setting notifications active to ${!active}`);
+                                    logger.log(`Setting notifications active to ${!active}`);
                                     await this.storageSettings.putSetting(`notificationsEnabled`, active);
                                 },
                                 switchRecordingCb: this.cameraDevice.interfaces.includes(ScryptedInterface.VideoRecorder) ?
                                     async (active) => {
-                                        logger.debug(`Setting NVR privacy mode to ${!active}`);
+                                        logger.log(`Setting NVR privacy mode to ${!active}`);
                                         await this.enableRecording(this.cameraDevice, active);
                                     } :
                                     undefined,
@@ -526,7 +519,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         const settings = await this.mixinDevice.getSettings();
                         const isRecording = !settings.find(setting => setting.key === 'recording:privacyMode')?.value;
 
-                        reportDeviceValues({
+                        reportCameraValues({
                             console: logger,
                             device: this.cameraDevice,
                             mqttClient,

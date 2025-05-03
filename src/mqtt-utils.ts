@@ -1,4 +1,4 @@
-import sdk, { ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoomCommand, ScryptedDeviceBase, ScryptedInterface } from '@scrypted/sdk';
+import sdk, { Notifier, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoomCommand, ScryptedDeviceBase, ScryptedInterface } from '@scrypted/sdk';
 import { cloneDeep, groupBy, uniq } from 'lodash';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 import { OccupancyRuleData } from './cameraMixin';
@@ -247,7 +247,7 @@ const getBasicMqttAutodiscoveryConfiguration = (props: {
     return config;
 }
 
-const getVideocameraMqttAutodiscoveryConfiguration = async (props: {
+const getDeviceMqttAutodiscoveryConfiguration = async (props: {
     mqttEntity: MqttEntity,
     device: ScryptedDeviceBase,
     additionalProps?: Partial<AutodiscoveryConfig>
@@ -532,7 +532,7 @@ const publishMqttEntitiesDiscovery = async (props: { mqttClient?: MqttClient, mq
 
     for (const mqttEntity of mqttEntities) {
         const { discoveryTopic, config, stateTopic } = device ?
-            await getVideocameraMqttAutodiscoveryConfiguration({ mqttEntity, device }) :
+            await getDeviceMqttAutodiscoveryConfiguration({ mqttEntity, device }) :
             await getPluginMqttAutodiscoveryConfiguration({ mqttEntity });
 
         console.debug(`Discovering ${JSON.stringify({ mqttEntity, discoveryTopic, config })}`);
@@ -654,7 +654,7 @@ const getPtzCommandEntities = (device: ScryptedDeviceBase) => {
     return commandEntities;
 }
 
-export const subscribeToDeviceMqttTopics = async (
+export const subscribeToCameraMqttTopics = async (
     props: {
         mqttClient?: MqttClient,
         rules: BaseRule[],
@@ -690,7 +690,7 @@ export const subscribeToDeviceMqttTopics = async (
         const mqttEntity = getRuleMqttEntities({ rule, device, forDiscovery: false })?.find(item => item.identifier === MqttEntityIdentifier.RuleActive);
 
         if (mqttEntity) {
-            const { commandTopic, stateTopic } = await getVideocameraMqttAutodiscoveryConfiguration({ mqttEntity, device });
+            const { commandTopic, stateTopic } = await getDeviceMqttAutodiscoveryConfiguration({ mqttEntity, device });
 
             await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
                 if (messageTopic === commandTopic) {
@@ -775,6 +775,35 @@ export const subscribeToDeviceMqttTopics = async (
     }
 }
 
+export const subscribeToNotifierMqttTopics = async (
+    props: {
+        mqttClient?: MqttClient,
+        device: ScryptedDeviceBase,
+        console: Console,
+        switchNotificationsEnabledCb: (active: boolean) => void,
+    }
+) => {
+    const {
+        mqttClient,
+        switchNotificationsEnabledCb,
+        device,
+    } = props;
+    if (!mqttClient) {
+        return;
+    }
+
+    if (switchNotificationsEnabledCb) {
+        const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: notificationsEnabledEntity, device });
+        await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
+            if (messageTopic === commandTopic) {
+                switchNotificationsEnabledCb(message === 'true');
+
+                await mqttClient.publish(stateTopic, message, notificationsEnabledEntity.retain);
+            }
+        });
+    }
+}
+
 const getMqttDevice = async (device: MqttDeviceType) => {
     if (typeof device === 'object') {
         const localEndpoint = await sdk.endpointManager.getLocalEndpoint();
@@ -827,7 +856,7 @@ const getCameraClassEntities = async (device: ScryptedDeviceBase & ObjectDetecto
     return deviceClassMqttEntities.filter(entry => !entry.className || classes.includes(entry.className));
 }
 
-export const setupDeviceAutodiscovery = async (props: {
+export const setupCameraAutodiscovery = async (props: {
     mqttClient?: MqttClient,
     device: ScryptedDeviceBase & ObjectDetector,
     console: Console,
@@ -914,6 +943,24 @@ export const setupDeviceAutodiscovery = async (props: {
     return await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, device, console });
 }
 
+export const setupNotifierAutodiscovery = async (props: {
+    mqttClient?: MqttClient,
+    device: ScryptedDeviceBase & Notifier,
+    console: Console,
+}) => {
+    const { device, mqttClient, console } = props;
+
+    if (!mqttClient) {
+        return;
+    }
+
+    const mqttEntities = [
+        notificationsEnabledEntity,
+    ];
+
+    return await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, device, console });
+}
+
 export const publishResetDetectionsEntities = async (props: {
     mqttClient?: MqttClient,
     device: ScryptedDeviceBase & ObjectDetector,
@@ -932,7 +979,7 @@ export const publishResetDetectionsEntities = async (props: {
     console.info(`Resetting detection entities: ${mqttEntities.map(item => item.className).join(', ')}`);
 
     for (const mqttEntity of mqttEntities) {
-        const { stateTopic } = await getVideocameraMqttAutodiscoveryConfiguration({ mqttEntity, device });
+        const { stateTopic } = await getDeviceMqttAutodiscoveryConfiguration({ mqttEntity, device });
 
         await mqttClient.publish(stateTopic, false, mqttEntity.retain);
     }
@@ -1083,7 +1130,7 @@ export const publishClassnameImages = async (props: {
     }
 }
 
-export const reportDeviceValues = async (props: {
+export const reportCameraValues = async (props: {
     mqttClient?: MqttClient,
     device?: ScryptedDeviceBase,
     isRecording?: boolean,
@@ -1138,6 +1185,24 @@ export const reportDeviceValues = async (props: {
             active: false,
             device,
         });
+    }
+}
+
+export const reportNotifierValues = async (props: {
+    mqttClient?: MqttClient,
+    device?: ScryptedDeviceBase,
+    notificationsEnabled: boolean,
+    console: Console,
+}) => {
+    const { device, mqttClient, notificationsEnabled, console } = props;
+
+    if (!mqttClient) {
+        return;
+    }
+
+    if (device) {
+        const { stateTopic } = getMqttTopics({ mqttEntity: notificationsEnabledEntity, device });
+        await mqttClient.publish(stateTopic, notificationsEnabled ? 'true' : 'false', notificationsEnabledEntity.retain);
     }
 }
 

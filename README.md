@@ -42,8 +42,15 @@ The plugin provides customized way to deliver notifications. It is based on rule
 - `Scrypted token`: Token stored on the scrypted entity on homeassistant
 - `NVR url`: Url pointing to the NVR instance, should be accessible from outside
 
+### Snoozing
 It's also possible to enable snoozing actions enabling the `Add snoozing actions` settings on the notifier page (experimental, it will open a browser tab. Will probably require an automation importing in future to use homeassistant actions)
 Notifications can be disabled for a specific camera on the camera page, Advanced notifier => Notifier => `Notifications enabled` (available on MQTT as well)
+
+### Scrypted NVR notifiers
+Plugins supports scripting of the NVR buitin notifiers, following features are available:
+- discover to MQTT
+- enablement of notifications
+- disable specific camera notifications, if it's notifications are disabled. This will require both the camera and the NVR notifier to extend this plugin
 
 Rules can be of following types: Detection, Occupancy, Audio, Timelapse. These properties are in common with all, some are hidden until the `Show more configurations` gets activated
 
@@ -142,7 +149,7 @@ It's possbile to configure an homeassistant connection (or utilize the one confi
 
 Some basic webhooks are available
 
-# Latest snapshot
+### Latest snapshot
 
 Will provide the latest registered image for each type, on the camera settings will be provided the basic url, {IMAGE_NAME} should be replaced with one of the following:
 
@@ -152,7 +159,7 @@ Will provide the latest registered image for each type, on the camera settings w
 - `object-detection-face-{ known person label }-NVR` (cropped images from NVR)
 - `rule-{ rule name }`
 
-# POST detection images
+### POST detection images
 
 Provide multiple urls, for each detection, POST a b64 image with some additional metadata. Filter
 on some classes and define a minimum delay.

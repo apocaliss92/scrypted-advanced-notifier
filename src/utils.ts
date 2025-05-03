@@ -1,4 +1,4 @@
-import sdk, { BinarySensor, Camera, DeviceBase, EntrySensor, LockState, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoom, Point, Reboot, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, VideoCamera } from "@scrypted/sdk";
+import sdk, { BinarySensor, Camera, DeviceBase, EntrySensor, LockState, Notifier, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, OnOff, PanTiltZoom, Point, Reboot, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, VideoCamera } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDevice, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep, sortBy, uniq, uniqBy } from "lodash";
@@ -10,7 +10,7 @@ import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, Detectio
 import AdvancedNotifierPlugin from "./main";
 const { endpointManager } = sdk;
 
-export type DeviceInterface = Camera & ScryptedDeviceBase & Settings & ObjectDetector & VideoCamera & EntrySensor & Lock & BinarySensor & Reboot & PanTiltZoom;
+export type DeviceInterface = Camera & ScryptedDeviceBase & Notifier & Settings & ObjectDetector & VideoCamera & EntrySensor & Lock & BinarySensor & Reboot & PanTiltZoom & OnOff;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
 export const ADVANCED_NOTIFIER_CAMERA_INTERFACE = `${ADVANCED_NOTIFIER_INTERFACE}:Camera`;
 export const ADVANCED_NOTIFIER_NOTIFIER_INTERFACE = `${ADVANCED_NOTIFIER_INTERFACE}:Notifier`;
