@@ -1,4 +1,4 @@
-import { NotifierOptions, MediaObject, Setting, Settings } from "@scrypted/sdk";
+import sdk, { NotifierOptions, MediaObject, Setting, Settings, Notifier } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import { getTextSettings } from "./utils";
@@ -6,7 +6,7 @@ import HomeAssistantUtilitiesProvider from "./main";
 
 export type SendNotificationToPluginFn = (notifierId: string, title: string, options?: NotifierOptions, media?: MediaObject, icon?: MediaObject | string) => Promise<void>
 
-export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> implements Settings {
+export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> implements Settings, Notifier {
     storageSettings = new StorageSettings(this, {
         enabled: {
             title: 'Enabled',
@@ -30,6 +30,30 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
         super(options);
 
         this.plugin.currentNotifierMixinsMap[this.id] = this;
+    }
+
+    sendNotification(title: string, options?: NotifierOptions, media?: MediaObject | string, icon?: MediaObject | string): Promise<void> {
+        let canNotify = true;
+
+        const cameraDevice = sdk.systemManager.getDeviceByName(title);
+        const notifierDevice = sdk.systemManager.getDeviceByName(this.id);
+        if (cameraDevice) {
+            const cameraMixin = this.plugin.currentCameraMixinsMap[cameraDevice.id];
+            if (cameraMixin) {
+                const logger = this.plugin.getLogger();
+                const notificationsEnabled = cameraMixin.storageSettings.values.notificationsEnabled;
+
+                if (!notificationsEnabled) {
+                    canNotify = false;
+                    logger.log(`Skipping NVR notification for ${cameraDevice.name} from notifier ${notifierDevice.name} because disabled`);
+                }
+            }
+
+        }
+
+        if (canNotify) {
+            return this.mixinDevice.sendNotification(title, options, media, icon);
+        }
     }
 
     async getMixinSettings(): Promise<Setting[]> {

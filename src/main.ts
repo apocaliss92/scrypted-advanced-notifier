@@ -17,13 +17,9 @@ import { idPrefix, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPlug
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, AudioRule, BaseRule, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getAllDevices, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getSnoozeId, getTextKey, getTextSettings, getWebHookUrls, getWebooks, HOMEASSISTANT_PLUGIN_ID, LATEST_IMAGE_SUFFIX, NotificationPriority, NotificationSource, notifierFilter, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeAction, splitRules, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TimelapseRule } from "./utils";
+import { ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getAllDevices, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getNowFriendlyDate, getPushoverPriority, getRuleKeys, getSnoozeId, getTextKey, getTextSettings, getWebHookUrls, getWebooks, HOMEASSISTANT_PLUGIN_ID, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeAction, splitRules, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TimelapseRule } from "./utils";
 
 const { systemManager, mediaManager } = sdk;
-const defaultNotifierNativeId = 'advancedNotifierDefaultNotifier';
-const cameraNativeId = 'advancedNotifierCamera';
-const MAX_PENDING_RESULT_PER_CAMERA = 5;
-const MAX_RPC_OBJECTS_PER_CAMERA = 50;
 
 interface NotifyCameraProps {
     cameraDevice?: DeviceInterface,
@@ -305,7 +301,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             await sdk.deviceManager.onDeviceDiscovered(
                 {
                     name: 'Advanced notifier NVR notifier',
-                    nativeId: defaultNotifierNativeId,
+                    nativeId: NOTIFIER_NATIVE_ID,
                     interfaces: [ScryptedInterface.Notifier, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE],
                     type: ScryptedDeviceType.Notifier,
                 },
@@ -331,7 +327,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         await sdk.deviceManager.onDeviceDiscovered(
             {
                 name: 'Advanced notifier Camera',
-                nativeId: cameraNativeId,
+                nativeId: CAMERA_NATIVE_ID,
                 interfaces,
                 type: ScryptedDeviceType.Camera,
             }
@@ -339,10 +335,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     async getDevice(nativeId: string) {
-        if (nativeId === defaultNotifierNativeId)
-            return this.defaultNotifier ||= new AdvancedNotifierNotifier(defaultNotifierNativeId, this);
-        if (nativeId === cameraNativeId)
-            return this.camera ||= new AdvancedNotifierCamera(cameraNativeId, this);
+        if (nativeId === NOTIFIER_NATIVE_ID)
+            return this.defaultNotifier ||= new AdvancedNotifierNotifier(NOTIFIER_NATIVE_ID, this);
+        if (nativeId === CAMERA_NATIVE_ID)
+            return this.camera ||= new AdvancedNotifierCamera(CAMERA_NATIVE_ID, this);
     }
 
     async releaseDevice(id: string, nativeId: string): Promise<void> {
@@ -1082,7 +1078,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             !interfaces.includes(ADVANCED_NOTIFIER_NOTIFIER_INTERFACE) &&
             !interfaces.includes(ADVANCED_NOTIFIER_CAMERA_INTERFACE)
         ) {
-            return [ScryptedInterface.Settings, ADVANCED_NOTIFIER_INTERFACE]
+            const interfaces = [ScryptedInterface.Settings, ADVANCED_NOTIFIER_INTERFACE];
+
+            if (type === ScryptedDeviceType.Notifier) {
+                interfaces.push(ScryptedInterface.Notifier);
+            }
+
+            return interfaces;
         }
 
         return undefined;
@@ -1319,7 +1321,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         const foundDevice = this.currentCameraMixinsMap[triggerDevice.id] || this.currentSensorMixinsMap[triggerDevice.id];
         logger.log(`NVR notification incoming ${cameraName} hasImage ${!!image} ${eventType} ${triggerDevice?.name}, device found ${!!foundDevice}`);
-        logger.info(JSON.stringify(allDetections));
+        logger.info(JSON.stringify({ allDetections, cameraName, options }));
 
         if ([EventType.ObjectDetection, EventType.Package].includes(eventType as EventType)) {
             await (foundDevice as AdvancedNotifierCameraMixin)?.processDetections({
@@ -1622,6 +1624,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 video: !skipVideoAttach ? videoUrl : undefined,
                 actions: !ignoreActions ? [...haActionsToNotify, ...snoozeActions] : undefined
             }
+        } else if (notifier.pluginId === NVR_PLUGIN_ID) {
+            // TODO ADD NVR DATA
         }
 
         return { data, snoozeActions };

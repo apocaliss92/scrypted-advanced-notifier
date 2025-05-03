@@ -15,10 +15,15 @@ export const ADVANCED_NOTIFIER_INTERFACE = name;
 export const ADVANCED_NOTIFIER_CAMERA_INTERFACE = `${ADVANCED_NOTIFIER_INTERFACE}:Camera`;
 export const ADVANCED_NOTIFIER_NOTIFIER_INTERFACE = `${ADVANCED_NOTIFIER_INTERFACE}:Notifier`;
 export const PUSHOVER_PLUGIN_ID = '@scrypted/pushover';
+export const NVR_PLUGIN_ID = '@scrypted/nvr';
 export const HOMEASSISTANT_PLUGIN_ID = '@scrypted/homeassistant';
-export const NVR_NOTIFIER_INTERFACE = '@scrypted/nvr:Notifier';
+export const NVR_NOTIFIER_INTERFACE = `${NVR_PLUGIN_ID}:Notifier`;
 export const SNAPSHOT_WIDTH = 1280;
 export const LATEST_IMAGE_SUFFIX = '-latest';
+export const NOTIFIER_NATIVE_ID = 'advancedNotifierDefaultNotifier';
+export const CAMERA_NATIVE_ID = 'advancedNotifierCamera';
+export const MAX_PENDING_RESULT_PER_CAMERA = 5;
+export const MAX_RPC_OBJECTS_PER_CAMERA = 50;
 
 export enum ScryptedEventSource {
     RawDetection = 'RawDetection',
@@ -895,8 +900,8 @@ export enum ZoneMatchType {
 }
 
 export const deviceFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && ['${ScryptedDeviceType.Camera}', '${ScryptedDeviceType.Doorbell}', '${ScryptedDeviceType.Sensor}', '${ScryptedDeviceType.Lock}', '${ScryptedDeviceType.Entry}'].includes(type)`;
-export const notifierFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && ['${ScryptedDeviceType.Notifier}'].includes(type)`;
-// export const notifierFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && !interfaces.includes('${NVR_NOTIFIER_INTERFACE}') && ['${ScryptedDeviceType.Notifier}'].includes(type)`;
+// export const notifierFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && ['${ScryptedDeviceType.Notifier}'].includes(type)`;
+export const notifierFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && !interfaces.includes('${NVR_NOTIFIER_INTERFACE}') && ['${ScryptedDeviceType.Notifier}'].includes(type)`;
 export const sensorsFilter: StorageSetting['deviceFilter'] = `['${ScryptedDeviceType.Sensor}', '${ScryptedDeviceType.Entry}', '${ScryptedDeviceType.Lock}'].includes(type)`;
 
 type GetSpecificRules = (props: { group: string, subgroup: string, ruleName: string, showMore: boolean }) => StorageSetting[];
