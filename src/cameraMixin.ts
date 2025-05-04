@@ -12,7 +12,7 @@ import { startRtpForwarderProcess } from '../../scrypted/plugins/webrtc/src/rtp-
 import { Deferred } from "../../scrypted/server/src/deferred";
 import { sleep } from "../../scrypted/server/src/sleep";
 import { name as pluginName } from '../package.json';
-import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, isObjectClassname } from "./detecionClasses";
+import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, isFaceClassname, isObjectClassname, isPlateClassname, levenshteinDistance } from "./detectionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, reportCameraValues, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
@@ -760,14 +760,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
         const dynamicSettings: StorageSetting[] = [];
         const zones = (await this.getObserveZones()).map(item => item.name);
+        const people = (await this.plugin.getKnownPeople());
 
         const detectionRulesSettings = await getDetectionRulesSettings({
             storage: this.storageSettings,
             zones,
+            people,
             isCamera: true,
             logger,
             ruleSource: RuleSource.Device,
-            onShowMore: this.refreshSettings.bind(this),
+            refreshSettings: this.refreshSettings.bind(this),
             onRuleToggle: async (ruleName: string, enabled: boolean) => this.toggleRule(ruleName, RuleType.Detection, enabled),
         });
         dynamicSettings.push(...detectionRulesSettings);
@@ -777,7 +779,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             zones,
             ruleSource: RuleSource.Device,
             logger,
-            onShowMore: this.refreshSettings.bind(this),
+            refreshSettings: this.refreshSettings.bind(this),
             onRuleToggle: async (ruleName: string, enabled: boolean) => this.toggleRule(ruleName, RuleType.Occupancy, enabled),
         });
         dynamicSettings.push(...occupancyRulesSettings);
@@ -786,7 +788,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             storage: this.storageSettings,
             ruleSource: RuleSource.Device,
             logger,
-            onShowMore: this.refreshSettings.bind(this),
+            refreshSettings: this.refreshSettings.bind(this),
             onCleanDataTimelapse: async (ruleName) => {
                 const rule = this.availableTimelapseRules?.find(rule => rule.name === ruleName);
 
@@ -820,7 +822,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             storage: this.storageSettings,
             ruleSource: RuleSource.Device,
             logger,
-            onShowMore: this.refreshSettings.bind(this),
+            refreshSettings: this.refreshSettings.bind(this),
             onRuleToggle: async (ruleName: string, enabled: boolean) => this.toggleRule(ruleName, RuleType.Audio, enabled),
         });
         dynamicSettings.push(...audioRulesSettings);
@@ -2174,7 +2176,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             })}`);
 
             for (const rule of rules) {
-                const { detectionClasses, scoreThreshold, whitelistedZones, blacklistedZones } = rule;
+                const {
+                    detectionClasses,
+                    scoreThreshold,
+                    whitelistedZones,
+                    blacklistedZones,
+                    people,
+                    plates,
+                    plateMaxDistance,
+                    labelScoreThreshold,
+                } = rule;
 
                 if (!detectionClasses.length || !rule.currentlyActive) {
                     continue;
@@ -2185,7 +2196,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         return false;
                     }
 
-                    const { className: classnameRaw, score, zones } = d;
+                    const { className: classnameRaw, score, zones, label, labelScore } = d;
                     const className = detectionClassesDefaultMap[classnameRaw];
 
                     if (!className) {
@@ -2197,6 +2208,29 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     if (!detectionClasses.includes(className)) {
                         logger.debug(`Classname ${className} not contained in ${detectionClasses}`);
                         return false;
+                    }
+
+                    if (people?.length && isFaceClassname(className) && (!label || !people.includes(label))) {
+                        logger.debug(`Face ${label} not contained in ${people}`);
+                        return false;
+                    }
+
+                    if (plates?.length && isPlateClassname(className)) {
+                        const anyValidPlate = plates.some(plate => levenshteinDistance(plate, label) > plateMaxDistance);
+
+                        if (!anyValidPlate) {
+                            logger.debug(`Plate ${label} not contained in ${plates}`);
+                            return false;
+                        }
+                    }
+
+                    if (isPlateClassname(className) || isFaceClassname(className)) {
+                        const labelScoreOk = !labelScore || labelScore > labelScoreThreshold;
+
+                        if (!labelScoreOk) {
+                            logger.debug(`Label score ${labelScore} not ok ${labelScoreThreshold}`);
+                            return false;
+                        }
                     }
 
                     const scoreOk = !score || score > scoreThreshold;

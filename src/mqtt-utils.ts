@@ -2,7 +2,7 @@ import sdk, { Notifier, ObjectDetectionResult, ObjectDetector, ObjectsDetected, 
 import { cloneDeep, groupBy, uniq } from 'lodash';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 import { OccupancyRuleData } from './cameraMixin';
-import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, parentDetectionClassMap } from './detecionClasses';
+import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, parentDetectionClassMap } from './detectionClasses';
 import { BaseRule, isDetectionRule, RuleSource, RuleType, toKebabCase, toSnakeCase, toTitleCase } from './utils';
 
 export enum MqttEntityIdentifier {

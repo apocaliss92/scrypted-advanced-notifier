@@ -12,7 +12,7 @@ import { name as pluginName, version } from '../package.json';
 import { AiPlatform, getAiMessage } from "./aiUtils";
 import { AdvancedNotifierCamera } from "./camera";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
-import { DetectionClass, detectionClassesDefaultMap } from "./detecionClasses";
+import { DetectionClass, detectionClassesDefaultMap } from "./detectionClasses";
 import { idPrefix, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
@@ -265,7 +265,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     allAvailableRules: BaseRule[] = [];
     fetchedEntities: string[] = [];
     lastAutoDiscovery: number;
+    lastKnownPeopleFetched: number;
     hasCloudPlugin: boolean;
+    knownPeople: string[] = [];
 
     constructor(nativeId: string) {
         super(nativeId, {
@@ -582,15 +584,33 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         return;
     }
 
-    private async sendAutoDiscovery() {
-        if (this.storageSettings.values.mqttEnabled) {
-            const mqttClient = await this.getMqttClient();
-            const logger = this.getLogger();
+    async getKnownPeople() {
+        try {
+            const now = new Date().getTime();
+            const isUpdated = this.lastKnownPeopleFetched && (now - this.lastKnownPeopleFetched) <= (1000 * 60);
+            if (this.knownPeople && isUpdated) {
+                return this.knownPeople;
+            }
+
             const objDetectionPlugin = systemManager.getDeviceByName('Scrypted NVR Object Detection') as unknown as Settings;
             const settings = await objDetectionPlugin.getSettings();
             const knownPeople = settings?.find(setting => setting.key === 'knownPeople')?.choices
                 ?.filter(choice => !!choice)
                 .map(person => person.trim());
+
+            this.knownPeople = knownPeople;
+            this.lastKnownPeopleFetched = now;
+            return this.knownPeople;
+        } catch (e) {
+            this.getLogger().log('Error in getKnownPeople', e.message);
+            return [];
+        }
+    }
+
+    private async sendAutoDiscovery() {
+        if (this.storageSettings.values.mqttEnabled) {
+            const mqttClient = await this.getMqttClient();
+            const logger = this.getLogger();
 
             const pluginStorage = this.storageSettings;
             const { availableRules } = getDetectionRules({ pluginStorage, console: logger });
@@ -598,7 +618,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger.log('Starting MQTT autodiscovery');
             setupPluginAutodiscovery({
                 mqttClient,
-                people: knownPeople,
+                people: await this.getKnownPeople(),
                 console: logger,
                 rules: availableRules,
             }).then(async (activeTopics) => {
@@ -1010,12 +1030,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     async refreshSettings() {
         const logger = this.getLogger();
         const dynamicSettings: StorageSetting[] = [];
+        const people = (await this.getKnownPeople());
 
         const detectionRulesSettings = await getDetectionRulesSettings({
             storage: this.storageSettings,
             ruleSource: RuleSource.Plugin,
             logger,
-            onShowMore: async () => await this.refreshSettings(),
+            people,
+            refreshSettings: async () => await this.refreshSettings(),
             onRuleToggle: async (ruleName: string, enabled: boolean) => this.toggleRule(ruleName, RuleType.Detection, enabled),
         });
 

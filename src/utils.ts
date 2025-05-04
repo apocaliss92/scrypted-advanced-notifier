@@ -6,7 +6,7 @@ import moment, { Moment } from "moment";
 import sharp from 'sharp';
 import { name, scrypted } from '../package.json';
 import { AiPlatform, defaultModel } from "./aiUtils";
-import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detecionClasses";
+import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detectionClasses";
 import AdvancedNotifierPlugin from "./main";
 const { endpointManager } = sdk;
 
@@ -63,6 +63,11 @@ export const getDefaultEntityId = (name: string) => {
         .join('_') ?? 'not_set';
 
     return `binary_sensor.${convertedName}_notification_triggered`;
+}
+
+const safeParseJson = <T = any>(maybeStringValue: string | object, fallback?: any) => {
+    return (typeof maybeStringValue === 'string' ? JSON.parse(maybeStringValue) : maybeStringValue) ?? fallback as T;
+
 }
 
 export const getWebooks = async () => {
@@ -841,6 +846,10 @@ export const getRuleKeys = (props: {
     const blacklistedZonesKey = `${prefix}:${ruleName}:blacklistedZones`;
     const markDetectionsKey = `${prefix}:${ruleName}:markDetections`;
     const recordingTriggerSecondsKey = `${prefix}:${ruleName}:recordingTriggerSeconds`;
+    const peopleKey = `${prefix}:${ruleName}:people`;
+    const platesKey = `${prefix}:${ruleName}:plates`;
+    const plateMaxDistanceKey = `${prefix}:${ruleName}:plateMaxDistance`;
+    const labelScoreKey = `${prefix}:${ruleName}:labelScore`;
 
     // Specific for timelapse rules
     const regularSnapshotIntervalKey = `${prefix}:${ruleName}:regularSnapshotInterval`;
@@ -898,6 +907,10 @@ export const getRuleKeys = (props: {
             devicesKey,
             detectionClassesKey,
             markDetectionsKey,
+            peopleKey,
+            platesKey,
+            plateMaxDistanceKey,
+            labelScoreKey,
         },
         timelapse: {
             regularSnapshotIntervalKey,
@@ -948,10 +961,10 @@ export const getRuleSettings = (props: {
     ruleSource: RuleSource,
     getSpecificRules: GetSpecificRules,
     onRuleToggle?: OnRuleToggle,
-    onShowMore: OnShowMore,
+    refreshSettings: OnShowMore,
     logger: Console
 }) => {
-    const { ruleType, storage, ruleSource, getSpecificRules, onRuleToggle, onShowMore } = props;
+    const { ruleType, storage, ruleSource, getSpecificRules, onRuleToggle, refreshSettings } = props;
     const group = ruleSource === RuleSource.Device ? mixinRulesGroup : pluginRulesGroup;
     const settings: StorageSetting[] = [];
     const { rulesKey, subgroupPrefix } = ruleTypeMetadataMap[ruleType];
@@ -983,10 +996,10 @@ export const getRuleSettings = (props: {
         if (currentActivation === DetectionRuleActivation.AlarmSystem) {
             currentActivation = DetectionRuleActivation.Always;
         }
-        const showMoreConfigurationsRaw = storage.getItem(showMoreConfigurationsKey) as boolean;
-        const showMoreConfigurations = typeof showMoreConfigurationsRaw === 'string' ? JSON.parse(showMoreConfigurationsRaw) : showMoreConfigurationsRaw;
-        const aiEnabledRaw = storage.getItem(aiEnabledKey) as boolean;
-        const aiEnabled = typeof aiEnabledRaw === 'string' ? JSON.parse(aiEnabledRaw) : aiEnabledRaw;
+
+        const showMoreConfigurations = safeParseJson<boolean>(storage.getItem(showMoreConfigurationsKey), false);
+        // const aiEnabledRaw = storage.getItem(aiEnabledKey) as boolean;
+        // const aiEnabled = typeof aiEnabledRaw === 'string' ? JSON.parse(aiEnabledRaw) : aiEnabledRaw;
 
         settings.push(
             {
@@ -1017,7 +1030,7 @@ export const getRuleSettings = (props: {
                 subgroup,
                 immediate: true,
                 onPut: async (_, showMore) => {
-                    await onShowMore(showMore)
+                    await refreshSettings(showMore)
                 },
             },
         );
@@ -1188,13 +1201,14 @@ export const getRuleSettings = (props: {
 export const getDetectionRulesSettings = async (props: {
     storage: StorageSettings<any>,
     zones?: string[],
+    people?: string[],
     ruleSource: RuleSource,
     isCamera?: boolean,
     onRuleToggle?: OnRuleToggle,
-    onShowMore: OnShowMore,
+    refreshSettings: OnShowMore,
     logger: Console
 }) => {
-    const { storage, zones, isCamera, ruleSource, onRuleToggle, onShowMore, logger } = props;
+    const { storage, zones, isCamera, ruleSource, onRuleToggle, refreshSettings, logger, people } = props;
     const isPlugin = ruleSource === RuleSource.Plugin;
 
     const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup, showMore }) => {
@@ -1212,9 +1226,15 @@ export const getDetectionRulesSettings = async (props: {
             whitelistedZonesKey,
             devicesKey,
             detectionClassesKey,
+            peopleKey,
+            plateMaxDistanceKey,
+            platesKey,
+            labelScoreKey,
         } = detection;
 
         const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean ?? false;
+        const detectionClasses = safeParseJson<DetectionClass[]>(storage.getItem(detectionClassesKey), []);
+
         // const devicesRaw = storage.getItem(devicesKey) ?? [];
         // const devices = typeof devicesRaw === 'string' ? JSON.parse(storage.getItem(devicesKey) ?? '[]') : devicesRaw;
         const activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
@@ -1243,7 +1263,11 @@ export const getDetectionRulesSettings = async (props: {
                 multiple: true,
                 combobox: true,
                 choices: defaultDetectionClasses,
-                defaultValue: []
+                defaultValue: [],
+                immediate: true,
+                onPut: async () => {
+                    await refreshSettings(undefined)
+                },
             },
             {
                 key: scoreThresholdKey,
@@ -1257,6 +1281,60 @@ export const getDetectionRulesSettings = async (props: {
             },
         );
         // }
+
+        const hasFace = detectionClasses.includes(DetectionClass.Face);
+        const hasPlate = detectionClasses.includes(DetectionClass.Plate);
+
+        if (hasFace || hasPlate) {
+            settings.push({
+                key: labelScoreKey,
+                title: 'Minimum label score',
+                description: 'Leave blank to match any score',
+                group,
+                subgroup,
+            });
+        }
+
+        if (hasFace) {
+            settings.push({
+                key: peopleKey,
+                title: 'Whitelisted faces',
+                description: 'Leave blank to match faces',
+                group,
+                subgroup,
+                multiple: true,
+                combobox: true,
+                choices: people,
+                defaultValue: [],
+                immediate: true,
+            });
+        }
+
+        if (hasPlate) {
+            settings.push(
+                {
+                    key: platesKey,
+                    title: 'Whitelisted plates',
+                    description: 'Leave blank to match plate',
+                    group,
+                    subgroup,
+                    multiple: true,
+                    combobox: true,
+                    choices: [],
+                    defaultValue: [],
+                    immediate: true,
+                },
+                {
+                    key: plateMaxDistanceKey,
+                    title: 'Plate max distance',
+                    description: 'Define how many characters the plate can differ (Whitespaces will not considered)',
+                    group,
+                    subgroup,
+                    type: 'number',
+                    defaultValue: 2,
+                }
+            );
+        }
 
         if (useNvrDetections && isPlugin) {
             settings.push(
@@ -1381,7 +1459,7 @@ export const getDetectionRulesSettings = async (props: {
         ruleType: RuleType.Detection,
         storage,
         onRuleToggle,
-        onShowMore,
+        refreshSettings,
         logger,
     });
 }
@@ -1464,10 +1542,10 @@ export const getOccupancyRulesSettings = async (props: {
     zones?: string[],
     ruleSource: RuleSource,
     onRuleToggle: OnRuleToggle,
-    onShowMore: OnShowMore,
+    refreshSettings: OnShowMore,
     logger: Console
 }) => {
-    const { storage, zones, ruleSource, onRuleToggle, onShowMore, logger } = props;
+    const { storage, zones, ruleSource, onRuleToggle, refreshSettings, logger } = props;
 
     const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup, showMore }) => {
         const settings: StorageSetting[] = [];
@@ -1603,7 +1681,7 @@ export const getOccupancyRulesSettings = async (props: {
         ruleType: RuleType.Occupancy,
         storage,
         onRuleToggle,
-        onShowMore,
+        refreshSettings,
         logger
     });
 }
@@ -1614,10 +1692,10 @@ export const getTimelapseRulesSettings = async (props: {
     onGenerateTimelapse: (ruleName: string) => Promise<void>,
     onCleanDataTimelapse: (ruleName: string) => Promise<void>,
     onRuleToggle: OnRuleToggle,
-    onShowMore: OnShowMore,
+    refreshSettings: OnShowMore,
     logger: Console
 }) => {
-    const { storage, ruleSource, onCleanDataTimelapse, onGenerateTimelapse, onRuleToggle, onShowMore, logger } = props;
+    const { storage, ruleSource, onCleanDataTimelapse, onGenerateTimelapse, onRuleToggle, refreshSettings, logger } = props;
 
     const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup, showMore }) => {
         const settings: StorageSetting[] = [];
@@ -1736,7 +1814,7 @@ export const getTimelapseRulesSettings = async (props: {
         ruleType: RuleType.Timelapse,
         storage,
         onRuleToggle,
-        onShowMore,
+        refreshSettings,
         logger
     });
 }
@@ -1745,10 +1823,10 @@ export const getAudioRulesSettings = async (props: {
     storage: StorageSettings<any>,
     ruleSource: RuleSource,
     onRuleToggle: OnRuleToggle,
-    onShowMore: OnShowMore,
+    refreshSettings: OnShowMore,
     logger: Console
 }) => {
-    const { storage, ruleSource, onRuleToggle, onShowMore, logger } = props;
+    const { storage, ruleSource, onRuleToggle, refreshSettings, logger } = props;
 
     const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup }) => {
         const settings: StorageSetting[] = [];
@@ -1806,7 +1884,7 @@ export const getAudioRulesSettings = async (props: {
         ruleType: RuleType.Audio,
         storage,
         onRuleToggle,
-        onShowMore,
+        refreshSettings,
         logger
     });
 }
@@ -1847,8 +1925,12 @@ export interface DetectionRule extends BaseRule {
     detectionClasses?: DetectionClass[];
     nvrEvents?: NvrEvent[];
     scoreThreshold?: number;
+    labelScoreThreshold?: number;
     whitelistedZones?: string[];
     blacklistedZones?: string[];
+    people?: string[];
+    plates?: string[];
+    plateMaxDistance?: number;
     disableNvrRecordingSeconds?: number;
 }
 
@@ -2046,7 +2128,11 @@ export const getDetectionRules = (props: {
                     blacklistedZonesKey,
                     devicesKey,
                     nvrEventsKey,
-                    recordingTriggerSecondsKey
+                    recordingTriggerSecondsKey,
+                    peopleKey,
+                    plateMaxDistanceKey,
+                    platesKey,
+                    labelScoreKey,
                 } } = getRuleKeys({
                     ruleType: RuleType.Detection,
                     ruleName: detectionRuleName,
@@ -2094,6 +2180,22 @@ export const getDetectionRules = (props: {
             if (!isPlugin) {
                 detectionRule.whitelistedZones = storage.getItem(whitelistedZonesKey) as string[] ?? [];
                 detectionRule.blacklistedZones = storage.getItem(blacklistedZonesKey) as string[] ?? [];
+            }
+
+            const hasFace = detectionClasses.includes(DetectionClass.Face);
+            const hasPlate = detectionClasses.includes(DetectionClass.Plate);
+
+            if (hasFace || hasPlate) {
+                detectionRule.labelScoreThreshold = storage.getItem(labelScoreKey) as number ?? 0;
+            }
+
+            if (hasFace) {
+                detectionRule.people = storage.getItem(peopleKey) as string[] ?? [];
+            }
+
+            if (hasPlate) {
+                detectionRule.plates = storage.getItem(platesKey) as string[] ?? [];
+                detectionRule.plateMaxDistance = storage.getItem(plateMaxDistanceKey) as number ?? 0;
             }
 
             let isSensorEnabled = true;

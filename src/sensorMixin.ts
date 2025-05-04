@@ -155,7 +155,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             isCamera: false,
             ruleSource: RuleSource.Device,
             logger,
-            onShowMore: this.refreshSettings.bind(this),
+            refreshSettings: this.refreshSettings.bind(this),
         });
         dynamicSettings.push(...detectionRulesSettings);
 

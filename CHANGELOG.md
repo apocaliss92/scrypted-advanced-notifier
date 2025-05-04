@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.4.11
+
+- Add labels (people and plates) filtering for detection rules
+
 ### 3.4.9
 
 - Add audio detection and decoder snapshots entities to MQTT
