@@ -1606,7 +1606,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             snoozeUrls.forEach(({ text, url }) => {
                 haActionsToNotify.push({
                     title: text,
-                    action: 'call_webhook',
                     uri: url,
                 })
             });
@@ -1626,7 +1625,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 url: videoUrl ?? haUrl,
                 clickAction: videoUrl ?? haUrl,
                 video: !skipVideoAttach ? videoUrl : undefined,
-                actions: !ignoreActions ? [...haActionsToNotify, ...snoozeActions] : undefined
+                actions: !ignoreActions ? haActionsToNotify : undefined
             }
         } else if (notifier.pluginId === NVR_PLUGIN_ID) {
             // TODO ADD NVR DATA

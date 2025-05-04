@@ -338,6 +338,7 @@ export type TextSettingKey =
     | 'plateDetectedText'
     | 'animalDetectedText'
     | 'vehicleDetectedText'
+    | 'audioDetectedText'
     | 'doorWindowText'
     | 'doorbellText'
     | 'packageText'
@@ -408,6 +409,14 @@ export const getTextSettings = (forMixin: boolean) => {
             description: 'Expression used to render the text when a vehicle is detected. Available arguments ${room} ${time} ${nvrLink}',
             defaultValue: !forMixin ? 'Vehicle detected in ${room}' : undefined,
             placeholder: !forMixin ? 'Vehicle detected in ${room}' : undefined
+        },
+        audioDetectedText: {
+            [groupKey]: 'Texts',
+            title: 'Audio detected text',
+            type: 'string',
+            description: 'Expression used to render the text when audio is detected. Available arguments ${room} ${audioType} ${time} ${nvrLink}',
+            defaultValue: !forMixin ? '${audioType} detected in ${room}' : undefined,
+            placeholder: !forMixin ? '${audioType} detected in ${room}' : undefined
         },
         doorbellText: {
             [groupKey]: 'Texts',
@@ -757,6 +766,7 @@ const textKeyClassnameMap: Partial<Record<DetectionClass, TextSettingKey>> = {
     [DetectionClass.Package]: 'packageText',
     [DetectionClass.DoorLock]: 'doorlockText',
     [DetectionClass.DoorSensor]: 'doorWindowText',
+    [DetectionClass.Audio]: 'audioDetectedText',
 }
 
 export const getTextKey = (props: { classname?: string, eventType: EventType }) => {
