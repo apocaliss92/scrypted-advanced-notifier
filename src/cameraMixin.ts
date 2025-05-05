@@ -717,7 +717,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const { lastSnapshotCloudUrl, lastSnapshotLocalUrl } = await getWebHookUrls({
                     cameraIdOrAction: this.id,
                     console: logger,
-                    device: this.cameraDevice
+                    device: this.cameraDevice,
                 });
 
                 await this.storageSettings.putSetting('lastSnapshotWebhookCloudUrl', lastSnapshotCloudUrl);

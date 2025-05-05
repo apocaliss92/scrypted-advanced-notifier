@@ -107,8 +107,9 @@ export const getWebHookUrls = async (props: {
     timelapseName?: string,
     snoozes?: number[],
     snoozeId?: string,
+    snoozePlaceholder?: string,
 }) => {
-    const { cameraIdOrAction, console, rule, device, timelapseName, snoozes, snoozeId } = props;
+    const { cameraIdOrAction, console, rule, device, timelapseName, snoozes, snoozeId, snoozePlaceholder } = props;
     let lastSnapshotCloudUrl: string;
     let lastSnapshotLocalUrl: string;
     let haActionUrl: string;
@@ -143,10 +144,11 @@ export const getWebHookUrls = async (props: {
 
         if (snoozes) {
             for (const snooze of snoozes) {
+                const text = snoozePlaceholder?.replaceAll('${snoozeTime}', String(snooze));
+
                 snoozeUrls.push({
                     url: `${cloudEndpoint}${snoozeNotification}/${encodedId}/${snoozeId}/${snooze}${paramString}`,
-                    // TODO: Translate this
-                    text: `Snooze: ${snooze} minutes`,
+                    text,
                     snooze,
                 })
             }
@@ -163,12 +165,12 @@ export const getWebHookUrls = async (props: {
         timelapseDownloadUrl,
         timelapseThumbnailUrl,
         snoozeUrls
-    }
+    };
 }
 
 export interface ParseNotificationMessageResult {
     triggerDevice: DeviceInterface,
-    textKey: TextSettingKey,
+    detectionClass: DetectionClass,
     detection: ObjectDetectionResult,
     allDetections: ObjectDetectionResult[],
     eventType: EventType | NvrEvent,
@@ -179,51 +181,50 @@ export interface ParseNotificationMessageResult {
 export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface, deviceSensors: string[], options?: NotifierOptions, console?: Console): Promise<ParseNotificationMessageResult> => {
     try {
         let triggerDevice: DeviceInterface = cameraDevice;
-        let textKey: TextSettingKey;
         let detection: ObjectDetectionResult
         let label: string;
+        let detectionClass: DetectionClass;
         const subtitle = options?.subtitle;
 
         let eventType: EventType | NvrEvent;
         let allDetections: ObjectDetectionResult[] = options?.recordedEvent?.data?.detections ?? [];
 
         if (subtitle === 'Offline') {
-            textKey = 'offlineText';
             eventType = NvrEvent.Offline;
         } else if (subtitle === 'Online') {
-            textKey = 'onlineText';
             eventType = NvrEvent.Online;
         } else if (subtitle === 'Recording Interrupted') {
-            textKey = 'streamInterruptedText';
             eventType = NvrEvent.RecordingInterrupted;
             const regex = new RegExp('The (.*) has been offline for an extended period.');
             label = regex.exec(options.body)[1];
-            console.log(`Recording Interrupted received: ${JSON.stringify({ options, label, eventType, textKey })}`);
+            detection = {
+                label,
+            } as ObjectDetectionResult;
         } else {
             if (subtitle.includes('Maybe: Vehicle')) {
-                textKey = 'plateDetectedText';
+                detectionClass = DetectionClass.Plate;
                 detection = allDetections.find(det => det.className === 'plate');
                 eventType = EventType.ObjectDetection;
                 label = detection.label;
             } else if (subtitle.includes('Person')) {
-                textKey = 'personDetectedText';
+                detectionClass = DetectionClass.Person;
                 detection = allDetections.find(det => det.className === 'person');
                 eventType = EventType.ObjectDetection;
             } else if (subtitle.includes('Vehicle')) {
+                detectionClass = DetectionClass.Vehicle;
                 detection = allDetections.find(det => det.className === 'vehicle');
                 eventType = EventType.ObjectDetection;
-                textKey = 'vehicleDetectedText';
             } else if (subtitle.includes('Animal')) {
+                detectionClass = DetectionClass.Animal;
                 detection = allDetections.find(det => det.className === 'animal');
                 eventType = EventType.ObjectDetection;
-                textKey = 'animalDetectedText';
             } else if (subtitle.includes('Maybe: ')) {
-                textKey = 'familiarDetectedText';
+                detectionClass = DetectionClass.Face;
                 detection = allDetections.find(det => det.className === 'face');
                 eventType = EventType.ObjectDetection;
                 label = detection.label;
             } else if (subtitle.includes('Motion')) {
-                textKey = 'motionDetectedText';
+                detectionClass = DetectionClass.Motion;
                 detection = allDetections.find(det => det.className === 'motion');
 
                 if (!allDetections.length) {
@@ -237,16 +238,12 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
                 }
                 eventType = EventType.ObjectDetection;
             } else if (subtitle.includes('Door/Window Open')) {
-                textKey = 'doorWindowText';
                 eventType = EventType.Contact;
             } else if (subtitle.includes('Doorbell Ringing')) {
-                textKey = 'doorbellText';
                 eventType = EventType.Doorbell;
             } else if (subtitle.includes('Door Unlocked')) {
-                textKey = 'doorlockText';
                 eventType = EventType.Doorlock;
             } else if (subtitle.includes('Package Detected')) {
-                textKey = 'packageText';
                 eventType = EventType.Package;
                 detection = allDetections.find(det => det.className === 'package');
                 console.log(`Package detection received: ${JSON.stringify(options)}`);
@@ -284,7 +281,7 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
 
         return {
             triggerDevice,
-            textKey,
+            detectionClass,
             detection,
             allDetections,
             eventType,
@@ -337,22 +334,21 @@ export const filterAndSortValidDetections = (props: {
 
 export type TextSettingKey =
     | 'detectionTimeText'
-    | 'motionDetectedText'
-    | 'personDetectedText'
-    | 'familiarDetectedText'
-    | 'plateDetectedText'
-    | 'animalDetectedText'
-    | 'vehicleDetectedText'
-    | 'audioDetectedText'
+    | 'objectDetectionText'
     | 'doorWindowText'
     | 'doorbellText'
     | 'packageText'
+    | 'plateText'
+    | 'familiarText'
+    | 'audioText'
+    | 'motionText'
     | 'personText'
     | 'vehicleText'
     | 'animalText'
     | 'onlineText'
     | 'doorlockText'
     | 'offlineText'
+    | 'snoozeText'
     | 'streamInterruptedText';
 
 export const getTextSettings = (forMixin: boolean) => {
@@ -367,61 +363,13 @@ export const getTextSettings = (forMixin: boolean) => {
             defaultValue: !forMixin ? 'new Date(${time}).toLocaleString()' : undefined,
             placeholder: !forMixin ? 'new Date(${time}).toLocaleString()' : undefined
         },
-        motionDetectedText: {
+        objectDetectionText: {
             [groupKey]: 'Texts',
-            title: 'Motion',
+            title: 'Object detection',
             type: 'string',
-            description: 'Expression used to render the text when a motion is detected. Available arguments ${room} ${time} ${nvrLink}',
-            defaultValue: !forMixin ? 'Motion detected in ${room}' : undefined,
-            placeholder: !forMixin ? 'Motion detected in ${room}' : undefined
-        },
-        personDetectedText: {
-            [groupKey]: 'Texts',
-            title: 'Person detected text',
-            type: 'string',
-            description: 'Expression used to render the text when a person is detected. Available arguments ${room} ${time} ${nvrLink}',
-            defaultValue: !forMixin ? 'Person detected in ${room}' : undefined,
-            placeholder: !forMixin ? 'Person detected in ${room}' : undefined
-        },
-        familiarDetectedText: {
-            [groupKey]: 'Texts',
-            title: 'Familiar detected text',
-            type: 'string',
-            description: 'Expression used to render the text when a familiar is detected. Available arguments ${room} ${time} ${person} ${nvrLink}',
-            defaultValue: !forMixin ? '${person} detected in ${room}' : undefined,
-            placeholder: !forMixin ? '${person} detected in ${room}' : undefined
-        },
-        plateDetectedText: {
-            [groupKey]: 'Texts',
-            title: 'Plate detected text',
-            type: 'string',
-            description: 'Expression used to render the text when a plate is detected. Available arguments ${room} ${time} ${plate} ${nvrLink}',
-            defaultValue: !forMixin ? '${plate} detected in ${room}' : undefined,
-            placeholder: !forMixin ? '${plate} detected in ${room}' : undefined
-        },
-        animalDetectedText: {
-            [groupKey]: 'Texts',
-            title: 'Animal detected text',
-            type: 'string',
-            description: 'Expression used to render the text when an animal is detected. Available arguments ${room} ${time} ${nvrLink}',
-            defaultValue: !forMixin ? 'Animal detected in ${room}' : undefined,
-            placeholder: !forMixin ? 'Animal detected in ${room}' : undefined
-        },
-        vehicleDetectedText: {
-            [groupKey]: 'Texts',
-            title: 'Vehicle detected text',
-            type: 'string',
-            description: 'Expression used to render the text when a vehicle is detected. Available arguments ${room} ${time} ${nvrLink}',
-            defaultValue: !forMixin ? 'Vehicle detected in ${room}' : undefined,
-            placeholder: !forMixin ? 'Vehicle detected in ${room}' : undefined
-        },
-        audioDetectedText: {
-            [groupKey]: 'Texts',
-            title: 'Audio detected text',
-            type: 'string',
-            description: 'Expression used to render the text when audio is detected. Available arguments ${room} ${audioType} ${time} ${nvrLink}',
-            defaultValue: !forMixin ? '${audioType} detected in ${room}' : undefined,
-            placeholder: !forMixin ? '${audioType} detected in ${room}' : undefined
+            description: 'Expression used to render the text when an object detection happens. Available arguments ${classnameText} ${room} ${time} ${nvrLink}',
+            defaultValue: !forMixin ? '${classnameText} detected in ${room}' : undefined,
+            placeholder: !forMixin ? '${classnameText} detected in ${room}' : undefined
         },
         doorbellText: {
             [groupKey]: 'Texts',
@@ -479,6 +427,23 @@ export const getTextSettings = (forMixin: boolean) => {
             defaultValue: !forMixin ? 'Stream ${streamName} interrupted at ${time}' : undefined,
             placeholder: !forMixin ? 'Stream ${streamName} interrupted at ${time}' : undefined,
         },
+        snoozeText: {
+            [groupKey]: 'Texts',
+            title: 'Snooze text',
+            type: 'string',
+            description: 'Expression used to render the snooze texts. Available arguments ${snoozeTime}',
+            defaultValue: !forMixin ? 'Snooze: ${snoozeTime} minutes' : undefined,
+            placeholder: !forMixin ? 'Snooze: ${snoozeTime} minutes' : undefined,
+        },
+        motionText: {
+            group: 'Texts',
+            subgroup: 'Detection classes',
+            title: 'Motion text',
+            type: 'string',
+            defaultValue: 'Motion',
+            placeholder: 'Motion',
+            hide: forMixin
+        },
         personText: {
             group: 'Texts',
             subgroup: 'Detection classes',
@@ -493,8 +458,8 @@ export const getTextSettings = (forMixin: boolean) => {
             subgroup: 'Detection classes',
             title: 'Animal text',
             type: 'string',
-            defaultValue: 'Animal',
-            placeholder: 'Animal',
+            defaultValue: !forMixin ? 'Animal' : undefined,
+            placeholder: !forMixin ? 'Animal' : undefined,
             hide: forMixin
         },
         vehicleText: {
@@ -502,8 +467,37 @@ export const getTextSettings = (forMixin: boolean) => {
             subgroup: 'Detection classes',
             title: 'Vehicle text',
             type: 'string',
-            defaultValue: 'Vehicle',
-            placeholder: 'Vehicle',
+            defaultValue: !forMixin ? 'Vehicle' : undefined,
+            placeholder: !forMixin ? 'Vehicle' : undefined,
+            hide: forMixin
+        },
+        audioText: {
+            group: 'Texts',
+            subgroup: 'Detection classes',
+            title: 'Audio text',
+            type: 'string',
+            defaultValue: !forMixin ? 'Audio ${label}' : undefined,
+            placeholder: !forMixin ? 'Audio ${label}' : undefined,
+            hide: forMixin
+        },
+        familiarText: {
+            group: 'Texts',
+            subgroup: 'Detection classes',
+            title: 'Familiar text',
+            description: '${label} available',
+            type: 'string',
+            defaultValue: !forMixin ? 'Familiar ${label}' : undefined,
+            placeholder: !forMixin ? 'Familiar ${label}' : undefined,
+            hide: forMixin
+        },
+        plateText: {
+            group: 'Texts',
+            subgroup: 'Detection classes',
+            title: 'Plate text',
+            description: '${label} available',
+            type: 'string',
+            defaultValue: !forMixin ? 'Plate ${label}' : undefined,
+            placeholder: !forMixin ? 'Plate ${label}' : undefined,
             hide: forMixin
         }
     }
@@ -761,25 +755,21 @@ export const getActiveRules = async (
     }
 }
 
-const textKeyClassnameMap: Partial<Record<DetectionClass, TextSettingKey>> = {
-    [DetectionClass.Person]: 'personDetectedText',
-    [DetectionClass.Face]: 'familiarDetectedText',
-    [DetectionClass.Plate]: 'plateDetectedText',
-    [DetectionClass.Vehicle]: 'vehicleDetectedText',
-    [DetectionClass.Animal]: 'animalDetectedText',
-    [DetectionClass.Motion]: 'motionDetectedText',
-    [DetectionClass.Package]: 'packageText',
-    [DetectionClass.DoorLock]: 'doorlockText',
-    [DetectionClass.DoorSensor]: 'doorWindowText',
-    [DetectionClass.Audio]: 'audioDetectedText',
-}
-
-export const getTextKey = (props: { classname?: string, eventType: EventType }) => {
-    const { classname, eventType } = props;
+export const getTextKey = (props: { eventType: EventType | NvrEvent }) => {
+    const { eventType } = props;
 
     let key: TextSettingKey;
 
     switch (eventType) {
+        case NvrEvent.RecordingInterrupted:
+            key = 'streamInterruptedText';
+            break;
+        case NvrEvent.Online:
+            key = 'onlineText';
+            break;
+        case NvrEvent.Offline:
+            key = 'offlineText';
+            break;
         case EventType.Contact:
             key = 'doorWindowText';
             break;
@@ -790,8 +780,40 @@ export const getTextKey = (props: { classname?: string, eventType: EventType }) 
             key = 'doorlockText';
             break;
         case EventType.ObjectDetection: {
-            key = textKeyClassnameMap[detectionClassesDefaultMap[classname]];
+            key = 'objectDetectionText';
         }
+    }
+
+    return key;
+}
+
+export const getObjectDetectionTextKey = (props: { detectionClass: DetectionClass }) => {
+    const { detectionClass } = props;
+
+    let key: TextSettingKey;
+
+    switch (detectionClass) {
+        case DetectionClass.Animal:
+            key = 'animalText';
+            break;
+        case DetectionClass.Person:
+            key = 'personText';
+            break;
+        case DetectionClass.Vehicle:
+            key = 'vehicleText';
+            break;
+        case DetectionClass.Motion:
+            key = 'motionText';
+            break;
+        case DetectionClass.Face:
+            key = 'familiarText';
+            break;
+        case DetectionClass.Audio:
+            key = 'audioText';
+            break;
+        case DetectionClass.Plate:
+            key = 'plateText';
+            break;
     }
 
     return key;
@@ -1118,7 +1140,7 @@ export const getRuleSettings = (props: {
                 title: isDetectionRule ? 'Custom text' : 'Notification text',
                 description: isAudioRule ?
                     'Available arguments ${duration} ${decibels}' :
-                    'Available arguments ${room} ${time} ${nvrLink} ${zone} ${class} ${label}',
+                    'Available arguments ${room} ${time} ${nvrLink} ${zone} ${classname} ${label}',
                 group,
                 subgroup,
                 type: 'string',

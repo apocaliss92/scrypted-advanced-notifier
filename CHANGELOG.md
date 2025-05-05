@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.4.12
+
+- Texts building reworked. There is now only one object detection label and several object types to make it better scalable in future. Check Texts section 
+
 ### 3.4.11
 
 - Add labels (people and plates) filtering for detection rules
