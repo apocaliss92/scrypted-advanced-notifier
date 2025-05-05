@@ -899,7 +899,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     nvrRpcObjects > (MAX_RPC_OBJECTS_PER_CAMERA * activeDevices)
                 ) {
                     logger.error(`NVR plugin seems stuck, ${nvrPendingResults} pending results and ${nvrRpcObjects} RPC objects. Restarting`);
-                    await restartPlugin(NVR_PLUGIN_ID);
+                    await sdk.deviceManager.requestRestart();
                 }
             }
         } catch (e) {
