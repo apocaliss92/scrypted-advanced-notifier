@@ -317,6 +317,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         if (major === 3 && minor >= 12 && !this.storageSettings.values.texts3412) {
             logger.log('Texts building has been reworked. Check Texts section to fill any missing');
+            this.storageSettings.values.texts3412 = true;
         }
 
         (async () => {
@@ -1599,12 +1600,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         return textToUse.toString()
             .replace('${time}', time)
+            .replace('${classnameText}', detectionObjectText ?? '')
             .replace('${nvrLink}', externalUrl ?? '')
             .replace('${person}', label ?? '')
             .replace('${plate}', label ?? '')
             .replace('${streamName}', label ?? '')
             .replace('${label}', label ?? '')
-            .replace('${classnameText}', detectionObjectText ?? '')
             .replace('${zone}', zone ?? '')
             .replace('${room}', roomName ?? '');
     }

@@ -1502,7 +1502,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     const isConfirmationTimePassed = elpasedTimeMs >= (1000 * changeStateConfirm);
                     const isStateConfirmed = occupancyRuleData.occupies === currentState.occupancyToConfirm;
 
-                    // If confirmation time is not done but value is changed, discard new state
                     if (!isConfirmationTimePassed) {
                         if (isStateConfirmed) {
                             // Do nothing and wait for next iteration
