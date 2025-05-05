@@ -1557,7 +1557,7 @@ export const getAiSettings = (props: {
     return settings;
 }
 
-export const nvrAcceleratedMotionSensorId = sdk.systemManager.getDeviceById('@scrypted/nvr', 'motion')?.id;
+export const nvrAcceleratedMotionSensorId = sdk.systemManager.getDeviceById(NVR_PLUGIN_ID, 'motion')?.id;
 
 export const getOccupancyRulesSettings = async (props: {
     storage: StorageSettings<any>,

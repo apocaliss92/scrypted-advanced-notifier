@@ -7,7 +7,7 @@ import fs from 'fs';
 import { cloneDeep, isEqual, sortBy } from 'lodash';
 import path from 'path';
 import { BasePlugin, getBaseSettings, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
-import { getRpcData } from '../../scrypted-monitor/src/utils';
+import { getRpcData, restartPlugin } from '../../scrypted-monitor/src/utils';
 import { name as pluginName, version } from '../package.json';
 import { AiPlatform, getAiMessage } from "./aiUtils";
 import { AdvancedNotifierCamera } from "./camera";
@@ -879,17 +879,28 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 const { pendingResults, rpcObjects } = await getRpcData();
                 const pluginPendingResults = pendingResults.find(elem => elem.name === pluginName)?.count;
                 const pluginRpcObjects = rpcObjects.find(elem => elem.name === pluginName)?.count;
-                logger.info(`PLUGIN-STUCK-CHECK: active devices ${activeDevices}, pending resutls ${pluginPendingResults} RPC objects ${pluginRpcObjects}`);
+
+                logger.info(`PLUGIN-STUCK-CHECK: active devices ${activeDevices}, pending results ${pluginPendingResults} RPC objects ${pluginRpcObjects}`);
 
                 if (
                     pluginPendingResults > (MAX_PENDING_RESULT_PER_CAMERA * activeDevices) ||
                     pluginRpcObjects > (MAX_RPC_OBJECTS_PER_CAMERA * activeDevices)
                 ) {
-                    logger.error(`Plugin seems stuck, ${pluginPendingResults} pending results and ${pluginRpcObjects} RPC objects. Restarting`);
+                    logger.error(`Advanced notifier plugin seems stuck, ${pluginPendingResults} pending results and ${pluginRpcObjects} RPC objects. Restarting`);
                     await sdk.deviceManager.requestRestart();
                 }
 
-                logger.info('RPC data', pluginPendingResults, pluginRpcObjects);
+                const nvrPendingResults = pendingResults.find(elem => elem.name === NVR_PLUGIN_ID)?.count;
+                const nvrRpcObjects = rpcObjects.find(elem => elem.name === NVR_PLUGIN_ID)?.count;
+                logger.info(`NVR-STUCK-CHECK: active devices ${activeDevices}, pending results ${nvrPendingResults} RPC objects ${nvrRpcObjects}`);
+
+                if (
+                    nvrPendingResults > (MAX_PENDING_RESULT_PER_CAMERA * activeDevices) ||
+                    nvrRpcObjects > (MAX_RPC_OBJECTS_PER_CAMERA * activeDevices)
+                ) {
+                    logger.error(`NVR plugin seems stuck, ${nvrPendingResults} pending results and ${nvrRpcObjects} RPC objects. Restarting`);
+                    await restartPlugin(NVR_PLUGIN_ID);
+                }
             }
         } catch (e) {
             logger.log('Error in mainFlow', e);
