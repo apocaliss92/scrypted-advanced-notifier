@@ -2815,7 +2815,7 @@ export const isDeviceSupported = (device: DeviceBase) => {
     const isDoorbell = type === ScryptedDeviceType.Doorbell;
 
     const isSensor = isLock || isBinarySensor || isFloodSensor || isEntrySensor;
-    const isSupported = isCamera || isSensor || isNotifier;
+    const isSupported = isCamera || isDoorbell || isSensor || isNotifier;
 
     const sensorType: SupportedSensorType = isLock ? SupportedSensorType.Lock :
         isBinarySensor ? SupportedSensorType.Binary :

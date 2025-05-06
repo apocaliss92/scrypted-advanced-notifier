@@ -1885,17 +1885,19 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         try {
             if (testDevice && testEventType && testNotifier) {
+                const { isDoorbell } = await this.getLinkedCamera(testDevice.id);
                 const currentTime = new Date().getTime();
                 const testNotifierId = testNotifier.id
                 const { sensorType } = isDeviceSupported(testDevice);
+                const eventType = isDoorbell ? EventType.Doorbell : (sensorType ?? testEventType);
 
-                logger.log(`Sending ${testEventType} test notification to ${testNotifier.name} - ${testDevice.name}, ${testObjectType}`);
+                logger.log(`Sending ${eventType} test notification to ${testNotifier.name} - ${testDevice.name}, ${testObjectType}`);
 
                 this.notifyCamera({
                     triggerDevice: testDevice,
                     notifierId: testNotifierId,
                     time: currentTime,
-                    eventType: sensorType ?? testEventType,
+                    eventType,
                     detection: { label: 'TestLabelFound', className: testObjectType } as ObjectDetectionResult,
                     source: NotificationSource.TEST,
                     logger,
