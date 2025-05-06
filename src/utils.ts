@@ -816,6 +816,9 @@ export const getObjectDetectionTextKey = (props: { detectionClass: DetectionClas
         case DetectionClass.Plate:
             key = 'plateText';
             break;
+        case DetectionClass.Package:
+            key = 'packageText';
+            break;
     }
 
     return key;
