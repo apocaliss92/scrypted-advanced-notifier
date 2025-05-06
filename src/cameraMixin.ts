@@ -626,32 +626,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 this.lastFrame = await frame.image.toBuffer({
                     format: 'jpg',
+                    resize: {
+                        width: SNAPSHOT_WIDTH,
+                    }
                 });
                 this.lastFrameAcquired = now;
 
-                await sleep(200);
+                // await sleep(200);
             }
-
-            // for await (const frame of generator) {
-            //     try {
-            //         if (this.framesGeneratorSignal.finished) {
-            //             logger.log('Release decoder');
-            //             break;
-            //         }
-
-            //         const now = Date.now();
-
-            //         this.lastFrame = await frame.image.toBuffer({
-            //             format: 'jpg',
-            //         });
-            //         this.lastFrameAcquired = now;
-
-            //         await sleep(200);
-            //     } catch (e) {
-            //         logger.log(`Error acquiring a frame from generator`, e.message);
-            //         this.lastFrame = undefined;
-            //     }
-            // }
         } else {
             logger.info('Streams generator not yet released');
         }
@@ -1067,13 +1049,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     public async getImage(props?: {
         preferLatest?: boolean,
-        preferSnapshot?: boolean,
         fallbackToLatest?: boolean,
         detectionId?: string,
         eventId?: string,
         image?: MediaObject
     }) {
-        const { preferLatest, fallbackToLatest, detectionId, eventId, image: imageParent, preferSnapshot } = props ?? {};
+        const { preferLatest, fallbackToLatest, detectionId, eventId, image: imageParent } = props ?? {};
         const logger = this.getLogger();
         const now = Date.now();
         const { minSnapshotDelay, useFramesGenerator } = this.storageSettings.values;
@@ -1091,7 +1072,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const findFromSnapshot = async () => {
             const timePassed = !this.lastPictureTaken || msPassed >= 1000 * minSnapshotDelay;
 
-            if (timePassed || preferSnapshot) {
+            if (timePassed) {
                 try {
                     this.lastPictureTaken = now;
                     this.lastImage = undefined;
@@ -1114,15 +1095,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         try {
             if (!image) {
-                const isLastFrameRecent = !this.lastFrameAcquired || (now - this.lastFrameAcquired) <= 500;
+                const isLastFrameRecent = !this.lastFrameAcquired || (now - this.lastFrameAcquired) <= 200;
                 if (useFramesGenerator && this.lastFrame && isLastFrameRecent) {
                     const tmp = await sdk.mediaManager.createMediaObject(this.lastFrame, 'image/jpeg');
                     const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(tmp, ScryptedMimeTypes.Image);
                     image = await convertedImage.toImage({
                         format: 'jpg',
-                        resize: {
-                            width: SNAPSHOT_WIDTH,
-                        },
+                        // resize: {
+                        // width: SNAPSHOT_WIDTH,
+                        // },
                     });
                     imageSource = 'Decoder';
                     logger.info(`Image taken from decoder`);
@@ -1912,7 +1893,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     });
                     const { rule, match } = matchRule;
 
-                    logger.info(`Publishing accumulated detection rule ${rule.name} data, b64Image ${b64Image?.substring(0, 10)} skipMqttImage ${!timePassedForImageUpdate}`);
+                    logger.info(`Publishing accumulated detection rule ${rule.name} data, b64Image ${b64Image?.substring(0, 10)} from ${imageSource} skipMqttImage ${!timePassedForImageUpdate}`);
 
                     this.triggerRule({
                         matchRule,
@@ -1926,7 +1907,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                     if (timePassedForNotification) {
                         const detectionKey = this.getDetectionIdentifier(matchRule);
-                        logger.log(`Starting notifiers for detection rule ${rule.name}, b64Image ${b64Image?.substring(0, 10)}`);
+                        logger.log(`Starting notifiers for detection rule ${rule.name}, b64Image ${b64Image?.substring(0, 10)} from ${imageSource}`);
 
                         this.plugin.matchDetectionFound({
                             triggerDeviceId: this.id,
@@ -2513,8 +2494,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const use = pipelines.find(p => p.name === frameGenerator) || webassembly || gstreamer || libav || ffmpeg;
         return use.id;
     }
-    
+
     async createFrameGenerator(options?: VideoFrameGeneratorOptions): Promise<AsyncGenerator<VideoFrame, any, unknown>> {
+        // const destination: MediaStreamDestination = 'remote-recorder';
         const destination: MediaStreamDestination = 'local-recorder';
         const model = await this.getDetectionModel();
         const stream = await this.cameraDevice.getVideoStream({
