@@ -897,19 +897,19 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         await sdk.deviceManager.requestRestart();
                     }
 
-                    if (!this.restartRequested) {
-                        const nvrPendingResults = pendingResults.find(elem => elem.name === NVR_PLUGIN_ID)?.count;
-                        const nvrRpcObjects = rpcObjects.find(elem => elem.name === NVR_PLUGIN_ID)?.count;
-                        logger.info(`NVR-STUCK-CHECK: active devices ${activeDevices}, pending results ${nvrPendingResults} RPC objects ${nvrRpcObjects}`);
+                    // if (!this.restartRequested) {
+                    //     const nvrPendingResults = pendingResults.find(elem => elem.name === NVR_PLUGIN_ID)?.count;
+                    //     const nvrRpcObjects = rpcObjects.find(elem => elem.name === NVR_PLUGIN_ID)?.count;
+                    //     logger.info(`NVR-STUCK-CHECK: active devices ${activeDevices}, pending results ${nvrPendingResults} RPC objects ${nvrRpcObjects}`);
 
-                        if (
-                            nvrPendingResults > (MAX_PENDING_RESULT_PER_CAMERA * activeDevices) ||
-                            nvrRpcObjects > (MAX_RPC_OBJECTS_PER_CAMERA * activeDevices)
-                        ) {
-                            logger.error(`NVR plugin seems stuck, ${nvrPendingResults} pending results and ${nvrRpcObjects} RPC objects. Restarting`);
-                            await sdk.deviceManager.requestRestart();
-                        }
-                    }
+                    //     if (
+                    //         nvrPendingResults > (MAX_PENDING_RESULT_PER_CAMERA * activeDevices) ||
+                    //         nvrRpcObjects > (MAX_RPC_OBJECTS_PER_CAMERA * activeDevices)
+                    //     ) {
+                    //         logger.error(`NVR plugin seems stuck, ${nvrPendingResults} pending results and ${nvrRpcObjects} RPC objects. Restarting`);
+                    //         await sdk.deviceManager.requestRestart();
+                    //     }
+                    // }
                 }
             }
         } catch (e) {
