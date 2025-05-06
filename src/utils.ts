@@ -42,20 +42,14 @@ export const getElegibleDevices = () => {
     const allDevices = Object.keys(sdk.systemManager.getSystemState()).map(deviceId => sdk.systemManager.getDeviceById(deviceId) as unknown as DeviceInterface);
 
     return allDevices.filter(device => {
-        return eval(
-            `(function() { var interfaces = ${JSON.stringify(
-                device.interfaces
-            )}; var type='${device.type}'; var id = '${device.id}'; return ${deviceFilter} })`
-        )()
+        const { isSupported, isNotifier } = isDeviceSupported(device);
+        return isSupported && !isNotifier && device.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE);
     })
 }
 
 export enum EventType {
     ObjectDetection = 'ObjectDetection',
-    Package = 'Package',
     Doorbell = 'Doorbell',
-    Contact = 'Contact',
-    Doorlock = 'Doorlock',
 }
 
 export const getDefaultEntityId = (name: string) => {
@@ -175,7 +169,7 @@ export interface ParseNotificationMessageResult {
     detectionClass: DetectionClass,
     detection: ObjectDetectionResult,
     allDetections: ObjectDetectionResult[],
-    eventType: EventType | NvrEvent,
+    eventType: DetectionEvent,
     classname: DetectionClass,
     label: string,
 }
@@ -188,7 +182,7 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
         let detectionClass: DetectionClass;
         const subtitle = options?.subtitle;
 
-        let eventType: EventType | NvrEvent;
+        let eventType: DetectionEvent;
         let allDetections: ObjectDetectionResult[] = options?.recordedEvent?.data?.detections ?? [];
 
         if (subtitle === 'Offline') {
@@ -240,24 +234,23 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
                 }
                 eventType = EventType.ObjectDetection;
             } else if (subtitle.includes('Door/Window Open')) {
-                eventType = EventType.Contact;
+                eventType = SupportedSensorType.Binary;
             } else if (subtitle.includes('Doorbell Ringing')) {
                 eventType = EventType.Doorbell;
             } else if (subtitle.includes('Door Unlocked')) {
-                eventType = EventType.Doorlock;
+                eventType = SupportedSensorType.Lock;
             } else if (subtitle.includes('Package Detected')) {
-                eventType = EventType.Package;
+                eventType = EventType.ObjectDetection;
                 detection = allDetections.find(det => det.className === 'package');
-                console.log(`Package detection received: ${JSON.stringify(options)}`);
             }
         }
 
         // Remove this when nvr will provide trigger IDs
-        if ([EventType.Contact, EventType.Doorlock, EventType.Doorbell].includes(eventType as EventType)) {
+        if ([SupportedSensorType.Binary, SupportedSensorType.Lock, EventType.Doorbell].includes(eventType as any)) {
             const systemState = sdk.systemManager.getSystemState();
 
             const foundSensor = deviceSensors.find(deviceId => {
-                const device = sdk.systemManager.getDeviceById(deviceId);
+                const device = sdk.systemManager.getDeviceById<DeviceBase>(deviceId);
                 if (device) {
                     if (device.type === ScryptedDeviceType.Lock) {
                         return systemState[deviceId].lockState?.value === LockState.Unlocked;
@@ -349,6 +342,8 @@ export type TextSettingKey =
     | 'animalText'
     | 'onlineText'
     | 'doorlockText'
+    | 'floodingText'
+    | 'entrySensorText'
     | 'offlineText'
     | 'snoozeText'
     | 'streamInterruptedText';
@@ -396,6 +391,22 @@ export const getTextSettings = (forMixin: boolean) => {
             description: 'Expression used to render the text when a lock sensor opens. Available arguments ${room} ${time} ${nvrLink}',
             defaultValue: !forMixin ? 'Door unlocked in ${room}' : undefined,
             placeholder: !forMixin ? 'Door unlocked in ${room}' : undefined
+        },
+        floodingText: {
+            [groupKey]: 'Texts',
+            title: 'Flood sensor open text',
+            type: 'string',
+            description: 'Expression used to render the text when a flood sensor opens. Available arguments ${room} ${time} ${nvrLink}',
+            defaultValue: !forMixin ? 'Flooding detected in ${room}' : undefined,
+            placeholder: !forMixin ? 'Flooding detected in ${room}' : undefined
+        },
+        entrySensorText: {
+            [groupKey]: 'Texts',
+            title: 'Entry sensor open text',
+            type: 'string',
+            description: 'Expression used to render the text when an entry sensor opens. Available arguments ${room} ${time} ${nvrLink}',
+            defaultValue: !forMixin ? 'Entry opening detected in ${room}' : undefined,
+            placeholder: !forMixin ? 'Entry opening detected in ${room}' : undefined
         },
         onlineText: {
             [groupKey]: 'Texts',
@@ -647,7 +658,6 @@ export const getMixinBaseSettings = (props: {
 
         if (isCamera || isSensor) {
             settings['minDelayTime'] = {
-                subgroup: 'Notifier',
                 title: 'Minimum notification delay',
                 description: 'Minimum amount of seconds to wait until a notification is sent. Set 0 to disable',
                 type: 'number',
@@ -758,7 +768,7 @@ export const getActiveRules = async (
     }
 }
 
-export const getTextKey = (props: { eventType: EventType | NvrEvent }) => {
+export const getTextKey = (props: { eventType: DetectionEvent }) => {
     const { eventType } = props;
 
     let key: TextSettingKey;
@@ -773,14 +783,20 @@ export const getTextKey = (props: { eventType: EventType | NvrEvent }) => {
         case NvrEvent.Offline:
             key = 'offlineText';
             break;
-        case EventType.Contact:
+        case SupportedSensorType.Binary:
             key = 'doorWindowText';
             break;
         case EventType.Doorbell:
             key = 'doorbellText';
             break;
-        case EventType.Doorlock:
+        case SupportedSensorType.Lock:
             key = 'doorlockText';
+            break;
+        case SupportedSensorType.Entry:
+            key = 'entrySensorText';
+            break;
+        case SupportedSensorType.Flood:
+            key = 'floodingText';
             break;
         case EventType.ObjectDetection: {
             key = 'objectDetectionText';
@@ -974,10 +990,32 @@ export enum ZoneMatchType {
     Contain = 'Contain',
 }
 
-export const deviceFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && ['${ScryptedDeviceType.Camera}', '${ScryptedDeviceType.Doorbell}', '${ScryptedDeviceType.Sensor}', '${ScryptedDeviceType.Lock}', '${ScryptedDeviceType.Entry}'].includes(type)`;
-// export const notifierFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && ['${ScryptedDeviceType.Notifier}'].includes(type)`;
-export const notifierFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && !interfaces.includes('${NVR_NOTIFIER_INTERFACE}') && ['${ScryptedDeviceType.Notifier}'].includes(type)`;
-export const sensorsFilter: StorageSetting['deviceFilter'] = `['${ScryptedDeviceType.Sensor}', '${ScryptedDeviceType.Entry}', '${ScryptedDeviceType.Lock}'].includes(type)`;
+const sensorInterfaces: ScryptedInterface[] = [
+    ScryptedInterface.BinarySensor,
+    ScryptedInterface.FloodSensor,
+    ScryptedInterface.EntrySensor,
+    ScryptedInterface.Lock,
+];
+const cameraInterfaces: ScryptedInterface[] = [
+    ScryptedInterface.Camera,
+    ScryptedInterface.VideoCamera,
+];
+const notifierInterfaces: ScryptedInterface[] = [
+    ScryptedInterface.Notifier
+];
+export const allInterfaces = [
+    ...sensorInterfaces,
+    ...cameraInterfaces,
+    ...notifierInterfaces
+];
+
+const getInterfacesString = (interfaces: ScryptedInterface[]) =>
+    "[" + interfaces.map(int => `'${int}'`) + "]";
+
+export const deviceFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && interfaces.some(int => ${getInterfacesString([...sensorInterfaces, ...cameraInterfaces])}.includes(int))`;
+export const notifierFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && interfaces.some(int => ${getInterfacesString(notifierInterfaces)}.includes(int))`;
+export const sensorsFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && interfaces.some(int => ${getInterfacesString(sensorInterfaces)}.includes(int))`;
+export const cameraFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && interfaces.some(int => ${getInterfacesString(cameraInterfaces)}.includes(int))`;
 
 type GetSpecificRules = (props: { group: string, subgroup: string, ruleName: string, showMore: boolean }) => StorageSetting[];
 type OnRuleToggle = (ruleName: string, enabled: boolean) => Promise<void>
@@ -1290,7 +1328,10 @@ export const getDetectionRulesSettings = async (props: {
                 subgroup,
                 multiple: true,
                 combobox: true,
-                choices: defaultDetectionClasses,
+                choices: [
+                    ...defaultDetectionClasses,
+                    ...Object.values(SupportedSensorType),
+                ],
                 defaultValue: [],
                 immediate: true,
                 onPut: async () => {
@@ -1798,8 +1839,8 @@ export const getTimelapseRulesSettings = async (props: {
                 group,
                 subgroup,
                 type: 'number',
-                placeholder: '5',
-                defaultValue: 5,
+                placeholder: '2',
+                defaultValue: 2,
                 hide: !showMore
             },
             {
@@ -1950,7 +1991,7 @@ export interface BaseRule {
 
 export interface DetectionRule extends BaseRule {
     markDetections: boolean;
-    detectionClasses?: DetectionClass[];
+    detectionClasses?: DetectionClassFull[];
     nvrEvents?: NvrEvent[];
     scoreThreshold?: number;
     labelScoreThreshold?: number;
@@ -2128,7 +2169,6 @@ export const getDetectionRules = (props: {
     let anyAllowedNvrRule = false;
 
     const deviceId = device?.id;
-    const deviceType = device?.type;
     const allDevices = getElegibleDevices().map(device => device.id);
 
     const { activeDevicesForNotifications: onActiveDevices, securitySystem } = pluginStorage.values;
@@ -2175,7 +2215,7 @@ export const getDetectionRules = (props: {
             const devices = !isPlugin ? [deviceId] : mainDevices.length ? mainDevices : allDevices;
             const devicesToUse = activationType === DetectionRuleActivation.OnActive ? onActiveDevices : devices;
 
-            const detectionClasses = storage.getItem(detectionClassesKey) as DetectionClass[] ?? [];
+            const detectionClasses = storage.getItem(detectionClassesKey) as DetectionClassFull[] ?? [];
             const nvrEvents = storage.getItem(nvrEventsKey) as NvrEvent[] ?? [];
             const scoreThreshold = storage.getItem(scoreThresholdKey) as number || 0.7;
             const minDelay = storage.getItem(minDelayKey) as number;
@@ -2227,16 +2267,14 @@ export const getDetectionRules = (props: {
             }
 
             let isSensorEnabled = true;
-            if (
-                isPlugin &&
-                deviceType &&
-                [ScryptedDeviceType.Lock, ScryptedDeviceType.Sensor].includes(deviceType) &&
-                !mainDevices.length
-            ) {
-                if (deviceType === ScryptedDeviceType.Lock) {
-                    isSensorEnabled = detectionClasses.includes(DetectionClass.DoorLock);
-                } else if (deviceType === ScryptedDeviceType.Sensor) {
-                    isSensorEnabled = detectionClasses.includes(DetectionClass.DoorSensor);
+            if (isPlugin && device) {
+                const { isSensor, sensorType } = isDeviceSupported(device);
+
+                if (
+                    isSensor &&
+                    !mainDevices.length
+                ) {
+                    isSensorEnabled = detectionClasses.includes(sensorType);
                 }
             }
 
@@ -2754,41 +2792,74 @@ export const convertSettingsToStorageSettings = async (props: {
     return updateStorageSettings;
 }
 
-export const supportedSensors: ScryptedDeviceType[] = [
-    ScryptedDeviceType.Sensor,
-    ScryptedDeviceType.Lock,
-    ScryptedDeviceType.Entry,
-];
+export enum SupportedSensorType {
+    Lock = 'lock',
+    Binary = 'binary',
+    Flood = 'flood',
+    Entry = 'entry'
+};
 
-export type SupportedSensor = typeof supportedSensors[number];
+export type DetectionClassFull = DetectionClass | SupportedSensorType;
+export type DetectionEvent = EventType | NvrEvent | SupportedSensorType;
+
+export const isDeviceSupported = (device: DeviceBase) => {
+    const { interfaces, type } = device;
+    const isCamera = [ScryptedInterface.VideoCamera, ScryptedInterface.Camera].some(int => interfaces.includes(int));
+
+    const isLock = interfaces.includes(ScryptedInterface.Lock);
+    const isBinarySensor = interfaces.includes(ScryptedInterface.BinarySensor);
+    const isFloodSensor = interfaces.includes(ScryptedInterface.FloodSensor);
+    const isEntrySensor = interfaces.includes(ScryptedInterface.EntrySensor);
+
+    const isNotifier = interfaces.includes(ScryptedInterface.Notifier);
+    const isDoorbell = type === ScryptedDeviceType.Doorbell;
+
+    const isSensor = isLock || isBinarySensor || isFloodSensor || isEntrySensor;
+    const isSupported = isCamera || isSensor || isNotifier;
+
+    const sensorType: SupportedSensorType = isLock ? SupportedSensorType.Lock :
+        isBinarySensor ? SupportedSensorType.Binary :
+            isFloodSensor ? SupportedSensorType.Flood :
+                isEntrySensor ? SupportedSensorType.Entry :
+                    undefined;
+
+    return {
+        isCamera,
+        isSensor,
+        isLock,
+        isBinarySensor,
+        isFloodSensor,
+        isEntrySensor,
+        isSupported,
+        sensorType,
+        isNotifier,
+        isDoorbell,
+    }
+}
 
 export interface BinarySensorMetadata {
     isActiveFn: (device: ScryptedDeviceBase, value?: any) => boolean,
     interface: ScryptedInterface
 };
 
-export const binarySensorMetadataMap: Partial<Record<SupportedSensor, BinarySensorMetadata>> = {
-    [ScryptedDeviceType.Sensor]: {
+export const binarySensorMetadataMap: Record<SupportedSensorType, BinarySensorMetadata> = {
+    [SupportedSensorType.Binary]: {
         interface: ScryptedInterface.BinarySensor,
         isActiveFn: (device, value) => !!(device?.binaryState ?? value),
     },
-    [ScryptedDeviceType.Lock]: {
+    [SupportedSensorType.Lock]: {
         interface: ScryptedInterface.Lock,
         isActiveFn: (device, value) => (device?.lockState ?? value) === LockState.Unlocked
     },
-    [ScryptedDeviceType.Entry]: {
+    [SupportedSensorType.Entry]: {
         interface: ScryptedInterface.EntrySensor,
         isActiveFn: (device, value) => !!(device?.entryOpen ?? value),
-    }
+    },
+    [SupportedSensorType.Flood]: {
+        interface: ScryptedInterface.FloodSensor,
+        isActiveFn: (device, value) => !!(device?.flooded ?? value),
+    },
 }
-
-export const supportedCameraInterfaces: ScryptedInterface[] = [ScryptedInterface.Camera, ScryptedInterface.VideoCamera];
-export const supportedSensorInterfaces: ScryptedInterface[] = Object.values(binarySensorMetadataMap).flatMap(item => item.interface);
-export const supportedInterfaces = [
-    ...supportedCameraInterfaces,
-    ...supportedSensorInterfaces,
-    ScryptedInterface.Notifier
-];
 
 export const getDecibelsFromRtp_PCMU8 = (rtpPacket: Buffer, logger: Console) => {
     const RTP_HEADER_SIZE = 12;

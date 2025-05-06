@@ -1061,9 +1061,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         fallbackToLatest?: boolean,
         detectionId?: string,
         eventId?: string,
-        image?: MediaObject
+        image?: MediaObject,
+        log?: boolean
     }) {
-        const { preferLatest, fallbackToLatest, detectionId, eventId, image: imageParent } = props ?? {};
+        const { preferLatest, fallbackToLatest, detectionId, eventId, image: imageParent, log } = props ?? {};
         const logger = this.getLogger();
         const now = Date.now();
         const { minSnapshotDelay, useFramesGenerator } = this.storageSettings.values;
@@ -1074,16 +1075,34 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let imageUrl: string;
         let imageSource: 'Input' | 'Snapshot' | 'Latest because requested' | 'Latest because very recent' | 'Detector mixin' | 'Decoder';
 
-        const msPassed = now - this.lastPictureTaken;
+        const msPassed = this.lastPictureTaken ? now - this.lastPictureTaken : 0;
         const isVeryRecent = msPassed && msPassed <= 500;
         const isLatestPreferred = msPassed && msPassed <= 2000;
+
+        if (log) {
+            logger.log(JSON.stringify({
+                minSnapshotDelay,
+                useFramesGenerator,
+                msPassed,
+                isVeryRecent,
+                isLatestPreferred
+            }));
+        }
 
         const findFromSnapshot = async () => {
             const timePassed = !this.lastPictureTaken || msPassed >= 1000 * minSnapshotDelay;
 
+            // if (log) {
+            logger.info(JSON.stringify({
+                msPassed,
+                delay: minSnapshotDelay * 1000,
+                timePassed,
+                lastPictureTaken: this.lastPictureTaken
+            }))
+            // }
+
             if (timePassed) {
                 try {
-                    this.lastPictureTaken = now;
                     this.lastImage = undefined;
                     const objectDetector = this.getObjectDetector();
                     image = await objectDetector.takePicture({
@@ -1093,6 +1112,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             width: SNAPSHOT_WIDTH,
                         },
                     });
+                    this.lastPictureTaken = now;
                     logger.info(`Image taken from snapshot because time is passed`);
                     imageSource = 'Snapshot';
                 } catch (e) {
@@ -1105,6 +1125,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         try {
             if (!image) {
                 const isLastFrameRecent = !this.lastFrameAcquired || (now - this.lastFrameAcquired) <= 200;
+
+                if (log) {
+                    logger.log(JSON.stringify({
+                        isLastFrameRecent,
+                        useFramesGenerator,
+                        preferLatest,
+                        isLatestPreferred,
+                        isVeryRecent,
+                        detectionId,
+                        eventId,
+                        currentImage: !!this.lastImage
+                    }));
+                }
+
                 if (useFramesGenerator && !this.framesGeneratorSignal.finished && this.lastFrame && isLastFrameRecent) {
                     image = this.lastFrame;
                     imageSource = 'Decoder';
@@ -1120,8 +1154,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     imageSource = 'Latest because very recent';
                 } else if (detectionId && eventId) {
                     try {
-                        this.lastPictureTaken = now;
-                        this.lastImage = undefined;
                         const detectImage = await this.cameraDevice.getDetectionInput(detectionId, eventId);
                         const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(detectImage, ScryptedMimeTypes.Image);
                         image = await convertedImage.toImage({
@@ -1155,7 +1187,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         } catch (e) {
             logger.log(`Error during getImage`, e);
         } finally {
-            if (!imageParent) {
+            if (!imageParent && image && b64Image) {
                 this.lastImage = image;
                 this.lastB64Image = b64Image;
             }
@@ -1653,14 +1685,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         logger.debug(`Audio detection: ${decibels} dB`);
         const now = Date.now();
 
-        const { image, b64Image } = await this.getImage({ preferLatest: true });
-
+        let image: MediaObject;
+        let b64Image: string;
         for (const rule of (this.runningAudioRules ?? [])) {
             const { name, audioDuration, decibelThreshold, customText, minDelay } = rule;
             const { lastDetection, inProgress, lastNotification } = this.audioListeners[name] ?? {};
             const isThresholdMet = decibels >= decibelThreshold;
             const isTimePassed = !lastDetection || (now - lastDetection) > audioDuration;
             const isTimeForNotificationPassed = !minDelay || !lastNotification || (now - lastNotification) > (minDelay * 1000);
+
+            if (isTimeForNotificationPassed && !image) {
+                const { image: imageNew, b64Image: b64ImageNew } = await this.getImage({ preferLatest: true });
+                image = imageNew;
+                b64Image = b64ImageNew;
+            }
 
             logger.debug(`Audio rule: ${JSON.stringify({
                 name,

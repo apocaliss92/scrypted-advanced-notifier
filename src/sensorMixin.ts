@@ -1,11 +1,10 @@
 import sdk, { EventListenerRegister, MediaObject, ScryptedDeviceType, Setting, Settings } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
-import { AdvancedNotifierCameraMixin } from "./cameraMixin";
-import HomeAssistantUtilitiesProvider from "./main";
-import { BinarySensorMetadata, binarySensorMetadataMap, convertSettingsToStorageSettings, DetectionRule, EventType, getDetectionRulesSettings, getMixinBaseSettings, getRuleKeys, getActiveRules, RuleSource, RuleType, splitRules, ScryptedEventSource } from "./utils";
 import { cloneDeep } from "lodash";
 import { getBaseLogger } from "../../scrypted-apocaliss-base/src/basePlugin";
+import HomeAssistantUtilitiesProvider from "./main";
+import { BinarySensorMetadata, binarySensorMetadataMap, cameraFilter, convertSettingsToStorageSettings, DetectionRule, EventType, getActiveRules, getDetectionRulesSettings, getMixinBaseSettings, getRuleKeys, RuleSource, RuleType, ScryptedEventSource, splitRules, SupportedSensorType } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -19,8 +18,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         linkedCamera: {
             title: 'Linked camera',
             type: 'device',
-            subgroup: 'Notifier',
-            deviceFilter: `(type === '${ScryptedDeviceType.Camera}' || type === '${ScryptedDeviceType.Doorbell}')`,
+            deviceFilter: cameraFilter,
             immediate: true,
         },
     };
@@ -35,15 +33,18 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
     runningDetectionRules: DetectionRule[] = [];
     lastDetection: number;
     metadata: BinarySensorMetadata;
+    supportedSensorType: SupportedSensorType;
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
+        supportedSensorType: SupportedSensorType,
         public plugin: HomeAssistantUtilitiesProvider
     ) {
         super(options);
         const logger = this.getLogger();
+        this.supportedSensorType = supportedSensorType;
 
-        this.metadata = binarySensorMetadataMap[this.type];
+        this.metadata = binarySensorMetadataMap[supportedSensorType];
 
         this.storageSettings.settings.entityId.onGet = async () => {
             const entities = this.plugin.fetchedEntities;
@@ -234,7 +235,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 }
 
                 const { isDoorbell, device } = await this.plugin.getLinkedCamera(this.id);
-                const isDoorlock = this.type === ScryptedDeviceType.Lock;
 
                 const mixinDevice = this.plugin.currentCameraMixinsMap[device.id];
 
@@ -244,7 +244,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
                 const image = (await mixinDevice.getImage({ image: imageParent }))?.image;
 
-                const eventType = isDoorbell ? EventType.Doorbell : isDoorlock ? EventType.Doorlock : EventType.Contact;
+                const eventType = isDoorbell ? EventType.Doorbell : this.supportedSensorType;
 
                 const rules = cloneDeep(this.runningDetectionRules.filter(rule => isFromNvr ? rule.isNvr : !rule.isNvr)) ?? [];
                 for (const rule of rules) {

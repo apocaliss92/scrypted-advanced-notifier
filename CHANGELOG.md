@@ -1,6 +1,11 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.5.0
+
+- [BREAKING CHANGE] Sensors classes have been changed, any plugin rule using lock or contact labels, shoul be changed to new ones
+- Added support for Entry and Flooding sensors
+
 ### 3.4.12
 
 - Texts building reworked. There is now only one object detection label and several object types to make it better scalable in future. Check Texts section 

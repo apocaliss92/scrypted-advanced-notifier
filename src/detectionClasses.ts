@@ -8,8 +8,6 @@ export enum DetectionClass {
     Face = 'face',
     Plate = 'plate',
     Package = 'package',
-    DoorSensor = 'sensor_open',
-    DoorLock = 'lock_open',
 }
 
 export const classnamePrio: Partial<Record<DetectionClass, number>> = {

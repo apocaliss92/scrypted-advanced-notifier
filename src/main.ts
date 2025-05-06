@@ -7,7 +7,7 @@ import fs from 'fs';
 import { cloneDeep, isEqual, sortBy } from 'lodash';
 import path from 'path';
 import { BasePlugin, getBaseSettings, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
-import { getRpcData, restartPlugin } from '../../scrypted-monitor/src/utils';
+import { getRpcData } from '../../scrypted-monitor/src/utils';
 import { name as pluginName, version } from '../package.json';
 import { AiPlatform, getAiMessage } from "./aiUtils";
 import { AdvancedNotifierCamera } from "./camera";
@@ -17,8 +17,7 @@ import { idPrefix, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPlug
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getAllDevices, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getNowFriendlyDate, getObjectDetectionTextKey, getPushoverPriority, getRuleKeys, getSnoozeId, getTextKey, getTextSettings, getWebHookUrls, getWebooks, HOMEASSISTANT_PLUGIN_ID, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeAction, splitRules, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TextSettingKey, TimelapseRule } from "./utils";
-// import { AdvancedNotifierBaseMixin } from "./baseMixin";
+import { ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, allInterfaces, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getAllDevices, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getNowFriendlyDate, getObjectDetectionTextKey, getPushoverPriority, getRuleKeys, getSnoozeId, getTextKey, getTextSettings, getWebHookUrls, getWebooks, HOMEASSISTANT_PLUGIN_ID, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, ScryptedEventSource, SnoozeAction, splitRules, SupportedSensorType, TextSettingKey, TimelapseRule } from "./utils";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -30,7 +29,7 @@ interface NotifyCameraProps {
     time: number,
     image?: MediaObject,
     detection?: ObjectDetectionResult
-    eventType: EventType | NvrEvent,
+    eventType: DetectionEvent,
     rule?: DetectionRule,
     source?: NotificationSource,
     logger: Console,
@@ -259,6 +258,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             type: 'boolean',
             hide: true,
         },
+        eventsChanged350: {
+            type: 'boolean',
+            hide: true,
+        },
     };
     storageSettings = new StorageSettings(this, this.initStorage);
 
@@ -315,9 +318,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             })();
         }
 
-        if (major === 3 && minor >= 12 && !this.storageSettings.values.texts3412) {
+        if (major === 3 && minor === 4 && patch >= 12 && !this.storageSettings.values.texts3412) {
             logger.log('Texts building has been reworked. Check Texts section to fill any missing');
             this.storageSettings.values.texts3412 = true;
+        }
+
+        if (major === 3 && minor === 5 && patch >= 0 && !this.storageSettings.values.eventsChanged350) {
+            logger.log('Sensors have been reworked, check rules where they were enabled, they need to be selected again');
+            this.storageSettings.values.eventsChanged350 = true;
         }
 
         (async () => {
@@ -789,8 +797,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             const allDevices = getElegibleDevices();
             for (const device of allDevices) {
+                const { isDoorbell, isCamera } = isDeviceSupported(device);
                 const deviceId = device.id;
-                const deviceType = device.type;
                 try {
                     const settings = await device.getSettings();
                     const haEntityId = settings.find(setting => setting.key === 'homeassistantMetadata:entityId')?.value as string;
@@ -806,7 +814,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         haEntityDeviceMap[haEntityId] = deviceId;
                     }
 
-                    if (deviceType === ScryptedDeviceType.Doorbell) {
+                    if (isDoorbell) {
                         const doorbellButtonId = settings.find(setting => setting.key === 'replaceBinarySensor:replaceBinarySensor')?.value as string;
                         if (doorbellButtonId) {
                             doorbellDevices.push(doorbellButtonId);
@@ -828,7 +836,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         }
                     }
 
-                    if ([ScryptedDeviceType.Doorbell, ScryptedDeviceType.Camera].includes(deviceType)) {
+                    if (isCamera || isDoorbell) {
                         const allLinkedSensorIds = [...nearbySensors, ...nearbyLocks];
 
                         for (const linkedSensorId of allLinkedSensorIds) {
@@ -936,15 +944,19 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                 const mixin = this.currentCameraMixinsMap[device.id] || this.currentSensorMixinsMap[device.id];
 
-                const notifiersSettings = (await mixin.storageSettings.getSettings())
-                    .filter((sett) => sett.key?.match(notifiersRegex));
+                if (mixin) {
+                    const notifiersSettings = (await mixin.storageSettings.getSettings())
+                        .filter((sett) => sett.key?.match(notifiersRegex));
 
-                for (const notifiersSetting of notifiersSettings) {
-                    const [_, type, name] = notifiersSetting.key.match(notifiersRegex);
-                    const missingNotifiers = (notifiersSetting.value as string[])?.filter(notifierId => !sdk.systemManager.getDeviceById(notifierId));
-                    if (missingNotifiers.length) {
-                        missingNotifiersOfDeviceRules.push({ deviceName: device.name, notifierIds: missingNotifiers, ruleName: `${type}_${name}` });
+                    for (const notifiersSetting of notifiersSettings) {
+                        const [_, type, name] = notifiersSetting.key.match(notifiersRegex);
+                        const missingNotifiers = (notifiersSetting.value as string[])?.filter(notifierId => !sdk.systemManager.getDeviceById(notifierId));
+                        if (missingNotifiers.length) {
+                            missingNotifiersOfDeviceRules.push({ deviceName: device.name, notifierIds: missingNotifiers, ruleName: `${type}_${name}` });
+                        }
                     }
+                } else {
+                    logger.log(`Mixin not found for device ${device.name}`);
                 }
             }
 
@@ -1098,14 +1110,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     async getSettings() {
         try {
-            const { haEnabled, mqttEnabled, testEventType } = this.storageSettings.values;
+            const { haEnabled, mqttEnabled, testEventType, testDevice } = this.storageSettings.values;
             this.storageSettings.settings.domains.hide = !haEnabled;
             this.storageSettings.settings.fetchHaEntities.hide = !haEnabled;
 
             this.storageSettings.settings.mqttActiveEntitiesTopic.hide = !mqttEnabled;
             this.storageSettings.settings.useNvrDetectionsForMqtt.hide = !mqttEnabled;
 
-            this.storageSettings.settings.testObjectType.hide = testEventType !== EventType.ObjectDetection;
+            const { isCamera } = testDevice ? isDeviceSupported(testDevice) : {};
+            this.storageSettings.settings.testEventType.hide = !isCamera;
+            this.storageSettings.settings.testObjectType.hide = !isCamera || testEventType !== EventType.ObjectDetection;
 
             return super.getSettings();
         } catch (e) {
@@ -1141,8 +1155,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     async canMixin(type: ScryptedDeviceType, interfaces: string[]): Promise<string[]> {
+        const { isSupported } = isDeviceSupported({ interfaces } as DeviceBase);
+
         if (
-            supportedInterfaces.some(int => interfaces.includes(int)) &&
+            isSupported &&
+            // allInterfaces.some(int => interfaces.includes(int)) &&
             !interfaces.includes(ADVANCED_NOTIFIER_NOTIFIER_INTERFACE) &&
             !interfaces.includes(ADVANCED_NOTIFIER_CAMERA_INTERFACE)
         ) {
@@ -1389,13 +1406,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger.info(JSON.stringify({ allDetections, cameraName, options }));
         }
 
-        if ([EventType.ObjectDetection, EventType.Package].includes(eventType as EventType)) {
+        if ([EventType.ObjectDetection].includes(eventType as EventType)) {
             await (foundDevice as AdvancedNotifierCameraMixin)?.processDetections({
                 detect: { timestamp: triggerTime, detections: allDetections },
                 image,
                 eventSource: ScryptedEventSource.NVR,
             });
-        } else if ([EventType.Contact, EventType.Doorbell, EventType.Doorlock].includes(eventType as EventType)) {
+        } else if ([...Object.values(SupportedSensorType), EventType.Doorbell].includes(eventType as EventType)) {
             await (foundDevice as AdvancedNotifierSensorMixin)?.processEvent({
                 triggered: true,
                 triggerTime,
@@ -1454,7 +1471,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         image?: MediaObject,
         match?: ObjectDetectionResult,
         rule: BaseRule,
-        eventType: EventType,
+        eventType: DetectionEvent,
         triggerDeviceId: string,
         detectionKey: string,
         triggerTime: number,
@@ -1534,21 +1551,20 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             groupKey: 'homeassistantMetadata',
         };
 
-        if (
-            supportedCameraInterfaces.some(int => mixinDeviceInterfaces.includes(int))
-        ) {
+        const { isCamera, isSensor, isNotifier, sensorType } = isDeviceSupported({ interfaces: mixinDeviceInterfaces } as DeviceBase);
+
+        if (isCamera) {
             return new AdvancedNotifierCameraMixin(
                 props,
                 this
             );
-        } else if (
-            supportedSensorInterfaces.some(int => mixinDeviceInterfaces.includes(int))
-        ) {
+        } else if (isSensor) {
             return new AdvancedNotifierSensorMixin(
                 props,
+                sensorType,
                 this
             );
-        } else if (mixinDeviceInterfaces.includes(ScryptedInterface.Notifier)) {
+        } else if (isNotifier) {
             return new AdvancedNotifierNotifierMixin(
                 props,
                 this
@@ -1598,7 +1614,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             detection?: ObjectDetectionResult,
             notifierId: string,
             externalUrl?: string,
-            eventType?: EventType | NvrEvent,
+            eventType?: DetectionEvent,
             rule?: DetectionRule,
         }
     ) {
@@ -1760,8 +1776,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 rule,
             });
 
-            const { b64Image, image, imageSource } = await this.currentCameraMixinsMap[triggerDevice.id].getImage({
+            const { b64Image, image, imageSource } = await this.currentCameraMixinsMap[device.id].getImage({
                 image: imageParent,
+                log: source === NotificationSource.TEST,
             });
 
             logger.log(`Notification image ${b64Image?.substring(0, 10)} fetched from ${imageSource}`);
@@ -1859,7 +1876,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     async executeNotificationTest() {
         const testDevice = this.storageSettings.getItem('testDevice') as DeviceInterface;
         const testNotifier = this.storageSettings.getItem('testNotifier') as DeviceInterface;
-        const testEventType = this.storageSettings.getItem('testEventType') as EventType | NvrEvent;
+        const testEventType = this.storageSettings.getItem('testEventType') as DetectionEvent;
         const testObjectType = this.storageSettings.getItem('testObjectType') as DetectionClass;
         const testPriority = this.storageSettings.getItem('testPriority') as NotificationPriority;
         const testUseAi = this.storageSettings.getItem('testUseAi') as boolean;
@@ -1870,6 +1887,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             if (testDevice && testEventType && testNotifier) {
                 const currentTime = new Date().getTime();
                 const testNotifierId = testNotifier.id
+                const { sensorType } = isDeviceSupported(testDevice);
 
                 logger.log(`Sending ${testEventType} test notification to ${testNotifier.name} - ${testDevice.name}, ${testObjectType}`);
 
@@ -1877,7 +1895,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     triggerDevice: testDevice,
                     notifierId: testNotifierId,
                     time: currentTime,
-                    eventType: testEventType,
+                    eventType: sensorType ?? testEventType,
                     detection: { label: 'TestLabelFound', className: testObjectType } as ObjectDetectionResult,
                     source: NotificationSource.TEST,
                     logger,
@@ -1891,9 +1909,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     async getCameraDevice(device: DeviceInterface) {
-        const deviceType = device.type;
         const deviceId = device.id;
-        const isCamera = [ScryptedDeviceType.Camera, ScryptedDeviceType.Doorbell].includes(deviceType);
+        const { isCamera } = isDeviceSupported(device);
 
         if (isCamera) {
             return device;
