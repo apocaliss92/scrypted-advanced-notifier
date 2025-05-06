@@ -1072,7 +1072,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let bufferImage: Buffer;
         let b64Image: string;
         let imageUrl: string;
-        let imageSource: 'Snapshot' | 'Latest because requested' | 'Latest because very recent' | 'Detector mixin' | 'Decoder';
+        let imageSource: 'Input' | 'Snapshot' | 'Latest because requested' | 'Latest because very recent' | 'Detector mixin' | 'Decoder';
 
         const msPassed = now - this.lastPictureTaken;
         const isVeryRecent = msPassed && msPassed <= 500;
@@ -1105,7 +1105,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         try {
             if (!image) {
                 const isLastFrameRecent = !this.lastFrameAcquired || (now - this.lastFrameAcquired) <= 200;
-                if (useFramesGenerator && this.lastFrame && isLastFrameRecent) {
+                if (useFramesGenerator && !this.framesGeneratorSignal.finished && this.lastFrame && isLastFrameRecent) {
                     image = this.lastFrame;
                     imageSource = 'Decoder';
                     logger.info(`Image taken from decoder`);
@@ -1139,6 +1139,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 } else {
                     await findFromSnapshot();
                 }
+            } else {
+                imageSource = 'Input';
             }
 
             if (!image && fallbackToLatest) {

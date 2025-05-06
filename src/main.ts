@@ -34,7 +34,6 @@ interface NotifyCameraProps {
     rule?: DetectionRule,
     source?: NotificationSource,
     logger: Console,
-    skipImage?: boolean,
 }
 
 export default class AdvancedNotifierPlugin extends BasePlugin implements MixinProvider, HttpRequestHandler, DeviceProvider {
@@ -1384,8 +1383,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         } = result;
 
         const foundDevice = this.currentCameraMixinsMap[triggerDevice.id] || this.currentSensorMixinsMap[triggerDevice.id];
-        logger.log(`NVR notification incoming ${cameraName} hasImage ${!!image} ${eventType} ${triggerDevice?.name}, device found ${!!foundDevice}`);
-        logger.info(JSON.stringify({ allDetections, cameraName, options }));
+
+        if (!foundDevice) {
+            logger.log(`NVR notification incoming ${cameraName} hasImage ${!!image} ${eventType} ${triggerDevice?.name}, device found ${!!foundDevice}`);
+            logger.info(JSON.stringify({ allDetections, cameraName, options }));
+        }
 
         if ([EventType.ObjectDetection, EventType.Package].includes(eventType as EventType)) {
             await (foundDevice as AdvancedNotifierCameraMixin)?.processDetections({
@@ -1614,7 +1616,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if (eventType === EventType.ObjectDetection) {
             const detectionObjectTextKey = getObjectDetectionTextKey({ detectionClass });
             classnameText = this.getTextKey({ notifierId, textKey: detectionObjectTextKey });
-            this.getLogger().log(detectionClass, detectionObjectTextKey, classnameText)
         }
 
         const detectionTimeText = this.getTextKey({ notifierId, textKey: 'detectionTimeText' });
@@ -1734,7 +1735,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 source,
                 logger,
                 rule,
-                skipImage,
                 detectionKey,
                 eventType
             } = props;
@@ -1760,11 +1760,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 rule,
             });
 
-            const { image, b64Image } = !skipImage ? await this.getCameraSnapshot({
-                cameraDevice: device,
+            const { b64Image, image, imageSource } = await this.currentCameraMixinsMap[triggerDevice.id].getImage({
                 image: imageParent,
-            }) : {};
+            });
 
+            logger.log(`Notification image ${b64Image?.substring(0, 10)} fetched from ${imageSource}`);
 
             let title = (triggerDevice ?? device).name;
 
@@ -1901,34 +1901,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         const linkedCameraId = this.deviceVideocameraMap[deviceId];
         return systemManager.getDeviceById(linkedCameraId) as unknown as DeviceInterface;
-    }
-
-    private async getCameraSnapshot(props: {
-        cameraDevice: DeviceInterface,
-        image?: MediaObject,
-    }) {
-        const { cameraDevice, image: imageParent } = props;
-
-        let image = imageParent;
-
-        if (!image) {
-            try {
-                image = await cameraDevice.takePicture({
-                    reason: 'event',
-                    picture: {
-                        width: SNAPSHOT_WIDTH,
-                    },
-                });
-            } catch (e) {
-                this.getLogger().log('Error taking a picture in plugin', e);
-            }
-        }
-
-        let imageBuffer = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg');
-
-        const b64Image = imageBuffer.toString('base64');
-
-        return { image, b64Image };
     }
 
     public getImagePath = (props: { imageIdentifier: string, device: ScryptedDeviceBase }) => {

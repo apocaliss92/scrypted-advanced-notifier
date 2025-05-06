@@ -196,7 +196,6 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
         let canNotify = true;
 
         const cameraDevice = sdk.systemManager.getDeviceByName(title);
-        const notifierDevice = sdk.systemManager.getDeviceByName(this.id);
         if (cameraDevice) {
             const cameraMixin = this.plugin.currentCameraMixinsMap[cameraDevice.id];
             if (cameraMixin) {
@@ -205,7 +204,7 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
 
                 if (!notificationsEnabled) {
                     canNotify = false;
-                    logger.log(`Skipping NVR notification for ${cameraDevice.name} from notifier ${notifierDevice.name} because disabled`);
+                    logger.log(`Skipping NVR notification for ${cameraDevice?.name} from notifier ${this.name} because disabled`);
                 }
             }
 
