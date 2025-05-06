@@ -216,7 +216,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     lastAudioDetected: number;
     lastAudioConnection: number;
     lastImage?: MediaObject;
-    lastFrame?: Buffer;
+    lastFrame?: MediaObject;
     lastFrameAcquired?: number;
     lastB64Image?: string;
     lastPictureTaken?: number;
@@ -624,11 +624,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 const now = Date.now();
 
-                this.lastFrame = await frame.image.toBuffer({
+                const bufferFrame = await frame.image.toBuffer({
+                    format: 'jpg',
+                    // resize: {
+                    //     width: SNAPSHOT_WIDTH,
+                    // },
+                });
+                const moFrame = await sdk.mediaManager.createMediaObject(bufferFrame, 'image/jpeg');
+
+                const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(moFrame, ScryptedMimeTypes.Image);
+                this.lastFrame = await convertedImage.toImage({
                     format: 'jpg',
                     resize: {
                         width: SNAPSHOT_WIDTH,
-                    }
+                    },
                 });
                 this.lastFrameAcquired = now;
 
@@ -1097,14 +1106,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             if (!image) {
                 const isLastFrameRecent = !this.lastFrameAcquired || (now - this.lastFrameAcquired) <= 200;
                 if (useFramesGenerator && this.lastFrame && isLastFrameRecent) {
-                    const tmp = await sdk.mediaManager.createMediaObject(this.lastFrame, 'image/jpeg');
-                    const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(tmp, ScryptedMimeTypes.Image);
-                    image = await convertedImage.toImage({
-                        format: 'jpg',
-                        // resize: {
-                        // width: SNAPSHOT_WIDTH,
-                        // },
-                    });
+                    image = this.lastFrame;
                     imageSource = 'Decoder';
                     logger.info(`Image taken from decoder`);
                 } else if (preferLatest && isLatestPreferred) {
