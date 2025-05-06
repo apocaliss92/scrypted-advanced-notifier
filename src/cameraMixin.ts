@@ -16,7 +16,7 @@ import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, is
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, reportCameraValues, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAudioRulesSettings, getDecibelsFromRtp_PCMU8, getDetectionRulesSettings, getFrameGenerator, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebHookUrls, splitRules } from "./utils";
+import { AudioRule, BaseRule, DetectionRule, DeviceInterface, EventType, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getDecibelsFromRtp_PCMU8, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebHookUrls, splitRules } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -613,29 +613,45 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             logger.log(`Starting frames generator`);
             this.frameGenerationStartTime = Date.now();
             this.framesGeneratorSignal = new Deferred();
-            const frameGenerator = this.createFrameGenerator();
-            const generator = await sdk.connectRPCObject(frameGenerator);
 
-            for await (const frame of generator) {
-                try {
-                    if (this.framesGeneratorSignal.finished) {
-                        logger.log('Release decoder');
-                        break;
-                    }
-
-                    const now = Date.now();
-
-                    this.lastFrame = await frame.image.toBuffer({
-                        format: 'jpg',
-                    });
-                    this.lastFrameAcquired = now;
-
-                    await sleep(200);
-                } catch (e) {
-                    logger.log(`Error acquiring a frame from generator`, e.message);
-                    this.lastFrame = undefined;
+            for await (const frame of
+                await sdk.connectRPCObject(
+                    await this.createFrameGenerator())) {
+                if (this.framesGeneratorSignal.finished) {
+                    logger.log('Release decoder');
+                    break;
                 }
+
+                const now = Date.now();
+
+                this.lastFrame = await frame.image.toBuffer({
+                    format: 'jpg',
+                });
+                this.lastFrameAcquired = now;
+
+                await sleep(200);
             }
+
+            // for await (const frame of generator) {
+            //     try {
+            //         if (this.framesGeneratorSignal.finished) {
+            //             logger.log('Release decoder');
+            //             break;
+            //         }
+
+            //         const now = Date.now();
+
+            //         this.lastFrame = await frame.image.toBuffer({
+            //             format: 'jpg',
+            //         });
+            //         this.lastFrameAcquired = now;
+
+            //         await sleep(200);
+            //     } catch (e) {
+            //         logger.log(`Error acquiring a frame from generator`, e.message);
+            //         this.lastFrame = undefined;
+            //     }
+            // }
         } else {
             logger.info('Streams generator not yet released');
         }
@@ -2478,16 +2494,43 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         };
     }
 
+    async getDetectionModel() {
+        return await (this.plugin.storageSettings.values.objectDetectionDevice as ObjectDetection)?.getDetectionModel();
+    }
+
+    async getFrameGenerator() {
+        // TODO: restore this to pick the defaultDecoder from object Detection mixin
+        // let frameGenerator = this.storageSettings.values.newPipeline as string;
+        // if (frameGenerator === 'Default')
+        //     frameGenerator = this.plugin.storageSettings.values.defaultDecoder || 'Default';
+        const frameGenerator = 'Default';
+
+        const pipelines = getAllDevices().filter(d => d.interfaces.includes(ScryptedInterface.VideoFrameGenerator));
+        const webassembly = sdk.systemManager.getDeviceById(NVR_PLUGIN_ID, 'decoder') || undefined;
+        const gstreamer = sdk.systemManager.getDeviceById('@scrypted/python-codecs', 'gstreamer') || undefined;
+        const libav = sdk.systemManager.getDeviceById('@scrypted/python-codecs', 'libav') || undefined;
+        const ffmpeg = sdk.systemManager.getDeviceById(VIDEO_ANALYSIS_PLUGIN_ID, 'ffmpeg') || undefined;
+        const use = pipelines.find(p => p.name === frameGenerator) || webassembly || gstreamer || libav || ffmpeg;
+        return use.id;
+    }
+    
     async createFrameGenerator(options?: VideoFrameGeneratorOptions): Promise<AsyncGenerator<VideoFrame, any, unknown>> {
         const destination: MediaStreamDestination = 'local-recorder';
-        // const model = this.plugin.storageSettings.values.objectDetectionDevice;
+        const model = await this.getDetectionModel();
         const stream = await this.cameraDevice.getVideoStream({
-            // prebuffer: model.prebuffer,
+            prebuffer: model.prebuffer,
             destination,
         });
 
-        const frameGenerator = getFrameGenerator();
+        if (model.decoder) {
+            return stream as unknown as AsyncGenerator<VideoFrame, any, unknown>
+        }
+
+        const frameGenerator = await this.getFrameGenerator();
         const videoFrameGenerator = systemManager.getDeviceById<VideoFrameGenerator>(frameGenerator);
+
+        // const videoFrameGenerator = sdk.systemManager.getDeviceById<VideoFrameGenerator>(VIDEO_ANALYSIS_PLUGIN_ID, 'ffmpeg');
+
         if (!videoFrameGenerator)
             throw new Error('invalid VideoFrameGenerator');
 

@@ -17,6 +17,7 @@ export const ADVANCED_NOTIFIER_NOTIFIER_INTERFACE = `${ADVANCED_NOTIFIER_INTERFA
 export const PUSHOVER_PLUGIN_ID = '@scrypted/pushover';
 export const NTFY_PLUGIN_ID = '@apocaliss92/ntfy';
 export const NVR_PLUGIN_ID = '@scrypted/nvr';
+export const VIDEO_ANALYSIS_PLUGIN_ID = '@scrypted/objectdetector';
 export const HOMEASSISTANT_PLUGIN_ID = '@scrypted/homeassistant';
 export const NVR_NOTIFIER_INTERFACE = `${NVR_PLUGIN_ID}:Notifier`;
 export const SNAPSHOT_WIDTH = 1280;
@@ -649,7 +650,7 @@ export const getMixinBaseSettings = (props: {
                 title: 'Minimum notification delay',
                 description: 'Minimum amount of seconds to wait until a notification is sent. Set 0 to disable',
                 type: 'number',
-                defaultValue: 0,
+                defaultValue: isCamera ? 10 : 0,
             }
         }
 
@@ -2747,18 +2748,6 @@ export const convertSettingsToStorageSettings = async (props: {
     });
 
     return updateStorageSettings;
-}
-
-export const getFrameGenerator = () => {
-    const pipelines = Object.keys(sdk.systemManager.getSystemState())
-        .map(id => sdk.systemManager.getDeviceById(id))
-        .filter(d => d.interfaces.includes(ScryptedInterface.VideoFrameGenerator));
-    const webassembly = sdk.systemManager.getDeviceById('@scrypted/nvr', 'decoder') || undefined;
-    const gstreamer = sdk.systemManager.getDeviceById('@scrypted/python-codecs', 'gstreamer') || undefined;
-    const libav = sdk.systemManager.getDeviceById('@scrypted/python-codecs', 'libav') || undefined;
-    const ffmpeg = sdk.systemManager.getDeviceById('@scrypted/objectdetector', 'ffmpeg') || undefined;
-    const use = pipelines.find(p => p.name === 'Default') || webassembly || gstreamer || libav || ffmpeg;
-    return use.id;
 }
 
 export const supportedSensors: ScryptedDeviceType[] = [
