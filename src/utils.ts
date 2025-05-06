@@ -397,14 +397,6 @@ export const getTextSettings = (forMixin: boolean) => {
             defaultValue: !forMixin ? 'Door unlocked in ${room}' : undefined,
             placeholder: !forMixin ? 'Door unlocked in ${room}' : undefined
         },
-        packageText: {
-            [groupKey]: 'Texts',
-            title: 'Package text',
-            type: 'string',
-            description: 'Expression used to render the text when a package is detected. Available arguments ${room} ${time} ${nvrLink}',
-            defaultValue: !forMixin ? 'Package detected in ${room}' : undefined,
-            placeholder: !forMixin ? 'Package detected in ${room}' : undefined
-        },
         onlineText: {
             [groupKey]: 'Texts',
             title: 'Online device text',
@@ -471,6 +463,15 @@ export const getTextSettings = (forMixin: boolean) => {
             type: 'string',
             defaultValue: !forMixin ? 'Vehicle' : undefined,
             placeholder: !forMixin ? 'Vehicle' : undefined,
+            hide: forMixin
+        },
+        packageText: {
+            group: 'Texts',
+            subgroup: 'Detection classes',
+            title: 'Package text',
+            type: 'string',
+            defaultValue: !forMixin ? 'Package' : undefined,
+            placeholder: !forMixin ? 'Package' : undefined,
             hide: forMixin
         },
         audioText: {
