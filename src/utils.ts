@@ -15,6 +15,7 @@ export const ADVANCED_NOTIFIER_INTERFACE = name;
 export const ADVANCED_NOTIFIER_CAMERA_INTERFACE = `${ADVANCED_NOTIFIER_INTERFACE}:Camera`;
 export const ADVANCED_NOTIFIER_NOTIFIER_INTERFACE = `${ADVANCED_NOTIFIER_INTERFACE}:Notifier`;
 export const PUSHOVER_PLUGIN_ID = '@scrypted/pushover';
+export const NTFY_PLUGIN_ID = '@apocaliss92/ntfy';
 export const NVR_PLUGIN_ID = '@scrypted/nvr';
 export const HOMEASSISTANT_PLUGIN_ID = '@scrypted/homeassistant';
 export const NVR_NOTIFIER_INTERFACE = `${NVR_PLUGIN_ID}:Notifier`;

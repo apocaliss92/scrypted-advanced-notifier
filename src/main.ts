@@ -17,7 +17,7 @@ import { idPrefix, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPlug
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getAllDevices, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getNowFriendlyDate, getObjectDetectionTextKey, getPushoverPriority, getRuleKeys, getSnoozeId, getTextKey, getTextSettings, getWebHookUrls, getWebooks, HOMEASSISTANT_PLUGIN_ID, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeAction, splitRules, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TextSettingKey, TimelapseRule } from "./utils";
+import { ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getAllDevices, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getNowFriendlyDate, getObjectDetectionTextKey, getPushoverPriority, getRuleKeys, getSnoozeId, getTextKey, getTextSettings, getWebHookUrls, getWebooks, HOMEASSISTANT_PLUGIN_ID, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeAction, splitRules, supportedCameraInterfaces, supportedInterfaces, supportedSensorInterfaces, TextSettingKey, TimelapseRule } from "./utils";
 // import { AdvancedNotifierBaseMixin } from "./baseMixin";
 
 const { systemManager, mediaManager } = sdk;
@@ -283,6 +283,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     lastKnownPeopleFetched: number;
     hasCloudPlugin: boolean;
     knownPeople: string[] = [];
+    restartRequested = false;
 
     constructor(nativeId: string) {
         super(nativeId, {
@@ -873,33 +874,42 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.deviceRoomMap = deviceRoomMap;
             this.doorbellDevices = doorbellDevices;
 
-            const activeDevices = (getAllDevices().filter(device => device.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE))?.length || 0) + 1;
+            if (!this.restartRequested) {
+                const activeDevices = (getAllDevices()
+                    .filter(device =>
+                        device.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE) &&
+                        (device.type === ScryptedDeviceType.Camera || device.type === ScryptedDeviceType.Doorbell)
+                    )?.length || 0) + 1;
 
-            if (!!activeDevices) {
-                const { pendingResults, rpcObjects } = await getRpcData();
-                const pluginPendingResults = pendingResults.find(elem => elem.name === pluginName)?.count;
-                const pluginRpcObjects = rpcObjects.find(elem => elem.name === pluginName)?.count;
+                if (!!activeDevices) {
+                    const { pendingResults, rpcObjects } = await getRpcData();
+                    const pluginPendingResults = pendingResults.find(elem => elem.name === pluginName)?.count;
+                    const pluginRpcObjects = rpcObjects.find(elem => elem.name === pluginName)?.count;
 
-                logger.info(`PLUGIN-STUCK-CHECK: active devices ${activeDevices}, pending results ${pluginPendingResults} RPC objects ${pluginRpcObjects}`);
+                    logger.info(`PLUGIN-STUCK-CHECK: active devices ${activeDevices}, pending results ${pluginPendingResults} RPC objects ${pluginRpcObjects}`);
 
-                if (
-                    pluginPendingResults > (MAX_PENDING_RESULT_PER_CAMERA * activeDevices) ||
-                    pluginRpcObjects > (MAX_RPC_OBJECTS_PER_CAMERA * activeDevices)
-                ) {
-                    logger.error(`Advanced notifier plugin seems stuck, ${pluginPendingResults} pending results and ${pluginRpcObjects} RPC objects. Restarting`);
-                    await sdk.deviceManager.requestRestart();
-                }
+                    if (
+                        pluginPendingResults > (MAX_PENDING_RESULT_PER_CAMERA * activeDevices) ||
+                        pluginRpcObjects > (MAX_RPC_OBJECTS_PER_CAMERA * activeDevices)
+                    ) {
+                        logger.error(`Advanced notifier plugin seems stuck, ${pluginPendingResults} pending results and ${pluginRpcObjects} RPC objects. Restarting`);
+                        this.restartRequested = true;
+                        await sdk.deviceManager.requestRestart();
+                    }
 
-                const nvrPendingResults = pendingResults.find(elem => elem.name === NVR_PLUGIN_ID)?.count;
-                const nvrRpcObjects = rpcObjects.find(elem => elem.name === NVR_PLUGIN_ID)?.count;
-                logger.info(`NVR-STUCK-CHECK: active devices ${activeDevices}, pending results ${nvrPendingResults} RPC objects ${nvrRpcObjects}`);
+                    if (!this.restartRequested) {
+                        const nvrPendingResults = pendingResults.find(elem => elem.name === NVR_PLUGIN_ID)?.count;
+                        const nvrRpcObjects = rpcObjects.find(elem => elem.name === NVR_PLUGIN_ID)?.count;
+                        logger.info(`NVR-STUCK-CHECK: active devices ${activeDevices}, pending results ${nvrPendingResults} RPC objects ${nvrRpcObjects}`);
 
-                if (
-                    nvrPendingResults > (MAX_PENDING_RESULT_PER_CAMERA * activeDevices) ||
-                    nvrRpcObjects > (MAX_RPC_OBJECTS_PER_CAMERA * activeDevices)
-                ) {
-                    logger.error(`NVR plugin seems stuck, ${nvrPendingResults} pending results and ${nvrRpcObjects} RPC objects. Restarting`);
-                    await sdk.deviceManager.requestRestart();
+                        if (
+                            nvrPendingResults > (MAX_PENDING_RESULT_PER_CAMERA * activeDevices) ||
+                            nvrRpcObjects > (MAX_RPC_OBJECTS_PER_CAMERA * activeDevices)
+                        ) {
+                            logger.error(`NVR plugin seems stuck, ${nvrPendingResults} pending results and ${nvrRpcObjects} RPC objects. Restarting`);
+                            await sdk.deviceManager.requestRestart();
+                        }
+                    }
                 }
             }
         } catch (e) {
@@ -1687,9 +1697,23 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 clickAction: videoUrl ?? haUrl,
                 video: !skipVideoAttach ? videoUrl : undefined,
                 actions: !ignoreActions ? haActionsToNotify : undefined
-            }
-        } else if (notifier.pluginId === NVR_PLUGIN_ID) {
-            // TODO ADD NVR DATA
+            };
+        } else if (notifier.pluginId === NTFY_PLUGIN_ID) {
+            const ntfyActions: any[] = snoozeActions.filter(act => act.snooze !== 5).map(action => ({
+                action: 'http',
+                label: action.text,
+                url: action.url,
+                method: 'GET',
+            }));
+            ntfyActions.unshift({
+                action: 'view',
+                label: 'NVR',
+                url: externalUrl
+            })
+            data.ntfy = {
+                // click: videoUrl ?? externalUrl,
+                actions: !ignoreActions ? ntfyActions : undefined
+            };
         }
 
         return { data, snoozeActions };
