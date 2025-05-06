@@ -1586,8 +1586,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         notifierId: string
     }) {
         const { notifierId, textKey } = props;
-        return this.currentNotifierMixinsMap[notifierId]?.storageSettings.values[textKey] || this.storageSettings.getItem(textKey as any);
-
+        return this.currentNotifierMixinsMap[notifierId]?.storageSettings.values[textKey] || this.storageSettings.values[textKey];
     }
 
     private async getNotificationText(
@@ -1610,9 +1609,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const textKey = getTextKey({ eventType });
 
         const textToUse = rule?.customText || this.getTextKey({ notifierId, textKey });
-        const detectionObjectTextKey = eventType === EventType.ObjectDetection ? getObjectDetectionTextKey({ detectionClass }) : undefined;
 
-        const detectionObjectText = detectionObjectTextKey ? this.getTextKey({ notifierId, textKey: detectionObjectTextKey }) : undefined;
+        let classnameText: string;
+        if (eventType === EventType.ObjectDetection) {
+            const detectionObjectTextKey = getObjectDetectionTextKey({ detectionClass });
+            classnameText = this.getTextKey({ notifierId, textKey: detectionObjectTextKey });
+            this.getLogger().log(detectionClass, detectionObjectTextKey, classnameText)
+        }
 
         const detectionTimeText = this.getTextKey({ notifierId, textKey: 'detectionTimeText' });
         const time = eval(detectionTimeText.replace('${time}', detectionTime));
@@ -1621,7 +1624,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         return textToUse.toString()
             .replace('${time}', time)
-            .replace('${classnameText}', detectionObjectText ?? '')
+            .replace('${classnameText}', classnameText ?? '')
             .replace('${nvrLink}', externalUrl ?? '')
             .replace('${person}', label ?? '')
             .replace('${plate}', label ?? '')

@@ -434,8 +434,8 @@ export const getTextSettings = (forMixin: boolean) => {
             subgroup: 'Detection classes',
             title: 'Motion text',
             type: 'string',
-            defaultValue: 'Motion',
-            placeholder: 'Motion',
+            defaultValue: !forMixin ? 'Motion' : undefined,
+            placeholder: !forMixin ? 'Motion' : undefined,
             hide: forMixin
         },
         personText: {
@@ -443,8 +443,8 @@ export const getTextSettings = (forMixin: boolean) => {
             subgroup: 'Detection classes',
             title: 'Person text',
             type: 'string',
-            defaultValue: 'Person',
-            placeholder: 'Person',
+            defaultValue: !forMixin ? 'Person' : undefined,
+            placeholder: !forMixin ? 'Person' : undefined,
             hide: forMixin
         },
         animalText: {
