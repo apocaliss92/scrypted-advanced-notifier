@@ -17,7 +17,7 @@ import { idPrefix, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPlug
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, allInterfaces, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getAllDevices, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getNowFriendlyDate, getObjectDetectionTextKey, getPushoverPriority, getRuleKeys, getSnoozeId, getTextKey, getTextSettings, getWebHookUrls, getWebooks, HOMEASSISTANT_PLUGIN_ID, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, ScryptedEventSource, SnoozeAction, splitRules, SupportedSensorType, TextSettingKey, TimelapseRule } from "./utils";
+import { ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, allInterfaces, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getNowFriendlyDate, getObjectDetectionTextKey, getPushoverPriority, getRuleKeys, getSnoozeId, getTextKey, getTextSettings, getWebHookUrls, getWebooks, HOMEASSISTANT_PLUGIN_ID, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, ScryptedEventSource, SnoozeAction, splitRules, SupportedSensorType, TextSettingKey, TimelapseRule } from "./utils";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -1781,7 +1781,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 log: source === NotificationSource.TEST,
             });
 
-            logger.log(`Notification image ${b64Image?.substring(0, 10)} fetched from ${imageSource}`);
+            logger.log(`Notification image ${getB64ImageLog(b64Image)} fetched from ${imageSource}`);
 
             let title = (triggerDevice ?? device).name;
 
@@ -1938,12 +1938,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         b64Image?: string,
         classname?: string,
         label?: string,
+        eventSource: ScryptedEventSource
     }) => {
-        const { device, name, timestamp, b64Image, classname, label } = props;
+        const { device, name, timestamp, b64Image, classname, label, eventSource } = props;
         const { imagesPath, imagesRegex } = this.storageSettings.values;
         const logger = this.getLogger(device);
+        const mixin = this.currentCameraMixinsMap[device.id];
+
         if (b64Image) {
-            if (imagesPath) {
+            if (imagesPath && mixin.isDelayPassed({ type: DelayType.FsImageUpdate, filename: name, eventSource })) {
                 const { savePath } = this.getImagePath({ device, imageIdentifier: name });
 
                 try {
@@ -1965,7 +1968,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 await fs.promises.writeFile(latestPath, base64Data, 'base64');
             }
 
-            const mixin = this.currentCameraMixinsMap[device.id];
             const {
                 postDetectionImageUrls,
                 postDetectionImageClasses,
@@ -1976,8 +1978,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 postDetectionImageWebhook &&
                 postDetectionImageClasses?.includes(classname) &&
                 mixin.isDelayPassed({
-                    type: 'PostWebhookImage',
+                    type: DelayType.PostWebhookImage,
                     classname,
+                    eventSource,
                 })
             ) {
                 for (const url of postDetectionImageUrls) {

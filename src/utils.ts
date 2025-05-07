@@ -38,6 +38,25 @@ export interface ObserveZoneData {
     path: Point[]
 };
 
+export interface MatchRule { match?: ObjectDetectionResult, rule: BaseRule, dataToReport?: any }
+
+export enum DelayType {
+    BasicDetection = 'BasicDetection',
+    RuleImageUpdate = 'RuleImageUpdate',
+    RuleNotification = 'RuleNotification',
+    OccupancyNotification = 'OccupancyNotification',
+    FsImageUpdate = 'FsImageUpdate',
+    PostWebhookImage = 'PostWebhookImage',
+}
+
+export type IsDelayPassedProps =
+    { type: DelayType.BasicDetection, classname: string, label?: string, eventSource: ScryptedEventSource } |
+    { type: DelayType.FsImageUpdate, filename: string, eventSource: ScryptedEventSource } |
+    { type: DelayType.OccupancyNotification, matchRule: MatchRule, eventSource: ScryptedEventSource } |
+    { type: DelayType.PostWebhookImage, classname: string, eventSource: ScryptedEventSource } |
+    { type: DelayType.RuleImageUpdate, matchRule: MatchRule, eventSource: ScryptedEventSource } |
+    { type: DelayType.RuleNotification, matchRule: MatchRule, eventSource: ScryptedEventSource };
+
 export const getElegibleDevices = () => {
     const allDevices = Object.keys(sdk.systemManager.getSystemState()).map(deviceId => sdk.systemManager.getDeviceById(deviceId) as unknown as DeviceInterface);
 
@@ -2934,3 +2953,5 @@ export const splitRules = (props: {
 export const getSnoozeId = (detectionId: string, notifierId: string) => {
     return `${notifierId}_${detectionId}`;
 }
+
+export const getB64ImageLog = (b64Image: string) => `${b64Image ? b64Image?.substring(0, 10) + '...' : 'NO_IMAGE'}`;
