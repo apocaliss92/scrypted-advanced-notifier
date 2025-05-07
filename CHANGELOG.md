@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.5.5
+
+- Add POST notification webhook on notifier level
+
 ### 3.5.4
 
 - Add main notifications switch on the plugin level

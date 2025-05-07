@@ -1,7 +1,7 @@
 import sdk, { NotifierOptions, MediaObject, Setting, Settings, Notifier, ScryptedInterface } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DeviceInterface, getMixinBaseSettings, getTextSettings, NVR_NOTIFIER_INTERFACE } from "./utils";
+import { DeviceInterface, getMixinBaseSettings, getTextSettings, getWebHookUrls, NVR_NOTIFIER_INTERFACE } from "./utils";
 import HomeAssistantUtilitiesProvider from "./main";
 import { getBaseLogger, getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
@@ -28,6 +28,13 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
             defaultValue: false,
             immediate: true,
         },
+        postNotificationWebhook: {
+            subgroup: 'Webhooks',
+            type: 'html',
+            description: 'POST with body containing: cameraId, imageUrl, timestamp, message, hash (identifier of the webhook call)',
+            title: 'Cloud URL',
+            readonly: true,
+        },
         ...getTextSettings(true) as any,
     });
     mainLoopListener: NodeJS.Timeout;
@@ -52,7 +59,25 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
 
         this.clientId = `scrypted_an_notifier_${this.id}`;
         this.plugin.currentNotifierMixinsMap[this.id] = this;
+
+        this.initValues().then().catch(logger.log);
+        
         this.startStop(this.plugin.storageSettings.values.pluginEnabled).then().catch(logger.log);
+    }
+
+    async initValues() {
+        const logger = this.getLogger();
+        try {
+            if (this.plugin.hasCloudPlugin) {
+                const { postNotificationUrl } = await getWebHookUrls({
+                    cameraIdOrAction: this.id,
+                    console: logger,
+                    device: this.notifierDevice,
+                });
+
+                await this.storageSettings.putSetting('postNotificationWebhook', postNotificationUrl);
+            }
+        } catch { };
     }
 
     async release() {

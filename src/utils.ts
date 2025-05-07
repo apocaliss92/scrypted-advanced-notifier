@@ -92,6 +92,7 @@ export const getWebooks = async () => {
     const timelapseStream = 'timelapseStream';
     const timelapseThumbnail = 'timelapseThumbnail';
     const snoozeNotification = 'snoozeNotification';
+    const postNotification = 'postNotification';
 
     return {
         lastSnapshot,
@@ -100,6 +101,7 @@ export const getWebooks = async () => {
         timelapseStream,
         timelapseThumbnail,
         snoozeNotification,
+        postNotification,
     }
 }
 
@@ -131,10 +133,11 @@ export const getWebHookUrls = async (props: {
     let timelapseStreamUrl: string;
     let timelapseDownloadUrl: string;
     let timelapseThumbnailUrl: string;
+    let postNotificationUrl: string;
 
     const snoozeUrls: SnoozeAction[] = [];
 
-    const { lastSnapshot, haAction, timelapseDownload, timelapseStream, timelapseThumbnail, snoozeNotification } = await getWebooks();
+    const { lastSnapshot, haAction, timelapseDownload, timelapseStream, timelapseThumbnail, snoozeNotification, postNotification } = await getWebooks();
 
     try {
         const cloudEndpointRaw = await endpointManager.getCloudEndpoint(undefined, { public: true });
@@ -148,6 +151,7 @@ export const getWebHookUrls = async (props: {
         lastSnapshotCloudUrl = `${cloudEndpoint}${lastSnapshot}/${encodedId}/{IMAGE_NAME}${paramString}`;
         lastSnapshotLocalUrl = `${localEndpoint}${lastSnapshot}/${encodedId}/{IMAGE_NAME}${paramString}`;
         haActionUrl = `${cloudEndpoint}${haAction}/${encodedId}${paramString}`;
+        postNotificationUrl = `${cloudEndpoint}${postNotification}/${encodedId}${paramString}`;
 
         if (rule) {
             const encodedRuleName = encodeURIComponent(rule.name);
@@ -179,7 +183,8 @@ export const getWebHookUrls = async (props: {
         timelapseStreamUrl,
         timelapseDownloadUrl,
         timelapseThumbnailUrl,
-        snoozeUrls
+        snoozeUrls,
+        postNotificationUrl
     };
 }
 
@@ -311,6 +316,7 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
 export enum NotificationSource {
     NVR = 'NVR',
     TEST = 'TEST',
+    POST_WEBHOOK = 'POST_WEBHOOK',
     DETECTION = 'DETECTION',
     TIMELAPSE = 'TIMELAPSE',
 }

@@ -1,4 +1,4 @@
-import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SecuritySystem, SecuritySystemMode, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
 import child_process from 'child_process';
@@ -27,9 +27,10 @@ interface NotifyCameraProps {
     notifierId: string,
     detectionKey: string,
     time: number,
+    message?: string,
     image?: MediaObject,
     detection?: ObjectDetectionResult
-    eventType: DetectionEvent,
+    eventType?: DetectionEvent,
     rule?: DetectionRule,
     source?: NotificationSource,
     logger: Console,
@@ -440,7 +441,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         })}`);
 
         try {
-            const { lastSnapshot, haAction, timelapseDownload, timelapseStream, timelapseThumbnail, snoozeNotification } = await getWebooks();
+            const { lastSnapshot, haAction, timelapseDownload, timelapseStream, timelapseThumbnail, snoozeNotification, postNotification } = await getWebooks();
             if (webhook === haAction) {
                 const { url, accessToken } = await this.getHaApiUrl();
 
@@ -593,6 +594,35 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 });
 
                 response.send(message, {
+                    code: 200,
+                });
+            } else if (webhook === postNotification && request.method === 'POST') {
+                const parsedBody = JSON.parse(request.body ?? '{}');
+                const { cameraId, imageUrl, timestamp, message, hash } = parsedBody;
+                const notifier = systemManager.getDeviceById(deviceIdOrAction);
+                const camera = systemManager.getDeviceById<DeviceInterface>(cameraId);
+
+                let image: MediaObject;
+                if (imageUrl) {
+                    image = await sdk.mediaManager.createMediaObjectFromUrl(imageUrl);
+                }
+
+                const logMessage = `Notifying image ${getB64ImageLog(imageUrl)} to notifier ${notifier.name} through camera ${camera.name}. Image ${image}`;
+                logger.log(logMessage);
+
+                this.notifyCamera({
+                    triggerDevice: camera,
+                    notifierId: deviceIdOrAction,
+                    time: timestamp,
+                    source: NotificationSource.POST_WEBHOOK,
+                    logger,
+                    message,
+                    image,
+                    detectionKey: `POST_WEBHOOK_${notifier.id}_${camera.id}_${hash}`,
+                    rule: { ruleType: RuleType.Detection } as DetectionRule
+                });
+
+                response.send(logMessage, {
                     code: 200,
                 });
             }
@@ -1767,7 +1797,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 logger,
                 rule,
                 detectionKey,
-                eventType
+                eventType,
+                message: messageParent,
             } = props;
 
             const device = cameraDevice ?? await this.getCameraDevice(triggerDevice);
@@ -1781,15 +1812,18 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             const { externalUrl } = this.getUrls(device.id, time);
 
-            let message = await this.getNotificationText({
-                detection,
-                externalUrl,
-                detectionTime: time,
-                notifierId,
-                eventType,
-                device: triggerDevice,
-                rule,
-            });
+            let message = messageParent;
+            if (!message) {
+                message = await this.getNotificationText({
+                    detection,
+                    externalUrl,
+                    detectionTime: time,
+                    notifierId,
+                    eventType,
+                    device: triggerDevice,
+                    rule,
+                });
+            }
 
             const { b64Image, image, imageSource } = await this.currentCameraMixinsMap[device.id].getImage({
                 image: imageParent,
@@ -1800,13 +1834,17 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             let title = (triggerDevice ?? device).name;
 
-            const zone = this.getTriggerZone(detection, rule);
+            let zone: string;
+            if (rule && detection) {
+                zone = this.getTriggerZone(detection, rule);
+            }
+
             if (zone) {
                 title += ` (${zone})`;
             }
 
             const aiPlatform = this.storageSettings.getItem('aiPlatform') as AiPlatform;
-            if (aiPlatform !== AiPlatform.Disabled && rule.useAi) {
+            if (aiPlatform !== AiPlatform.Disabled && rule?.useAi) {
                 const imageUrl = `data:image/jpeg;base64,${b64Image}`;
                 const aiResponse = await getAiMessage({
                     imageUrl,
@@ -1924,7 +1962,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     logger,
                     detectionKey: 'testIdentifierKey',
                     rule: { priority: testPriority, useAi: testUseAi, ruleType: RuleType.Detection } as DetectionRule
-                })
+                });
             }
         } catch (e) {
             logger.log('Error in executeNotificationTest', e);
