@@ -396,16 +396,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                     if (rule.currentlyActive) {
                         if (ruleType === RuleType.Timelapse) {
-                            const { common: { endTimeKey }, timelapse: { lastGeneratedKey } } = getRuleKeys({
+                            const { timelapse: { lastGeneratedKey } } = getRuleKeys({
                                 ruleType,
                                 ruleName: rule.name,
                             });
-                            // const endTime = this.storageSettings.getItem(endTimeKey) as number;
-                            // const referenceEnd = moment(Number(endTime));
-                            // const endMinutes = getMinutes(referenceEnd);
-                            // const nowMoment = moment();
-
-                            // Make sure to not spam generate timelapses if any issue occurs deferring by 1 hour
                             const lastGenerated = (rule as TimelapseRule).lastGenerated;
                             const isTimePassed = !lastGenerated || (now - lastGenerated) >= (1000 * 60 * 60 * 1);
                             if (isTimePassed) {

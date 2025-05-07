@@ -891,6 +891,8 @@ export const getRuleKeys = (props: {
     const showMoreConfigurationsKey = `${prefix}:${ruleName}:showMoreConfigurations`;
     const minDelayKey = `${prefix}:${ruleName}:minDelay`;
     const minMqttPublishDelayKey = `${prefix}:${ruleName}:minMqttPublishDelay`;
+    const startRuleTextKey = `${prefix}:${ruleName}:startRuleText`;
+    const endRuleTextKey = `${prefix}:${ruleName}:endRuleText`;
 
     // Specific for detection rules
     const detectionClassesKey = `${prefix}:${ruleName}:detecionClasses`;
@@ -951,6 +953,8 @@ export const getRuleKeys = (props: {
             showMoreConfigurationsKey,
             minDelayKey,
             minMqttPublishDelayKey,
+            startRuleTextKey,
+            endRuleTextKey,
         },
         detection: {
             useNvrDetectionsKey,
@@ -1983,6 +1987,8 @@ export interface BaseRule {
     minDelay?: number;
     minMqttPublishDelay?: number;
     devices?: string[];
+    startRuleText?: string;
+    endRuleText?: string;
 }
 
 export interface DetectionRule extends BaseRule {
