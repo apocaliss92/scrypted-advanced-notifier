@@ -1049,7 +1049,7 @@ export const getRuleSettings = (props: {
     refreshSettings: OnShowMore,
     logger: Console
 }) => {
-    const { ruleType, storage, ruleSource, getSpecificRules, onRuleToggle, refreshSettings } = props;
+    const { ruleType, storage, ruleSource, getSpecificRules, onRuleToggle, refreshSettings, logger } = props;
     const group = ruleSource === RuleSource.Device ? mixinRulesGroup : pluginRulesGroup;
     const settings: StorageSetting[] = [];
     const { rulesKey, subgroupPrefix } = ruleTypeMetadataMap[ruleType];
@@ -1114,9 +1114,7 @@ export const getRuleSettings = (props: {
                 group,
                 subgroup,
                 immediate: true,
-                onPut: async (_, showMore) => {
-                    await refreshSettings(showMore)
-                },
+                onPut: async (_, showMore) => await refreshSettings(showMore),
             },
         );
 
@@ -2313,7 +2311,8 @@ export const getDetectionRules = (props: {
                 ...restCriterias,
             })}`);
 
-            if (deviceOk || isPlugin || activationType === DetectionRuleActivation.OnActive) {
+            // if (deviceOk || isPlugin || activationType === DetectionRuleActivation.OnActive) {
+            if (deviceOk || (isPlugin && activationType === DetectionRuleActivation.OnActive)) {
                 availableRules.push(cloneDeep(detectionRule));
             }
 
@@ -2774,7 +2773,7 @@ export const getAllDevices = () => {
 export const convertSettingsToStorageSettings = async (props: {
     device: StorageSettingsDevice,
     dynamicSettings: StorageSetting[],
-    initStorage: StorageSettingsDict<string>
+    initStorage: StorageSettingsDict<string>,
 }) => {
     const { device, dynamicSettings, initStorage } = props;
 

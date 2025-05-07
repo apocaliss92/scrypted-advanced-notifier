@@ -242,13 +242,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.clientId = `scrypted_an_camera_${this.id}`;
         this.plugin.currentCameraMixinsMap[this.id] = this;
 
-        this.storageSettings.settings.entityId.onGet = async () => {
-            const entities = this.plugin.fetchedEntities;
-            return {
-                choices: entities ?? []
-            }
-        }
-
         this.cameraDevice = systemManager.getDeviceById<DeviceInterface>(this.id);
 
         this.initValues().then().catch(logger.log);
@@ -451,6 +444,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         // Every 60 minutes repeat the autodiscovery
                         if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
                             logger.log('Starting MQTT autodiscovery');
+                            logger.log(allAvailableRules);
                             setupCameraAutodiscovery({
                                 mqttClient,
                                 device: this.cameraDevice,
@@ -867,6 +861,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
         if (this.storageSettings.settings.checkSoundPressure) {
             this.storageSettings.settings.checkSoundPressure.hide = !enabledToMqtt;
+        }
+
+        this.storageSettings.settings.entityId.onGet = async () => {
+            const entities = this.plugin.fetchedEntities;
+            return {
+                choices: entities ?? []
+            }
         }
     }
 

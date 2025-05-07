@@ -1,4 +1,4 @@
-import sdk, { EventListenerRegister, MediaObject, ScryptedDeviceType, Setting, Settings } from "@scrypted/sdk";
+import sdk, { EventListenerRegister, MediaObject, ScryptedDeviceType, Setting, Settings, SettingValue } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep } from "lodash";
@@ -42,18 +42,13 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
     ) {
         super(options);
         const logger = this.getLogger();
+        this.plugin.currentSensorMixinsMap[this.id] = this;
+
         this.supportedSensorType = supportedSensorType;
 
         this.metadata = binarySensorMetadataMap[supportedSensorType];
 
-        this.storageSettings.settings.entityId.onGet = async () => {
-            const entities = this.plugin.fetchedEntities;
-            return {
-                choices: entities ?? []
-            }
-        }
-
-        this.plugin.currentSensorMixinsMap[this.id] = this;
+        this.refreshSettings().catch(logger.log);
 
         this.startStop(this.plugin.storageSettings.values.pluginEnabled).then().catch(logger.log);
     }
@@ -154,8 +149,8 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         const detectionRulesSettings = await getDetectionRulesSettings({
             storage: this.storageSettings,
             isCamera: false,
-            ruleSource: RuleSource.Device,
             logger,
+            ruleSource: RuleSource.Device,
             refreshSettings: this.refreshSettings.bind(this),
         });
         dynamicSettings.push(...detectionRulesSettings);
@@ -163,16 +158,37 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         this.storageSettings = await convertSettingsToStorageSettings({
             device: this,
             dynamicSettings,
-            initStorage: this.initStorage,
+            initStorage: this.initStorage
         });
+
+        this.storageSettings.settings.entityId.onGet = async () => {
+            const entities = this.plugin.fetchedEntities;
+            return {
+                choices: entities ?? []
+            }
+        }
     }
 
     async getMixinSettings(): Promise<Setting[]> {
-        return this.storageSettings.getSettings();
+        try {
+            return this.storageSettings.getSettings();
+        } catch (e) {
+            this.getLogger().log('Error in getMixinSettings', e);
+            return [];
+        }
+    }
+
+    async putSetting(key: string, value: SettingValue): Promise<void> {
+        const [group, ...rest] = key.split(':');
+        if (group === this.settingsGroupKey) {
+            this.storageSettings.putSetting(rest.join(':'), value);
+        } else {
+            super.putSetting(key, value);
+        }
     }
 
     async putMixinSetting(key: string, value: string) {
-        this.storage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
+        this.storageSettings.putSetting(key, value);
     }
 
     async release() {
@@ -248,7 +264,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
                 const rules = cloneDeep(this.runningDetectionRules.filter(rule => isFromNvr ? rule.isNvr : !rule.isNvr)) ?? [];
                 for (const rule of rules) {
-                    logger.log(`Starting ${rule.notifiers.length} notifiers for event ${eventType}`);
+                    logger.log(`Event ${eventType} will be proxied to the device ${device.name}`);
                     logger.info(JSON.stringify({
                         eventType,
                         triggerTime,
