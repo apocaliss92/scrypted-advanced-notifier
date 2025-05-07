@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.5.4
+
+- Add main notifications switch on the plugin level
+
 ### 3.5.0
 
 - [BREAKING CHANGE] Sensors classes have been changed, any plugin rule using lock or contact labels, shoul be changed to new ones

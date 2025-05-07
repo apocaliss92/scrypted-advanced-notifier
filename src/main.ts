@@ -13,7 +13,7 @@ import { AiPlatform, getAiMessage } from "./aiUtils";
 import { AdvancedNotifierCamera } from "./camera";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { DetectionClass, detectionClassesDefaultMap } from "./detectionClasses";
-import { idPrefix, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
+import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
@@ -53,6 +53,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         },
         mqttEnabled: {
             title: 'MQTT enabled',
+            type: 'boolean',
+            defaultValue: true,
+            immediate: true,
+        },
+        notificationsEnabled: {
+            title: 'Notifications enabled',
             type: 'boolean',
             defaultValue: true,
             immediate: true,
@@ -282,6 +288,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     allAvailableRules: BaseRule[] = [];
     fetchedEntities: string[] = [];
     lastAutoDiscovery: number;
+    lastConfigurationsCheck: number;
     lastKnownPeopleFetched: number;
     hasCloudPlugin: boolean;
     knownPeople: string[] = [];
@@ -408,14 +415,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             this.mainFlowInterval = setInterval(async () => {
                 await this.mainFlow();
-
-                const now = Date.now();
-                if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
-                    this.lastAutoDiscovery = now;
-
-                    await this.checkPluginConfigurations(false);
-                    await this.sendAutoDiscovery();
-                }
             }, 2 * 1000);
         } catch (e) {
             this.getLogger().log(`Error in initFlow`, e);
@@ -635,30 +634,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
     }
 
-    private async sendAutoDiscovery() {
-        if (this.storageSettings.values.mqttEnabled) {
-            const mqttClient = await this.getMqttClient();
-            const logger = this.getLogger();
-
-            const pluginStorage = this.storageSettings;
-            const { availableRules } = getDetectionRules({ pluginStorage, console: logger });
-
-            logger.log('Starting MQTT autodiscovery');
-            setupPluginAutodiscovery({
-                mqttClient,
-                people: await this.getKnownPeople(),
-                console: logger,
-                rules: availableRules,
-            }).then(async (activeTopics) => {
-                await this.mqttClient.cleanupAutodiscoveryTopics(activeTopics);
-            }).catch(logger.error);
-
-            this.allAvailableRules = availableRules;
-
-            await this.setupMqttEntities();
-        }
-    }
-
     async putSetting(key: string, value: SettingValue): Promise<void> {
         return this.storageSettings.putSetting(key, value);
     }
@@ -728,6 +703,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         const { common: { enabledKey } } = getRuleKeys({ ruleName, ruleType: RuleType.Detection });
                         logger.debug(`Setting rule ${ruleName} to ${active}`);
                         await this.putSetting(enabledKey, active);
+                    },
+                    switchNotificationsEnabledCb: async (active) => {
+                        logger.log(`Setting notifications active to ${!active}`);
+                        await this.storageSettings.putSetting(`notificationsEnabled`, active);
                     },
                 });
             } catch (e) {
@@ -880,6 +859,43 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.videocameraDevicesMap = videocameraDevicesMap;
             this.deviceRoomMap = deviceRoomMap;
             this.doorbellDevices = doorbellDevices;
+
+            const now = Date.now();
+
+            if (!this.lastConfigurationsCheck || (now - this.lastConfigurationsCheck) > 1000 * 60 * 60) {
+                this.lastConfigurationsCheck = now;
+                await this.checkPluginConfigurations(false);
+            }
+
+            const { mqttEnabled, notificationsEnabled } = this.storageSettings.values;
+            if (mqttEnabled) {
+                const mqttClient = await this.getMqttClient();
+                const logger = this.getLogger();
+                if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
+                    this.lastAutoDiscovery = now;
+
+                    logger.log('Starting MQTT autodiscovery');
+                    setupPluginAutodiscovery({
+                        mqttClient,
+                        people: await this.getKnownPeople(),
+                        console: logger,
+                        rules: availableRules,
+                    }).then(async (activeTopics) => {
+                        await this.mqttClient.cleanupAutodiscoveryTopics(activeTopics);
+                    }).catch(logger.error);
+
+                    this.allAvailableRules = availableRules;
+
+                    await this.setupMqttEntities();
+                }
+
+                publishPluginValues({
+                    mqttClient,
+                    notificationsEnabled,
+                    rulesToEnable,
+                    rulesToDisable,
+                }).catch(logger.error);
+            }
 
             if (!this.restartRequested) {
                 const activeDevices = (getAllDevices()
@@ -1090,7 +1106,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger,
             people,
             refreshSettings: async () => await this.refreshSettings(),
-            onRuleToggle: async (ruleName: string, enabled: boolean) => this.toggleRule(ruleName, RuleType.Detection, enabled),
+            // onRuleToggle: async (ruleName: string, enabled: boolean) => this.toggleRule(ruleName, RuleType.Detection, enabled),
         });
 
         dynamicSettings.push(...getAiSettings({
@@ -1861,14 +1877,20 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         source?: NotificationSource,
         notifier: ScryptedDevice & Notifier & DeviceBase
     }) {
-        const { title, icon, image, notifierOptions, logger, notifier, source } = props;
-        const mixin = this.currentNotifierMixinsMap[notifier.id] as AdvancedNotifierNotifierMixin
-        const isEnabled = mixin?.storageSettings.values.enabled ?? true;
+        const { title, icon, image, notifierOptions, logger, notifier } = props;
+        const { notificationsEnabled } = this.storageSettings.values;
 
-        if (!isEnabled) {
-            logger.log(`Notifier ${notifier.name} skipped because disabled`);
+        if (!notificationsEnabled) {
+            logger.log(`Plugin notifications disabled`);
         } else {
-            await notifier.sendNotification(title, notifierOptions, image, icon);
+            const mixin = this.currentNotifierMixinsMap[notifier.id] as AdvancedNotifierNotifierMixin
+            const isEnabled = mixin?.storageSettings.values.enabled ?? true;
+
+            if (!isEnabled) {
+                logger.log(`Notifier ${notifier.name} skipped because disabled`);
+            } else {
+                await notifier.sendNotification(title, notifierOptions, image, icon);
+            }
         }
     }
 

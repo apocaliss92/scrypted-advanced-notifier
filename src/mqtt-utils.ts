@@ -78,132 +78,153 @@ const peopleTrackerId = 'people-tracker';
 const scryptedIdPrefix = 'scrypted-an';
 const pluginId = 'plugin';
 
-const triggeredEntity: MqttEntity = {
-    entity: 'triggered',
-    name: 'Notification triggered',
-    domain: 'binary_sensor',
-    valueToDispatch: 'false',
-    identifier: MqttEntityIdentifier.Triggered,
-    deviceClass: 'motion'
-};
+const getBasicMqttEntities = () => {
+    const triggeredEntity: MqttEntity = {
+        entity: 'triggered',
+        name: 'Notification triggered',
+        domain: 'binary_sensor',
+        valueToDispatch: 'false',
+        identifier: MqttEntityIdentifier.Triggered,
+        deviceClass: 'motion'
+    };
+    const batteryEntity: MqttEntity = {
+        domain: 'sensor',
+        entity: 'battery',
+        name: 'Battery',
+        deviceClass: 'battery',
+        entityCategory: 'diagnostic',
+        unitOfMeasurement: '%',
+        stateClass: 'measurement',
+        retain: true,
+    };
+    const sleepingEntity: MqttEntity = {
+        domain: 'binary_sensor',
+        entity: 'sleeping',
+        name: 'Sleeping',
+        entityCategory: 'diagnostic',
+        retain: true,
+        icon: 'mdi:sleep'
+    };
+    const notificationsEnabledEntity: MqttEntity = {
+        domain: 'switch',
+        entity: 'notifications_enabled',
+        name: 'Notifications enabled',
+        entityCategory: 'diagnostic',
+        retain: true,
+        icon: 'mdi:bell'
+    };
+    const audioDetectionEnabledEntity: MqttEntity = {
+        domain: 'switch',
+        entity: 'audio_detection_enabled',
+        name: 'Audio detection enabled',
+        entityCategory: 'diagnostic',
+        retain: true,
+        icon: 'mdi:microphone-variant'
+    };
+    const decoderSnapshotsEnabledEntity: MqttEntity = {
+        domain: 'switch',
+        entity: 'decoder_snapshots_enabled',
+        name: 'Decoder snapshots enabled',
+        entityCategory: 'diagnostic',
+        retain: true,
+        icon: 'mdi:film'
+    };
+    const audioPressureEntity: MqttEntity = {
+        domain: 'sensor',
+        entity: 'sound_pressure',
+        name: 'Sound pressure',
+        entityCategory: 'diagnostic',
+        deviceClass: 'sound_pressure',
+        precision: 1,
+        stateClass: 'measurement',
+        retain: true,
+        unitOfMeasurement: 'dB',
+    };
+    const onlineEntity: MqttEntity = {
+        domain: 'binary_sensor',
+        entity: 'online',
+        name: 'Online',
+        deviceClass: 'power',
+        entityCategory: 'diagnostic',
+        retain: true,
+    };
+    const recordingEntity: MqttEntity = {
+        domain: 'switch',
+        entity: 'recording',
+        name: 'Recording',
+        icon: 'mdi:record-circle-outline',
+        entityCategory: 'diagnostic',
+        retain: true,
+    };
+    const rebootEntity: MqttEntity = {
+        domain: 'button',
+        entity: 'reboot',
+        name: 'Reboot',
+        deviceClass: 'restart'
+    };
+    const ptzPresetEntity: MqttEntity = {
+        domain: 'select',
+        entity: 'ptz-preset',
+        name: 'PTZ preset',
+        deviceClass: 'restart',
+    };
+    const ptzZoomInEntity: MqttEntity = {
+        domain: 'button',
+        entity: 'ptz-zoom-in',
+        name: 'Zoom in',
+        icon: 'mdi:magnify-plus',
+    };
+    const ptzZoomOutEntity: MqttEntity = {
+        domain: 'button',
+        entity: 'ptz-zoom-out',
+        name: 'Zoom out',
+        icon: 'mdi:magnify-minus'
+    };
+    const ptzUpEntity: MqttEntity = {
+        domain: 'button',
+        entity: 'ptz-move-up',
+        name: 'Move up',
+        icon: 'mdi:arrow-up-thick'
+    };
+    const ptzDownEntity: MqttEntity = {
+        domain: 'button',
+        entity: 'ptz-move-down',
+        name: 'Move down',
+        icon: 'mdi:arrow-down-thick'
+    };
+    const ptzLeftEntity: MqttEntity = {
+        domain: 'button',
+        entity: 'ptz-move-left',
+        name: 'Move left',
+        icon: 'mdi:arrow-left-thick',
+    };
+    const ptzRightEntity: MqttEntity = {
+        domain: 'button',
+        entity: 'ptz-move-right',
+        name: 'Move right',
+        icon: 'mdi:arrow-right-thick'
+    };
 
-const batteryEntity: MqttEntity = {
-    domain: 'sensor',
-    entity: 'battery',
-    name: 'Battery',
-    deviceClass: 'battery',
-    entityCategory: 'diagnostic',
-    unitOfMeasurement: '%',
-    stateClass: 'measurement',
-    retain: true,
-};
-const sleepingEntity: MqttEntity = {
-    domain: 'binary_sensor',
-    entity: 'sleeping',
-    name: 'Sleeping',
-    entityCategory: 'diagnostic',
-    retain: true,
-    icon: 'mdi:sleep'
-};
-const notificationsEnabledEntity: MqttEntity = {
-    domain: 'switch',
-    entity: 'notifications_enabled',
-    name: 'Notifications enabled',
-    entityCategory: 'diagnostic',
-    retain: true,
-    icon: 'mdi:bell'
-};
-const audioDetectionEnabledEntity: MqttEntity = {
-    domain: 'switch',
-    entity: 'audio_detection_enabled',
-    name: 'Audio detection enabled',
-    entityCategory: 'diagnostic',
-    retain: true,
-    icon: 'mdi:microphone-variant'
-};
-const decoderSnapshotsEnabledEntity: MqttEntity = {
-    domain: 'switch',
-    entity: 'decoder_snapshots_enabled',
-    name: 'Decoder snapshots enabled',
-    entityCategory: 'diagnostic',
-    retain: true,
-    icon: 'mdi:film'
-};
-const audioPressureEntity: MqttEntity = {
-    domain: 'sensor',
-    entity: 'sound_pressure',
-    name: 'Sound pressure',
-    entityCategory: 'diagnostic',
-    deviceClass: 'sound_pressure',
-    precision: 1,
-    stateClass: 'measurement',
-    retain: true,
-    unitOfMeasurement: 'dB',
-};
-const onlineEntity: MqttEntity = {
-    domain: 'binary_sensor',
-    entity: 'online',
-    name: 'Online',
-    deviceClass: 'power',
-    entityCategory: 'diagnostic',
-    retain: true,
-};
-const recordingEntity: MqttEntity = {
-    domain: 'switch',
-    entity: 'recording',
-    name: 'Recording',
-    icon: 'mdi:record-circle-outline',
-    entityCategory: 'diagnostic',
-    retain: true,
-};
-const rebootEntity: MqttEntity = {
-    domain: 'button',
-    entity: 'reboot',
-    name: 'Reboot',
-    deviceClass: 'restart'
-};
-const ptzPresetEntity: MqttEntity = {
-    domain: 'select',
-    entity: 'ptz-preset',
-    name: 'PTZ preset',
-    deviceClass: 'restart',
-};
-const ptzZoomInEntity: MqttEntity = {
-    domain: 'button',
-    entity: 'ptz-zoom-in',
-    name: 'Zoom in',
-    icon: 'mdi:magnify-plus',
-};
-const ptzZoomOutEntity: MqttEntity = {
-    domain: 'button',
-    entity: 'ptz-zoom-out',
-    name: 'Zoom out',
-    icon: 'mdi:magnify-minus'
-};
-const ptzUpEntity: MqttEntity = {
-    domain: 'button',
-    entity: 'ptz-move-up',
-    name: 'Move up',
-    icon: 'mdi:arrow-up-thick'
-};
-const ptzDownEntity: MqttEntity = {
-    domain: 'button',
-    entity: 'ptz-move-down',
-    name: 'Move down',
-    icon: 'mdi:arrow-down-thick'
-};
-const ptzLeftEntity: MqttEntity = {
-    domain: 'button',
-    entity: 'ptz-move-left',
-    name: 'Move left',
-    icon: 'mdi:arrow-left-thick',
-};
-const ptzRightEntity: MqttEntity = {
-    domain: 'button',
-    entity: 'ptz-move-right',
-    name: 'Move right',
-    icon: 'mdi:arrow-right-thick'
-};
+    return {
+        triggeredEntity,
+        batteryEntity,
+        sleepingEntity,
+        notificationsEnabledEntity,
+        audioDetectionEnabledEntity,
+        decoderSnapshotsEnabledEntity,
+        audioPressureEntity,
+        onlineEntity,
+        recordingEntity,
+        rebootEntity,
+        ptzPresetEntity,
+        ptzZoomInEntity,
+        ptzZoomOutEntity,
+        ptzUpEntity,
+        ptzDownEntity,
+        ptzLeftEntity,
+        ptzRightEntity,
+    };
+}
 
 const getBasicMqttAutodiscoveryConfiguration = (props: {
     mqttEntity: MqttEntity,
@@ -605,6 +626,11 @@ export const setupPluginAutodiscovery = async (props: {
         }
     }
 
+    const {
+        notificationsEnabledEntity,
+    } = getBasicMqttEntities();
+    mqttEntities.push(notificationsEnabledEntity);
+
     return await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, console });
 }
 
@@ -614,6 +640,7 @@ export const subscribeToPluginMqttTopics = async (
         entitiesActiveTopic?: string,
         rules: BaseRule[],
         activeEntitiesCb: (activeEntities: string[]) => void,
+        switchNotificationsEnabledCb: (active: boolean) => void,
         console: Console,
         activationRuleCb: (props: {
             ruleName: string;
@@ -621,7 +648,14 @@ export const subscribeToPluginMqttTopics = async (
         }) => void
     }
 ) => {
-    const { activeEntitiesCb, entitiesActiveTopic, mqttClient, rules, activationRuleCb } = props;
+    const {
+        activeEntitiesCb,
+        entitiesActiveTopic,
+        mqttClient,
+        rules,
+        activationRuleCb,
+        switchNotificationsEnabledCb
+    } = props;
 
     if (!mqttClient) {
         return;
@@ -632,6 +666,19 @@ export const subscribeToPluginMqttTopics = async (
             const messageString = message.toString();
             if (messageTopic === entitiesActiveTopic) {
                 activeEntitiesCb(messageString !== 'null' ? JSON.parse(messageString) : [])
+            }
+        });
+    }
+
+    const { notificationsEnabledEntity } = getBasicMqttEntities();
+
+    if (switchNotificationsEnabledCb) {
+        const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: notificationsEnabledEntity });
+        await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
+            if (messageTopic === commandTopic) {
+                switchNotificationsEnabledCb(message === 'true');
+
+                await mqttClient.publish(stateTopic, message, notificationsEnabledEntity.retain);
             }
         });
     }
@@ -655,6 +702,15 @@ export const subscribeToPluginMqttTopics = async (
 }
 
 const getPtzCommandEntities = (device: ScryptedDeviceBase) => {
+    const {
+        ptzDownEntity,
+        ptzLeftEntity,
+        ptzRightEntity,
+        ptzUpEntity,
+        ptzZoomInEntity,
+        ptzZoomOutEntity,
+    } = getBasicMqttEntities();
+
     const commandEntities: MqttEntity[] = [];
 
     if (device.ptzCapabilities?.zoom) {
@@ -700,7 +756,6 @@ export const subscribeToCameraMqttTopics = async (
         rebootCb,
         ptzCommandCb,
         device,
-        console
     } = props;
     if (!mqttClient) {
         return;
@@ -725,6 +780,21 @@ export const subscribeToCameraMqttTopics = async (
             });
         }
     }
+
+    const {
+        audioDetectionEnabledEntity,
+        decoderSnapshotsEnabledEntity,
+        notificationsEnabledEntity,
+        ptzDownEntity,
+        ptzLeftEntity,
+        ptzPresetEntity,
+        ptzRightEntity,
+        ptzUpEntity,
+        ptzZoomInEntity,
+        ptzZoomOutEntity,
+        rebootEntity,
+        recordingEntity,
+    } = getBasicMqttEntities();
 
     if (switchRecordingCb) {
         const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: recordingEntity, device });
@@ -834,6 +904,10 @@ export const subscribeToNotifierMqttTopics = async (
         return;
     }
 
+    const {
+        notificationsEnabledEntity,
+    } = getBasicMqttEntities();
+
     if (switchNotificationsEnabledCb) {
         const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: notificationsEnabledEntity, device });
         await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
@@ -844,6 +918,34 @@ export const subscribeToNotifierMqttTopics = async (
             }
         });
     }
+}
+
+export const subscribeToSensorMqttTopics = async (
+    props: {
+        mqttClient?: MqttClient,
+        device: ScryptedDeviceBase,
+        console: Console,
+    }
+) => {
+    const {
+        mqttClient,
+        device,
+    } = props;
+    if (!mqttClient) {
+        return;
+    }
+    // TODO: Subscribe for rules and so on
+
+    // if (switchNotificationsEnabledCb) {
+    //     const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: notificationsEnabledEntity, device });
+    //     await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
+    //         if (messageTopic === commandTopic) {
+    //             switchNotificationsEnabledCb(message === 'true');
+
+    //             await mqttClient.publish(stateTopic, message, notificationsEnabledEntity.retain);
+    //         }
+    //     });
+    // }
 }
 
 const getMqttDevice = async (device: MqttDeviceType) => {
@@ -919,6 +1021,20 @@ export const setupCameraAutodiscovery = async (props: {
             return true;
         }
     })
+
+    const {
+        audioDetectionEnabledEntity,
+        audioPressureEntity,
+        batteryEntity,
+        decoderSnapshotsEnabledEntity,
+        notificationsEnabledEntity,
+        onlineEntity,
+        ptzPresetEntity,
+        rebootEntity,
+        recordingEntity,
+        sleepingEntity,
+        triggeredEntity,
+    } = getBasicMqttEntities();
 
     const mqttEntities = [
         triggeredEntity,
@@ -998,8 +1114,30 @@ export const setupNotifierAutodiscovery = async (props: {
         return;
     }
 
+    const {
+        notificationsEnabledEntity,
+    } = getBasicMqttEntities();
+
     const mqttEntities = [
         notificationsEnabledEntity,
+    ];
+
+    return await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, device, console });
+}
+
+export const setupSensorAutodiscovery = async (props: {
+    mqttClient?: MqttClient,
+    device: ScryptedDeviceBase,
+    console: Console,
+}) => {
+    const { device, mqttClient, console } = props;
+
+    if (!mqttClient) {
+        return;
+    }
+
+    // TODO Sensor status entity and rules
+    const mqttEntities = [
     ];
 
     return await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, device, console });
@@ -1133,6 +1271,10 @@ export const publishAudioPressureValue = async (props: {
         return;
     }
 
+    const {
+        audioPressureEntity,
+    } = getBasicMqttEntities();
+
     console.info(`Publishing audio update ${decibels}`);
     try {
         const { stateTopic } = getMqttTopics({ mqttEntity: audioPressureEntity, device });
@@ -1174,7 +1316,7 @@ export const publishClassnameImages = async (props: {
     }
 }
 
-export const reportCameraValues = async (props: {
+export const publishCameraValues = async (props: {
     mqttClient?: MqttClient,
     device?: ScryptedDeviceBase,
     isRecording?: boolean,
@@ -1200,6 +1342,16 @@ export const reportCameraValues = async (props: {
     if (!mqttClient) {
         return;
     }
+
+    const {
+        audioDetectionEnabledEntity,
+        batteryEntity,
+        decoderSnapshotsEnabledEntity,
+        notificationsEnabledEntity,
+        onlineEntity,
+        recordingEntity,
+        sleepingEntity,
+    } = getBasicMqttEntities();
 
     if (device) {
         if (device.interfaces.includes(ScryptedInterface.Battery) && device.batteryLevel) {
@@ -1250,6 +1402,49 @@ export const reportCameraValues = async (props: {
     }
 }
 
+export const publishPluginValues = async (props: {
+    mqttClient?: MqttClient,
+    notificationsEnabled: boolean,
+    rulesToEnable: BaseRule[],
+    rulesToDisable: BaseRule[],
+}) => {
+    const {
+        mqttClient,
+        notificationsEnabled,
+        rulesToDisable,
+        rulesToEnable,
+    } = props;
+
+    if (!mqttClient) {
+        return;
+    }
+
+    const {
+        notificationsEnabledEntity,
+    } = getBasicMqttEntities();
+
+    const { stateTopic: notificationsEnabledStateTopic } = getMqttTopics({ mqttEntity: notificationsEnabledEntity });
+    await mqttClient.publish(notificationsEnabledStateTopic, notificationsEnabled ? 'true' : 'false', notificationsEnabledEntity.retain);
+
+    for (const rule of rulesToEnable) {
+        await publishRuleCurrentlyActive({
+            console: console,
+            mqttClient,
+            rule,
+            active: true,
+        });
+    }
+
+    for (const rule of rulesToDisable) {
+        await publishRuleCurrentlyActive({
+            console: console,
+            mqttClient,
+            rule,
+            active: false,
+        });
+    }
+}
+
 export const reportNotifierValues = async (props: {
     mqttClient?: MqttClient,
     device?: ScryptedDeviceBase,
@@ -1262,9 +1457,30 @@ export const reportNotifierValues = async (props: {
         return;
     }
 
+    const {
+        notificationsEnabledEntity,
+    } = getBasicMqttEntities();
+
     if (device) {
         const { stateTopic } = getMqttTopics({ mqttEntity: notificationsEnabledEntity, device });
         await mqttClient.publish(stateTopic, notificationsEnabled ? 'true' : 'false', notificationsEnabledEntity.retain);
+    }
+}
+
+export const reportSensorValues = async (props: {
+    mqttClient?: MqttClient,
+    device?: ScryptedDeviceBase,
+    console: Console,
+}) => {
+    const { device, mqttClient } = props;
+
+    if (!mqttClient) {
+        return;
+    }
+
+    if (device) {
+        // const { stateTopic } = getMqttTopics({ mqttEntity: notificationsEnabledEntity, device });
+        // await mqttClient.publish(stateTopic, notificationsEnabled ? 'true' : 'false', notificationsEnabledEntity.retain);
     }
 }
 

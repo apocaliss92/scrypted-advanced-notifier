@@ -14,7 +14,7 @@ import { sleep } from "../../scrypted/server/src/sleep";
 import { name as pluginName } from '../package.json';
 import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, isFaceClassname, isObjectClassname, isPlateClassname, levenshteinDistance } from "./detectionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
-import { idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, reportCameraValues, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
+import { idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, publishCameraValues, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { AudioRule, BaseRule, DelayType, DetectionRule, DeviceInterface, EventType, IsDelayPassedProps, MatchRule, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDecibelsFromRtp_PCMU8, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebHookUrls, splitRules } from "./utils";
 
@@ -444,7 +444,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         // Every 60 minutes repeat the autodiscovery
                         if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
                             logger.log('Starting MQTT autodiscovery');
-                            logger.log(allAvailableRules);
                             setupCameraAutodiscovery({
                                 mqttClient,
                                 device: this.cameraDevice,
@@ -513,7 +512,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         const settings = await this.mixinDevice.getSettings();
                         const isRecording = !settings.find(setting => setting.key === 'recording:privacyMode')?.value;
 
-                        reportCameraValues({
+                        publishCameraValues({
                             console: logger,
                             device: this.cameraDevice,
                             mqttClient,
@@ -767,11 +766,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             storage: this.storageSettings,
             zones,
             people,
-            isCamera: true,
+            device: this,
             logger,
             ruleSource: RuleSource.Device,
             refreshSettings: this.refreshSettings.bind(this),
-            onRuleToggle: async (ruleName: string, enabled: boolean) => this.toggleRule(ruleName, RuleType.Detection, enabled),
+            // onRuleToggle: async (ruleName: string, enabled: boolean) => this.toggleRule(ruleName, RuleType.Detection, enabled),
         });
         dynamicSettings.push(...detectionRulesSettings);
 
@@ -781,7 +780,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             ruleSource: RuleSource.Device,
             logger,
             refreshSettings: this.refreshSettings.bind(this),
-            onRuleToggle: async (ruleName: string, enabled: boolean) => this.toggleRule(ruleName, RuleType.Occupancy, enabled),
+            // onRuleToggle: async (ruleName: string, enabled: boolean) => this.toggleRule(ruleName, RuleType.Occupancy, enabled),
         });
         dynamicSettings.push(...occupancyRulesSettings);
 
@@ -815,7 +814,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }).catch(logger.log);
                 }
             },
-            onRuleToggle: async (ruleName: string, enabled: boolean) => this.toggleRule(ruleName, RuleType.Timelapse, enabled),
+            // onRuleToggle: async (ruleName: string, enabled: boolean) => this.toggleRule(ruleName, RuleType.Timelapse, enabled),
         });
         dynamicSettings.push(...timelapseRulesSettings);
 
@@ -824,7 +823,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             ruleSource: RuleSource.Device,
             logger,
             refreshSettings: this.refreshSettings.bind(this),
-            onRuleToggle: async (ruleName: string, enabled: boolean) => this.toggleRule(ruleName, RuleType.Audio, enabled),
+            // onRuleToggle: async (ruleName: string, enabled: boolean) => this.toggleRule(ruleName, RuleType.Audio, enabled),
         });
         dynamicSettings.push(...audioRulesSettings);
 

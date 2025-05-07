@@ -580,10 +580,7 @@ export const getMixinBaseSettings = (props: {
     try {
         const { mixin, refreshSettings } = props;
         const device = sdk.systemManager.getDeviceById<ScryptedDeviceBase>(mixin.id);
-        const deviceType = device.type;
-        const isCamera = deviceType === ScryptedDeviceType.Camera || deviceType === ScryptedDeviceType.Doorbell;
-        const isNotifier = deviceType === ScryptedDeviceType.Notifier;
-        const isSensor = !isCamera || !isNotifier;
+        const { isCamera, isSensor, isNotifier } = isDeviceSupported(device);
         const defaultEntityId = !isCamera ? device.nativeId.split(':')[1] : getDefaultEntityId(device.name);
 
         const settings: StorageSettingsDict<MixinBaseSettingKey> = {
@@ -645,10 +642,7 @@ export const getMixinBaseSettings = (props: {
                 combobox: true,
                 defaultValue: [],
                 choices: [],
-                onPut: async () => {
-                    console.log('put')
-                    await refreshSettings()
-                }
+                onPut: async () => await refreshSettings()
             };
             settings[ruleTypeMetadataMap[RuleType.Audio].rulesKey] = {
                 title: 'Audio rules',
@@ -658,14 +652,11 @@ export const getMixinBaseSettings = (props: {
                 combobox: true,
                 defaultValue: [],
                 choices: [],
-                onPut: async () => {
-                    console.log('put')
-                    await refreshSettings()
-                }
+                onPut: async () => await refreshSettings()
             };
         }
 
-        if (isCamera || isNotifier) {
+        if (isCamera || isNotifier || isSensor) {
             settings['enabledToMqtt'] = {
                 title: 'Report to MQTT',
                 description: 'Autodiscovery this device on MQTT',
@@ -1286,13 +1277,14 @@ export const getDetectionRulesSettings = async (props: {
     zones?: string[],
     people?: string[],
     ruleSource: RuleSource,
-    isCamera?: boolean,
+    device?: DeviceBase,
     onRuleToggle?: OnRuleToggle,
     refreshSettings: OnShowMore,
     logger: Console
 }) => {
-    const { storage, zones, isCamera, ruleSource, onRuleToggle, refreshSettings, logger, people } = props;
+    const { storage, zones, device, ruleSource, onRuleToggle, refreshSettings, logger, people } = props;
     const isPlugin = ruleSource === RuleSource.Plugin;
+    const { isCamera } = !isPlugin ? isDeviceSupported(device) : {};
 
     const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup, showMore }) => {
         const settings: StorageSetting[] = [];
@@ -1627,7 +1619,7 @@ export const getOccupancyRulesSettings = async (props: {
     storage: StorageSettings<any>,
     zones?: string[],
     ruleSource: RuleSource,
-    onRuleToggle: OnRuleToggle,
+    onRuleToggle?: OnRuleToggle,
     refreshSettings: OnShowMore,
     logger: Console
 }) => {
@@ -1777,7 +1769,7 @@ export const getTimelapseRulesSettings = async (props: {
     ruleSource: RuleSource,
     onGenerateTimelapse: (ruleName: string) => Promise<void>,
     onCleanDataTimelapse: (ruleName: string) => Promise<void>,
-    onRuleToggle: OnRuleToggle,
+    onRuleToggle?: OnRuleToggle,
     refreshSettings: OnShowMore,
     logger: Console
 }) => {
@@ -1908,7 +1900,7 @@ export const getTimelapseRulesSettings = async (props: {
 export const getAudioRulesSettings = async (props: {
     storage: StorageSettings<any>,
     ruleSource: RuleSource,
-    onRuleToggle: OnRuleToggle,
+    onRuleToggle?: OnRuleToggle,
     refreshSettings: OnShowMore,
     logger: Console
 }) => {
