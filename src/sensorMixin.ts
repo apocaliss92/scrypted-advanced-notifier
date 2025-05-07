@@ -4,7 +4,7 @@ import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/
 import { cloneDeep } from "lodash";
 import { getBaseLogger, getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
 import HomeAssistantUtilitiesProvider from "./main";
-import { BinarySensorMetadata, binarySensorMetadataMap, cameraFilter, convertSettingsToStorageSettings, DetectionRule, DeviceInterface, EventType, getActiveRules, getDetectionRulesSettings, getMixinBaseSettings, getRuleKeys, RuleSource, RuleType, ScryptedEventSource, splitRules, SupportedSensorType } from "./utils";
+import { BinarySensorMetadata, binarySensorMetadataMap, cameraFilter, convertSettingsToStorageSettings, DetectionRule, DeviceInterface, EventType, getActiveRules, getDetectionRulesSettings, GetImageReason, getMixinBaseSettings, getRuleKeys, RuleSource, RuleType, ScryptedEventSource, splitRules, SupportedSensorType } from "./utils";
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import { idPrefix, reportSensorValues, setupSensorAutodiscovery, subscribeToSensorMqttTopics } from "./mqtt-utils";
 
@@ -106,52 +106,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
         const funct = async () => {
             const { enabledToMqtt } = this.storageSettings.values;
-            if (enabledToMqtt) {
-                const now = Date.now();
-                const mqttClient = await this.getMqttClient();
-                if (mqttClient) {
-                    // Every 60 minutes repeat the autodiscovery
-                    if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
-                        logger.log('Starting MQTT autodiscovery');
-                        setupSensorAutodiscovery({
-                            mqttClient,
-                            device: this.sensorDevice,
-                            console: logger,
-                        }).then(async (activeTopics) => {
-                            await this.mqttClient.cleanupAutodiscoveryTopics(activeTopics);
-                        }).catch(logger.error);
-
-                        logger.debug(`Subscribing to mqtt topics`);
-                        subscribeToSensorMqttTopics({
-                            mqttClient,
-                            device: this.sensorDevice,
-                            console: logger,
-                            // switchNotificationsEnabledCb: async (active) => {
-                            //     logger.log(`Setting notifications active to ${!active}`);
-
-                            //     if (this.isNvrNotifier) {
-                            //         if (active) {
-                            //             this.notifierDevice.turnOn();
-                            //         } else {
-                            //             this.notifierDevice.turnOff();
-                            //         }
-                            //     } else {
-                            //         await this.storageSettings.putSetting(`enabled`, active);
-                            //     }
-                            // },
-                        }).catch(logger.error);
-
-                        this.lastAutoDiscovery = now;
-                    }
-
-                    reportSensorValues({
-                        console: logger,
-                        device: this.sensorDevice,
-                        mqttClient,
-                    }).catch(logger.error);
-                }
-            }
-
             const {
                 allowedDetectionRules,
                 availableDetectionRules,
@@ -202,6 +156,53 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 logger.log(`Stopping NVR events listeners`);
             }
             this.isActiveForNvrNotifications = anyAllowedNvrDetectionRule;
+
+            if (enabledToMqtt) {
+                const now = Date.now();
+                const mqttClient = await this.getMqttClient();
+                if (mqttClient) {
+                    // Every 60 minutes repeat the autodiscovery
+                    if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
+                        logger.log('Starting MQTT autodiscovery');
+                        setupSensorAutodiscovery({
+                            mqttClient,
+                            device: this.sensorDevice,
+                            console: logger,
+                            rules: availableDetectionRules
+                        }).then(async (activeTopics) => {
+                            await this.mqttClient.cleanupAutodiscoveryTopics(activeTopics);
+                        }).catch(logger.error);
+
+                        logger.debug(`Subscribing to mqtt topics`);
+                        subscribeToSensorMqttTopics({
+                            mqttClient,
+                            device: this.sensorDevice,
+                            console: logger,
+                            // switchNotificationsEnabledCb: async (active) => {
+                            //     logger.log(`Setting notifications active to ${!active}`);
+
+                            //     if (this.isNvrNotifier) {
+                            //         if (active) {
+                            //             this.notifierDevice.turnOn();
+                            //         } else {
+                            //             this.notifierDevice.turnOff();
+                            //         }
+                            //     } else {
+                            //         await this.storageSettings.putSetting(`enabled`, active);
+                            //     }
+                            // },
+                        }).catch(logger.error);
+
+                        this.lastAutoDiscovery = now;
+                    }
+
+                    reportSensorValues({
+                        console: logger,
+                        device: this.sensorDevice,
+                        mqttClient,
+                    }).catch(logger.error);
+                }
+            }
         };
 
         this.mainLoopListener = setInterval(async () => {
@@ -342,7 +343,10 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                     return;
                 }
 
-                const image = (await mixinDevice.getImage({ image: imageParent }))?.image;
+                const image = (await mixinDevice.getImage({
+                    image: imageParent,
+                    reason: GetImageReason.Sensor,
+                }))?.image;
 
                 const eventType = isDoorbell ? EventType.Doorbell : this.supportedSensorType;
 

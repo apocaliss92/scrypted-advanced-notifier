@@ -1128,17 +1128,39 @@ export const setupNotifierAutodiscovery = async (props: {
 export const setupSensorAutodiscovery = async (props: {
     mqttClient?: MqttClient,
     device: ScryptedDeviceBase,
+    rules: BaseRule[],
     console: Console,
 }) => {
-    const { device, mqttClient, console } = props;
+    const { device, mqttClient, console, rules } = props;
 
     if (!mqttClient) {
         return;
     }
 
-    // TODO Sensor status entity and rules
+    // const {} = getBasicMqttEntities();
+
     const mqttEntities = [
     ];
+
+    for (const rule of rules) {
+        const ruleEntities = getRuleMqttEntities({ rule, device, forDiscovery: true });
+
+        for (const mqttEntity of ruleEntities) {
+            if (mqttEntity.identifier === MqttEntityIdentifier.RuleActive) {
+                mqttEntities.push({
+                    ...mqttEntity,
+                    valueToDispatch: rule.isEnabled
+                });
+            } else if (mqttEntity.identifier === MqttEntityIdentifier.RuleRunning) {
+                mqttEntities.push({
+                    ...mqttEntity,
+                    valueToDispatch: rule.currentlyActive
+                });
+            } else {
+                mqttEntities.push(mqttEntity);
+            }
+        }
+    }
 
     return await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, device, console });
 }

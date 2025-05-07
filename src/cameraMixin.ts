@@ -16,7 +16,7 @@ import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, is
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, publishCameraValues, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { AudioRule, BaseRule, DelayType, DetectionRule, DeviceInterface, EventType, IsDelayPassedProps, MatchRule, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDecibelsFromRtp_PCMU8, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebHookUrls, splitRules } from "./utils";
+import { AudioRule, BaseRule, DelayType, DetectionRule, DeviceInterface, EventType, GetImageReason, IsDelayPassedProps, MatchRule, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDecibelsFromRtp_PCMU8, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebHookUrls, splitRules } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -1049,7 +1049,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    public async getImage(props?: {
+    public async getImageBkp(props?: {
         preferLatest?: boolean,
         fallbackToLatest?: boolean,
         detectionId?: string,
@@ -1187,6 +1187,161 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
+    public async getImage(props?: {
+        detectionId?: string,
+        eventId?: string,
+        image?: MediaObject,
+        reason: GetImageReason
+    }) {
+        const { reason, detectionId, eventId, image: imageParent } = props ?? {};
+        const logger = this.getLogger();
+        const now = Date.now();
+        const { minSnapshotDelay, useFramesGenerator } = this.storageSettings.values;
+
+        let image: MediaObject = imageParent;
+        let bufferImage: Buffer;
+        let b64Image: string;
+        let imageUrl: string;
+        let imageSource: 'Input' | 'Snapshot' | 'Latest' | 'Detector' | 'Decoder';
+
+        const msPassed = this.lastPictureTaken ? now - this.lastPictureTaken : 0;
+
+        const findFromDetector = () => async () => {
+            try {
+                const detectImage = await this.cameraDevice.getDetectionInput(detectionId, eventId);
+                const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(detectImage, ScryptedMimeTypes.Image);
+                image = await convertedImage.toImage({
+                    resize: {
+                        width: SNAPSHOT_WIDTH,
+                    },
+                });
+                logger.info(`Image taken from the detector mixin`);
+                imageSource = 'Detector';
+            } catch (e) {
+                logger.log(`Error finding the image from the detector mixin`, e.message);
+            }
+        }
+
+        const findFromSnapshot = (force?: boolean) => async () => {
+            const timePassed = !this.lastPictureTaken || msPassed >= 1000 * minSnapshotDelay;
+
+            logger.info(JSON.stringify({
+                msPassed,
+                delay: minSnapshotDelay * 1000,
+                timePassed,
+                lastPictureTaken: this.lastPictureTaken
+            }))
+
+            if (timePassed || force) {
+                try {
+                    // this.lastImage = undefined;
+                    const objectDetector = this.getObjectDetector();
+                    image = await objectDetector.takePicture({
+                        reason: 'event',
+                        timeout: 2000,
+                        picture: {
+                            width: SNAPSHOT_WIDTH,
+                        },
+                    });
+                    this.lastPictureTaken = now;
+                    logger.info(`Image taken from snapshot because time is passed`);
+                    imageSource = 'Snapshot';
+                } catch (e) {
+                    logger.log(`Error taking a snapshot`, e.message);
+                    this.lastPictureTaken = undefined;
+                }
+            }
+        }
+
+        const findFromDecoder = () => async () => {
+            const isRecent = !this.lastFrameAcquired || (now - this.lastFrameAcquired) <= 200;
+
+            if (useFramesGenerator && !this.framesGeneratorSignal.finished && this.lastFrame && isRecent) {
+                image = this.lastFrame;
+                imageSource = 'Decoder';
+                logger.info(`Image taken from decoder`);
+            }
+        };
+
+        const findFromLatest = (ms: number) => async () => {
+            const isRecent = msPassed && msPassed <= ms;
+
+            if (isRecent) {
+                image = this.lastImage;
+                b64Image = this.lastB64Image;
+                logger.info(`Last used image taken because very recent`);
+                imageSource = 'Latest';
+            }
+        };
+
+        try {
+            if (!image) {
+                const preferLatest = [
+                    GetImageReason.RulesRefresh,
+                    GetImageReason.AudioTrigger,
+                    GetImageReason.MotionUpdate,
+                ].includes(reason);
+                const forceSnapshot = [
+                    GetImageReason.Sensor,
+                ].includes(reason);
+                const preferDetector = detectionId && eventId && reason === GetImageReason.FromDetector;
+
+                let runners = [];
+                const checkLatest = findFromLatest(2000);
+                const checkVeryRecent = findFromLatest(200);
+                const checkSnapshot = findFromSnapshot(forceSnapshot);
+                const checkDetector = findFromDetector();
+                const checkDecoder = findFromDecoder();
+
+                if (preferLatest) {
+                    runners = [
+                        checkLatest,
+                        checkVeryRecent,
+                        checkDecoder,
+                        checkSnapshot,
+                    ];
+                } else if (preferDetector) {
+                    runners = [
+                        checkDetector,
+                        checkDecoder,
+                        checkVeryRecent,
+                        checkSnapshot,
+                    ];
+                } else {
+                    runners = [
+                        checkDecoder,
+                        checkVeryRecent,
+                        checkSnapshot,
+                    ];
+                }
+
+                for (const runner of runners) {
+                    await runner();
+                    if (image) {
+                        break;
+                    }
+                }
+            } else {
+                imageSource = 'Input';
+            }
+
+            if (image) {
+                bufferImage = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg');
+                b64Image = bufferImage?.toString('base64');
+                // imageUrl = await sdk.mediaManager.convertMediaObjectToInsecureLocalUrl(image, 'image/jpeg');
+            }
+        } catch (e) {
+            logger.log(`Error during getImage`, e);
+        } finally {
+            if (!imageParent && image && b64Image) {
+                this.lastImage = image;
+                this.lastB64Image = b64Image;
+            }
+
+            return { image, b64Image, bufferImage, imageUrl, imageSource };
+        }
+    }
+
     async startAudioDetection() {
         const logger = this.getLogger(true);
         try {
@@ -1293,7 +1448,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const anyTimelapseToRefresh = !!timelapsesToRefresh.length;
 
         if (anyOutdatedOccupancyRule || anyTimelapseToRefresh) {
-            const { image, b64Image } = await this.getImage({ fallbackToLatest: true });
+            const { image, b64Image } = await this.getImage({ reason: GetImageReason.RulesRefresh });
             if (image && b64Image) {
                 if (anyOutdatedOccupancyRule) {
                     this.checkOccupancyData({ image, b64Image, source: 'MainFlow' }).catch(logger.log);
@@ -1691,7 +1846,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const isTimeForNotificationPassed = !minDelay || !lastNotification || (now - lastNotification) > (minDelay * 1000);
 
             if (isTimeForNotificationPassed && !image) {
-                const { image: imageNew, b64Image: b64ImageNew } = await this.getImage({ preferLatest: true });
+                const { image: imageNew, b64Image: b64ImageNew } = await this.getImage({ reason: GetImageReason.AudioTrigger });
                 image = imageNew;
                 b64Image = b64ImageNew;
             }
@@ -1866,7 +2021,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let { image, b64Image, imageSource } = await this.getImage({
             detectionId,
             eventId,
-            preferLatest: isOnlyMotion
+            reason: isOnlyMotion && !rulesToUpdate.length ?
+                GetImageReason.MotionUpdate :
+                GetImageReason.ObjectUpdate
         });
 
         if (image && b64Image) {
@@ -2131,7 +2288,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const { b64Image: b64ImageNew, image: imageNew } = await this.getImage({
                     detectionId,
                     eventId,
-                    image: parentImage
+                    image: parentImage,
+                    reason: GetImageReason.FromDetector,
                 });
                 image = imageNew;
                 b64Image = b64ImageNew;

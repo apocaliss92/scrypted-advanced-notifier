@@ -49,6 +49,16 @@ export enum DelayType {
     PostWebhookImage = 'PostWebhookImage',
 }
 
+export enum GetImageReason {
+    Sensor = 'Sensor',
+    RulesRefresh = 'RulesRefresh',
+    AudioTrigger = 'AudioTrigger',
+    MotionUpdate = 'MotionUpdate',
+    ObjectUpdate = 'ObjectUpdate',
+    FromDetector = 'FromDetector',
+    Test = 'Test',
+}
+
 export type IsDelayPassedProps =
     { type: DelayType.BasicDetection, classname: string, label?: string, eventSource: ScryptedEventSource } |
     { type: DelayType.FsImageUpdate, filename: string, eventSource: ScryptedEventSource } |
@@ -667,7 +677,7 @@ export const getMixinBaseSettings = (props: {
                 title: 'Report to MQTT',
                 description: 'Autodiscovery this device on MQTT',
                 type: 'boolean',
-                defaultValue: true,
+                defaultValue: !isSensor,
                 immediate: true,
             }
         }

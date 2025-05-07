@@ -17,7 +17,7 @@ import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodisco
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, allInterfaces, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getNowFriendlyDate, getObjectDetectionTextKey, getPushoverPriority, getRuleKeys, getSnoozeId, getTextKey, getTextSettings, getWebHookUrls, getWebooks, HOMEASSISTANT_PLUGIN_ID, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, ScryptedEventSource, SnoozeAction, splitRules, SupportedSensorType, TextSettingKey, TimelapseRule } from "./utils";
+import { ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, allInterfaces, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EventType, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, GetImageReason, getNowFriendlyDate, getObjectDetectionTextKey, getPushoverPriority, getRuleKeys, getSnoozeId, getTextKey, getTextSettings, getWebHookUrls, getWebooks, HOMEASSISTANT_PLUGIN_ID, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, ScryptedEventSource, SnoozeAction, splitRules, SupportedSensorType, TextSettingKey, TimelapseRule } from "./utils";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -607,7 +607,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     image = await sdk.mediaManager.createMediaObjectFromUrl(imageUrl);
                 }
 
-                const logMessage = `Notifying image ${getB64ImageLog(imageUrl)} to notifier ${notifier.name} through camera ${camera.name}. Image ${image}`;
+                const logMessage = `Notifying image ${getB64ImageLog(imageUrl)} to notifier ${notifier.name} through camera ${camera.name}. timestamp ${timestamp}`;
                 logger.log(logMessage);
 
                 this.notifyCamera({
@@ -1827,7 +1827,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             const { b64Image, image, imageSource } = await this.currentCameraMixinsMap[device.id].getImage({
                 image: imageParent,
-                log: source === NotificationSource.TEST,
+                reason: GetImageReason.Test
             });
 
             logger.log(`Notification image ${getB64ImageLog(b64Image)} fetched from ${imageSource}`);
@@ -2092,7 +2092,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         let imageMo = imageMoParent;
 
         if (!imageMo) {
-            imageMo = (await (this.currentCameraMixinsMap[device.id])?.getImage({ preferLatest: true }))?.image;
+            imageMo = (await (this.currentCameraMixinsMap[device.id])?.getImage({ reason: GetImageReason.RulesRefresh }))?.image;
         }
 
         if (imagesPath && imageMo) {
