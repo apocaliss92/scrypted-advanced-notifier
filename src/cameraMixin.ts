@@ -2149,7 +2149,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 logger.log(`NVR detections received, classnames ${classnames.join(', ')}. b64Image ${getB64ImageLog(b64Image)}`);
             }
 
-            if (this.isActiveForMqttReporting && canUpdateMqttImage) {
+            if (this.isActiveForMqttReporting) {
                 const mqttClient = await this.getMqttClient();
 
                 if (mqttClient) {
@@ -2182,12 +2182,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             b64Image
                         }).catch(logger.error);
 
-                        if (b64Image) {
+                        if (canUpdateMqttImage && b64Image) {
                             const timePassed = this.isDelayPassed({
                                 classname: className,
                                 label,
                                 eventSource,
-                                type: DelayType.BasicDetection
+                                type: DelayType.BasicDetection,
                             });
 
                             if (timePassed) {
