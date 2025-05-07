@@ -1106,7 +1106,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger,
             people,
             refreshSettings: async () => await this.refreshSettings(),
-            // onRuleToggle: async (ruleName: string, enabled: boolean) => this.toggleRule(ruleName, RuleType.Detection, enabled),
         });
 
         dynamicSettings.push(...getAiSettings({

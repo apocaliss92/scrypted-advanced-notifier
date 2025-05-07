@@ -770,7 +770,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             logger,
             ruleSource: RuleSource.Device,
             refreshSettings: this.refreshSettings.bind(this),
-            // onRuleToggle: async (ruleName: string, enabled: boolean) => this.toggleRule(ruleName, RuleType.Detection, enabled),
         });
         dynamicSettings.push(...detectionRulesSettings);
 
@@ -780,7 +779,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             ruleSource: RuleSource.Device,
             logger,
             refreshSettings: this.refreshSettings.bind(this),
-            // onRuleToggle: async (ruleName: string, enabled: boolean) => this.toggleRule(ruleName, RuleType.Occupancy, enabled),
         });
         dynamicSettings.push(...occupancyRulesSettings);
 
@@ -814,7 +812,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }).catch(logger.log);
                 }
             },
-            // onRuleToggle: async (ruleName: string, enabled: boolean) => this.toggleRule(ruleName, RuleType.Timelapse, enabled),
         });
         dynamicSettings.push(...timelapseRulesSettings);
 
@@ -823,7 +820,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             ruleSource: RuleSource.Device,
             logger,
             refreshSettings: this.refreshSettings.bind(this),
-            // onRuleToggle: async (ruleName: string, enabled: boolean) => this.toggleRule(ruleName, RuleType.Audio, enabled),
         });
         dynamicSettings.push(...audioRulesSettings);
 
