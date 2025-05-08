@@ -720,6 +720,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         } catch { };
 
         await this.refreshSettings();
+        await this.refreshSettings();
     }
 
     snoozeNotification(props: {

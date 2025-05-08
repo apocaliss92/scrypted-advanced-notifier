@@ -871,7 +871,6 @@ export enum DetectionRuleActivation {
     Always = 'Always',
     OnActive = 'OnActive',
     Schedule = 'Schedule',
-    AlarmSystem = 'AlarmSystem',
 }
 
 export enum NvrEvent {
@@ -1086,10 +1085,7 @@ export const getRuleSettings = (props: {
             }
         } = getRuleKeys({ ruleName, ruleType });
 
-        let currentActivation = storage.getItem(activationKey as any) as DetectionRuleActivation;
-        if (currentActivation === DetectionRuleActivation.AlarmSystem) {
-            currentActivation = DetectionRuleActivation.Always;
-        }
+        const currentActivation = storage.getItem(activationKey as any) as DetectionRuleActivation || DetectionRuleActivation.Always;
 
         const showMoreConfigurations = safeParseJson<boolean>(storage.getItem(showMoreConfigurationsKey), false);
         // const aiEnabledRaw = storage.getItem(aiEnabledKey) as boolean;
@@ -1149,6 +1145,7 @@ export const getRuleSettings = (props: {
                     DetectionRuleActivation.OnActive,
                     DetectionRuleActivation.Schedule,
                 ],
+                defaultValue: DetectionRuleActivation.Always,
                 placeholder: DetectionRuleActivation.Always,
                 immediate: true,
                 combobox: true
@@ -1323,112 +1320,104 @@ export const getDetectionRulesSettings = async (props: {
 
         const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean ?? false;
         const detectionClasses = safeParseJson<DetectionClass[]>(storage.getItem(detectionClassesKey), []);
-
-        // const devicesRaw = storage.getItem(devicesKey) ?? [];
-        // const devices = typeof devicesRaw === 'string' ? JSON.parse(storage.getItem(devicesKey) ?? '[]') : devicesRaw;
         const activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
-        // const anyCameraDevice = (isPlugin && devices
-        //     .some(deviceId => [ScryptedDeviceType.Camera, ScryptedDeviceType.Doorbell].includes(sdk.systemManager.getDeviceById(deviceId)?.type))
-        // ) || isCamera || activationType === DetectionRuleActivation.OnActive;
+        const showCameraSettings = isPlugin || isCamera;
 
-        settings.push(
-            {
-                key: useNvrDetectionsKey,
-                title: 'Use NVR detections',
-                type: 'boolean',
-                group,
-                subgroup,
-                immediate: true
-            }
-        );
-
-        // if (anyCameraDevice) {
-        settings.push(
-            {
-                key: detectionClassesKey,
-                title: 'Detection classes',
-                group,
-                subgroup,
-                multiple: true,
-                combobox: true,
-                choices: [
-                    ...defaultDetectionClasses,
-                    ...Object.values(SupportedSensorType),
-                ],
-                defaultValue: [],
-                immediate: true,
-                onPut: async () => {
-                    await refreshSettings(undefined)
-                },
-            },
-            {
-                key: scoreThresholdKey,
-                title: 'Score threshold',
-                description: 'Applied after detections. Threshold defined on the object detector will still take precedence',
-                group,
-                subgroup,
-                type: 'number',
-                placeholder: '0.7',
-                hide: !showMore
-            },
-        );
-        // }
-
-        const hasFace = detectionClasses.includes(DetectionClass.Face);
-        const hasPlate = detectionClasses.includes(DetectionClass.Plate);
-
-        if (hasFace || hasPlate) {
-            settings.push({
-                key: labelScoreKey,
-                title: 'Minimum label score',
-                description: 'Leave blank to match any score',
-                group,
-                subgroup,
-            });
-        }
-
-        if (hasFace) {
-            settings.push({
-                key: peopleKey,
-                title: 'Whitelisted faces',
-                description: 'Leave blank to match faces',
-                group,
-                subgroup,
-                multiple: true,
-                combobox: true,
-                choices: people,
-                defaultValue: [],
-                immediate: true,
-            });
-        }
-
-        if (hasPlate) {
+        if (showCameraSettings) {
             settings.push(
                 {
-                    key: platesKey,
-                    title: 'Whitelisted plates',
-                    description: 'Leave blank to match plate',
+                    key: useNvrDetectionsKey,
+                    title: 'Use NVR detections',
+                    type: 'boolean',
+                    group,
+                    subgroup,
+                    immediate: true
+                },
+                {
+                    key: detectionClassesKey,
+                    title: 'Detection classes',
                     group,
                     subgroup,
                     multiple: true,
                     combobox: true,
-                    choices: [],
+                    choices: [
+                        ...defaultDetectionClasses,
+                        ...Object.values(SupportedSensorType),
+                    ],
                     defaultValue: [],
                     immediate: true,
+                    onPut: async () => {
+                        await refreshSettings(undefined)
+                    },
                 },
                 {
-                    key: plateMaxDistanceKey,
-                    title: 'Plate max distance',
-                    description: 'Define how many characters the plate can differ (Whitespaces will not considered)',
+                    key: scoreThresholdKey,
+                    title: 'Score threshold',
+                    description: 'Applied after detections. Threshold defined on the object detector will still take precedence',
                     group,
                     subgroup,
                     type: 'number',
-                    defaultValue: 2,
-                }
+                    placeholder: '0.7',
+                    hide: !showMore
+                },
             );
+
+            const hasFace = detectionClasses.includes(DetectionClass.Face);
+            const hasPlate = detectionClasses.includes(DetectionClass.Plate);
+
+            if (hasFace || hasPlate) {
+                settings.push({
+                    key: labelScoreKey,
+                    title: 'Minimum label score',
+                    description: 'Leave blank to match any score',
+                    group,
+                    subgroup,
+                });
+            }
+
+            if (hasFace) {
+                settings.push({
+                    key: peopleKey,
+                    title: 'Whitelisted faces',
+                    description: 'Leave blank to match faces',
+                    group,
+                    subgroup,
+                    multiple: true,
+                    combobox: true,
+                    choices: people,
+                    defaultValue: [],
+                    immediate: true,
+                });
+            }
+
+            if (hasPlate) {
+                settings.push(
+                    {
+                        key: platesKey,
+                        title: 'Whitelisted plates',
+                        description: 'Leave blank to match plate',
+                        group,
+                        subgroup,
+                        multiple: true,
+                        combobox: true,
+                        choices: [],
+                        defaultValue: [],
+                        immediate: true,
+                    },
+                    {
+                        key: plateMaxDistanceKey,
+                        title: 'Plate max distance',
+                        description: 'Define how many characters the plate can differ (Whitespaces will not considered)',
+                        group,
+                        subgroup,
+                        type: 'number',
+                        defaultValue: 2,
+                    }
+                );
+            }
         }
 
-        if (useNvrDetections && isPlugin) {
+        if (useNvrDetections && showCameraSettings) {
             settings.push(
                 {
                     key: nvrEventsKey,
@@ -2058,10 +2047,7 @@ const initBasicRule = (props: {
     const priority = storage.getItem(priorityKey) as NotificationPriority;
     const actions = storage.getItem(actionsKey) as string[];
     const customText = storage.getItem(textKey);
-    let activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
-    if (activationType === DetectionRuleActivation.AlarmSystem) {
-        activationType = DetectionRuleActivation.Always;
-    }
+    const activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
     const securitySystemModes = storage.getItem(securitySystemModesKey) as SecuritySystemMode[] ?? [];
     const notifiers = storage.getItem(notifiersKey) as string[];
 
