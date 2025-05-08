@@ -75,13 +75,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             subgroup: 'Notifier',
             immediate: true,
         },
-        haActions: {
-            title: 'Homeassistant Actions',
-            description: 'Actions to show on the notification, i.e. {"action":"open_door","title":"Open door","icon":"sfsymbols:door"}',
-            subgroup: 'Notifier',
-            type: 'string',
-            multiple: true
-        },
         minSnapshotDelay: {
             title: 'Minimum snapshot acquisition delay',
             description: 'Minimum amount of seconds to wait until a new snapshot is taken from the camera',

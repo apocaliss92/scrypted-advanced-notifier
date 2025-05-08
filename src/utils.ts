@@ -119,13 +119,6 @@ export const isDetectionRule = (rule: BaseRule) => [
     RuleType.Detection,
 ].includes(rule.ruleType);
 
-export interface SnoozeAction {
-    url: string,
-    text: string,
-    action: string,
-    snooze: number,
-}
-
 export const getWebHookUrls = async (props: {
     cameraIdOrAction?: string,
     console: Console,
@@ -146,7 +139,7 @@ export const getWebHookUrls = async (props: {
     let postNotificationUrl: string;
     let endpoint: string;
 
-    const snoozeUrls: SnoozeAction[] = [];
+    const snoozeActions: NotificationAction[] = [];
 
     const { lastSnapshot, haAction, timelapseDownload, timelapseStream, timelapseThumbnail, snoozeNotification, postNotification } = await getWebooks();
 
@@ -178,10 +171,9 @@ export const getWebHookUrls = async (props: {
             for (const snooze of snoozes) {
                 const text = snoozePlaceholder?.replaceAll('${snoozeTime}', String(snooze));
 
-                snoozeUrls.push({
+                snoozeActions.push({
                     url: `${cloudEndpoint}${snoozeNotification}/${encodedId}/${snoozeId}/${snooze}${paramString}`,
-                    text,
-                    snooze,
+                    title: text,
                     action: `snooze${snooze}`,
                 })
             }
@@ -197,7 +189,7 @@ export const getWebHookUrls = async (props: {
         timelapseStreamUrl,
         timelapseDownloadUrl,
         timelapseThumbnailUrl,
-        snoozeUrls,
+        snoozeActions,
         postNotificationUrl,
         endpoint,
     };
@@ -588,14 +580,21 @@ export type MixinBaseSettingKey =
     | 'entityId'
     | 'enabledToMqtt'
     | 'useNvrDetections'
-    | 'haActions'
     | typeof rulesKey;
 
 export enum NotificationPriority {
-    VeryLow = "VeryLow",
+    SuperLow = "SuperLow",
     Low = "Low",
     Normal = "Normal",
-    High = "High"
+    High = "High",
+    SuperHigh = "SuperHigh",
+};
+
+export interface NotificationAction {
+    title: string;
+    action: string;
+    url: string;
+    icon?: string;
 }
 
 export const getMixinBaseSettings = (props: {
@@ -914,8 +913,6 @@ export const getRuleKeys = (props: {
     const dayKey = `${prefix}:${ruleName}:day`;
     const startTimeKey = `${prefix}:${ruleName}:startTime`;
     const endTimeKey = `${prefix}:${ruleName}:endTime`;
-    const actionsKey = `${prefix}:${ruleName}:haActions`;
-    const priorityKey = `${prefix}:${ruleName}:priority`;
     const securitySystemModesKey = `${prefix}:${ruleName}:securitySystemModes`;
     const aiEnabledKey = `${prefix}:${ruleName}:aiEnabled`;
     const showMoreConfigurationsKey = `${prefix}:${ruleName}:showMoreConfigurations`;
@@ -976,8 +973,6 @@ export const getRuleKeys = (props: {
             dayKey,
             startTimeKey,
             endTimeKey,
-            actionsKey,
-            priorityKey,
             securitySystemModesKey,
             aiEnabledKey,
             showMoreConfigurationsKey,
@@ -1069,6 +1064,116 @@ export const cameraFilter: StorageSetting['deviceFilter'] = `interfaces.includes
 type GetSpecificRules = (props: { group: string, subgroup: string, ruleName: string, showMore: boolean }) => StorageSetting[];
 type OnShowMore = (showMore: boolean) => Promise<void>
 
+export const getNotifierPriorities = (notifierId: string) => {
+    const notifier = sdk.systemManager.getDeviceById(notifierId);
+    const pluginId = notifier.pluginId;
+    const priorityChoices: NotificationPriority[] = [];
+
+    if ([HOMEASSISTANT_PLUGIN_ID].includes(pluginId)) {
+        priorityChoices.push(
+            NotificationPriority.Normal,
+            NotificationPriority.High
+        );
+    } if ([NTFY_PLUGIN_ID].includes(pluginId)) {
+        priorityChoices.push(
+            NotificationPriority.SuperLow,
+            NotificationPriority.Low,
+            NotificationPriority.Normal,
+            NotificationPriority.High,
+            NotificationPriority.SuperHigh,
+        );
+    } else if ([PUSHOVER_PLUGIN_ID].includes(pluginId)) {
+        priorityChoices.push(
+            NotificationPriority.SuperLow,
+            NotificationPriority.Low,
+            NotificationPriority.Normal,
+            NotificationPriority.High,
+        );
+    } else if ([NVR_PLUGIN_ID].includes(pluginId)) {
+        priorityChoices.push(
+            NotificationPriority.Low,
+            NotificationPriority.Normal,
+            NotificationPriority.High,
+        );
+    }
+
+    return priorityChoices;
+};
+
+export const getNotifierKeys = (props: {
+    notifierId: string,
+    ruleName: string,
+    ruleType: RuleType,
+}) => {
+    const { notifierId, ruleName, ruleType } = props;
+    const { rulePrefix: prefix } = ruleTypeMetadataMap[ruleType];
+
+    const actionsKey = `${prefix}:${ruleName}:${notifierId}:actions`;
+    const priorityKey = `${prefix}:${ruleName}:${notifierId}:priority`;
+    const addSnoozeKey = `${prefix}:${ruleName}:${notifierId}:addSnooze`;
+    return { actionsKey, priorityKey, addSnoozeKey };
+};
+
+const getNotifierSettings = (props: {
+    notifierId: string,
+    ruleName: string,
+    ruleType: RuleType,
+    group: string,
+    subgroup: string,
+    showMoreConfigurations: boolean,
+}) => {
+    const { notifierId, ruleName, ruleType, group, subgroup, showMoreConfigurations } = props;
+    const notifier = sdk.systemManager.getDeviceById(notifierId);
+    const { actionsKey, priorityKey, addSnoozeKey } = getNotifierKeys({ notifierId, ruleName, ruleType });
+
+    const pluginId = notifier.pluginId;
+    const hasActions = pluginId !== NTFY_PLUGIN_ID;
+    const snoozingDefault = pluginId !== PUSHOVER_PLUGIN_ID;
+
+    const priorityChoices = getNotifierPriorities(notifierId);
+
+    const prioritySetting: StorageSetting = {
+        key: priorityKey,
+        type: 'string',
+        title: `"${notifier.name}" priority`,
+        description: 'Depends on the notifier, if High will always be a critical notification',
+        group,
+        subgroup,
+        choices: priorityChoices,
+        immediate: true,
+        combobox: true,
+        hide: !showMoreConfigurations,
+        defaultValue: NotificationPriority.Normal
+    };
+    const actionsSetting: StorageSetting = {
+        key: actionsKey,
+        title: `"${notifier.name}" actions`,
+        description: 'I.e. {"action":"open_door","title":"Open door","icon":"sfsymbols:door", "url": "url"}',
+        type: 'string',
+        multiple: true,
+        group,
+        subgroup,
+        hide: !showMoreConfigurations
+    };
+    const addSnoozeSetting: StorageSetting = {
+        key: addSnoozeKey,
+        title: `"${notifier.name}" add snoozing actions`,
+        type: 'boolean',
+        group,
+        subgroup,
+        hide: !showMoreConfigurations,
+        defaultValue: snoozingDefault,
+        immediate: true
+    };
+
+    const settings = [prioritySetting, addSnoozeSetting];
+    if (hasActions) {
+        settings.push(actionsSetting);
+    }
+
+    return settings;
+};
+
 export const getRuleSettings = (props: {
     ruleType: RuleType,
     storage: StorageSettings<any>,
@@ -1093,8 +1198,6 @@ export const getRuleSettings = (props: {
                 activationKey,
                 notifiersKey,
                 showMoreConfigurationsKey,
-                actionsKey,
-                priorityKey,
                 dayKey,
                 startTimeKey,
                 endTimeKey,
@@ -1106,10 +1209,8 @@ export const getRuleSettings = (props: {
         } = getRuleKeys({ ruleName, ruleType });
 
         const currentActivation = storage.getItem(activationKey as any) as DetectionRuleActivation || DetectionRuleActivation.Always;
-
         const showMoreConfigurations = safeParseJson<boolean>(storage.getItem(showMoreConfigurationsKey), false);
-        // const aiEnabledRaw = storage.getItem(aiEnabledKey) as boolean;
-        // const aiEnabled = typeof aiEnabledRaw === 'string' ? JSON.parse(aiEnabledRaw) : aiEnabledRaw;
+        const notifiers = safeParseJson<string[]>(storage.getItem(notifiersKey), []);
 
         settings.push(
             {
@@ -1182,7 +1283,9 @@ export const getRuleSettings = (props: {
                 multiple: true,
                 combobox: true,
                 deviceFilter: notifierFilter,
-                defaultValue: []
+                defaultValue: [],
+                immediate: true,
+                onPut: async () => await refreshSettings(undefined)
             }
         );
 
@@ -1276,29 +1379,20 @@ export const getRuleSettings = (props: {
                 defaultValue: [],
                 hide: !showMoreConfigurations
             },
-            {
-                key: priorityKey,
-                type: 'string',
-                title: 'Pushover priority',
-                group,
-                subgroup,
-                choices: [NotificationPriority.VeryLow, NotificationPriority.Low, NotificationPriority.Normal, NotificationPriority.High],
-                immediate: true,
-                combobox: true,
-                hide: !showMoreConfigurations,
-                defaultValue: NotificationPriority.Normal
-            },
-            {
-                key: actionsKey,
-                title: 'Homeassistant Actions',
-                description: 'Actions to show on the notification, i.e. {"action":"open_door","title":"Open door","icon":"sfsymbols:door"}',
-                type: 'string',
-                multiple: true,
-                group,
-                subgroup,
-                hide: !showMoreConfigurations
-            },
         );
+
+        for (const notifierId of notifiers) {
+            const notifierSettings = getNotifierSettings({
+                group,
+                notifierId,
+                ruleName,
+                ruleType,
+                showMoreConfigurations,
+                subgroup
+            });
+
+            settings.push(...notifierSettings);
+        }
     }
 
     return settings;
@@ -2009,14 +2103,17 @@ export interface BaseRule {
     deviceId?: string;
     notifiers: string[];
     customText?: string;
-    priority: NotificationPriority;
-    actions?: string[];
     securitySystemModes?: SecuritySystemMode[];
     minDelay?: number;
     minMqttPublishDelay?: number;
     devices?: string[];
     startRuleText?: string;
     endRuleText?: string;
+    notifierData: Record<string, {
+        actions: NotificationAction[],
+        priority: NotificationPriority,
+        addSnooze: boolean
+    }>;
 }
 
 export interface DetectionRule extends BaseRule {
@@ -2053,10 +2150,8 @@ const initBasicRule = (props: {
         enabledSensorsKey,
         disabledSensorsKey,
         securitySystemModesKey,
-        actionsKey,
         enabledKey,
         notifiersKey,
-        priorityKey,
         textKey,
         aiEnabledKey
     } } = getRuleKeys({
@@ -2067,8 +2162,6 @@ const initBasicRule = (props: {
     const isEnabled = storage.getItem(enabledKey);
     const currentlyActive = storage.getItem(currentlyActiveKey);
     const useAi = storage.getItem(aiEnabledKey);
-    const priority = storage.getItem(priorityKey) as NotificationPriority;
-    const actions = storage.getItem(actionsKey) as string[];
     const customText = storage.getItem(textKey);
     const activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
     const securitySystemModes = storage.getItem(securitySystemModesKey) as SecuritySystemMode[] ?? [];
@@ -2081,13 +2174,24 @@ const initBasicRule = (props: {
         currentlyActive,
         name: ruleName,
         notifiers,
-        priority,
-        actions,
         customText,
         activationType,
         source: ruleSource,
         securitySystemModes,
+        notifierData: {},
     };
+
+    for (const notifierId of notifiers) {
+        const { actionsKey, priorityKey, addSnoozeKey } = getNotifierKeys({ notifierId, ruleName, ruleType });
+        const actions = storage.getItem(actionsKey) as string[] ?? [];
+        const priority = storage.getItem(priorityKey) as NotificationPriority;
+        const addSnooze = storage.getItem(addSnoozeKey) ?? true;
+        rule.notifierData[notifierId] = {
+            actions: actions.map(action => safeParseJson(action)),
+            priority,
+            addSnooze,
+        };
+    }
 
     let timeAllowed = true;
 
@@ -2766,12 +2870,6 @@ export const addBoundingBoxesToImage = async (props: {
 //         return null;
 //     }
 // }
-
-export const getPushoverPriority = (priority: NotificationPriority) => priority === NotificationPriority.High ? 1 :
-    (!priority || priority === NotificationPriority.Normal) ? 0 :
-        priority === NotificationPriority.Low ? -1 :
-            -2;
-
 
 export const getNowFriendlyDate = () => {
     const now = new Date();

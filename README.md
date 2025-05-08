@@ -39,14 +39,18 @@ The plugin provides customized way to deliver notifications. It is based on rule
 - Ntfy
 - Homeassistant push notifications
 - Pushover
-  It's useful to use both notifiers, homeassistant as push rich notification and pushover as low priority just to store all the events
-  Set the following parameters on the plugin page to allow rich notifications
+
+  It's useful to use Pushover or NTFY as notifiers storage, in combination with a homeassistant or NVR one, setting its priority to the lowest. This will allow to have a rich notification and also to store it on another notifier. This because notifiers such as pushover or ntfy do not have a nice support to actions. Following parameters are required to successfully send notifications
+
 - `Scrypted token`: Token stored on the scrypted entity on homeassistant
 - `NVR url`: Url pointing to the NVR instance, should be accessible from outside
 
-### Snoozing
-It's also possible to enable snoozing actions enabling the `Add snoozing actions` (defualt enabled) settings on the notifier page (experimental, it will open a browser tab. Will probably require an automation importing in future to use homeassistant actions)
+Each notifier will be fully configurable on every rule, with possibility to set: actions, addSnoozeActions or priority.
+
+All notifiers currently support allow critical notifications.
+
 Notifications can be disabled for a specific camera on the camera page, Advanced notifier => Notifier => `Notifications enabled` (available on MQTT as well)
+Notifications can be disabled globally on the general tab of the plugin
 
 ### Scrypted NVR notifiers
 Plugins supports scripting of the NVR buitin notifiers, following features are available:
@@ -54,6 +58,7 @@ Plugins supports scripting of the NVR buitin notifiers, following features are a
 - enablement of notifications
 - disable specific camera notifications, if it's notifications are disabled. This will require both the camera and the NVR notifier to extend this plugin
 
+## Rules
 Rules can be of following types: Detection, Occupancy, Audio, Timelapse. These properties are in common with all, some are hidden until the `Show more configurations` gets activated
 
 - `Activation type`: when the rule shoul be active

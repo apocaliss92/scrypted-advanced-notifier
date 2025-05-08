@@ -1,6 +1,11 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.5.10
+
+- [BREAKING CHANGE] HaActions and priority have been removed in favour of specific settings for every notifier utilized on a rule
+- Add fully support to Ntfy, Pushover, HA, Scrypted NVR for: priority (critical too), actions, snoozing
+
 ### 3.5.9
 
 - Add full support to native NVR notifiers
