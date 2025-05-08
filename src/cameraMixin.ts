@@ -1197,7 +1197,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { reason, detectionId, eventId, image: imageParent } = props ?? {};
         const logger = this.getLogger();
         const now = Date.now();
-        const { minSnapshotDelay, useFramesGenerator } = this.storageSettings.values;
+        const { minSnapshotDelay: minSnapshotDelayParent, useFramesGenerator } = this.storageSettings.values;
 
         let image: MediaObject = imageParent;
         let bufferImage: Buffer;
@@ -1219,6 +1219,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const preferDetector = !!detectionId && !!eventId && reason === GetImageReason.FromDetector;
         const snapshotTimeout = reason === GetImageReason.RulesRefresh ? 5000 : 2000;
         const decoderRunning = useFramesGenerator && !this.framesGeneratorSignal.finished;
+        const minSnapshotDelay = reason === GetImageReason.MotionUpdate ? 10 : minSnapshotDelayParent;
 
         let logPayload: any = {
             decoderRunning,
@@ -2041,7 +2042,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { detectionId, eventId } = dataToAnalyze.find(item => item.detectionId && item.eventId) ?? {};
         const classnamesData = uniqBy(dataToAnalyze.flatMap(item => item.detections), item => `${item.className}-${item.label}`);
 
-        const isOnlyMotion = classnamesData.length === 1 && detectionClassesDefaultMap[classnamesData[0]?.className] === DetectionClass.Motion;
+        const isOnlyMotion = !rulesToUpdate.length && classnamesData.length === 1 && detectionClassesDefaultMap[classnamesData[0]?.className] === DetectionClass.Motion;
 
         logger.info(`Accumulated data to analyze: ${JSON.stringify({ triggerTime, detectionId, eventId, classnamesData, rules: rulesToUpdate.map(rule => rule.rule.name) })}`);
 
@@ -2255,7 +2256,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const { filename } = props;
             const lastUpdate = this.lastImageUpdateOnFs[filename];
 
-            const timePassed = !lastUpdate || (now - lastUpdate) >= 2 * 1000;
+            const timePassed = !lastUpdate || (now - lastUpdate) >= 5 * 1000;
 
             if (timePassed) {
                 this.lastImageUpdateOnFs[filename] = now;
