@@ -1,12 +1,12 @@
-import sdk, { EventListenerRegister, MediaObject, ScryptedDeviceType, Setting, Settings, SettingValue } from "@scrypted/sdk";
+import sdk, { EventListenerRegister, MediaObject, Setting, Settings, SettingValue } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep } from "lodash";
 import { getBaseLogger, getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
-import HomeAssistantUtilitiesProvider from "./main";
-import { BinarySensorMetadata, binarySensorMetadataMap, cameraFilter, convertSettingsToStorageSettings, DetectionRule, DeviceInterface, EventType, getActiveRules, getDetectionRulesSettings, GetImageReason, getMixinBaseSettings, getRuleKeys, RuleSource, RuleType, ScryptedEventSource, splitRules, SupportedSensorType } from "./utils";
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
+import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, reportSensorValues, setupSensorAutodiscovery, subscribeToSensorMqttTopics } from "./mqtt-utils";
+import { BinarySensorMetadata, binarySensorMetadataMap, cameraFilter, convertSettingsToStorageSettings, DetectionRule, DeviceInterface, getActiveRules, getDetectionRulesSettings, GetImageReason, getMixinBaseSettings, getRuleKeys, RuleSource, RuleType, ScryptedEventSource, splitRules, SupportedSensorType } from "./utils";
 
 const { systemManager } = sdk;
 

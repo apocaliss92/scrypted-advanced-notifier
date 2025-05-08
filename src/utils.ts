@@ -76,10 +76,6 @@ export const getElegibleDevices = () => {
     })
 }
 
-export enum EventType {
-    ObjectDetection = 'ObjectDetection',
-}
-
 export const getDefaultEntityId = (name: string) => {
     const convertedName = name?.replace(/\W+/g, " ")
         .split(/ |\B(?=[A-Z])/)
@@ -199,7 +195,6 @@ export const getWebHookUrls = async (props: {
 
 export interface ParseNotificationMessageResult {
     triggerDevice: DeviceInterface,
-    detectionClass: DetectionClass,
     detection: ObjectDetectionResult,
     allDetections: ObjectDetectionResult[],
     eventType: DetectionEvent,
@@ -207,12 +202,15 @@ export interface ParseNotificationMessageResult {
     label: string,
 }
 
+export const isDetectionClass = (value: string): value is DetectionClass => {
+    return Object.values(DetectionClass).includes(value as DetectionClass);
+}
+
 export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface, deviceSensors: string[], options?: NotifierOptions, console?: Console): Promise<ParseNotificationMessageResult> => {
     try {
         let triggerDevice: DeviceInterface = cameraDevice;
         let detection: ObjectDetectionResult
         let label: string;
-        let detectionClass: DetectionClass;
         const subtitle = options?.subtitle;
 
         let eventType: DetectionEvent;
@@ -231,29 +229,24 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
             } as ObjectDetectionResult;
         } else {
             if (subtitle.includes('Maybe: Vehicle')) {
-                detectionClass = DetectionClass.Plate;
+                eventType = DetectionClass.Plate;
                 detection = allDetections.find(det => det.className === 'plate');
-                eventType = EventType.ObjectDetection;
                 label = detection.label;
             } else if (subtitle.includes('Person')) {
-                detectionClass = DetectionClass.Person;
+                eventType = DetectionClass.Person;
                 detection = allDetections.find(det => det.className === 'person');
-                eventType = EventType.ObjectDetection;
             } else if (subtitle.includes('Vehicle')) {
-                detectionClass = DetectionClass.Vehicle;
+                eventType = DetectionClass.Vehicle;
                 detection = allDetections.find(det => det.className === 'vehicle');
-                eventType = EventType.ObjectDetection;
             } else if (subtitle.includes('Animal')) {
-                detectionClass = DetectionClass.Animal;
+                eventType = DetectionClass.Animal;
                 detection = allDetections.find(det => det.className === 'animal');
-                eventType = EventType.ObjectDetection;
             } else if (subtitle.includes('Maybe: ')) {
-                detectionClass = DetectionClass.Face;
+                eventType = DetectionClass.Face;
                 detection = allDetections.find(det => det.className === 'face');
-                eventType = EventType.ObjectDetection;
                 label = detection.label;
             } else if (subtitle.includes('Motion')) {
-                detectionClass = DetectionClass.Motion;
+                eventType = DetectionClass.Motion;
                 detection = allDetections.find(det => det.className === 'motion');
 
                 if (!allDetections.length) {
@@ -265,16 +258,14 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
                         },
                     ]
                 }
-                eventType = EventType.ObjectDetection;
             } else if (subtitle.includes('Door/Window Open')) {
                 eventType = SupportedSensorType.Binary;
             } else if (subtitle.includes('Doorbell Ringing')) {
-                detectionClass = DetectionClass.Doorbell;
-                eventType = EventType.ObjectDetection;
+                eventType = DetectionClass.Doorbell;
             } else if (subtitle.includes('Door Unlocked')) {
                 eventType = SupportedSensorType.Lock;
             } else if (subtitle.includes('Package Detected')) {
-                eventType = EventType.ObjectDetection;
+                eventType = DetectionClass.Package;
                 detection = allDetections.find(det => det.className === 'package');
             }
         }
@@ -310,7 +301,6 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
 
         return {
             triggerDevice,
-            detectionClass,
             detection,
             allDetections,
             eventType,
@@ -367,6 +357,7 @@ export type TextSettingKey =
     | 'objectDetectionText'
     | 'doorWindowText'
     | 'doorbellText'
+    | 'anyObjectText'
     | 'packageText'
     | 'plateText'
     | 'familiarText'
@@ -518,6 +509,15 @@ export const getTextSettings = (forMixin: boolean) => {
             type: 'string',
             defaultValue: !forMixin ? 'Package' : undefined,
             placeholder: !forMixin ? 'Package' : undefined,
+            hide: forMixin
+        },
+        anyObjectText: {
+            group: 'Texts',
+            subgroup: 'Detection classes',
+            title: 'Ant object text',
+            type: 'string',
+            defaultValue: !forMixin ? 'Something' : undefined,
+            placeholder: !forMixin ? 'Something' : undefined,
             hide: forMixin
         },
         audioText: {
@@ -796,10 +796,11 @@ export const getActiveRules = async (
     }
 }
 
-export const getTextKey = (props: { eventType: DetectionEvent }) => {
+export const getEventTextKey = (props: { eventType: DetectionEvent }) => {
     const { eventType } = props;
 
     let key: TextSettingKey;
+    let subKey: TextSettingKey;
 
     switch (eventType) {
         case NvrEvent.RecordingInterrupted:
@@ -812,61 +813,63 @@ export const getTextKey = (props: { eventType: DetectionEvent }) => {
             key = 'offlineText';
             break;
         case SupportedSensorType.Binary:
-            key = 'doorWindowText';
+            key = 'objectDetectionText';
+            subKey = 'doorWindowText';
             break;
         case SupportedSensorType.Lock:
-            key = 'doorlockText';
+            key = 'objectDetectionText';
+            subKey = 'doorlockText';
             break;
         case SupportedSensorType.Entry:
-            key = 'entrySensorText';
+            key = 'objectDetectionText';
+            subKey = 'entrySensorText';
             break;
         case SupportedSensorType.Flood:
-            key = 'floodingText';
-            break;
-        case EventType.ObjectDetection: {
             key = 'objectDetectionText';
-        }
-    }
-
-    return key;
-}
-
-export const getObjectDetectionTextKey = (props: { detectionClass: DetectionClass }) => {
-    const { detectionClass } = props;
-
-    let key: TextSettingKey;
-
-    switch (detectionClass) {
+            subKey = 'floodingText';
+            break;
         case DetectionClass.Animal:
-            key = 'animalText';
+            key = 'objectDetectionText';
+            subKey = 'animalText';
             break;
         case DetectionClass.Person:
-            key = 'personText';
+            key = 'objectDetectionText';
+            subKey = 'personText';
             break;
         case DetectionClass.Vehicle:
-            key = 'vehicleText';
+            key = 'objectDetectionText';
+            subKey = 'vehicleText';
             break;
         case DetectionClass.Motion:
-            key = 'motionText';
+            key = 'objectDetectionText';
+            subKey = 'motionText';
             break;
         case DetectionClass.Face:
-            key = 'familiarText';
+            key = 'objectDetectionText';
+            subKey = 'familiarText';
             break;
         case DetectionClass.Audio:
-            key = 'audioText';
+            key = 'objectDetectionText';
+            subKey = 'audioText';
             break;
         case DetectionClass.Plate:
-            key = 'plateText';
+            key = 'objectDetectionText';
+            subKey = 'plateText';
             break;
         case DetectionClass.Package:
-            key = 'packageText';
+            key = 'objectDetectionText';
+            subKey = 'packageText';
             break;
         case DetectionClass.Doorbell:
             key = 'doorbellText';
             break;
+        case DetectionClass.AnyObject:
+            key = 'objectDetectionText';
+            subKey = 'anyObjectText';
+            break;
     }
 
-    return key;
+    return { key, subKey };
 }
 
 export enum DetectionRuleActivation {
@@ -2003,7 +2006,7 @@ export interface BaseRule {
 
 export interface DetectionRule extends BaseRule {
     markDetections: boolean;
-    detectionClasses?: DetectionClassFull[];
+    detectionClasses?: RuleDetectionClass[];
     nvrEvents?: NvrEvent[];
     scoreThreshold?: number;
     labelScoreThreshold?: number;
@@ -2225,7 +2228,7 @@ export const getDetectionRules = (props: {
             const devices = !isPlugin ? [deviceId] : mainDevices.length ? mainDevices : allDevices;
             const devicesToUse = activationType === DetectionRuleActivation.OnActive ? onActiveDevices : devices;
 
-            const detectionClasses = storage.getItem(detectionClassesKey) as DetectionClassFull[] ?? [];
+            const detectionClasses = storage.getItem(detectionClassesKey) as RuleDetectionClass[] ?? [];
             const nvrEvents = storage.getItem(nvrEventsKey) as NvrEvent[] ?? [];
             const scoreThreshold = storage.getItem(scoreThresholdKey) as number || 0.7;
             const minDelay = storage.getItem(minDelayKey) as number;
@@ -2811,15 +2814,15 @@ export enum SupportedSensorType {
     Entry = 'entry'
 };
 
-export type DetectionClassFull = DetectionClass | SupportedSensorType;
-export type DetectionEvent = EventType | NvrEvent | SupportedSensorType;
+export type DetectionEvent = DetectionClass | NvrEvent | SupportedSensorType;
+export type RuleDetectionClass = DetectionClass | SupportedSensorType;
 
 export const isDeviceSupported = (device: DeviceBase) => {
     const { interfaces, type } = device;
     const isCamera = [ScryptedInterface.VideoCamera, ScryptedInterface.Camera].some(int => interfaces.includes(int));
 
     const isLock = interfaces.includes(ScryptedInterface.Lock);
-    const isBinarySensor = interfaces.includes(ScryptedInterface.BinarySensor);
+    const isBinarySensor = !isCamera && interfaces.includes(ScryptedInterface.BinarySensor);
     const isFloodSensor = interfaces.includes(ScryptedInterface.FloodSensor);
     const isEntrySensor = interfaces.includes(ScryptedInterface.EntrySensor);
 
