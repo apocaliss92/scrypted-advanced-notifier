@@ -1050,143 +1050,143 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    public async getImageBkp(props?: {
-        preferLatest?: boolean,
-        fallbackToLatest?: boolean,
-        detectionId?: string,
-        eventId?: string,
-        image?: MediaObject,
-        log?: boolean
-    }) {
-        const { preferLatest, fallbackToLatest, detectionId, eventId, image: imageParent, log } = props ?? {};
-        const logger = this.getLogger();
-        const now = Date.now();
-        const { minSnapshotDelay, useFramesGenerator } = this.storageSettings.values;
+    // public async getImageBkp(props?: {
+    //     preferLatest?: boolean,
+    //     fallbackToLatest?: boolean,
+    //     detectionId?: string,
+    //     eventId?: string,
+    //     image?: MediaObject,
+    //     log?: boolean
+    // }) {
+    //     const { preferLatest, fallbackToLatest, detectionId, eventId, image: imageParent, log } = props ?? {};
+    //     const logger = this.getLogger();
+    //     const now = Date.now();
+    //     const { minSnapshotDelay, useFramesGenerator } = this.storageSettings.values;
 
-        let image: MediaObject = imageParent;
-        let bufferImage: Buffer;
-        let b64Image: string;
-        let imageUrl: string;
-        let imageSource: 'Input' | 'Snapshot' | 'Latest because requested' | 'Latest because very recent' | 'Detector mixin' | 'Decoder';
+    //     let image: MediaObject = imageParent;
+    //     let bufferImage: Buffer;
+    //     let b64Image: string;
+    //     let imageUrl: string;
+    //     let imageSource: 'Input' | 'Snapshot' | 'Latest because requested' | 'Latest because very recent' | 'Detector mixin' | 'Decoder';
 
-        const msPassed = this.lastPictureTaken ? now - this.lastPictureTaken : 0;
-        const isVeryRecent = msPassed && msPassed <= 500;
-        const isLatestPreferred = msPassed && msPassed <= 2000;
+    //     const msPassed = this.lastPictureTaken ? now - this.lastPictureTaken : 0;
+    //     const isVeryRecent = msPassed && msPassed <= 500;
+    //     const isLatestPreferred = msPassed && msPassed <= 2000;
 
-        if (log) {
-            logger.log(JSON.stringify({
-                minSnapshotDelay,
-                useFramesGenerator,
-                msPassed,
-                isVeryRecent,
-                isLatestPreferred
-            }));
-        }
+    //     if (log) {
+    //         logger.log(JSON.stringify({
+    //             minSnapshotDelay,
+    //             useFramesGenerator,
+    //             msPassed,
+    //             isVeryRecent,
+    //             isLatestPreferred
+    //         }));
+    //     }
 
-        const findFromSnapshot = async () => {
-            const timePassed = !this.lastPictureTaken || msPassed >= 1000 * minSnapshotDelay;
+    //     const findFromSnapshot = async () => {
+    //         const timePassed = !this.lastPictureTaken || msPassed >= 1000 * minSnapshotDelay;
 
-            logger.info(JSON.stringify({
-                msPassed,
-                delay: minSnapshotDelay * 1000,
-                timePassed,
-                lastPictureTaken: this.lastPictureTaken
-            }))
+    //         logger.info(JSON.stringify({
+    //             msPassed,
+    //             delay: minSnapshotDelay * 1000,
+    //             timePassed,
+    //             lastPictureTaken: this.lastPictureTaken
+    //         }))
 
-            if (timePassed) {
-                try {
-                    this.lastImage = undefined;
-                    const objectDetector = this.getObjectDetector();
-                    image = await objectDetector.takePicture({
-                        reason: 'event',
-                        timeout: 5000,
-                        picture: {
-                            width: SNAPSHOT_WIDTH,
-                        },
-                    });
-                    this.lastPictureTaken = now;
-                    logger.info(`Image taken from snapshot because time is passed`);
-                    imageSource = 'Snapshot';
-                } catch (e) {
-                    logger.log(`Error taking a snapshot`, e.message);
-                    this.lastPictureTaken = undefined;
-                }
-            }
-        }
+    //         if (timePassed) {
+    //             try {
+    //                 this.lastImage = undefined;
+    //                 const objectDetector = this.getObjectDetector();
+    //                 image = await objectDetector.takePicture({
+    //                     reason: 'event',
+    //                     timeout: 5000,
+    //                     picture: {
+    //                         width: SNAPSHOT_WIDTH,
+    //                     },
+    //                 });
+    //                 this.lastPictureTaken = now;
+    //                 logger.info(`Image taken from snapshot because time is passed`);
+    //                 imageSource = 'Snapshot';
+    //             } catch (e) {
+    //                 logger.log(`Error taking a snapshot`, e.message);
+    //                 this.lastPictureTaken = undefined;
+    //             }
+    //         }
+    //     }
 
-        try {
-            if (!image) {
-                const isLastFrameRecent = !this.lastFrameAcquired || (now - this.lastFrameAcquired) <= 200;
+    //     try {
+    //         if (!image) {
+    //             const isLastFrameRecent = !this.lastFrameAcquired || (now - this.lastFrameAcquired) <= 200;
 
-                if (log) {
-                    logger.log(JSON.stringify({
-                        isLastFrameRecent,
-                        useFramesGenerator,
-                        preferLatest,
-                        isLatestPreferred,
-                        isVeryRecent,
-                        detectionId,
-                        eventId,
-                        currentImage: !!this.lastImage
-                    }));
-                }
+    //             if (log) {
+    //                 logger.log(JSON.stringify({
+    //                     isLastFrameRecent,
+    //                     useFramesGenerator,
+    //                     preferLatest,
+    //                     isLatestPreferred,
+    //                     isVeryRecent,
+    //                     detectionId,
+    //                     eventId,
+    //                     currentImage: !!this.lastImage
+    //                 }));
+    //             }
 
-                if (useFramesGenerator && !this.framesGeneratorSignal.finished && this.lastFrame && isLastFrameRecent) {
-                    image = this.lastFrame;
-                    imageSource = 'Decoder';
-                    logger.info(`Image taken from decoder`);
-                } else if (preferLatest && isLatestPreferred) {
-                    image = this.lastImage;
-                    logger.info(`Last used image taken because periodic`);
-                    imageSource = 'Latest because requested';
-                } else if (isVeryRecent && this.lastImage) {
-                    image = this.lastImage;
-                    b64Image = this.lastB64Image;
-                    logger.info(`Last used image taken because very recent`);
-                    imageSource = 'Latest because very recent';
-                } else if (detectionId && eventId) {
-                    try {
-                        const detectImage = await this.cameraDevice.getDetectionInput(detectionId, eventId);
-                        const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(detectImage, ScryptedMimeTypes.Image);
-                        image = await convertedImage.toImage({
-                            resize: {
-                                width: SNAPSHOT_WIDTH,
-                            },
-                        });
-                        logger.info(`Image taken from the detector mixin`);
-                        imageSource = 'Detector mixin';
-                    } catch (e) {
-                        logger.log(`Error finding the image from the detector mixin`, e.message);
+    //             if (useFramesGenerator && !this.framesGeneratorSignal.finished && this.lastFrame && isLastFrameRecent) {
+    //                 image = this.lastFrame;
+    //                 imageSource = 'Decoder';
+    //                 logger.info(`Image taken from decoder`);
+    //             } else if (preferLatest && isLatestPreferred) {
+    //                 image = this.lastImage;
+    //                 logger.info(`Last used image taken because periodic`);
+    //                 imageSource = 'Latest because requested';
+    //             } else if (isVeryRecent && this.lastImage) {
+    //                 image = this.lastImage;
+    //                 b64Image = this.lastB64Image;
+    //                 logger.info(`Last used image taken because very recent`);
+    //                 imageSource = 'Latest because very recent';
+    //             } else if (detectionId && eventId) {
+    //                 try {
+    //                     const detectImage = await this.cameraDevice.getDetectionInput(detectionId, eventId);
+    //                     const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(detectImage, ScryptedMimeTypes.Image);
+    //                     image = await convertedImage.toImage({
+    //                         resize: {
+    //                             width: SNAPSHOT_WIDTH,
+    //                         },
+    //                     });
+    //                     logger.info(`Image taken from the detector mixin`);
+    //                     imageSource = 'Detector mixin';
+    //                 } catch (e) {
+    //                     logger.log(`Error finding the image from the detector mixin`, e.message);
 
-                        await findFromSnapshot();
-                    }
-                } else {
-                    await findFromSnapshot();
-                }
-            } else {
-                imageSource = 'Input';
-            }
+    //                     await findFromSnapshot();
+    //                 }
+    //             } else {
+    //                 await findFromSnapshot();
+    //             }
+    //         } else {
+    //             imageSource = 'Input';
+    //         }
 
-            if (!image && fallbackToLatest) {
-                image = this.lastImage;
-            }
+    //         if (!image && fallbackToLatest) {
+    //             image = this.lastImage;
+    //         }
 
-            if (image) {
-                bufferImage = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg');
-                b64Image = bufferImage?.toString('base64');
-                // imageUrl = await sdk.mediaManager.convertMediaObjectToInsecureLocalUrl(image, 'image/jpeg');
-            }
-        } catch (e) {
-            logger.log(`Error during getImage`, e);
-        } finally {
-            if (!imageParent && image && b64Image) {
-                this.lastImage = image;
-                this.lastB64Image = b64Image;
-            }
+    //         if (image) {
+    //             bufferImage = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg');
+    //             b64Image = bufferImage?.toString('base64');
+    //             // imageUrl = await sdk.mediaManager.convertMediaObjectToInsecureLocalUrl(image, 'image/jpeg');
+    //         }
+    //     } catch (e) {
+    //         logger.log(`Error during getImage`, e);
+    //     } finally {
+    //         if (!imageParent && image && b64Image) {
+    //             this.lastImage = image;
+    //             this.lastB64Image = b64Image;
+    //         }
 
-            return { image, b64Image, bufferImage, imageUrl, imageSource };
-        }
-    }
+    //         return { image, b64Image, bufferImage, imageUrl, imageSource };
+    //     }
+    // }
 
     public async getImage(props?: {
         detectionId?: string,
@@ -1205,7 +1205,31 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let imageUrl: string;
         let imageSource: 'Input' | 'Snapshot' | 'Latest' | 'Detector' | 'Decoder';
 
-        const msPassed = this.lastPictureTaken ? now - this.lastPictureTaken : 0;
+        const msPassedFromSnapshot = this.lastPictureTaken !== undefined ? now - this.lastPictureTaken : 0;
+        const msPassedFromDecoder = this.lastFrameAcquired !== undefined ? now - this.lastFrameAcquired : 0;
+
+        const preferLatest = [
+            GetImageReason.RulesRefresh,
+            GetImageReason.AudioTrigger,
+            GetImageReason.MotionUpdate,
+        ].includes(reason);
+        const forceSnapshot = [
+            GetImageReason.Sensor,
+        ].includes(reason);
+        const preferDetector = !!detectionId && !!eventId && reason === GetImageReason.FromDetector;
+        const snapshotTimeout = reason === GetImageReason.RulesRefresh ? 5000 : 2000;
+        const decoderRunning = useFramesGenerator && !this.framesGeneratorSignal.finished;
+
+        let logPayload: any = {
+            decoderRunning,
+            msPassedFromDecoder,
+            msPassedFromSnapshot,
+            reason,
+            preferLatest,
+            forceSnapshot,
+            preferDetector,
+            snapshotTimeout
+        };
 
         const findFromDetector = () => async () => {
             try {
@@ -1223,15 +1247,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }
         }
 
-        const findFromSnapshot = (force?: boolean) => async () => {
-            const timePassed = !this.lastPictureTaken || msPassed >= 1000 * minSnapshotDelay;
-
-            logger.info(JSON.stringify({
-                msPassed,
-                delay: minSnapshotDelay * 1000,
-                timePassed,
-                lastPictureTaken: this.lastPictureTaken
-            }))
+        const findFromSnapshot = (force: boolean, timeout: number) => async () => {
+            const timePassed = !this.lastPictureTaken || msPassedFromSnapshot >= 1000 * minSnapshotDelay;
 
             if (timePassed || force) {
                 try {
@@ -1239,58 +1256,61 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     const objectDetector = this.getObjectDetector();
                     image = await objectDetector.takePicture({
                         reason: 'event',
-                        timeout: 2000,
+                        timeout,
                         picture: {
                             width: SNAPSHOT_WIDTH,
                         },
                     });
                     this.lastPictureTaken = now;
-                    logger.info(`Image taken from snapshot because time is passed`);
+                    logger.info(`Image taken from snapshot`);
                     imageSource = 'Snapshot';
                 } catch (e) {
                     logger.log(`Error taking a snapshot`, e.message);
                     this.lastPictureTaken = undefined;
                 }
+            } else {
+                logger.info(`Skipping snapshot image`, JSON.stringify({
+                    timePassed, force
+                }));
             }
         }
 
         const findFromDecoder = () => async () => {
-            const isRecent = !this.lastFrameAcquired || (now - this.lastFrameAcquired) <= 200;
+            const isRecent = !this.lastFrameAcquired || (msPassedFromDecoder) <= 500;
 
-            if (useFramesGenerator && !this.framesGeneratorSignal.finished && this.lastFrame && isRecent) {
+            if (decoderRunning && this.lastFrame && isRecent) {
                 image = this.lastFrame;
                 imageSource = 'Decoder';
                 logger.info(`Image taken from decoder`);
+            } else {
+                logger.info(`Skipping decoder image`, JSON.stringify({
+                    isRecent, useFramesGenerator, running: !this.framesGeneratorSignal.finished, hasFrame: !!this.lastFrame
+                }));
             }
         };
 
         const findFromLatest = (ms: number) => async () => {
-            const isRecent = msPassed && msPassed <= ms;
+            const isRecent = msPassedFromSnapshot && msPassedFromSnapshot <= ms;
 
             if (isRecent) {
                 image = this.lastImage;
                 b64Image = this.lastB64Image;
-                logger.info(`Last used image taken because very recent`);
+                logger.info(`Image taken from recent ${ms} ms`);
                 imageSource = 'Latest';
+            } else {
+                logger.info(`Skipping latest image`, JSON.stringify({
+                    isRecent,
+                    ms
+                }));
             }
         };
 
         try {
             if (!image) {
-                const preferLatest = [
-                    GetImageReason.RulesRefresh,
-                    GetImageReason.AudioTrigger,
-                    GetImageReason.MotionUpdate,
-                ].includes(reason);
-                const forceSnapshot = [
-                    GetImageReason.Sensor,
-                ].includes(reason);
-                const preferDetector = detectionId && eventId && reason === GetImageReason.FromDetector;
-
                 let runners = [];
-                const checkLatest = findFromLatest(2000);
+                const checkLatest = findFromLatest(reason === GetImageReason.MotionUpdate ? 3000 : 2000);
                 const checkVeryRecent = findFromLatest(200);
-                const checkSnapshot = findFromSnapshot(forceSnapshot);
+                const checkSnapshot = findFromSnapshot(forceSnapshot, snapshotTimeout);
                 const checkDetector = findFromDetector();
                 const checkDecoder = findFromDecoder();
 
@@ -1334,6 +1354,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         } catch (e) {
             logger.log(`Error during getImage`, e);
         } finally {
+            logPayload = {
+                ...logPayload,
+                imageSource,
+                imageFound: !!image
+            };
+            logger.info(logPayload);
             if (!imageParent && image && b64Image) {
                 this.lastImage = image;
                 this.lastB64Image = b64Image;
