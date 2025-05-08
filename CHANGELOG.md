@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.5.6
+
+- Add last faces detected on MQTT People tracker device
 ### 3.5.5
 
 - Add POST notification webhook on notifier level
