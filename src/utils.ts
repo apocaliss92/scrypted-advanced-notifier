@@ -1323,16 +1323,19 @@ export const getDetectionRulesSettings = async (props: {
         const activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
         const showCameraSettings = isPlugin || isCamera;
 
+        settings.push(
+            {
+                key: useNvrDetectionsKey,
+                title: 'Use NVR detections',
+                type: 'boolean',
+                group,
+                subgroup,
+                immediate: true
+            }
+        );
+
         if (showCameraSettings) {
             settings.push(
-                {
-                    key: useNvrDetectionsKey,
-                    title: 'Use NVR detections',
-                    type: 'boolean',
-                    group,
-                    subgroup,
-                    immediate: true
-                },
                 {
                     key: detectionClassesKey,
                     title: 'Detection classes',
@@ -1417,7 +1420,7 @@ export const getDetectionRulesSettings = async (props: {
             }
         }
 
-        if (useNvrDetections && showCameraSettings) {
+        if (useNvrDetections && isPlugin) {
             settings.push(
                 {
                     key: nvrEventsKey,
