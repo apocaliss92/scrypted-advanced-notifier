@@ -25,7 +25,7 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
         addSnoozeActions: {
             title: 'Add snoozing actions',
             type: 'boolean',
-            defaultValue: false,
+            defaultValue: true,
             immediate: true,
         },
         postNotificationWebhook: {

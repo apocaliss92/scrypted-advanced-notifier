@@ -85,10 +85,14 @@ export const getDefaultEntityId = (name: string) => {
     return `binary_sensor.${convertedName}_notification_triggered`;
 }
 
-const safeParseJson = <T = any>(maybeStringValue: string | object, fallback?: any) => {
-    return (typeof maybeStringValue === 'string' ? JSON.parse(maybeStringValue) : maybeStringValue) ?? fallback as T;
-
+export const safeParseJson = <T = any>(maybeStringValue: string | object, fallback?: any) => {
+    try {
+        return (typeof maybeStringValue === 'string' ? JSON.parse(maybeStringValue) : maybeStringValue) ?? fallback as T;
+    } catch {
+        return maybeStringValue;
+    }
 }
+
 
 export const getWebooks = async () => {
     const lastSnapshot = 'snapshot';
@@ -118,6 +122,7 @@ export const isDetectionRule = (rule: BaseRule) => [
 export interface SnoozeAction {
     url: string,
     text: string,
+    action: string,
     snooze: number,
 }
 
@@ -139,6 +144,7 @@ export const getWebHookUrls = async (props: {
     let timelapseDownloadUrl: string;
     let timelapseThumbnailUrl: string;
     let postNotificationUrl: string;
+    let endpoint: string;
 
     const snoozeUrls: SnoozeAction[] = [];
 
@@ -147,9 +153,11 @@ export const getWebHookUrls = async (props: {
     try {
         const cloudEndpointRaw = await endpointManager.getCloudEndpoint(undefined, { public: true });
         const localEndpoint = await endpointManager.getPublicLocalEndpoint();
+        // const cloudPushEndpoint = await sdk.endpointManager.getCloudPushEndpoint(this.nativeId);
 
         const [cloudEndpoint, parameters] = cloudEndpointRaw.split('?') ?? '';
         const encodedId = encodeURIComponent(cameraIdOrAction ?? device.id);
+        endpoint = cloudEndpoint;
 
         const paramString = parameters ? `?${parameters}` : '';
 
@@ -174,6 +182,7 @@ export const getWebHookUrls = async (props: {
                     url: `${cloudEndpoint}${snoozeNotification}/${encodedId}/${snoozeId}/${snooze}${paramString}`,
                     text,
                     snooze,
+                    action: `snooze${snooze}`,
                 })
             }
         }
@@ -189,7 +198,8 @@ export const getWebHookUrls = async (props: {
         timelapseDownloadUrl,
         timelapseThumbnailUrl,
         snoozeUrls,
-        postNotificationUrl
+        postNotificationUrl,
+        endpoint,
     };
 }
 
@@ -1046,6 +1056,11 @@ export const allInterfaces = [
 const getInterfacesString = (interfaces: ScryptedInterface[]) =>
     "[" + interfaces.map(int => `'${int}'`) + "]";
 
+// export const basicFilter: StorageSetting['deviceFilter'] = device => device.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE)
+// export const deviceFilter: StorageSetting['deviceFilter'] = device => basicFilter(device) && device.interfaces.some(int => [...sensorInterfaces, ...cameraInterfaces].includes(int as ScryptedInterface));
+// export const notifierFilter: StorageSetting['deviceFilter'] = device => basicFilter(device) && device.interfaces.some(int => notifierInterfaces.includes(int as ScryptedInterface));
+// export const sensorsFilter: StorageSetting['deviceFilter'] = device => basicFilter(device) && device.interfaces.some(int => sensorInterfaces.includes(int as ScryptedInterface));
+// export const cameraFilter: StorageSetting['deviceFilter'] = device => basicFilter(device) && device.interfaces.some(int => cameraInterfaces.includes(int as ScryptedInterface));
 export const deviceFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && interfaces.some(int => ${getInterfacesString([...sensorInterfaces, ...cameraInterfaces])}.includes(int))`;
 export const notifierFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && interfaces.some(int => ${getInterfacesString(notifierInterfaces)}.includes(int))`;
 export const sensorsFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && interfaces.some(int => ${getInterfacesString(sensorInterfaces)}.includes(int))`;
@@ -2946,8 +2961,8 @@ export const splitRules = (props: {
     ];
 }
 
-export const getSnoozeId = (detectionId: string, notifierId: string) => {
-    return `${notifierId}_${detectionId}`;
+export const getSnoozeId = (detectionId: string, cameraId: string, notifierId: string) => {
+    return `${notifierId}_${cameraId}_${detectionId}`;
 }
 
 export const getB64ImageLog = (b64Image: string) => `${b64Image ? b64Image?.substring(0, 10) + '...' : 'NO_IMAGE'}`;

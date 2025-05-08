@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.5.9
+
+- Add full support to native NVR notifiers
+
 ### 3.5.7
 
 - [BREAKING CHANGE] Doorbell sensors won't be used anymore, a detection class Doorbell is now available on doorbell cameras

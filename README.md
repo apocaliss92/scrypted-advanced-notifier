@@ -35,6 +35,8 @@ The plugin will export to MQTT the following entities:
 
 The plugin provides customized way to deliver notifications. It is based on rules. Each rule can be activated based on several factors, i.e. active sensors, time ranges, security system status. Any notifier can be used but the only fully supported currently are (can be extended for any other):
 
+- Native Scrypted notifiers (i.e. Scrypted iPhone app...)
+- Ntfy
 - Homeassistant push notifications
 - Pushover
   It's useful to use both notifiers, homeassistant as push rich notification and pushover as low priority just to store all the events
@@ -43,7 +45,7 @@ The plugin provides customized way to deliver notifications. It is based on rule
 - `NVR url`: Url pointing to the NVR instance, should be accessible from outside
 
 ### Snoozing
-It's also possible to enable snoozing actions enabling the `Add snoozing actions` settings on the notifier page (experimental, it will open a browser tab. Will probably require an automation importing in future to use homeassistant actions)
+It's also possible to enable snoozing actions enabling the `Add snoozing actions` (defualt enabled) settings on the notifier page (experimental, it will open a browser tab. Will probably require an automation importing in future to use homeassistant actions)
 Notifications can be disabled for a specific camera on the camera page, Advanced notifier => Notifier => `Notifications enabled` (available on MQTT as well)
 
 ### Scrypted NVR notifiers
