@@ -55,7 +55,7 @@ export enum GetImageReason {
     AudioTrigger = 'AudioTrigger',
     MotionUpdate = 'MotionUpdate',
     ObjectUpdate = 'ObjectUpdate',
-    FromDetector = 'FromDetector',
+    FromNvr = 'FromNvr',
     Test = 'Test',
 }
 
@@ -78,7 +78,6 @@ export const getElegibleDevices = () => {
 
 export enum EventType {
     ObjectDetection = 'ObjectDetection',
-    Doorbell = 'Doorbell',
 }
 
 export const getDefaultEntityId = (name: string) => {
@@ -270,7 +269,8 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
             } else if (subtitle.includes('Door/Window Open')) {
                 eventType = SupportedSensorType.Binary;
             } else if (subtitle.includes('Doorbell Ringing')) {
-                eventType = EventType.Doorbell;
+                detectionClass = DetectionClass.Doorbell;
+                eventType = EventType.ObjectDetection;
             } else if (subtitle.includes('Door Unlocked')) {
                 eventType = SupportedSensorType.Lock;
             } else if (subtitle.includes('Package Detected')) {
@@ -280,7 +280,7 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
         }
 
         // Remove this when nvr will provide trigger IDs
-        if ([SupportedSensorType.Binary, SupportedSensorType.Lock, EventType.Doorbell].includes(eventType as any)) {
+        if ([SupportedSensorType.Binary, SupportedSensorType.Lock].includes(eventType as any)) {
             const systemState = sdk.systemManager.getSystemState();
 
             const foundSensor = deviceSensors.find(deviceId => {
@@ -717,7 +717,8 @@ export const getActiveRules = async (
     const {
         allowedRules: allowedDetectionRules,
         availableRules: availableDetectionRules,
-        anyAllowedNvrRule: anyAllowedNvrDetectionRule
+        anyAllowedNvrRule: anyAllowedNvrDetectionRule,
+        shouldListenDoorbell
     } = getDetectionRules({
         device,
         console,
@@ -791,6 +792,7 @@ export const getActiveRules = async (
         shouldListenAudio,
         isActiveForMqttReporting,
         anyAllowedNvrDetectionRule,
+        shouldListenDoorbell,
     }
 }
 
@@ -811,9 +813,6 @@ export const getTextKey = (props: { eventType: DetectionEvent }) => {
             break;
         case SupportedSensorType.Binary:
             key = 'doorWindowText';
-            break;
-        case EventType.Doorbell:
-            key = 'doorbellText';
             break;
         case SupportedSensorType.Lock:
             key = 'doorlockText';
@@ -861,6 +860,9 @@ export const getObjectDetectionTextKey = (props: { detectionClass: DetectionClas
             break;
         case DetectionClass.Package:
             key = 'packageText';
+            break;
+        case DetectionClass.Doorbell:
+            key = 'doorbellText';
             break;
     }
 
@@ -2174,6 +2176,7 @@ export const getDetectionRules = (props: {
     const availableRules: DetectionRule[] = [];
     const allowedRules: DetectionRule[] = [];
     let anyAllowedNvrRule = false;
+    let shouldListenDoorbell = false;
 
     const deviceId = device?.id;
     const allDevices = getElegibleDevices().map(device => device.id);
@@ -2309,6 +2312,7 @@ export const getDetectionRules = (props: {
             if (ruleAllowed) {
                 allowedRules.push(cloneDeep(detectionRule));
                 !anyAllowedNvrRule && (anyAllowedNvrRule = rule.isNvr);
+                !shouldListenDoorbell && (shouldListenDoorbell = detectionClasses.includes(DetectionClass.Doorbell));
             }
 
         }
@@ -2320,7 +2324,7 @@ export const getDetectionRules = (props: {
         processDetectionRules(deviceStorage, RuleSource.Device);
     }
 
-    return { availableRules, allowedRules, anyAllowedNvrRule };
+    return { availableRules, allowedRules, anyAllowedNvrRule, shouldListenDoorbell };
 }
 
 export interface OccupancyRule extends BaseRule {

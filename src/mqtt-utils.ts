@@ -1,4 +1,4 @@
-import sdk, { Notifier, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoomCommand, ScryptedDeviceBase, ScryptedInterface } from '@scrypted/sdk';
+import sdk, { Notifier, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoomCommand, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface } from '@scrypted/sdk';
 import { cloneDeep, groupBy, uniq } from 'lodash';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 import { OccupancyRuleData } from './cameraMixin';
@@ -11,7 +11,7 @@ export enum MqttEntityIdentifier {
     RuleActive = 'RuleActive',
     RuleRunning = 'RuleRunning',
     LastImage = 'LastImage',
-    Person = 'Person',
+    PersonRoom = 'PersonRoom',
     LastTrigger = 'LastTrigger',
     LastLabel = 'LastLabel',
     LastDetection = 'LastDetection',
@@ -511,9 +511,8 @@ const getPersonMqttEntities = (person: string) => {
         name: `${personName}`,
         domain: 'sensor',
         icon: 'mdi:account',
-        forceStateId: peopleTrackerId,
         retain: true,
-        identifier: MqttEntityIdentifier.Person
+        identifier: MqttEntityIdentifier.PersonRoom
     };
     const lastImageEntity: MqttEntity = {
         entity: `${personId}${lastImageSuffix}`,
@@ -1001,6 +1000,10 @@ const getCameraEnabledClasses = async (device: ScryptedDeviceBase & ObjectDetect
         enabledClasses.push(DetectionClass.Motion);
     }
 
+    if (device.type === ScryptedDeviceType.Doorbell) {
+        enabledClasses.push(DetectionClass.Doorbell);
+    }
+
     if (device.interfaces.includes(ScryptedInterface.ObjectDetector)) {
         const objectTypes = await device.getObjectTypes();
         enabledClasses.push(
@@ -1037,7 +1040,7 @@ export const setupCameraAutodiscovery = async (props: {
         } else {
             return true;
         }
-    })
+    });
 
     const {
         audioDetectionEnabledEntity,
@@ -1185,16 +1188,20 @@ export const setupSensorAutodiscovery = async (props: {
 export const publishResetDetectionsEntities = async (props: {
     mqttClient?: MqttClient,
     device: ScryptedDeviceBase & ObjectDetector,
-    console: Console
+    console: Console,
+    classnames?: DetectionClass[]
 }) => {
-    const { device, mqttClient, console } = props;
+    const { device, mqttClient, console, classnames } = props;
 
     if (!mqttClient) {
         return;
     }
 
     const mqttEntities: MqttEntity[] = [
-        ...(await getCameraClassEntities(device)).filter(item => item.identifier === MqttEntityIdentifier.Detected),
+        ...(await getCameraClassEntities(device)).filter(item =>
+            item.identifier === MqttEntityIdentifier.Detected &&
+            (classnames ? classnames.includes(item.className) : true)
+        ),
     ];
 
     console.info(`Resetting detection entities: ${mqttEntities.map(item => item.className).join(', ')}`);
@@ -1286,16 +1293,15 @@ export const publishBasicDetectionData = async (props: {
             const person = detection.label;
             if (isFaceClassname(detection.className) && person && room) {
                 const personEntities = getPersonMqttEntities(person);
-                
+
                 for (const entry of personEntities) {
                     const { identifier, retain } = entry;
                     let value: any;
+                    console.info(`Person ${person} found in ${room}, image ${getB64ImageLog(b64Image)}, ${JSON.stringify(personEntities)}`);
 
                     if (identifier === MqttEntityIdentifier.LastImage && b64Image) {
-                        console.log(`Person ${person} found in ${room}, image ${getB64ImageLog(b64Image)}`);
-
                         value = b64Image || null;
-                    } else if (identifier === MqttEntityIdentifier.Person && room) {
+                    } else if (identifier === MqttEntityIdentifier.PersonRoom && room) {
                         value = room;
                     }
 

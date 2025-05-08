@@ -125,13 +125,17 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             });
 
             for (const rule of rulesToEnable) {
-                const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
-                this.putMixinSetting(currentlyActiveKey, 'true');
+                if (!rule.currentlyActive) {
+                    const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
+                    this.putMixinSetting(currentlyActiveKey, 'true');
+                }
             }
 
             for (const rule of rulesToDisable) {
-                const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
-                this.putMixinSetting(currentlyActiveKey, 'false');
+                if (rule.currentlyActive) {
+                    const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: RuleType.Detection });
+                    this.putMixinSetting(currentlyActiveKey, 'false');
+                }
             }
 
             logger.debug(`Detected rules: ${JSON.stringify({ availableDetectionRules, allowedDetectionRules })}`);
@@ -335,7 +339,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                     this.lastDetection = triggerTime;
                 }
 
-                const { isDoorbell, device } = await this.plugin.getLinkedCamera(this.id);
+                const { device } = await this.plugin.getLinkedCamera(this.id);
 
                 const mixinDevice = this.plugin.currentCameraMixinsMap[device.id];
 
@@ -348,20 +352,18 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                     reason: GetImageReason.Sensor,
                 }))?.image;
 
-                const eventType = isDoorbell ? EventType.Doorbell : this.supportedSensorType;
-
                 const rules = cloneDeep(this.runningDetectionRules.filter(rule => isFromNvr ? rule.isNvr : !rule.isNvr)) ?? [];
                 for (const rule of rules) {
-                    logger.log(`Event ${eventType} will be proxied to the device ${device.name}`);
+                    logger.log(`Event ${this.supportedSensorType} will be proxied to the device ${device.name}`);
                     logger.info(JSON.stringify({
-                        eventType,
+                        eventType: this.supportedSensorType,
                         triggerTime,
                         rule,
                     }));
 
                     this.plugin.matchDetectionFound({
                         triggerDeviceId: this.id,
-                        eventType,
+                        eventType: this.supportedSensorType,
                         triggerTime,
                         rule,
                         image,

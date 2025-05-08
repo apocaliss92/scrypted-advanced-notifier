@@ -277,7 +277,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     private deviceVideocameraMap: Record<string, string> = {};
     private videocameraDevicesMap: Record<string, string[]> = {};
     public deviceRoomMap: Record<string, string> = {}
-    private doorbellDevices: string[] = [];
     public currentCameraMixinsMap: Record<string, AdvancedNotifierCameraMixin> = {};
     public currentSensorMixinsMap: Record<string, AdvancedNotifierSensorMixin> = {};
     public currentNotifierMixinsMap: Record<string, AdvancedNotifierNotifierMixin> = {};
@@ -796,7 +795,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     private async mainFlow() {
         const logger = this.getLogger();
         try {
-            const doorbellDevices: string[] = [];
             const haEntities: string[] = [];
             const deviceHaEntityMap: Record<string, string> = {};
             const haEntityDeviceMap: Record<string, string> = {};
@@ -806,7 +804,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             const allDevices = getElegibleDevices();
             for (const device of allDevices) {
-                const { isDoorbell, isCamera } = isDeviceSupported(device);
+                const { isCamera } = isDeviceSupported(device);
                 const deviceId = device.id;
                 try {
                     const settings = await device.getSettings();
@@ -823,14 +821,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         haEntityDeviceMap[haEntityId] = deviceId;
                     }
 
-                    if (isDoorbell) {
-                        const doorbellButtonId = settings.find(setting => setting.key === 'replaceBinarySensor:replaceBinarySensor')?.value as string;
-                        if (doorbellButtonId) {
-                            doorbellDevices.push(doorbellButtonId);
-                            deviceVideocameraMap[doorbellButtonId] = deviceId;
-                        }
-                    }
-
                     if (linkedCamera) {
                         const cameraDevice = systemManager.getDeviceById(linkedCamera);
                         if (cameraDevice) {
@@ -845,7 +835,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         }
                     }
 
-                    if (isCamera || isDoorbell) {
+                    if (isCamera) {
                         const allLinkedSensorIds = [...nearbySensors, ...nearbyLocks];
 
                         for (const linkedSensorId of allLinkedSensorIds) {
@@ -888,7 +878,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.deviceVideocameraMap = deviceVideocameraMap;
             this.videocameraDevicesMap = videocameraDevicesMap;
             this.deviceRoomMap = deviceRoomMap;
-            this.doorbellDevices = doorbellDevices;
 
             const now = Date.now();
 
@@ -1457,13 +1446,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 image,
                 eventSource: ScryptedEventSource.NVR,
             });
-        } else if ([...Object.values(SupportedSensorType), EventType.Doorbell].includes(eventType as EventType)) {
-            await (foundDevice as AdvancedNotifierSensorMixin)?.processEvent({
-                triggered: true,
-                triggerTime,
-                image,
-                eventSource: ScryptedEventSource.NVR,
-            });
         } else {
             if (eventType) {
                 if (!this.currentCameraMixinsMap[cameraDevice.id]?.storageSettings.values.notificationsEnabled) {
@@ -1509,7 +1491,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.getLogger().log(`Camera device for ID ${deviceId} not found.Device found: ${!!device} and camera was found: ${!!cameraDevice} `);
         }
 
-        return { device: cameraDevice, isDoorbell: this.doorbellDevices.includes(deviceId) };
+        return { device: cameraDevice };
     }
 
     public matchDetectionFound = async (props: {
@@ -1944,11 +1926,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         try {
             if (testDevice && testEventType && testNotifier) {
-                const { isDoorbell } = await this.getLinkedCamera(testDevice.id);
                 const currentTime = new Date().getTime();
                 const testNotifierId = testNotifier.id
                 const { sensorType } = isDeviceSupported(testDevice);
-                const eventType = isDoorbell ? EventType.Doorbell : (sensorType ?? testEventType);
+                const eventType = sensorType ?? testEventType;
 
                 logger.log(`Sending ${eventType} test notification to ${testNotifier.name} - ${testDevice.name}, ${testObjectType}`);
 

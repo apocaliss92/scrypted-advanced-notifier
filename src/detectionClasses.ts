@@ -8,6 +8,7 @@ export enum DetectionClass {
     Face = 'face',
     Plate = 'plate',
     Package = 'package',
+    Doorbell = 'doorbell',
 }
 
 export const classnamePrio: Partial<Record<DetectionClass, number>> = {
@@ -287,6 +288,11 @@ export const audioLabels = [
 export const audioClasses = [
     DetectionClass.Audio,
 ];
+export const doorbellClasses = [
+    DetectionClass.Doorbell,
+
+    'ring',
+];
 
 export const isFaceClassname = (classname: string) => faceClasses.includes(classname);
 export const isPlateClassname = (classname: string) => licensePlateClasses.includes(classname);
@@ -294,6 +300,7 @@ export const isAnimalClassname = (classname: string) => animalClasses.includes(c
 export const isPersonClassname = (classname: string) => personClasses.includes(classname);
 export const isVehicleClassname = (classname: string) => vehicleClasses.includes(classname);
 export const isMotionClassname = (classname: string) => motionClasses.includes(classname);
+export const isDoorbellClassname = (classname: string) => doorbellClasses.includes(classname);
 export const isPackageClassname = (classname: string) => packageClasses.includes(classname);
 export const isLabelDetection = (classname: string) => isFaceClassname(classname) || isPlateClassname(classname);
 export const isObjectClassname = (classname: string) =>
@@ -312,6 +319,7 @@ export const detectionClassesDefaultMap: Record<string, DetectionClass> = {
     ...licensePlateClasses.reduce((tot, curr) => ({ ...tot, [curr]: DetectionClass.Plate }), {}),
     ...objectClasses.reduce((tot, curr) => ({ ...tot, [curr]: DetectionClass.AnyObject }), {}),
     ...audioClasses.reduce((tot, curr) => ({ ...tot, [curr]: DetectionClass.Audio }), {}),
+    ...doorbellClasses.reduce((tot, curr) => ({ ...tot, [curr]: DetectionClass.Doorbell }), {}),
 }
 
 export const parentDetectionClassMap: Partial<Record<DetectionClass, DetectionClass>> = {
