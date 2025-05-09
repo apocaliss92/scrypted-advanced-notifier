@@ -296,7 +296,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     private haEntityDeviceMap: Record<string, string> = {};
     private deviceVideocameraMap: Record<string, string> = {};
     private videocameraDevicesMap: Record<string, string[]> = {};
-    public deviceRoomMap: Record<string, string> = {}
     public currentCameraMixinsMap: Record<string, AdvancedNotifierCameraMixin> = {};
     public currentSensorMixinsMap: Record<string, AdvancedNotifierSensorMixin> = {};
     public currentNotifierMixinsMap: Record<string, AdvancedNotifierNotifierMixin> = {};
@@ -854,7 +853,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const haEntityDeviceMap: Record<string, string> = {};
             const deviceVideocameraMap: Record<string, string> = {};
             const videocameraDevicesMap: Record<string, string[]> = {};
-            const deviceRoomMap: Record<string, string> = {};
 
             const allDevices = getElegibleDevices();
             for (const device of allDevices) {
@@ -867,7 +865,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     const nearbySensors = (settings.find(setting => setting.key === 'recording:nearbySensors')?.value as string[]) ?? [];
                     const nearbyLocks = (settings.find(setting => setting.key === 'recording:nearbyLocks')?.value as string[]) ?? [];
 
-                    deviceRoomMap[deviceId] = device.room;
                     if (haEntityId) {
                         haEntities.push(haEntityId);
 
@@ -931,7 +928,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.haEntityDeviceMap = haEntityDeviceMap;
             this.deviceVideocameraMap = deviceVideocameraMap;
             this.videocameraDevicesMap = videocameraDevicesMap;
-            this.deviceRoomMap = deviceRoomMap;
 
             const now = Date.now();
 
@@ -1626,7 +1622,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { detection, detectionTime, notifierId, device, externalUrl, rule, eventType } = props;
         const { label } = detection ?? {};
 
-        const roomName = this.deviceRoomMap[device.id];
+        const roomName = device.room;
 
         const { key, subKey } = getEventTextKey({ eventType });
 
