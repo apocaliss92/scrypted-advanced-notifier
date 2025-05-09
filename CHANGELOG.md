@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.5.11
+
+- Add default actions on camera
+
 ### 3.5.10
 
 - [BREAKING CHANGE] HaActions and priority have been removed in favour of specific settings for every notifier utilized on a rule

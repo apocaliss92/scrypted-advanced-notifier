@@ -46,6 +46,7 @@ The plugin provides customized way to deliver notifications. It is based on rule
 - `NVR url`: Url pointing to the NVR instance, should be accessible from outside
 
 Each notifier will be fully configurable on every rule, with possibility to set: actions, addSnoozeActions or priority.
+Default actions can be set on every camera, will be added to each notification
 
 All notifiers currently support allow critical notifications.
 

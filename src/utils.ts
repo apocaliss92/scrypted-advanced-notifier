@@ -1064,10 +1064,14 @@ export const cameraFilter: StorageSetting['deviceFilter'] = `interfaces.includes
 type GetSpecificRules = (props: { group: string, subgroup: string, ruleName: string, showMore: boolean }) => StorageSetting[];
 type OnShowMore = (showMore: boolean) => Promise<void>
 
-export const getNotifierPriorities = (notifierId: string) => {
+export const getNotifierData = (props: { notifierId: string, ruleType: RuleType }) => {
+    const { notifierId, ruleType } = props;
     const notifier = sdk.systemManager.getDeviceById(notifierId);
     const pluginId = notifier.pluginId;
     const priorityChoices: NotificationPriority[] = [];
+    const withActions = ![NTFY_PLUGIN_ID, NVR_PLUGIN_ID].includes(pluginId);
+    const snoozingDefault = pluginId !== PUSHOVER_PLUGIN_ID;
+    const withSnoozing = ruleType === RuleType.Detection;
 
     if ([HOMEASSISTANT_PLUGIN_ID].includes(pluginId)) {
         priorityChoices.push(
@@ -1097,7 +1101,7 @@ export const getNotifierPriorities = (notifierId: string) => {
         );
     }
 
-    return priorityChoices;
+    return { priorityChoices, withActions, snoozingDefault, withSnoozing };
 };
 
 export const getNotifierKeys = (props: {
@@ -1126,11 +1130,7 @@ const getNotifierSettings = (props: {
     const notifier = sdk.systemManager.getDeviceById(notifierId);
     const { actionsKey, priorityKey, addSnoozeKey } = getNotifierKeys({ notifierId, ruleName, ruleType });
 
-    const pluginId = notifier.pluginId;
-    const hasActions = pluginId !== NTFY_PLUGIN_ID;
-    const snoozingDefault = pluginId !== PUSHOVER_PLUGIN_ID;
-
-    const priorityChoices = getNotifierPriorities(notifierId);
+    const { priorityChoices, snoozingDefault, withActions, withSnoozing } = getNotifierData({ notifierId, ruleType });
 
     const prioritySetting: StorageSetting = {
         key: priorityKey,
@@ -1166,8 +1166,11 @@ const getNotifierSettings = (props: {
         immediate: true
     };
 
-    const settings = [prioritySetting, addSnoozeSetting];
-    if (hasActions) {
+    const settings = [prioritySetting];
+    if (withSnoozing) {
+        settings.push(addSnoozeSetting);
+    }
+    if (withActions) {
         settings.push(actionsSetting);
     }
 
@@ -2182,12 +2185,13 @@ const initBasicRule = (props: {
     };
 
     for (const notifierId of notifiers) {
+        const { withActions, withSnoozing, snoozingDefault } = getNotifierData({ notifierId, ruleType });
         const { actionsKey, priorityKey, addSnoozeKey } = getNotifierKeys({ notifierId, ruleName, ruleType });
         const actions = storage.getItem(actionsKey) as string[] ?? [];
         const priority = storage.getItem(priorityKey) as NotificationPriority;
-        const addSnooze = storage.getItem(addSnoozeKey) ?? true;
+        const addSnooze = withSnoozing ? storage.getItem(addSnoozeKey) ?? snoozingDefault : false;
         rule.notifierData[notifierId] = {
-            actions: actions.map(action => safeParseJson(action)),
+            actions: withActions ? actions.map(action => safeParseJson(action)) : [],
             priority,
             addSnooze,
         };
