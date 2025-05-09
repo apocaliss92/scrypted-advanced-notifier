@@ -59,6 +59,7 @@ Plugins supports scripting of the NVR buitin notifiers, following features are a
 - discover to MQTT
 - enablement of notifications
 - disable specific camera notifications, if it's notifications are disabled. This will require both the camera and the NVR notifier to extend this plugin
+- schedule notifications
 
 ## Rules
 Rules can be of following types: Detection, Occupancy, Audio, Timelapse. These properties are in common with all, some are hidden until the `Show more configurations` gets activated

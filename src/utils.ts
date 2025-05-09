@@ -2162,6 +2162,32 @@ export interface DetectionRule extends BaseRule {
 
 export const getMinutes = (date: Moment) => date.minutes() + (date.hours() * 60);
 
+export const isSchedulerActive = (props: { startTime: number, endTime: number }) => {
+    const { startTime, endTime } = props;
+    let enabled = false;
+    const referenceStart = moment(Number(startTime));
+    const referenceEnd = moment(Number(endTime));
+    const now = moment();
+
+    const startMinutes = getMinutes(referenceStart);
+    const nowMinutes = getMinutes(now);
+    const endMinutes = getMinutes(referenceEnd);
+
+    if (startMinutes > endMinutes) {
+        // Interval crosses midnight
+        if (nowMinutes < startMinutes) {
+            // current time crosses midnight
+            enabled = nowMinutes <= endMinutes;
+        } else {
+            enabled = nowMinutes >= startMinutes;
+        }
+    } else {
+        enabled = nowMinutes >= startMinutes && nowMinutes <= endMinutes;
+    }
+
+    return enabled;
+};
+
 const initBasicRule = (props: {
     ruleType: RuleType,
     storage?: StorageSettings<string>,
@@ -2240,25 +2266,7 @@ const initBasicRule = (props: {
         if (!dayOk) {
             timeAllowed = false;
         } else {
-            const referenceStart = moment(Number(startTime));
-            const referenceEnd = moment(Number(endTime));
-            const now = moment();
-
-            const startMinutes = getMinutes(referenceStart);
-            const nowMinutes = getMinutes(now);
-            const endMinutes = getMinutes(referenceEnd);
-
-            if (startMinutes > endMinutes) {
-                // Interval crosses midnight
-                if (nowMinutes < startMinutes) {
-                    // current time crosses midnight
-                    timeAllowed = nowMinutes <= endMinutes;
-                } else {
-                    timeAllowed = nowMinutes >= startMinutes;
-                }
-            } else {
-                timeAllowed = nowMinutes >= startMinutes && nowMinutes <= endMinutes;
-            }
+            timeAllowed = isSchedulerActive({ endTime, startTime });
         }
     }
 

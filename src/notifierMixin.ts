@@ -1,7 +1,7 @@
-import sdk, { NotifierOptions, MediaObject, Setting, Settings, Notifier, ScryptedInterface } from "@scrypted/sdk";
+import sdk, { NotifierOptions, MediaObject, Setting, Settings, Notifier, ScryptedInterface, SettingValue } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
-import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import { DeviceInterface, getMixinBaseSettings, getTextSettings, getWebHookUrls, NVR_NOTIFIER_INTERFACE } from "./utils";
+import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
+import { convertSettingsToStorageSettings, DeviceInterface, getMixinBaseSettings, getTextSettings, getWebHookUrls, isSchedulerActive, NVR_NOTIFIER_INTERFACE } from "./utils";
 import HomeAssistantUtilitiesProvider from "./main";
 import { getBaseLogger, getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
@@ -10,11 +10,11 @@ import { idPrefix, reportNotifierValues, setupNotifierAutodiscovery, subscribeTo
 export type SendNotificationToPluginFn = (notifierId: string, title: string, options?: NotifierOptions, media?: MediaObject, icon?: MediaObject | string) => Promise<void>
 
 export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> implements Settings, Notifier {
-    storageSettings = new StorageSettings(this, {
+    initStorage: StorageSettingsDict<string> = {
         ...getMixinBaseSettings({
             plugin: this.plugin,
             mixin: this,
-            refreshSettings: async () => { return; }
+            refreshSettings: this.refreshSettings.bind(this)
         }),
         enabled: {
             title: 'Enabled',
@@ -29,8 +29,26 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
             title: 'Cloud URL',
             readonly: true,
         },
+        schedulerEnabled: {
+            type: 'boolean',
+            title: 'Scheduler enabled',
+            immediate: true,
+            onPut: async () => await this.refreshSettings()
+        },
+        startTime: {
+            title: 'Start time',
+            type: 'time',
+            immediate: true,
+        },
+        endTime: {
+            title: 'End time',
+            type: 'time',
+            immediate: true,
+        },
         ...getTextSettings(true) as any,
-    });
+    };
+    storageSettings = new StorageSettings(this, this.initStorage);
+
     mainLoopListener: NodeJS.Timeout;
     logger: Console;
     killed: boolean;
@@ -72,6 +90,30 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
                 await this.storageSettings.putSetting('postNotificationWebhook', postNotificationUrl);
             }
         } catch { };
+
+        await this.refreshSettings();
+        await this.refreshSettings();
+    }
+
+    async refreshSettings() {
+        const logger = this.getLogger();
+        this.storageSettings = await convertSettingsToStorageSettings({
+            device: this,
+            dynamicSettings: [],
+            initStorage: this.initStorage
+        });
+
+        const { schedulerEnabled } = this.storageSettings.values;
+
+        if (this.storageSettings.settings.startTime) {
+            this.storageSettings.settings.startTime.hide = !schedulerEnabled;
+        }
+        if (this.storageSettings.settings.endTime) {
+            this.storageSettings.settings.endTime.hide = !schedulerEnabled;
+        }
+        if (this.storageSettings.settings.enabled) {
+            this.storageSettings.settings.enabled.hide = this.isNvrNotifier;
+        }
     }
 
     async release() {
@@ -220,21 +262,33 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
     }
 
     sendNotification(title: string, options?: NotifierOptions, media?: MediaObject | string, icon?: MediaObject | string): Promise<void> {
+        const logger = this.plugin.getLogger();
         let canNotify = true;
 
         const cameraDevice = sdk.systemManager.getDeviceByName(title);
         if (cameraDevice) {
             const cameraMixin = this.plugin.currentCameraMixinsMap[cameraDevice.id];
             if (cameraMixin) {
-                const logger = this.plugin.getLogger();
                 const notificationsEnabled = cameraMixin.storageSettings.values.notificationsEnabled;
 
                 if (!notificationsEnabled) {
                     canNotify = false;
-                    logger.log(`Skipping NVR notification for ${cameraDevice?.name} from notifier ${this.name} because disabled`);
+                    logger.log(`Skipping Notification for ${cameraDevice?.name} because camera is disabled`);
                 }
             }
 
+        }
+
+        if (canNotify && this.storageSettings.values.schedulerEnabled) {
+            const startTime = this.storageSettings.values.startTime;
+            const endTime = this.storageSettings.values.endTime;
+
+            const schedulerActive = isSchedulerActive({ endTime, startTime });
+
+            if (!schedulerActive) {
+                canNotify = false;
+                logger.log(`Skipping Notification for ${cameraDevice?.name} because notifier scheduler is not active`);
+            }
         }
 
         if (canNotify) {
@@ -243,15 +297,24 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
     }
 
     async getMixinSettings(): Promise<Setting[]> {
-        if (this.storageSettings.settings.enabled) {
-            this.storageSettings.settings.enabled.hide = this.isNvrNotifier;
+        try {
+            return this.storageSettings.getSettings();
+        } catch (e) {
+            this.getLogger().log('Error in getMixinSettings', e);
+            return [];
         }
-        const settings: Setting[] = await this.storageSettings.getSettings();
+    }
 
-        return settings;
+    async putSetting(key: string, value: SettingValue): Promise<void> {
+        const [group, ...rest] = key.split(':');
+        if (group === this.settingsGroupKey) {
+            this.storageSettings.putSetting(rest.join(':'), value);
+        } else {
+            super.putSetting(key, value);
+        }
     }
 
     async putMixinSetting(key: string, value: string) {
-        this.storage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
+        this.storageSettings.putSetting(key, value);
     }
 }

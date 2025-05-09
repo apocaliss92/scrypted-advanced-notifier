@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.5.13
+
+- Add scheduler for notifiers, can be used also for NVR notifications
+
 ### 3.5.11
 
 - Add default actions on camera
