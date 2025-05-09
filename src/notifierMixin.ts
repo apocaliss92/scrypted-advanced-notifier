@@ -265,29 +265,34 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
         const logger = this.plugin.getLogger();
         let canNotify = true;
 
-        const cameraDevice = sdk.systemManager.getDeviceByName(title);
-        if (cameraDevice) {
-            const cameraMixin = this.plugin.currentCameraMixinsMap[cameraDevice.id];
-            if (cameraMixin) {
-                const notificationsEnabled = cameraMixin.storageSettings.values.notificationsEnabled;
+        const { schedulerEnabled, startTime, endTime, enabled } = this.storageSettings.values;
 
-                if (!notificationsEnabled) {
-                    canNotify = false;
-                    logger.log(`Skipping Notification for ${cameraDevice?.name} because camera is disabled`);
-                }
-            }
-
+        if (!enabled) {
+            canNotify = false;
+            logger.log(`Skipping Notification because notifier is disabled`);
         }
 
-        if (canNotify && this.storageSettings.values.schedulerEnabled) {
-            const startTime = this.storageSettings.values.startTime;
-            const endTime = this.storageSettings.values.endTime;
+        const cameraDevice = sdk.systemManager.getDeviceByName(title);
+        if (canNotify) {
+            if (cameraDevice) {
+                const cameraMixin = this.plugin.currentCameraMixinsMap[cameraDevice.id];
+                if (cameraMixin) {
+                    const notificationsEnabled = cameraMixin.storageSettings.values.notificationsEnabled;
 
+                    if (!notificationsEnabled) {
+                        canNotify = false;
+                        logger.log(`Skipping Notification because camera ${cameraDevice?.name} is disabled`);
+                    }
+                }
+            }
+        }
+
+        if (canNotify && schedulerEnabled) {
             const schedulerActive = isSchedulerActive({ endTime, startTime });
 
             if (!schedulerActive) {
                 canNotify = false;
-                logger.log(`Skipping Notification for ${cameraDevice?.name} because notifier scheduler is not active`);
+                logger.log(`Skipping Notification because notifier scheduler is not active`);
             }
         }
 

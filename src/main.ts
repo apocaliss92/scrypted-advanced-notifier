@@ -2045,14 +2045,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if (!notificationsEnabled) {
             logger.log(`Plugin notifications disabled`);
         } else {
-            const mixin = this.currentNotifierMixinsMap[notifier.id] as AdvancedNotifierNotifierMixin
-            const isEnabled = mixin?.storageSettings.values.enabled ?? true;
-
-            if (!isEnabled) {
-                logger.log(`Notifier ${notifier.name} skipped because disabled`);
-            } else {
-                await notifier.sendNotification(title, notifierOptions, image, icon);
-            }
+            await notifier.sendNotification(title, notifierOptions, image, icon);
         }
     }
 
