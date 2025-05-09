@@ -1729,7 +1729,34 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         let additionalMessageText: string = '';
 
-        const actionsToUse: NotificationAction[] = withActions && addCameraActions ? [...(actions ?? []), ...((notifierActions || []).map(action => safeParseJson(action)) ?? [])] : [];
+        const actionsToUseTmp: NotificationAction[] = withActions && addCameraActions ?
+            [...(actions ?? []),
+            ...((notifierActions || []).map(action => safeParseJson(action)) ?? [])] :
+            [];
+        const actionsToUse: NotificationAction[] = [];
+
+        for (const { action, title, icon, url } of actionsToUseTmp) {
+
+            let urlToUse = url;
+
+            // Assuming every action without url is an HA action
+            if (!urlToUse) {
+                const { haActionUrl } = await getWebHookUrls({
+                    cameraIdOrAction: action,
+                    console: deviceLogger,
+                    device,
+                });
+                urlToUse = haActionUrl;
+            }
+
+            actionsToUse.push({
+                action,
+                title,
+                icon,
+                url: urlToUse
+            });
+        }
+
         let allActions: NotificationAction[] = [...actionsToUse];
 
         const snoozePlaceholder = this.getTextKey({ notifierId, textKey: 'snoozeText' });
