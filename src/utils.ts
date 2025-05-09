@@ -621,22 +621,24 @@ export const getMixinBaseSettings = (props: {
                 defaultValue: false,
                 immediate: true,
             },
-            entityId: {
+        } as StorageSettingsDict<MixinBaseSettingKey>;
+
+        if (isCamera || isSensor) {
+            settings['entityId'] = {
                 title: 'EntityID',
                 type: 'string',
                 defaultValue: defaultEntityId,
                 immediate: true,
-            },
-            // DETECTION
-            useNvrDetections: {
+            };
+            settings['useNvrDetections'] = {
                 title: 'Use NVR detections',
                 description: 'If enabled, the NVR notifications will be used (cropped images and more precise). If not raw detections will be used (snapshot will be roughlty taken at the beginning of the event) Make sure to extend the notifiers with this extension',
                 type: 'boolean',
                 subgroup: 'Detection',
                 immediate: true,
                 hide: true,
-            },
-            [ruleTypeMetadataMap[RuleType.Detection].rulesKey]: {
+            };
+            settings[ruleTypeMetadataMap[RuleType.Detection].rulesKey] = {
                 title: 'Detection rules',
                 group: mixinRulesGroup,
                 type: 'string',
@@ -645,8 +647,8 @@ export const getMixinBaseSettings = (props: {
                 defaultValue: [],
                 choices: [],
                 onPut: async () => await refreshSettings()
-            },
-        } as StorageSettingsDict<MixinBaseSettingKey>;
+            };
+        }
 
         if (isCamera) {
             settings[ruleTypeMetadataMap[RuleType.Occupancy].rulesKey] = {
