@@ -1671,14 +1671,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         let additionalMessageText: string = '';
 
-        const actionsToUseTmp: NotificationAction[] = withActions && addCameraActions ?
+        const actionsEnabled = withActions && addCameraActions;
+        const actionsToUseTmp: NotificationAction[] = actionsEnabled ?
             [...(actions ?? []),
             ...((notifierActions || []).map(action => safeParseJson(action)) ?? [])] :
             [];
         const actionsToUse: NotificationAction[] = [];
 
         for (const { action, title, icon, url } of actionsToUseTmp) {
-
             let urlToUse = url;
 
             // Assuming every action without url is an HA action

@@ -1073,10 +1073,11 @@ export const getNotifierData = (props: { notifierId: string, ruleType: RuleType 
     const notifier = sdk.systemManager.getDeviceById(notifierId);
     const pluginId = notifier.pluginId;
     const priorityChoices: NotificationPriority[] = [];
-    const withActions = ![NTFY_PLUGIN_ID, NVR_PLUGIN_ID].includes(pluginId);
+    const isDetectionRule = ruleType === RuleType.Detection;
+    const withActions = ![NTFY_PLUGIN_ID, NVR_PLUGIN_ID].includes(pluginId) && isDetectionRule;
     const snoozingDefault = pluginId !== PUSHOVER_PLUGIN_ID;
     const addCameraActionsDefault = pluginId !== PUSHOVER_PLUGIN_ID;
-    const withSnoozing = ruleType === RuleType.Detection;
+    const withSnoozing = isDetectionRule;
 
     if ([HOMEASSISTANT_PLUGIN_ID].includes(pluginId)) {
         priorityChoices.push(
