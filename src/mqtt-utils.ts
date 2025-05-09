@@ -956,7 +956,7 @@ export const subscribeToNotifierMqttTopics = async (
                 const { snoozeId, snoozeTime, cameraId } = payload;
 
                 if (cameraId && snoozeId && snoozeTime) {
-                    snoozeCb({ cameraId, snoozeId, snoozeTime });
+                    snoozeCb({ cameraId, snoozeId, snoozeTime: Number(snoozeTime) });
                     await mqttClient.publish(commandTopic, '', true);
                 }
             }

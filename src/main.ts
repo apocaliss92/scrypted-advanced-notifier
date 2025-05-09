@@ -17,7 +17,7 @@ import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodisco
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getEventTextKey, GetImageReason, getNotifierData, getNowFriendlyDate, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, HOMEASSISTANT_PLUGIN_ID, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TextSettingKey, TimelapseRule } from "./utils";
+import { ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getEventTextKey, GetImageReason, getNotifierData, getNowFriendlyDate, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TextSettingKey, TimelapseRule } from "./utils";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -319,6 +319,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             pluginFriendlyName: 'Advanced notifier'
         });
 
+        this.startStop(this.storageSettings.values.pluginEnabled).then().catch(this.getLogger().log);
+    }
+
+    async init() {
         const logger = this.getLogger();
 
         const cloudPlugin = systemManager.getDeviceByName('Scrypted Cloud') as unknown as Settings;
@@ -332,17 +336,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const [major, minor, patch] = version.split('.').map(num => parseInt(num, 10));
 
         if (major === 3 && minor >= 4 && !this.storageSettings.values.cleanup340) {
-            (async () => {
-                const basePath = process.env.SCRYPTED_PLUGIN_VOLUME;
-                const snapshotsFolder = path.join(basePath, 'snapshots');
+            const basePath = process.env.SCRYPTED_PLUGIN_VOLUME;
+            const snapshotsFolder = path.join(basePath, 'snapshots');
 
-                fs.promises.rm(snapshotsFolder, { force: true, recursive: true })
-                    .then(() => {
-                        logger.log('Old snapshots folder cleaned up');
-                        this.storageSettings.values.cleanup340 = true;
-                    })
-                    .catch(logger.log);
-            })();
+            try {
+                await fs.promises.rm(snapshotsFolder, { force: true, recursive: true });
+                logger.log('Old snapshots folder cleaned up');
+                this.storageSettings.values.cleanup340 = true;
+            } catch (e) {
+                logger.error(e);
+            }
         }
 
         if (major === 3 && minor === 4 && patch >= 12 && !this.storageSettings.values.texts3412) {
@@ -355,20 +358,17 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.storageSettings.values.eventsChanged350 = true;
         }
 
-        (async () => {
-            await sdk.deviceManager.onDeviceDiscovered(
-                {
-                    name: 'Advanced notifier NVR notifier',
-                    nativeId: NOTIFIER_NATIVE_ID,
-                    interfaces: [ScryptedInterface.Notifier, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE],
-                    type: ScryptedDeviceType.Notifier,
-                },
-            );
+        await sdk.deviceManager.onDeviceDiscovered(
+            {
+                name: 'Advanced notifier NVR notifier',
+                nativeId: NOTIFIER_NATIVE_ID,
+                interfaces: [ScryptedInterface.Notifier, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE],
+                type: ScryptedDeviceType.Notifier,
+            },
+        );
+        await this.executeCameraDiscovery(this.storageSettings.values.enableCameraDevice);
 
-            await this.executeCameraDiscovery(this.storageSettings.values.enableCameraDevice);
-        })();
-
-        this.startStop(this.storageSettings.values.pluginEnabled).then().catch(this.getLogger().log);
+        await this.initPluginSettings();
     }
 
     async executeCameraDiscovery(active: boolean) {
@@ -430,7 +430,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     async start() {
         try {
             await this.refreshSettings();
-            await this.initPluginSettings();
+            await this.init();
             await this.mainFlow();
 
             this.mainFlowInterval = setInterval(async () => {
@@ -1228,12 +1228,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger.log(`Fetching homeassistant data`);
             const haApi = await this.getHaApi();
             const entitiesResponse = await haApi.getStatesData();
-
             entityIds = sortBy(
                 entitiesResponse.data
                     .filter(entityStatus => domains.length > 0 ? domains.some(domain => new RegExp(domain).test(entityStatus.entity_id)) : true),
                 elem => elem.entity_id)
                 .map(entityStatus => entityStatus.entity_id);
+
+            const res = await haApi.postAutomation(haSnoozeAutomationId, haSnoozeAutomation);
+            logger.log(`Generation snoozing automation: ${res.data.result}`);
         } catch (e) {
             logger.log(e);
         } finally {
@@ -1816,13 +1818,18 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 })
             }
             if (addSnozeActions) {
-                for (const { action, url, icon, title } of snoozeActions) {
+                for (const { data, title, } of snoozeActions) {
+                    // haActions.push({
+                    //     action: url ? 'URI' : action,
+                    //     uri: url,
+                    //     icon: 'sfsymbols:bell',
+                    //     title,
+                    // });
                     haActions.push({
-                        action: url ? 'URI' : action,
-                        uri: url,
+                        action: `scrypted_an_snooze_${cameraId}_${notifierId}_${data}_${snoozeId}`,
                         icon: 'sfsymbols:bell',
                         title,
-                    })
+                    });
                 }
             }
             payload.data.ha.actions = haActions;
@@ -1924,7 +1931,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const notifier = systemManager.getDeviceById<Notifier & ScryptedDevice & DeviceBase>(notifierId);
             const cameraMixin = this.currentCameraMixinsMap[device.id];
             const now = Date.now();
-            const snoozeId = getSnoozeId(detectionKey, device.id, notifierId);
+            const snoozeId = getSnoozeId({ detectionKey, cameraId: device.id, notifierId });
             const lastSnoozed = cameraMixin.snoozeUntilDic[snoozeId];
             const isSnoozed = lastSnoozed && now < lastSnoozed;
             if (isSnoozed) {
