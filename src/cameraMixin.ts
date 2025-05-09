@@ -1713,25 +1713,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     } else {
                         const currentState = this.occupancyState[rule.name];
 
-                        let message = occupancyRuleData.occupies ?
-                            rule.zoneOccupiedText :
-                            rule.zoneNotOccupiedText;
+                        const triggerTime = (occupancyRuleData?.triggerTime ?? now) - 10 * 1000;
 
-                        if (message) {
-                            message = message.toString()
-                                .replace('${detectedObjects}', String(occupancyRuleData.objectsDetected) ?? '')
-                                .replace('${maxObjects}', String(rule.maxObjects) ?? '')
-
-                            const triggerTime = (occupancyRuleData?.triggerTime ?? now) - 5000;
-
-                            await this.plugin.notifyOccupancyEvent({
-                                cameraDevice: this.cameraDevice,
-                                message,
-                                rule,
-                                triggerTime,
-                                image: currentState?.image ?? imageParent
-                            });
-                        }
+                        await this.plugin.notifyOccupancyEvent({
+                            cameraDevice: this.cameraDevice,
+                            rule,
+                            triggerTime,
+                            image: currentState?.image ?? imageParent,
+                            occupanceData: occupancyRuleData
+                        });
                     }
                 }
             }

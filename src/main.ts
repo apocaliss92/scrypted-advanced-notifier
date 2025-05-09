@@ -11,7 +11,7 @@ import { getRpcData } from '../../scrypted-monitor/src/utils';
 import { name as pluginName, version } from '../package.json';
 import { AiPlatform, getAiMessage } from "./aiUtils";
 import { AdvancedNotifierCamera } from "./camera";
-import { AdvancedNotifierCameraMixin } from "./cameraMixin";
+import { AdvancedNotifierCameraMixin, OccupancyRuleData } from "./cameraMixin";
 import { DetectionClass } from "./detectionClasses";
 import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
 import { AdvancedNotifierNotifier } from "./notifier";
@@ -1270,36 +1270,25 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     async notifyOccupancyEvent(props: {
         cameraDevice: DeviceInterface,
         triggerTime: number,
-        message: string,
         rule: OccupancyRule,
         image: MediaObject,
+        occupanceData: OccupancyRuleData
     }) {
-        const { cameraDevice, rule, message, triggerTime, image } = props;
+        const { cameraDevice, rule, triggerTime, image, occupanceData } = props;
         const logger = this.getLogger(cameraDevice);
 
+        let message = occupanceData.occupies ?
+            rule.zoneOccupiedText :
+            rule.zoneNotOccupiedText;
+
+        message = message.toString()
+            .replace('${detectedObjects}', String(occupanceData.objectsDetected) ?? '')
+            .replace('${maxObjects}', String(rule.maxObjects) ?? '')
+
         for (const notifierId of rule.notifiers) {
-            const notifier = systemManager.getDeviceById<ScryptedDevice & Notifier & DeviceBase & Settings>(notifierId);
-
-            const { payload } = await this.getNotifierData({
-                device: cameraDevice,
-                notifier,
-                triggerTime,
-                rule,
-            });
-
-            const notifierOptions: NotifierOptions = {
-                body: message,
-                ...payload
-            }
+            const notifier = systemManager.getDeviceById<DeviceInterface>(notifierId);
 
             const title = cameraDevice.name;
-
-            logger.log(`Sending Occupancy event notification ${triggerTime} to ${notifier.name}`);
-            logger.info(`${JSON.stringify({
-                notifierOptions,
-                title,
-                message,
-            })}`)
 
             await this.sendNotificationInternal({
                 logger,
@@ -1307,7 +1296,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 title,
                 icon: undefined,
                 image,
-                notifierOptions
+                message,
+                triggerTime,
+                device: cameraDevice,
+                rule,
             });
         }
     }
@@ -1323,28 +1315,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const logger = this.getLogger(cameraDevice);
 
         for (const notifierId of rule.notifiers) {
-            const notifier = systemManager.getDeviceById<ScryptedDevice & Notifier & DeviceBase & Settings>(notifierId);
-
-            const { payload } = await this.getNotifierData({
-                device: cameraDevice,
-                notifier,
-                triggerTime,
-                rule,
-            });
-
-            const notifierOptions: NotifierOptions = {
-                body: message,
-                ...payload
-            }
+            const notifier = systemManager.getDeviceById<DeviceInterface>(notifierId);
 
             const title = cameraDevice.name;
-
-            logger.log(`Sending Audio event notification ${triggerTime} to ${notifier.name}`);
-            logger.info(JSON.stringify({
-                notifierOptions,
-                title,
-                message,
-            }));
 
             await this.sendNotificationInternal({
                 logger,
@@ -1352,7 +1325,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 title,
                 icon: undefined,
                 image,
-                notifierOptions
+                message,
+                triggerTime,
+                device: cameraDevice,
+                rule
             });
         }
     }
@@ -1383,31 +1359,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const isVideoValid = fileSizeInMegabytes < 50;
 
         for (const notifierId of (rule.notifiers ?? [])) {
-            const notifier = systemManager.getDeviceById<ScryptedDevice & Notifier & DeviceBase & Settings>(notifierId);
-
-            const { payload } = await this.getNotifierData({
-                device: cameraDevice,
-                notifier,
-                rule,
-                videoUrl: timelapseDownloadUrl,
-                skipVideoAttach: !isVideoValid,
-            });
+            const notifier = systemManager.getDeviceById<DeviceInterface>(notifierId);
 
             const message = `${rule.customText}`;
-
-            const notifierOptions: NotifierOptions = {
-                body: message,
-                ...payload
-            }
-
             const title = cameraDevice.name;
-
-            logger.log(`Sending Timelapse notification to ${notifier.name}`);
-            logger.info(JSON.stringify({
-                notifierOptions,
-                title,
-                message,
-            }));
 
             await this.sendNotificationInternal({
                 logger,
@@ -1415,7 +1370,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 title,
                 icon: undefined,
                 image: undefined,
-                notifierOptions
+                message,
+                device: cameraDevice,
+                rule,
+                videoUrl: isVideoValid ? timelapseDownloadUrl : undefined,
             });
         }
     }
@@ -1433,7 +1391,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         for (const rule of rules) {
             const notifiers = rule.notifiers
             for (const notifierId of notifiers) {
-                const notifier = systemManager.getDeviceById<ScryptedDevice & Notifier & DeviceBase & Settings>(notifierId);
+                const notifier = systemManager.getDeviceById<DeviceInterface>(notifierId);
 
                 const message = await this.getNotificationText({
                     detection,
@@ -1444,26 +1402,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     eventType,
                 });
 
-                const { payload } = await this.getNotifierData({
-                    device: cameraDevice,
-                    notifier,
-                    triggerTime,
-                    rule,
-                });
-
-                const notifierOptions: NotifierOptions = {
-                    body: message,
-                    ...payload
-                }
-
                 const title = cameraDevice.name;
-
-                logger.log(`Sending Nvr event notification ${triggerTime} to ${notifier.name}`);
-                logger.info(JSON.stringify({
-                    notifierOptions,
-                    title,
-                    message,
-                }));
 
                 await this.sendNotificationInternal({
                     logger,
@@ -1471,7 +1410,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     title,
                     icon: undefined,
                     image: undefined,
-                    notifierOptions
+                    message,
+                    device: cameraDevice,
+                    rule,
+                    triggerTime,
                 });
             }
         }
@@ -1695,7 +1637,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const time = eval(detectionTimeText.replace('${time}', detectionTime));
 
         const zone = this.getTriggerZone(detection, rule);
-        this.getLogger().log(textToUse, subKey, subkeyText, eventType);
 
         return textToUse.toString()
             .replace('${time}', time)
@@ -1715,10 +1656,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         snoozeId?: string,
         device: ScryptedDeviceBase,
         triggerTime?: number,
-        skipVideoAttach?: boolean,
         videoUrl?: string
     }) {
-        const { notifier, rule, triggerTime, device, videoUrl, skipVideoAttach, snoozeId } = props;
+        const { notifier, rule, triggerTime, device, videoUrl, snoozeId } = props;
         const { notifierData } = rule ?? {};
         const notifierId = notifier.id;
         const cameraId = device.id;
@@ -1726,7 +1666,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { withActions, withSnoozing } = getNotifierData({ notifierId, ruleType: rule.ruleType });
         const cameraMixin = this.currentCameraMixinsMap[cameraId];
         const { notifierActions } = cameraMixin.storageSettings.values;
-        const { haUrl, externalUrl, timelinePart, } = this.getUrls(cameraId, triggerTime);
+        const { haUrl, externalUrl, timelinePart } = this.getUrls(cameraId, triggerTime);
         const deviceLogger = this.getLogger(device);
 
         let additionalMessageText: string = '';
@@ -1803,7 +1743,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             payload.data.ha = {
                 url: videoUrl ?? haUrl,
                 clickAction: videoUrl ?? haUrl,
-                video: !skipVideoAttach ? videoUrl : undefined,
+                video: videoUrl,
             };
 
             const haActions: any[] = [];
@@ -1928,12 +1868,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 return;
             }
 
-            const notifier = systemManager.getDeviceById<Notifier & ScryptedDevice & DeviceBase>(notifierId);
+            const notifier = systemManager.getDeviceById<DeviceInterface>(notifierId);
             const cameraMixin = this.currentCameraMixinsMap[device.id];
             const now = Date.now();
             const snoozeId = getSnoozeId({ detectionKey, cameraId: device.id, notifierId });
             const lastSnoozed = cameraMixin.snoozeUntilDic[snoozeId];
             const isSnoozed = lastSnoozed && now < lastSnoozed;
+
             if (isSnoozed) {
                 logger.log(`Notification ${snoozeId} still snoozed for ${(lastSnoozed - now) / 1000} seconds`);
                 return;
@@ -1988,42 +1929,18 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 title = aiResponse.title ?? title;
             }
 
-            const { payload, additionalMessageText } = await this.getNotifierData({
-                device,
-                notifier,
-                rule,
-                triggerTime: time,
-                snoozeId,
-            });
-
-            if (additionalMessageText) {
-                message += additionalMessageText;
-            }
-
-            const notifierOptions: NotifierOptions = {
-                body: message,
-                ...payload,
-            }
-
-            logger.log(`Sending detection notification ${time} to ${notifier.name}`);
-            logger.info(JSON.stringify({
-                notifierOptions,
-                source,
-                title,
-                message,
-                rule,
-                detection,
-                payload
-            }));
-
             await this.sendNotificationInternal({
                 logger,
                 notifier,
                 title,
                 icon: undefined,
                 image,
-                notifierOptions,
-                source
+                source,
+                message,
+                triggerTime: time,
+                device,
+                rule,
+                snoozeId,
             });
         } catch (e) {
             this.getLogger().log('Error in notifyCamera', e);
@@ -2033,14 +1950,63 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     async sendNotificationInternal(props: {
         logger: Console,
         title: string,
-        notifierOptions?: NotifierOptions,
+        device?: DeviceInterface,
         image?: MediaObject | string,
         icon?: MediaObject | string,
         source?: NotificationSource,
-        notifier: ScryptedDevice & Notifier & DeviceBase
+        notifier: DeviceInterface,
+        rule?: BaseRule,
+        snoozeId?: string,
+        triggerTime?: number,
+        message: string,
+        videoUrl?: string,
     }) {
-        const { title, icon, image, notifierOptions, logger, notifier } = props;
+        const {
+            title,
+            icon,
+            image,
+            logger,
+            notifier,
+            device,
+            source,
+            rule,
+            snoozeId,
+            triggerTime,
+            videoUrl,
+            message: messageParent
+        } = props;
+
+        let message = messageParent;
+
         const { notificationsEnabled } = this.storageSettings.values;
+
+        const { payload, additionalMessageText } = await this.getNotifierData({
+            device,
+            notifier,
+            rule,
+            triggerTime,
+            snoozeId,
+            videoUrl,
+        });
+
+        if (additionalMessageText) {
+            message += additionalMessageText;
+        }
+
+        const notifierOptions: NotifierOptions = {
+            body: message,
+            ...payload,
+        }
+
+        logger.log(`Sending rule ${rule.name} (${rule.ruleType}) notification ${triggerTime} to ${notifier.name}`);
+        logger.info(JSON.stringify({
+            notifierOptions,
+            source,
+            title,
+            message,
+            rule,
+            payload
+        }));
 
         if (!notificationsEnabled) {
             logger.log(`Plugin notifications disabled`);
