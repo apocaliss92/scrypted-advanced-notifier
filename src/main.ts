@@ -1806,9 +1806,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             const haActions: any[] = [];
             for (const { action, url, icon, title } of actionsToUse) {
+                const isUriAction = action === 'URI';
+                const urlToUse = isUriAction ? url : undefined;
                 haActions.push({
                     action: url ? 'URI' : action,
-                    uri: url,
+                    uri: urlToUse,
                     icon,
                     title,
                 })
