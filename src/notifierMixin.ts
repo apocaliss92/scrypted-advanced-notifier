@@ -55,7 +55,7 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
         this.plugin.currentNotifierMixinsMap[this.id] = this;
 
         this.initValues().then().catch(logger.log);
-        
+
         this.startStop(this.plugin.storageSettings.values.pluginEnabled).then().catch(logger.log);
     }
 
@@ -176,6 +176,14 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
                                         }
                                     } else {
                                         await this.storageSettings.putSetting(`enabled`, active);
+                                    }
+                                },
+                                snoozeCb: async (props) => {
+                                    const { cameraId, snoozeTime, snoozeId } = props;
+
+                                    const deviceMixin = this.plugin.currentCameraMixinsMap[cameraId];
+                                    if (deviceMixin) {
+                                        deviceMixin.snoozeNotification({ snoozeId, snoozeTime });
                                     }
                                 },
                             }).catch(logger.error);

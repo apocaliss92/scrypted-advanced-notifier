@@ -745,9 +745,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         snoozeTime: number;
     }) {
         const { snoozeId, snoozeTime } = props;
+        const logger = this.getLogger();
+
+        const res = `Snoozing ${snoozeId} for ${snoozeTime} minutes`;
+        logger.log(res);
 
         const snoozedUntil = moment().add(snoozeTime, 'minutes').toDate().getTime();
         this.snoozeUntilDic[snoozeId] = snoozedUntil;
+
+        return res;
     }
 
     async toggleRule(ruleName: string, ruleType: RuleType, enabled: boolean) {

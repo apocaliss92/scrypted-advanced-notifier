@@ -217,9 +217,23 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             immediate: true,
             defaultValue: false
         },
-        bypassSnooze: {
+        testBypassSnooze: {
             group: 'Test',
             title: 'Bypass snoozes',
+            type: 'boolean',
+            immediate: true,
+            defaultValue: false
+        },
+        testAddSnoozing: {
+            group: 'Test',
+            title: 'Add snoozings',
+            type: 'boolean',
+            immediate: true,
+            defaultValue: false
+        },
+        testAddActions: {
+            group: 'Test',
+            title: 'Add actions',
             type: 'boolean',
             immediate: true,
             defaultValue: false
@@ -602,7 +616,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             } else if (webhook === snoozeNotification || isNvrSnooze) {
                 let device: AdvancedNotifierCameraMixin;
 
-                let message: string;
                 let snoozeTime: number;
                 let snoozeId: string;
                 let deviceId: string;
@@ -619,10 +632,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     snoozeTime = Number(decodedSnoozeTime);
                 }
 
-                message = `Snoozing notifications ${snoozeId} for device ${device?.name} for ${snoozeTime} minutes`;
-                logger.log(message);
-
-                device?.snoozeNotification({
+                const message = device?.snoozeNotification({
                     snoozeId,
                     snoozeTime
                 });
@@ -1549,7 +1559,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const cameraDevice = await this.getCameraDevice(triggerDevice);
         const logger = this.getLogger(cameraDevice);
 
-        if (rule.ruleType !== RuleType.Timelapse) {
+        if (rule.ruleType !== RuleType.Timelapse && rule.notifiers.length) {
             logger.log(`${rule.notifiers.length} notifiers will be notified: ${JSON.stringify({ match, rule })} `);
         }
 
@@ -1710,7 +1720,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { notifierData } = rule ?? {};
         const notifierId = notifier.id;
         const cameraId = device.id;
-        const { actions, priority, addSnooze } = notifierData[notifierId] ?? {};
+        const { actions, priority, addSnooze, addCameraActions } = notifierData[notifierId] ?? {};
         const { withActions, withSnoozing } = getNotifierData({ notifierId, ruleType: rule.ruleType });
         const cameraMixin = this.currentCameraMixinsMap[cameraId];
         const { notifierActions } = cameraMixin.storageSettings.values;
@@ -1719,7 +1729,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         let additionalMessageText: string = '';
 
-        const actionsToUse: NotificationAction[] = withActions ? [...(actions ?? []), ...((notifierActions || []).map(action => safeParseJson(action)) ?? [])] : [];
+        const actionsToUse: NotificationAction[] = withActions && addCameraActions ? [...(actions ?? []), ...((notifierActions || []).map(action => safeParseJson(action)) ?? [])] : [];
         let allActions: NotificationAction[] = [...actionsToUse];
 
         const snoozePlaceholder = this.getTextKey({ notifierId, textKey: 'snoozeText' });
@@ -2017,7 +2027,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const testEventType = this.storageSettings.getItem('testEventType') as DetectionEvent;
         const testPriority = this.storageSettings.getItem('testPriority') as NotificationPriority;
         const testUseAi = this.storageSettings.getItem('testUseAi') as boolean;
-        const bypassSnooze = this.storageSettings.getItem('bypassSnooze') as boolean;
+        const testBypassSnooze = this.storageSettings.getItem('testBypassSnooze') as boolean;
+        const testAddActions = this.storageSettings.getItem('testAddActions') as boolean;
+        const testAddSnoozing = this.storageSettings.getItem('testAddSnoozing') as boolean;
 
         const logger = this.getLogger(testDevice);
 
@@ -2031,7 +2043,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                 logger.log(`Sending ${eventType} test notification to ${testNotifier.name} - ${testDevice.name} - ${testEventType} ${sensorType}`);
 
-                const detectionKey = bypassSnooze ? Math.random().toString(36).substring(2, 12) : `test_${eventType}`;
+                const detectionKey = testBypassSnooze ? Math.random().toString(36).substring(2, 12) : `test_${eventType}`;
                 this.notifyCamera({
                     triggerDevice: testDevice,
                     notifierId: testNotifierId,
@@ -2042,10 +2054,23 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     logger,
                     detectionKey,
                     rule: {
-                        notifierData: { [testNotifierId]: { priority: testPriority, actions: [], addSnooze: true } },
+                        notifierData: {
+                            [testNotifierId]: {
+                                priority: testPriority,
+                                actions: [],
+                                addSnooze: testAddSnoozing,
+                                addCameraActions: testAddActions,
+                            }
+                        },
                         useAi: testUseAi,
-                        ruleType: RuleType.Detection
-                    } as unknown as DetectionRule
+                        ruleType: RuleType.Detection,
+                        markDetections: false,
+                        activationType: DetectionRuleActivation.Always,
+                        source: RuleSource.Plugin,
+                        isEnabled: true,
+                        name: "",
+                        notifiers: []
+                    }
                 });
             }
         } catch (e) {

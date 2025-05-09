@@ -3,7 +3,7 @@ import { cloneDeep, groupBy, uniq } from 'lodash';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 import { OccupancyRuleData } from './cameraMixin';
 import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, parentDetectionClassMap } from './detectionClasses';
-import { BaseRule, getB64ImageLog, isDetectionRule, RuleSource, RuleType, toKebabCase, toSnakeCase, toTitleCase } from './utils';
+import { BaseRule, getB64ImageLog, isDetectionRule, RuleSource, RuleType, safeParseJson, toKebabCase, toSnakeCase, toTitleCase } from './utils';
 
 export enum MqttEntityIdentifier {
     Triggered = 'Triggered',
@@ -111,7 +111,7 @@ const getBasicMqttEntities = () => {
         entity: 'notifications_enabled',
         name: 'Notifications enabled',
         entityCategory: 'diagnostic',
-        retain: true,
+        retain: false,
         icon: 'mdi:bell'
     };
     const audioDetectionEnabledEntity: MqttEntity = {
@@ -119,7 +119,7 @@ const getBasicMqttEntities = () => {
         entity: 'audio_detection_enabled',
         name: 'Audio detection enabled',
         entityCategory: 'diagnostic',
-        retain: true,
+        retain: false,
         icon: 'mdi:microphone-variant'
     };
     const decoderSnapshotsEnabledEntity: MqttEntity = {
@@ -127,7 +127,7 @@ const getBasicMqttEntities = () => {
         entity: 'decoder_snapshots_enabled',
         name: 'Decoder snapshots enabled',
         entityCategory: 'diagnostic',
-        retain: true,
+        retain: false,
         icon: 'mdi:film'
     };
     const audioPressureEntity: MqttEntity = {
@@ -155,7 +155,7 @@ const getBasicMqttEntities = () => {
         name: 'Recording',
         icon: 'mdi:record-circle-outline',
         entityCategory: 'diagnostic',
-        retain: true,
+        retain: false,
     };
     const rebootEntity: MqttEntity = {
         domain: 'button',
@@ -205,6 +205,13 @@ const getBasicMqttEntities = () => {
         name: 'Move right',
         icon: 'mdi:arrow-right-thick'
     };
+    const snoozeEntity: MqttEntity = {
+        domain: 'button',
+        entity: 'snooze',
+        name: 'Snooze',
+        disabled: true,
+        icon: 'mdi:alarm-snooze'
+    };
 
     return {
         triggeredEntity,
@@ -224,6 +231,7 @@ const getBasicMqttEntities = () => {
         ptzDownEntity,
         ptzLeftEntity,
         ptzRightEntity,
+        snoozeEntity,
     };
 }
 
@@ -909,19 +917,24 @@ export const subscribeToNotifierMqttTopics = async (
         device: ScryptedDeviceBase,
         console: Console,
         switchNotificationsEnabledCb: (active: boolean) => void,
+        snoozeCb: (props: { snoozeId: string, snoozeTime: number, cameraId: string }) => void,
     }
 ) => {
     const {
         mqttClient,
-        switchNotificationsEnabledCb,
         device,
+        console,
+        switchNotificationsEnabledCb,
+        snoozeCb,
     } = props;
+
     if (!mqttClient) {
         return;
     }
 
     const {
         notificationsEnabledEntity,
+        snoozeEntity,
     } = getBasicMqttEntities();
 
     if (switchNotificationsEnabledCb) {
@@ -931,6 +944,21 @@ export const subscribeToNotifierMqttTopics = async (
                 switchNotificationsEnabledCb(message === 'true');
 
                 await mqttClient.publish(stateTopic, message, notificationsEnabledEntity.retain);
+            }
+        });
+    }
+
+    if (snoozeCb) {
+        const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: snoozeEntity, device });
+        await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
+            if (messageTopic === commandTopic) {
+                const payload = safeParseJson(message);
+                const { snoozeId, snoozeTime, cameraId } = payload;
+
+                if (cameraId && snoozeId && snoozeTime) {
+                    snoozeCb({ cameraId, snoozeId, snoozeTime });
+                    await mqttClient.publish(commandTopic, '', true);
+                }
             }
         });
     }
