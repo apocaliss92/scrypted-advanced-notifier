@@ -341,15 +341,21 @@ export enum NotificationSource {
 export const filterAndSortValidDetections = (props: {
     detections: ObjectDetectionResult[],
     logger: Console,
+    consumedDetectionIdsSet: Set<string>
 }) => {
-    const { detections, logger } = props;
+    const { detections, logger, consumedDetectionIdsSet } = props;
     const sortedByPriorityAndScore = sortBy(detections,
         (detection) => [detection?.className ? classnamePrio[detection.className] : 100,
         1 - (detection.score ?? 0)]
     );
     const uniqueByClassName = uniqBy(sortedByPriorityAndScore, det => det.className);
     const candidates = uniqueByClassName.filter(det => {
-        const { className, label, movement } = det;
+        const { className, label, movement, id } = det;
+        const detId = id ? `${className}-${id}` : undefined;
+        if (detId && consumedDetectionIdsSet && consumedDetectionIdsSet.has(detId)) {
+            return false;
+        }
+
         if (className.startsWith('debug-')) {
             return false;
         }
@@ -362,6 +368,8 @@ export const filterAndSortValidDetections = (props: {
             logger.debug(`Movement data ${JSON.stringify(movement)} not valid: ${JSON.stringify(det)}`);
             return false;
         }
+
+        detId && consumedDetectionIdsSet.add(detId);
 
         return true;
     });

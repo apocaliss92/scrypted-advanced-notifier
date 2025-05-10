@@ -259,6 +259,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     clientId: string;
 
     snoozeUntilDic: Record<string, number> = {};
+    consumedDetectionIdsSet: Set<string> = new Set();
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -2212,7 +2213,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { eventId } = eventDetails ?? {};
         const { useNvrDetectionsForMqtt } = this.plugin.storageSettings.values;
         const canUpdateMqttImage = (isFromNvr && useNvrDetectionsForMqtt) || isFromFrigate;
-        const hasDetectionId = eventDetails?.eventId && detect?.detectionId;
 
         if (!detections?.length) {
             return;
@@ -2226,6 +2226,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { candidates } = filterAndSortValidDetections({
             detections: detections ?? [],
             logger,
+            consumedDetectionIdsSet: this.consumedDetectionIdsSet
         });
 
         // hasDetectionId && this.processDetectionsInterval && this.accumulatedDetections.push({
@@ -2607,6 +2608,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const { useFramesGenerator } = this.storageSettings.values;
 
                 if (data) {
+                    this.consumedDetectionIdsSet = new Set();
                     const timestamp = Date.now();
                     const detections: ObjectDetectionResult[] = [{
                         className: 'motion',
