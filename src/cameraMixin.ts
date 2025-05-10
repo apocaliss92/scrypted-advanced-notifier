@@ -2212,7 +2212,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { eventId } = eventDetails ?? {};
         const { useNvrDetectionsForMqtt } = this.plugin.storageSettings.values;
         const canUpdateMqttImage = (isFromNvr && useNvrDetectionsForMqtt) || isFromFrigate;
-        const hasDetectionId = eventDetails.eventId && detect.detectionId;
+        // const hasDetectionId = eventDetails?.eventId && detect?.detectionId;
 
         if (!detections?.length) {
             return;
@@ -2228,7 +2228,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             logger,
         });
 
-        hasDetectionId && this.processDetectionsInterval && this.accumulatedDetections.push({
+        // hasDetectionId && this.processDetectionsInterval && this.accumulatedDetections.push({
+        this.processDetectionsInterval && this.accumulatedDetections.push({
             detect: {
                 ...detect,
                 detections: candidates
