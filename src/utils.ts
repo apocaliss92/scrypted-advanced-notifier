@@ -56,6 +56,7 @@ export enum GetImageReason {
     MotionUpdate = 'MotionUpdate',
     ObjectUpdate = 'ObjectUpdate',
     FromNvr = 'FromNvr',
+    Notification = 'Notification',
     Test = 'Test',
 }
 
@@ -203,6 +204,7 @@ export interface ParseNotificationMessageResult {
     eventType: DetectionEvent,
     classname: DetectionClass,
     label: string,
+    triggerTime: number,
 }
 
 export const isDetectionClass = (value: string): value is DetectionClass => {
@@ -218,6 +220,7 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
 
         let eventType: DetectionEvent;
         let allDetections: ObjectDetectionResult[] = options?.recordedEvent?.data?.detections ?? [];
+        const triggerTime = options.timestamp ?? Date.now();
 
         if (subtitle === 'Offline') {
             eventType = NvrEvent.Offline;
@@ -309,6 +312,7 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
             eventType,
             classname: detection ? detectionClassesDefaultMap[detection.className] : undefined,
             label,
+            triggerTime,
         }
     } catch (e) {
         console.log(`Error parsing notification: ${JSON.stringify({ device: cameraDevice.name, options, deviceSensors })}`, e);
@@ -358,6 +362,7 @@ export const filterAndSortValidDetections = (props: {
 export type TextSettingKey =
     | 'detectionTimeText'
     | 'objectDetectionText'
+    | 'tapToViewText'
     | 'doorWindowText'
     | 'doorbellText'
     | 'anyObjectText'
@@ -377,7 +382,8 @@ export type TextSettingKey =
     | 'snoozeText'
     | 'streamInterruptedText';
 
-export const getTextSettings = (forMixin: boolean) => {
+export const getTextSettings = (props: { forMixin: boolean, isNvrNotifier?: boolean }) => {
+    const { forMixin } = props;
     const groupKey = forMixin ? 'subgroup' : 'group';
 
     const settings: StorageSettingsDict<TextSettingKey> = {
@@ -396,6 +402,14 @@ export const getTextSettings = (forMixin: boolean) => {
             description: 'Expression used to render the text when an object detection happens. Available arguments ${classnameText} ${room} ${time} ${nvrLink}',
             defaultValue: !forMixin ? '${classnameText} detected in ${room}' : undefined,
             placeholder: !forMixin ? '${classnameText} detected in ${room}' : undefined
+        },
+        tapToViewText: {
+            [groupKey]: 'Texts',
+            title: 'Tap to view',
+            type: 'string',
+            description: 'Expression used to render the text "Tap to view"',
+            defaultValue: !forMixin ? 'Tap to view' : undefined,
+            placeholder: !forMixin ? 'Tap to view' : undefined
         },
         doorbellText: {
             [groupKey]: 'Texts',
@@ -552,7 +566,7 @@ export const getTextSettings = (forMixin: boolean) => {
             placeholder: !forMixin ? 'Plate ${label}' : undefined,
             hide: forMixin
         }
-    }
+    };
 
     return settings;
 }
@@ -698,6 +712,7 @@ export const getMixinBaseSettings = (props: {
         if (isCamera || isSensor) {
             settings['minDelayTime'] = {
                 title: 'Minimum notification delay',
+                subgroup: isCamera ? 'Notifier' : undefined,
                 description: 'Minimum amount of seconds to wait until a notification is sent. Set 0 to disable',
                 type: 'number',
                 defaultValue: isCamera ? 10 : 0,
@@ -1079,12 +1094,12 @@ export const getNotifierData = (props: { notifierId: string, ruleType: RuleType 
     const addCameraActionsDefault = pluginId !== PUSHOVER_PLUGIN_ID;
     const withSnoozing = isDetectionRule;
 
-    if ([HOMEASSISTANT_PLUGIN_ID].includes(pluginId)) {
+    if (pluginId === HOMEASSISTANT_PLUGIN_ID) {
         priorityChoices.push(
             NotificationPriority.Normal,
             NotificationPriority.High
         );
-    } if ([NTFY_PLUGIN_ID].includes(pluginId)) {
+    } else if (pluginId === NTFY_PLUGIN_ID) {
         priorityChoices.push(
             NotificationPriority.SuperLow,
             NotificationPriority.Low,
@@ -1092,14 +1107,14 @@ export const getNotifierData = (props: { notifierId: string, ruleType: RuleType 
             NotificationPriority.High,
             NotificationPriority.SuperHigh,
         );
-    } else if ([PUSHOVER_PLUGIN_ID].includes(pluginId)) {
+    } else if (pluginId === PUSHOVER_PLUGIN_ID) {
         priorityChoices.push(
             NotificationPriority.SuperLow,
             NotificationPriority.Low,
             NotificationPriority.Normal,
             NotificationPriority.High,
         );
-    } else if ([NVR_PLUGIN_ID].includes(pluginId)) {
+    } else if (pluginId === NVR_PLUGIN_ID) {
         priorityChoices.push(
             NotificationPriority.Low,
             NotificationPriority.Normal,
@@ -1107,7 +1122,13 @@ export const getNotifierData = (props: { notifierId: string, ruleType: RuleType 
         );
     }
 
-    return { priorityChoices, withActions, snoozingDefault, withSnoozing, addCameraActionsDefault };
+    return {
+        priorityChoices,
+        withActions,
+        snoozingDefault,
+        withSnoozing,
+        addCameraActionsDefault
+    };
 };
 
 export const getNotifierKeys = (props: {
@@ -3152,3 +3173,9 @@ export const haSnoozeAutomation = {
     ],
     "mode": "single"
 };
+
+export enum TextGeneration {
+    Default = 'Default',
+    Texts = 'Texts',
+    AI = 'AI',
+}

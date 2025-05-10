@@ -57,9 +57,11 @@ Notifications can be disabled globally on the general tab of the plugin
 ### Scrypted NVR notifiers
 Plugins supports scripting of the NVR buitin notifiers, following features are available:
 - discover to MQTT
-- enablement of notifications
-- disable specific camera notifications, if it's notifications are disabled. This will require both the camera and the NVR notifier to extend this plugin
-- schedule notifications
+- Notifier notifications disabled: completely disable notifications for a specific notifier
+- Camera notifications disabled: disable notifications for a specific camera
+- Schedule notifications on both cameras and notifiers
+- Translate notifications with the plugin `Texts` section
+- Enable AI to generate descriptions, must be active also on the camera
 
 ## Rules
 Rules can be of following types: Detection, Occupancy, Audio, Timelapse. These properties are in common with all, some are hidden until the `Show more configurations` gets activated

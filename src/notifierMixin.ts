@@ -1,7 +1,7 @@
 import sdk, { NotifierOptions, MediaObject, Setting, Settings, Notifier, ScryptedInterface, SettingValue } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
-import { convertSettingsToStorageSettings, DeviceInterface, getMixinBaseSettings, getTextSettings, getWebHookUrls, isSchedulerActive, NVR_NOTIFIER_INTERFACE } from "./utils";
+import { convertSettingsToStorageSettings, DetectionRule, DeviceInterface, GetImageReason, getMixinBaseSettings, getTextSettings, getWebHookUrls, isSchedulerActive, NVR_NOTIFIER_INTERFACE, parseNvrNotificationMessage, TextGeneration } from "./utils";
 import HomeAssistantUtilitiesProvider from "./main";
 import { getBaseLogger, getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
@@ -22,6 +22,18 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
             defaultValue: true,
             immediate: true,
         },
+        enableTranslations: {
+            title: 'Translations',
+            description: 'Use the plugin configured Texts to provide notifications text',
+            type: 'boolean',
+            defaultValue: true,
+            immediate: true,
+        },
+        // textGeneration: {
+        //     type: 'string',
+        //     title: 'Define how to generate notifications text, default is default from NVR ',
+        //     choices: Object.values(TextGeneration)
+        // },
         postNotificationWebhook: {
             subgroup: 'Webhooks',
             type: 'html',
@@ -29,9 +41,16 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
             title: 'Cloud URL',
             readonly: true,
         },
+        aiEnabled: {
+            title: 'AI descriptions',
+            description: 'Use configured AI to generate descriptions',
+            type: 'boolean',
+            immediate: true,
+            defaultValue: false,
+        },
         schedulerEnabled: {
             type: 'boolean',
-            title: 'Scheduler enabled',
+            title: 'Scheduler',
             immediate: true,
             onPut: async () => await this.refreshSettings()
         },
@@ -45,7 +64,7 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
             type: 'time',
             immediate: true,
         },
-        ...getTextSettings(true) as any,
+        ...getTextSettings({ forMixin: true }) as any,
     };
     storageSettings = new StorageSettings(this, this.initStorage);
 
@@ -113,6 +132,12 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
         }
         if (this.storageSettings.settings.enabled) {
             this.storageSettings.settings.enabled.hide = this.isNvrNotifier;
+        }
+        if (this.storageSettings.settings.enableTranslations) {
+            this.storageSettings.settings.enableTranslations.hide = !this.isNvrNotifier;
+        }
+        if (this.storageSettings.settings.aiEnabled) {
+            this.storageSettings.settings.aiEnabled.hide = !this.isNvrNotifier;
         }
     }
 
@@ -261,43 +286,102 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
         }, 1000 * 2);
     }
 
-    sendNotification(title: string, options?: NotifierOptions, media?: MediaObject | string, icon?: MediaObject | string): Promise<void> {
-        const logger = this.plugin.getLogger();
-        let canNotify = true;
+    async sendNotification(title: string, options?: NotifierOptions, media?: MediaObject | string, icon?: MediaObject | string): Promise<void> {
+        const logger = this.getLogger();
 
-        const { schedulerEnabled, startTime, endTime, enabled } = this.storageSettings.values;
+        try {
+            let canNotify = true;
+            const { isNotificationFromPlugin, cameraId, snoozeId } = options.data;
 
-        if (!enabled) {
-            canNotify = false;
-            logger.log(`Skipping Notification because notifier is disabled`);
-        }
+            const {
+                schedulerEnabled,
+                startTime,
+                endTime,
+                enabled,
+                enableTranslations,
+                aiEnabled,
+            } = this.storageSettings.values;
 
-        const cameraDevice = sdk.systemManager.getDeviceByName(title);
-        if (canNotify) {
+            if (!enabled) {
+                canNotify = false;
+                logger.log(`Skipping Notification because notifier is disabled`);
+            }
+
+            let cameraDevice = cameraId ? sdk.systemManager.getDeviceById<DeviceInterface>(cameraId) : undefined;
+            if (!cameraDevice) {
+                cameraDevice = sdk.systemManager.getDeviceByName<DeviceInterface>(title);
+            }
+            const cameraMixin = cameraDevice ? this.plugin.currentCameraMixinsMap[cameraDevice.id] : undefined;
+
             if (cameraDevice) {
-                const cameraMixin = this.plugin.currentCameraMixinsMap[cameraDevice.id];
-                if (cameraMixin) {
-                    const notificationsEnabled = cameraMixin.storageSettings.values.notificationsEnabled;
+                if (canNotify) {
+                    if (cameraDevice) {
+                        if (cameraMixin) {
+                            const notificationsEnabled = cameraMixin.storageSettings.values.notificationsEnabled;
 
-                    if (!notificationsEnabled) {
+                            if (!notificationsEnabled) {
+                                canNotify = false;
+                                logger.log(`Skipping Notification because camera ${cameraDevice?.name} is disabled`);
+                            }
+                            const {
+                                schedulerEnabled,
+                                startTime,
+                                endTime,
+                            } = cameraMixin.storageSettings.values;
+
+                            if (schedulerEnabled) {
+                                const schedulerActive = isSchedulerActive({ endTime, startTime });
+
+                                if (!schedulerActive) {
+                                    canNotify = false;
+                                    logger.log(`Skipping Notification because camera scheduler is not active`);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (canNotify && schedulerEnabled) {
+                    const schedulerActive = isSchedulerActive({ endTime, startTime });
+
+                    if (!schedulerActive) {
                         canNotify = false;
-                        logger.log(`Skipping Notification because camera ${cameraDevice?.name} is disabled`);
+                        logger.log(`Skipping Notification because notifier scheduler is not active`);
                     }
                 }
             }
-        }
 
-        if (canNotify && schedulerEnabled) {
-            const schedulerActive = isSchedulerActive({ endTime, startTime });
+            if (canNotify) {
+                let titleToUse = title;
+                if (!isNotificationFromPlugin && enableTranslations && cameraDevice) {
+                    const deviceSensors = this.plugin.videocameraDevicesMap[cameraDevice.id] ?? [];
+                    const { eventType, detection, triggerTime } = await parseNvrNotificationMessage(cameraDevice, deviceSensors, options, logger);
 
-            if (!schedulerActive) {
-                canNotify = false;
-                logger.log(`Skipping Notification because notifier scheduler is not active`);
+                    const image = typeof media === 'string' ? (await sdk.mediaManager.createMediaObjectFromUrl(media)) : media;
+                    const { b64Image } = await cameraMixin.getImage({ image, reason: GetImageReason.FromNvr });
+                    const { message } = await this.plugin.getNotificationContent({
+                        device: cameraDevice,
+                        notifier: this.notifierDevice,
+                        triggerTime,
+                        logger,
+                        b64Image,
+                        detection,
+                        eventType,
+                        useAi: aiEnabled,
+                        rule: { notifierData: { [this.id]: {} } } as DetectionRule
+                    });
+                    const tapToViewText = this.plugin.getTextKey({ notifierId: this.id, textKey: 'tapToViewText' });
+
+                    options.subtitle = message;
+                    options.bodyWithSubtitle = tapToViewText;
+
+                    logger.log(`Content translated to ${message} ${tapToViewText}`);
+                }
+
+                return this.mixinDevice.sendNotification(titleToUse, options, media, icon);
             }
-        }
-
-        if (canNotify) {
-            return this.mixinDevice.sendNotification(title, options, media, icon);
+        } catch (e) {
+            logger.log('Error in sendNotification', e);
         }
     }
 

@@ -39,6 +39,8 @@ export class AdvancedNotifierNotifier extends ScryptedDeviceBase implements Noti
     }
 
     async sendNotification(title: string, options?: NotifierOptions, media?: MediaObject, icon?: MediaObject | string): Promise<void> {
+        const logger = this.plugin.getLogger();
+        logger.info(JSON.stringify({ title, options }));
         await this.plugin.onNvrNotification(title, options, media, icon);
     }
 }

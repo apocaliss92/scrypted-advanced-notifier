@@ -60,6 +60,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             mixin: this,
             refreshSettings: this.refreshSettings.bind(this)
         }),
+        ignoreCameraDetections: {
+            title: 'Ignore camera detections',
+            description: 'If checked, the detections reported by the camera will be ignored. Make sure to have an object detector mixin enabled',
+            type: 'boolean',
+            immediate: true,
+        },
         notificationsEnabled: {
             title: 'Notifications enabled',
             description: 'Enable notifications related to this camera',
@@ -68,11 +74,31 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             immediate: true,
             defaultValue: true,
         },
-        ignoreCameraDetections: {
-            title: 'Ignore camera detections',
-            description: 'If checked, the detections reported by the camera will be ignored. Make sure to have an object detector mixin enabled',
+        aiEnabled: {
+            title: 'AI descriptions',
+            description: 'Use configured AI to generate descriptions',
             type: 'boolean',
             subgroup: 'Notifier',
+            immediate: true,
+            defaultValue: false,
+        },
+        schedulerEnabled: {
+            type: 'boolean',
+            subgroup: 'Notifier',
+            title: 'Scheduler',
+            immediate: true,
+            onPut: async () => await this.refreshSettings()
+        },
+        startTime: {
+            title: 'Start time',
+            subgroup: 'Notifier',
+            type: 'time',
+            immediate: true,
+        },
+        endTime: {
+            title: 'End time',
+            subgroup: 'Notifier',
+            type: 'time',
             immediate: true,
         },
         notifierActions: {
@@ -847,7 +873,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             initStorage: this.initStorage
         });
 
-        const { lastSnapshotWebhook, postDetectionImageWebhook, enabledToMqtt } = this.storageSettings.values
+        const { lastSnapshotWebhook, postDetectionImageWebhook, enabledToMqtt, schedulerEnabled } = this.storageSettings.values
 
         if (this.storageSettings.settings.lastSnapshotWebhookCloudUrl) {
             this.storageSettings.settings.lastSnapshotWebhookCloudUrl.hide = !lastSnapshotWebhook;
@@ -874,6 +900,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
         if (this.storageSettings.settings.checkSoundPressure) {
             this.storageSettings.settings.checkSoundPressure.hide = !enabledToMqtt;
+        }
+
+        if (this.storageSettings.settings.startTime) {
+            this.storageSettings.settings.startTime.hide = !schedulerEnabled;
+        }
+        if (this.storageSettings.settings.endTime) {
+            this.storageSettings.settings.endTime.hide = !schedulerEnabled;
         }
 
         this.storageSettings.settings.entityId.onGet = async () => {
@@ -1056,7 +1089,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         return systemManager.getDeviceById(this.id) as (ObjectDetector & MotionSensor & ScryptedDevice & Camera);
     }
 
-    getDetectionIdentifier(matchRule: MatchRule) {
+    getDetectionKey(matchRule: MatchRule) {
         const { match, rule } = matchRule;
         let key = `rule-${rule.name}`;
         if (rule.ruleType === RuleType.Timelapse) {
@@ -1100,6 +1133,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         ].includes(reason);
         const forceSnapshot = [
             GetImageReason.Sensor,
+            GetImageReason.Notification,
         ].includes(reason);
         const tryDetector = !!detectionId && !!eventId;
         const snapshotTimeout = reason === GetImageReason.RulesRefresh ? 5000 : 2000;
@@ -1708,21 +1742,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 });
 
                 if (!rulesToNotNotify.includes(rule.name) && timePassed) {
-                    if (!this.storageSettings.values.notificationsEnabled) {
-                        logger.log(`Skipping notification because disabled`);
-                    } else {
-                        const currentState = this.occupancyState[rule.name];
+                    const currentState = this.occupancyState[rule.name];
 
-                        const triggerTime = (occupancyRuleData?.triggerTime ?? now) - 10 * 1000;
+                    const triggerTime = (occupancyRuleData?.triggerTime ?? now) - 10 * 1000;
 
-                        await this.plugin.notifyOccupancyEvent({
-                            cameraDevice: this.cameraDevice,
-                            rule,
-                            triggerTime,
-                            image: currentState?.image ?? imageParent,
-                            occupanceData: occupancyRuleData
-                        });
-                    }
+                    await this.plugin.notifyOccupancyEvent({
+                        cameraDevice: this.cameraDevice,
+                        rule,
+                        triggerTime,
+                        image: currentState?.image ?? imageParent,
+                        occupanceData: occupancyRuleData
+                    });
                 }
             }
         }
@@ -1765,29 +1795,25 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const currentDuration = lastDetection ? (now - lastDetection) / 1000 : 0;
 
             const trigger = async () => {
-                if (!this.storageSettings.values.notificationsEnabled) {
-                    logger.log(`Skipping notification because disabled`);
-                } else {
-                    logger.info(`Audio rule ${name} passed: ${JSON.stringify({ currentDuration, decibels })}`);
-                    let message = customText;
+                logger.info(`Audio rule ${name} passed: ${JSON.stringify({ currentDuration, decibels })}`);
+                let message = customText;
 
-                    message = message.toString()
-                        .replace('${decibels}', String(decibelThreshold) ?? '')
-                        .replace('${duration}', String(audioDuration) ?? '')
+                message = message.toString()
+                    .replace('${decibels}', String(decibelThreshold) ?? '')
+                    .replace('${duration}', String(audioDuration) ?? '')
 
-                    await this.plugin.notifyAudioEvent({
-                        cameraDevice: this.cameraDevice,
-                        image,
-                        message,
-                        rule,
-                        triggerTime: now,
-                    });
+                await this.plugin.notifyAudioEvent({
+                    cameraDevice: this.cameraDevice,
+                    image,
+                    message,
+                    rule,
+                    triggerTime: now,
+                });
 
-                    this.audioListeners[name] = {
-                        ...this.audioListeners[name],
-                        lastNotification: now
-                    };
-                }
+                this.audioListeners[name] = {
+                    ...this.audioListeners[name],
+                    lastNotification: now
+                };
 
                 this.triggerRule({
                     matchRule: { rule },
@@ -2011,7 +2037,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     });
 
                     if (timePassedForNotification) {
-                        const detectionKey = this.getDetectionIdentifier(matchRule);
+                        const detectionKey = this.getDetectionKey(matchRule);
                         logger.log(`Starting notifiers for detection rule ${rule.name}, b64Image ${getB64ImageLog(b64Image)} from ${imageSource}`);
 
                         this.plugin.matchDetectionFound({
@@ -2078,7 +2104,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             return timePassed;
         } else if (type === DelayType.RuleImageUpdate) {
             const { matchRule } = props;
-            const lastDetectionkey = this.getDetectionIdentifier(matchRule);
+            const lastDetectionkey = this.getDetectionKey(matchRule);
 
             const lastPublished = this.lastRulePublishedMap[lastDetectionkey];
             const timePassed = !lastPublished || !matchRule.rule.minMqttPublishDelay || (now - lastPublished) >= (matchRule.rule.minMqttPublishDelay) * 1000;
@@ -2090,7 +2116,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             return timePassed;
         } else if (type === DelayType.RuleNotification) {
             const { matchRule } = props;
-            const lastDetectionkey = this.getDetectionIdentifier(matchRule);
+            const lastDetectionkey = this.getDetectionKey(matchRule);
 
             const lastNotified = this.lastRuleNotifiedMap[lastDetectionkey];
             const delay = matchRule.rule.minDelay ?? minDelayTime;
@@ -2448,7 +2474,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         }
 
                         if (isFromNvr && rule.isNvr && this.isDelayPassed({ type: DelayType.RuleNotification, matchRule, eventSource })) {
-                            const detectionKey = this.getDetectionIdentifier(matchRule);
+                            const detectionKey = this.getDetectionKey(matchRule);
                             if (rule.ruleType === RuleType.Detection) {
                                 logger.log(`Starting notifiers for detection rule ${rule.name}, b64Image ${getB64ImageLog(b64Image)}`);
                             }
@@ -2659,7 +2685,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const destination: MediaStreamDestination = 'local-recorder';
         const model = await this.getDetectionModel();
         const stream = await this.cameraDevice.getVideoStream({
-            prebuffer: model.prebuffer,
+            prebuffer: 0,
+            // prebuffer: model.prebuffer,
             destination,
         });
 

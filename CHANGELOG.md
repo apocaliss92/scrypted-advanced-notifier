@@ -1,6 +1,14 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.6.1
+
+- Add support to camera AI generated
+
+### 3.6.0
+
+- Add support to NVR notifications to translations and AI messages
+
 ### 3.5.13
 
 - Add scheduler for notifiers, can be used also for NVR notifications
