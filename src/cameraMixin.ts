@@ -1281,6 +1281,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 imageSource,
                 imageFound: !!image
             };
+            logger.log(`Image found from ${imageSource}`);
             logger.info(logPayload);
             if (!imageParent && image && b64Image) {
                 this.lastImage = image;
@@ -2212,7 +2213,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { eventId } = eventDetails ?? {};
         const { useNvrDetectionsForMqtt } = this.plugin.storageSettings.values;
         const canUpdateMqttImage = (isFromNvr && useNvrDetectionsForMqtt) || isFromFrigate;
-        // const hasDetectionId = eventDetails?.eventId && detect?.detectionId;
+        const hasDetectionId = eventDetails?.eventId && detect?.detectionId;
 
         if (!detections?.length) {
             return;
