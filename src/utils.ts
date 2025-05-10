@@ -57,7 +57,16 @@ export enum GetImageReason {
     ObjectUpdate = 'ObjectUpdate',
     FromNvr = 'FromNvr',
     Notification = 'Notification',
+    AccumulatedDetections = 'AccumulatedDetections',
     Test = 'Test',
+}
+
+export enum ImageSource {
+    Input = 'Input',
+    Snapshot = 'Snapshot',
+    Latest = 'Latest',
+    Detector = 'Detector',
+    Decoder = 'Decoder',
 }
 
 export type IsDelayPassedProps =

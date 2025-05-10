@@ -943,6 +943,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 const logger = this.getLogger();
                 if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
                     this.lastAutoDiscovery = now;
+                    this.aiMessageResponseMap = {};
 
                     logger.log('Starting MQTT autodiscovery');
                     setupPluginAutodiscovery({

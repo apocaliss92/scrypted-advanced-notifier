@@ -15,7 +15,7 @@ import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, is
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { AudioRule, BaseRule, DelayType, DetectionRule, DeviceInterface, GetImageReason, IsDelayPassedProps, MatchRule, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDecibelsFromRtp_PCMU8, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebHookUrls, splitRules } from "./utils";
+import { AudioRule, BaseRule, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImageSource, IsDelayPassedProps, MatchRule, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDecibelsFromRtp_PCMU8, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebHookUrls, splitRules } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -1121,7 +1121,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let bufferImage: Buffer;
         let b64Image: string;
         let imageUrl: string;
-        let imageSource: 'Input' | 'Snapshot' | 'Latest' | 'Detector' | 'Decoder';
+        let imageSource: ImageSource;
 
         const msPassedFromSnapshot = this.lastPictureTaken !== undefined ? now - this.lastPictureTaken : 0;
         const msPassedFromDecoder = this.lastFrameAcquired !== undefined ? now - this.lastFrameAcquired : 0;
@@ -1161,9 +1161,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     },
                 });
                 logger.info(`Image taken from the detector mixin`);
-                imageSource = 'Detector';
+                imageSource = ImageSource.Detector;
             } catch (e) {
-                logger.log(`Error finding the image from the detector mixin`, e.message);
+                logger.log(`Error finding the image from the detector (${e.message}) for reason ${reason}`);
             }
         }
 
@@ -1183,9 +1183,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     });
                     this.lastPictureTaken = now;
                     logger.info(`Image taken from snapshot`);
-                    imageSource = 'Snapshot';
+                    imageSource = ImageSource.Snapshot;
                 } catch (e) {
-                    logger.log(`Error taking a snapshot`, e.message);
+                    logger.log(`Error taking a snapshot (${e.message}) for reason ${reason}`);
                     this.lastPictureTaken = undefined;
                 }
             } else {
@@ -1200,7 +1200,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             if (decoderRunning && this.lastFrame && isRecent) {
                 image = this.lastFrame;
-                imageSource = 'Decoder';
+                imageSource = ImageSource.Decoder;
                 logger.info(`Image taken from decoder`);
             } else {
                 logger.info(`Skipping decoder image`, JSON.stringify({
@@ -1216,7 +1216,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 image = this.lastImage;
                 b64Image = this.lastB64Image;
                 logger.info(`Image taken from recent ${ms} ms`);
-                imageSource = 'Latest';
+                imageSource = ImageSource.Latest;
             } else {
                 logger.info(`Skipping latest image`, JSON.stringify({
                     isRecent,
@@ -1234,7 +1234,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const checkDetector = findFromDetector();
                 const checkDecoder = findFromDecoder();
 
-                if (preferLatest) {
+                if (reason === GetImageReason.AccumulatedDetections) {
+                    runners = [checkDetector];
+                } else if (preferLatest) {
                     runners = [
                         checkLatest,
                         checkVeryRecent,
@@ -1263,7 +1265,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
                 }
             } else {
-                imageSource = 'Input';
+                imageSource = ImageSource.Input;
             }
 
             if (image) {
@@ -1945,15 +1947,43 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const isOnlyMotion = !rulesToUpdate.length && classnamesData.length === 1 && detectionClassesDefaultMap[classnamesData[0]?.className] === DetectionClass.Motion;
 
-        logger.info(`Accumulated data to analyze: ${JSON.stringify({ triggerTime, detectionId, eventId, classnamesData, rules: rulesToUpdate.map(rule => rule.rule.name) })}`);
+        logger.debug(`Accumulated data to analyze: ${JSON.stringify({ triggerTime, detectionId, eventId, classnamesData, rules: rulesToUpdate.map(rule => rule.rule.name) })}`);
 
-        let { image, b64Image, imageSource } = await this.getImage({
-            detectionId,
-            eventId,
-            reason: isOnlyMotion && !rulesToUpdate.length ?
-                GetImageReason.MotionUpdate :
-                GetImageReason.ObjectUpdate
-        });
+        let image: MediaObject;
+        let b64Image: string;
+        let imageSource: ImageSource;
+        for (const data of dataToAnalyze) {
+            const { detectionId, eventId } = data;
+            if (detectionId && eventId) {
+                const imageData = await this.getImage({
+                    detectionId,
+                    eventId,
+                    reason: GetImageReason.AccumulatedDetections
+                });
+
+                if (imageData.imageSource === ImageSource.Detector) {
+                    image = imageData.image;
+                    b64Image = imageData.b64Image;
+                    imageSource = imageData.imageSource;
+
+                    break;
+                }
+            }
+        }
+
+        if (!image || !b64Image) {
+            const imageData = await this.getImage({
+                detectionId,
+                eventId,
+                reason: isOnlyMotion && !rulesToUpdate.length ?
+                    GetImageReason.MotionUpdate :
+                    GetImageReason.ObjectUpdate
+            });
+
+            image = imageData.image;
+            b64Image = imageData.b64Image;
+            imageSource = imageData.imageSource;
+        }
 
         if (image && b64Image) {
             // if (bufferImage) {
@@ -2182,6 +2212,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { eventId } = eventDetails ?? {};
         const { useNvrDetectionsForMqtt } = this.plugin.storageSettings.values;
         const canUpdateMqttImage = (isFromNvr && useNvrDetectionsForMqtt) || isFromFrigate;
+        const hasDetectionId = eventDetails.eventId && detect.detectionId;
 
         if (!detections?.length) {
             return;
@@ -2197,7 +2228,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             logger,
         });
 
-        eventDetails && this.processDetectionsInterval && this.accumulatedDetections.push({
+        hasDetectionId && this.processDetectionsInterval && this.accumulatedDetections.push({
             detect: {
                 ...detect,
                 detections: candidates
