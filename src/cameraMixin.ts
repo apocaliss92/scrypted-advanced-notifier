@@ -1160,7 +1160,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         width: SNAPSHOT_WIDTH,
                     },
                 });
-                logger.info(`Image taken from the detector mixin`);
                 imageSource = ImageSource.Detector;
             } catch (e) {
                 logger.log(`Error finding the image from the detector (${e.message}) for reason ${reason}`);
@@ -1182,7 +1181,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         },
                     });
                     this.lastPictureTaken = now;
-                    logger.info(`Image taken from snapshot`);
                     imageSource = ImageSource.Snapshot;
                 } catch (e) {
                     logger.log(`Error taking a snapshot (${e.message}) for reason ${reason}`);
@@ -1201,7 +1199,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             if (decoderRunning && this.lastFrame && isRecent) {
                 image = this.lastFrame;
                 imageSource = ImageSource.Decoder;
-                logger.info(`Image taken from decoder`);
             } else {
                 logger.info(`Skipping decoder image`, JSON.stringify({
                     isRecent, useFramesGenerator, running: !this.framesGeneratorSignal.finished, hasFrame: !!this.lastFrame
@@ -1215,7 +1212,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             if (isRecent) {
                 image = this.lastImage;
                 b64Image = this.lastB64Image;
-                logger.info(`Image taken from recent ${ms} ms`);
                 imageSource = ImageSource.Latest;
             } else {
                 logger.info(`Skipping latest image`, JSON.stringify({
@@ -1238,8 +1234,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     runners = [checkDetector];
                 } else if (preferLatest) {
                     runners = [
-                        checkLatest,
                         checkVeryRecent,
+                        checkLatest,
                         checkDecoder,
                         checkSnapshot,
                     ];
@@ -1271,7 +1267,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             if (image) {
                 bufferImage = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg');
                 b64Image = bufferImage?.toString('base64');
-                // imageUrl = await sdk.mediaManager.convertMediaObjectToInsecureLocalUrl(image, 'image/jpeg');
+            } else {
+                imageSource = ImageSource.NotFound;
             }
         } catch (e) {
             logger.log(`Error during getImage`, e);
@@ -1281,7 +1278,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 imageSource,
                 imageFound: !!image
             };
-            logger.log(`Image found from ${imageSource}`);
+            if (reason !== GetImageReason.MotionUpdate) {
+                logger.info(`Image found from ${imageSource} for reason ${reason}`);
+            }
             logger.info(logPayload);
             if (!imageParent && image && b64Image) {
                 this.lastImage = image;
@@ -2235,7 +2234,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 ...detect,
                 detections: candidates
             },
-            eventId: eventDetails.eventId
+            eventId: eventDetails?.eventId
         });
 
         let image: MediaObject;

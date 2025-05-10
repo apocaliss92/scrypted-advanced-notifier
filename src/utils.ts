@@ -62,6 +62,7 @@ export enum GetImageReason {
 }
 
 export enum ImageSource {
+    NotFound = 'NotFound',
     Input = 'Input',
     Snapshot = 'Snapshot',
     Latest = 'Latest',
