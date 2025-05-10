@@ -42,6 +42,7 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
             type: 'boolean',
             immediate: true,
             defaultValue: false,
+            onPut: async () => await this.refreshSettings()
         },
         schedulerEnabled: {
             type: 'boolean',
@@ -117,7 +118,7 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
             initStorage: this.initStorage
         });
 
-        const { schedulerEnabled } = this.storageSettings.values;
+        const { schedulerEnabled, aiEnabled } = this.storageSettings.values;
 
         if (this.storageSettings.settings.startTime) {
             this.storageSettings.settings.startTime.hide = !schedulerEnabled;
@@ -133,6 +134,9 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
         }
         if (this.storageSettings.settings.aiEnabled) {
             this.storageSettings.settings.aiEnabled.hide = !this.isNvrNotifier;
+        }
+        if (this.storageSettings.settings.enableTranslations) {
+            this.storageSettings.settings.enableTranslations.hide = aiEnabled;
         }
     }
 
