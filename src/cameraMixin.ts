@@ -556,7 +556,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     logger.log(`Starting ${ScryptedInterface.ObjectDetector}/${ScryptedInterface.MotionSensor} listeners: ${JSON.stringify({
                         Detections: shouldListenDetections,
                         MQTT: isActiveForMqttReporting,
-                        Doorbell: shouldListenDetections,
+                        Doorbell: shouldListenDoorbell,
                         NotificationRules: allAllowedRules.length ? allAllowedRules.map(rule => rule.name).join(', ') : 'None',
                     })}`);
                     await this.startObjectDetectionListeners();
