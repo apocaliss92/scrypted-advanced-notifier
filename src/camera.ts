@@ -1,13 +1,13 @@
 
 import sdk, { Camera, MediaObject, PictureOptions, RequestPictureOptions, ResponsePictureOptions, VideoCamera, VideoClip, VideoClipOptions, VideoClips, VideoClipThumbnailOptions } from '@scrypted/sdk';
-import path from 'path';
 import fs from 'fs';
+import path from 'path';
 import url from 'url';
-import { Destroyable, RtspSmartCamera, UrlMediaStreamOptions } from '../../scrypted/plugins/rtsp/src/rtsp';
+import { CameraBase } from '../../scrypted/plugins/ffmpeg-camera/src/common';
+import { UrlMediaStreamOptions } from '../../scrypted/plugins/rtsp/src/rtsp';
 import { ffmpegFilterImage, ffmpegFilterImageBuffer } from '../../scrypted/plugins/snapshot/src/ffmpeg-image-filter';
 import AdvancedNotifierPlugin from './main';
 import { getWebooks } from './utils';
-import { CameraBase } from '../../scrypted/plugins/ffmpeg-camera/src/common';
 
 export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> implements Camera, VideoCamera, VideoClips {
     picture: Promise<MediaObject>;
