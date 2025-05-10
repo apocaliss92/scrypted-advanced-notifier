@@ -3173,9 +3173,3 @@ export const haSnoozeAutomation = {
     ],
     "mode": "single"
 };
-
-export enum TextGeneration {
-    Default = 'Default',
-    Texts = 'Texts',
-    AI = 'AI',
-}

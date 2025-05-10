@@ -312,6 +312,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     hasCloudPlugin: boolean;
     knownPeople: string[] = [];
     restartRequested = false;
+    public aiMessageResponseMap: Record<string, string> = {};
 
     constructor(nativeId: string) {
         super(nativeId, {
@@ -1620,7 +1621,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         detection?: ObjectDetectionResult,
         device?: DeviceInterface,
         eventType?: DetectionEvent,
-        useAi?: boolean,
         b64Image?: string,
         logger: Console,
     }) {
@@ -1634,7 +1634,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             detection,
             eventType,
             message: messageParent,
-            useAi,
             b64Image,
             logger,
         } = props;
@@ -1644,7 +1643,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { actions, priority, addSnooze, addCameraActions } = notifierData[notifierId] ?? {};
         const { withActions, withSnoozing } = getNotifierData({ notifierId, ruleType: rule.ruleType });
         const cameraMixin = this.currentCameraMixinsMap[cameraId];
-        const { notifierActions, aiEnabled } = cameraMixin.storageSettings.values;
+        const notifierMixin = this.currentNotifierMixinsMap[notifierId];
+        const { notifierActions, aiEnabled: cameraAiEnabled } = cameraMixin.storageSettings.values;
+        const { aiEnabled: notifierAiEnabled } = notifierMixin.storageSettings.values;
         const { haUrl, externalUrl, timelinePart } = this.getUrls(cameraId, triggerTime);
         const deviceLogger = this.getLogger(device);
         let aiUsed = false;
@@ -1847,7 +1848,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 });
 
                 const isAiRuleOk = rule ? rule.useAi : true;
-                if (aiPlatform !== AiPlatform.Disabled && isAiRuleOk && useAi && aiEnabled) {
+                if (aiPlatform !== AiPlatform.Disabled && isAiRuleOk && cameraAiEnabled && notifierAiEnabled) {
                     const imageUrl = `data:image/jpeg;base64,${b64Image}`;
                     const aiResponse = await getAiMessage({
                         imageUrl,
@@ -1856,6 +1857,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         originalTitle: message,
                         plugin: this,
                         detection,
+                        timeStamp: triggerTime
                     });
 
                     if (aiResponse.message) {
@@ -1872,8 +1874,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         logger.info(`Notification content generated: ${JSON.stringify({
             notifier: notifier.name,
-            cameraAiEnabled: aiEnabled,
-            notifierAiEnabled: useAi,
+            cameraAiEnabled,
+            notifierAiEnabled,
+            aiPlatform,
             ruleAiEnabled: rule ? rule.useAi : 'Not applicable',
             actionsEnabled,
             addSnozeActions,
@@ -1975,7 +1978,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         detection?: ObjectDetectionResult,
         device?: DeviceInterface,
         eventType?: DetectionEvent,
-        useAi?: boolean,
     }) {
         const {
             title: titleParent,
@@ -1992,7 +1994,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             message: messageParent,
             detection,
             eventType,
-            useAi
         } = props;
         const cameraMixin = this.currentCameraMixinsMap[device.id];
         const logger = cameraMixin.getLogger();
@@ -2028,7 +2029,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             detection,
             eventType,
             message: messageParent,
-            useAi,
         });
 
         const notifierOptions: NotifierOptions = {

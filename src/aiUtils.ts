@@ -235,7 +235,8 @@ const executeAnthropicClaude = async (props: {
     });
 
     logger.debug(`Response from ${AiPlatform.AnthropicClaude}: ${JSON.stringify(response.content)}`);
-    return response.content;
+    const textResponse = response.content.find(item => item.type === "text");
+    return textResponse?.text;
 }
 
 const executeGroq = async (props: {
@@ -269,81 +270,86 @@ export const getAiMessage = async (props: {
     detection?: ObjectDetectionResult,
     imageUrl: string,
     b64Image: string,
-    logger: Console
+    logger: Console,
+    timeStamp: number,
 }) => {
-    const { originalTitle, detection, plugin, imageUrl, logger, b64Image } = props;
+    const { originalTitle, detection, plugin, imageUrl, logger, b64Image, timeStamp } = props;
 
     let title = originalTitle;
-    let message;
+    let message = plugin.aiMessageResponseMap[timeStamp];
+
     try {
-        const { aiPlatform } = plugin.storageSettings.values
-        const { apiKeyKey, apiUrlKey, modelKey, systemPromptKey } = getAiSettingKeys(aiPlatform);
+        if (!message) {
+            const { aiPlatform } = plugin.storageSettings.values
+            const { apiKeyKey, apiUrlKey, modelKey, systemPromptKey } = getAiSettingKeys(aiPlatform);
 
-        const apiKey = plugin.storageSettings.getItem(apiKeyKey);
-        const apiUrl = plugin.storageSettings.getItem(apiUrlKey);
-        const model = plugin.storageSettings.getItem(modelKey);
-        const systemPrompt = plugin.storageSettings.getItem(systemPromptKey);
+            const apiKey = plugin.storageSettings.getItem(apiKeyKey);
+            const apiUrl = plugin.storageSettings.getItem(apiUrlKey);
+            const model = plugin.storageSettings.getItem(modelKey);
+            const systemPrompt = plugin.storageSettings.getItem(systemPromptKey);
 
-        logger.debug(`Calling ${aiPlatform} with ${JSON.stringify({
-            aiPlatform,
-            apiKey,
-            apiUrl,
-            model,
-            systemPrompt,
-            originalTitle,
-        })}`);
-
-        if (aiPlatform === AiPlatform.OpenAi) {
-            const result = await executeOpenAi({
+            logger.debug(`Calling ${aiPlatform} with ${JSON.stringify({
+                aiPlatform,
                 apiKey,
                 apiUrl,
-                imageUrl,
-                logger,
                 model,
+                systemPrompt,
                 originalTitle,
-                systemPrompt,
-                detection,
-            });
+            })}`);
 
-            title = result.title ?? originalTitle;
-            message = result.message;
-        } else if (aiPlatform === AiPlatform.GoogleAi) {
-            const result = await executeGoogleAi({
-                apiKey,
-                b64Image,
-                logger,
-                model,
-                systemPrompt,
-            });
+            if (aiPlatform === AiPlatform.OpenAi) {
+                const result = await executeOpenAi({
+                    apiKey,
+                    apiUrl,
+                    imageUrl,
+                    logger,
+                    model,
+                    originalTitle,
+                    systemPrompt,
+                    detection,
+                });
 
-            message = result;
-        } else if (aiPlatform === AiPlatform.AnthropicClaude) {
-            const result = await executeAnthropicClaude({
-                apiKey,
-                b64Image,
-                logger,
-                model,
-                systemPrompt,
-            });
+                title = result.title ?? originalTitle;
+                message = result.message;
+            } else if (aiPlatform === AiPlatform.GoogleAi) {
+                const result = await executeGoogleAi({
+                    apiKey,
+                    b64Image,
+                    logger,
+                    model,
+                    systemPrompt,
+                });
 
-            message = result;
-        } else if (aiPlatform === AiPlatform.Groq) {
-            const result = await executeGroq({
-                apiKey,
-                b64Image,
-                logger,
-                model,
-                systemPrompt,
-            });
+                message = result;
+            } else if (aiPlatform === AiPlatform.AnthropicClaude) {
+                const result = await executeAnthropicClaude({
+                    apiKey,
+                    b64Image,
+                    logger,
+                    model,
+                    systemPrompt,
+                });
 
-            message = result;
+                message = result;
+            } else if (aiPlatform === AiPlatform.Groq) {
+                const result = await executeGroq({
+                    apiKey,
+                    b64Image,
+                    logger,
+                    model,
+                    systemPrompt,
+                });
+
+                message = result;
+            }
         }
     } catch (e) {
         logger.log('Error in getAiMessage', e);
     } finally {
+        plugin.aiMessageResponseMap[timeStamp] = message;
         return {
-            title,
             message,
+            title,
         }
     }
 }

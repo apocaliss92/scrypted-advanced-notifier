@@ -1,11 +1,11 @@
-import sdk, { NotifierOptions, MediaObject, Setting, Settings, Notifier, ScryptedInterface, SettingValue } from "@scrypted/sdk";
+import sdk, { MediaObject, Notifier, NotifierOptions, ScryptedInterface, Setting, Settings, SettingValue } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
-import { convertSettingsToStorageSettings, DetectionRule, DeviceInterface, GetImageReason, getMixinBaseSettings, getTextSettings, getWebHookUrls, isSchedulerActive, NVR_NOTIFIER_INTERFACE, parseNvrNotificationMessage, TextGeneration } from "./utils";
-import HomeAssistantUtilitiesProvider from "./main";
 import { getBaseLogger, getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
+import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, reportNotifierValues, setupNotifierAutodiscovery, subscribeToNotifierMqttTopics } from "./mqtt-utils";
+import { convertSettingsToStorageSettings, DetectionRule, DeviceInterface, GetImageReason, getMixinBaseSettings, getTextSettings, getWebHookUrls, isSchedulerActive, NVR_NOTIFIER_INTERFACE, parseNvrNotificationMessage } from "./utils";
 
 export type SendNotificationToPluginFn = (notifierId: string, title: string, options?: NotifierOptions, media?: MediaObject, icon?: MediaObject | string) => Promise<void>
 
@@ -29,11 +29,6 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
             defaultValue: true,
             immediate: true,
         },
-        // textGeneration: {
-        //     type: 'string',
-        //     title: 'Define how to generate notifications text, default is default from NVR ',
-        //     choices: Object.values(TextGeneration)
-        // },
         postNotificationWebhook: {
             subgroup: 'Webhooks',
             type: 'html',
@@ -299,7 +294,6 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
                 endTime,
                 enabled,
                 enableTranslations,
-                aiEnabled,
             } = this.storageSettings.values;
 
             if (!enabled) {
@@ -367,7 +361,6 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
                         b64Image,
                         detection,
                         eventType,
-                        useAi: aiEnabled,
                         rule: { notifierData: { [this.id]: {} } } as DetectionRule
                     });
                     const tapToViewText = this.plugin.getTextKey({ notifierId: this.id, textKey: 'tapToViewText' });
