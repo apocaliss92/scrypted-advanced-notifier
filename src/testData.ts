@@ -21,10 +21,9 @@ export const plateData = {
         ],
         "data": {
             "localAddresses": [
-                "192.168.1.4",
-                "2a02:908:3614:bfa0::4"
+                "192.168.100.100",
             ],
-            "hash": "#/timeline/277?time=1746879263053&from=notification&serverId=24bc664f9d49dbf1",
+            "hash": "#/timeline/277?time=1746879263053&from=notification&serverId=SERVER_ID",
             "snoozeId": "nvr-277-Vehicle-false"
         },
         "recordedEvent": {
@@ -208,10 +207,9 @@ export const faceData = {
         ],
         "data": {
             "localAddresses": [
-                "192.168.1.4",
-                "2a02:908:3614:bfa0::4"
+                "192.168.100.100",
             ],
-            "hash": "#/timeline/1184?time=1746880902154&from=notification&serverId=24bc664f9d49dbf1",
+            "hash": "#/timeline/1184?time=1746880902154&from=notification&serverId=SERVER_ID",
             "snoozeId": "nvr-1184-Familiar People-false"
         },
         "recordedEvent": {
@@ -306,10 +304,9 @@ export const personData = {
         ],
         "data": {
             "localAddresses": [
-                "192.168.1.4",
-                "2a02:908:3614:bfa0::4"
+                "192.168.100.100",
             ],
-            "hash": "#/timeline/277?time=1746884804683&from=notification&serverId=24bc664f9d49dbf1",
+            "hash": "#/timeline/277?time=1746884804683&from=notification&serverId=SERVER_ID",
             "snoozeId": "nvr-277-People-false"
         },
         "recordedEvent": {
@@ -429,10 +426,9 @@ export const motionData = {
         "body": "Motion Detected at the Videocamera corridoio piano terra. Tap to view.",
         "data": {
             "localAddresses": [
-                "192.168.1.4",
-                "2a02:908:3614:bfa0::4"
+                "192.168.100.100",
             ],
-            "hash": "#/timeline/307?time=1746884795054&from=notification&serverId=24bc664f9d49dbf1"
+            "hash": "#/timeline/307?time=1746884795054&from=notification&serverId=SERVER_ID"
         },
         "recordedEvent": {
             "details": {
@@ -469,10 +465,9 @@ export const animalData = {
         ],
         "data": {
             "localAddresses": [
-                "192.168.1.4",
-                "2a02:908:3614:bfa0::4"
+                "192.168.100.100",
             ],
-            "hash": "#/timeline/775?time=1746884829439&from=notification&serverId=24bc664f9d49dbf1",
+            "`h`ash": "#/timeline/775?time=1746884829439&from=notification&serverId=SERVER_ID",
             "snoozeId": "nvr-775-Animal-false"
         },
         "recordedEvent": {
