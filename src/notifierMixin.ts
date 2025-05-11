@@ -5,7 +5,7 @@ import { getBaseLogger, getMqttBasicClient } from "../../scrypted-apocaliss-base
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, reportNotifierValues, setupNotifierAutodiscovery, subscribeToNotifierMqttTopics } from "./mqtt-utils";
-import { convertSettingsToStorageSettings, DetectionRule, DeviceInterface, GetImageReason, getMixinBaseSettings, getTextSettings, getWebHookUrls, isSchedulerActive, NVR_NOTIFIER_INTERFACE, parseNvrNotificationMessage } from "./utils";
+import { convertSettingsToStorageSettings, DetectionRule, DeviceInterface, GetImageReason, getMixinBaseSettings, getSnoozeId, getTextSettings, getWebHookUrls, isSchedulerActive, NVR_NOTIFIER_INTERFACE, parseNvrNotificationMessage } from "./utils";
 
 export type SendNotificationToPluginFn = (notifierId: string, title: string, options?: NotifierOptions, media?: MediaObject, icon?: MediaObject | string) => Promise<void>
 
@@ -345,6 +345,17 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
                     if (!schedulerActive) {
                         canNotify = false;
                         logger.log(`Skipping Notification because notifier scheduler is not active`);
+                    }
+                }
+
+                if (canNotify && isNotificationFromPlugin) {
+                    const now = Date.now();
+                    const lastSnoozed = cameraMixin.snoozeUntilDic[snoozeId];
+                    const isSnoozed = lastSnoozed && now < lastSnoozed;
+
+                    if (isSnoozed) {
+                        logger.log(`Skipping Notification because ${snoozeId} still snoozed for ${(lastSnoozed - now) / 1000} seconds`);
+                        canNotify = false;
                     }
                 }
             }

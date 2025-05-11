@@ -3140,9 +3140,16 @@ export const splitRules = (props: {
     ];
 }
 
-export const getSnoozeId = (props: { detectionKey: string, cameraId: string, notifierId: string }) => {
-    const { cameraId, detectionKey, notifierId } = props;
-    return `${cameraId}_${notifierId}_${detectionKey}`;
+export const getSnoozeId = (props: {
+    classname: string,
+    label?: string,
+    cameraId: string,
+    notifierId: string,
+    priority: NotificationPriority
+}) => {
+    const { cameraId, classname, priority, label, notifierId } = props;
+    const classKey = label ? `${classname}_${label}` : classname;
+    return `${cameraId}_${notifierId}_${classKey}_${priority}`;
 }
 
 export const getB64ImageLog = (b64Image: string) => `${b64Image ? b64Image?.substring(0, 10) + '...' : 'NO_IMAGE'}`;

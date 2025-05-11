@@ -1943,12 +1943,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.accumulatedRules = [];
 
         const triggerTime = dataToAnalyze[0]?.triggerTime;
-        const { detectionId, eventId } = dataToAnalyze.find(item => item.detectionId && item.eventId) ?? {};
         const classnamesData = uniqBy(dataToAnalyze.flatMap(item => item.detections), item => `${item.className}-${item.label}`);
 
         const isOnlyMotion = !rulesToUpdate.length && classnamesData.length === 1 && detectionClassesDefaultMap[classnamesData[0]?.className] === DetectionClass.Motion;
 
-        logger.debug(`Accumulated data to analyze: ${JSON.stringify({ triggerTime, detectionId, eventId, classnamesData, rules: rulesToUpdate.map(rule => rule.rule.name) })}`);
+        logger.debug(`Accumulated data to analyze: ${JSON.stringify({ triggerTime, classnamesData, rules: rulesToUpdate.map(rule => rule.rule.name) })}`);
 
         let image: MediaObject;
         let b64Image: string;
@@ -1974,8 +1973,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         if (!image || !b64Image) {
             const imageData = await this.getImage({
-                detectionId,
-                eventId,
                 reason: isOnlyMotion && !rulesToUpdate.length ?
                     GetImageReason.MotionUpdate :
                     GetImageReason.ObjectUpdate
@@ -2226,16 +2223,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { candidates } = filterAndSortValidDetections({
             detections: detections ?? [],
             logger,
-            consumedDetectionIdsSet: this.consumedDetectionIdsSet
+            consumedDetectionIdsSet: new Set(),
+            // consumedDetectionIdsSet: this.consumedDetectionIdsSet
         });
 
-        // hasDetectionId && this.processDetectionsInterval && this.accumulatedDetections.push({
-        this.processDetectionsInterval && this.accumulatedDetections.push({
+        eventDetails && this.processDetectionsInterval && this.accumulatedDetections.push({
             detect: {
                 ...detect,
                 detections: candidates
             },
-            eventId: eventDetails?.eventId
+            eventId: eventDetails.eventId
         });
 
         let image: MediaObject;
@@ -2247,16 +2244,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             if ((isFromNvr && parentImage) || isFromFrigate) {
                 const classnames = uniq(detections.map(d => d.className));
-                const { b64Image: b64ImageNew, image: imageNew } = await this.getImage({
-                    detectionId,
-                    eventId,
+                const { b64Image: b64ImageNew, image: imageNew, imageSource } = await this.getImage({
                     image: parentImage,
                     reason: GetImageReason.FromNvr,
                 });
                 image = imageNew;
                 b64Image = b64ImageNew;
 
-                logger.log(`NVR detections received, classnames ${classnames.join(', ')}. b64Image ${getB64ImageLog(b64Image)}`);
+                logger.log(`NVR detections received, classnames ${classnames.join(', ')}. b64Image ${getB64ImageLog(b64Image)} from ${imageSource}`);
             }
 
             if (this.isActiveForMqttReporting) {

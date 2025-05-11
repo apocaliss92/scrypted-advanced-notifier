@@ -1292,7 +1292,6 @@ export const publishBasicDetectionData = async (props: {
     try {
         const detectionClass = detectionClassesDefaultMap[detection.className];
         if (detectionClass) {
-            // const label = detection.label;
             const parentClass = parentDetectionClassMap[detectionClass];
             const specificClassEntries = deviceClassMqttEntitiesGrouped[detectionClass] ?? [];
             const parentClassEntries = parentClass ? deviceClassMqttEntitiesGrouped[parentClass] ?? [] : [];
@@ -1325,9 +1324,9 @@ export const publishBasicDetectionData = async (props: {
                 for (const entry of personEntities) {
                     const { identifier, retain } = entry;
                     let value: any;
-                    console.info(`Person ${person} found in ${room}, image ${getB64ImageLog(b64Image)}, ${JSON.stringify(personEntities)}`);
 
                     if (identifier === MqttEntityIdentifier.LastImage && b64Image) {
+                        console.log(`Person ${person} found in ${room}, image ${getB64ImageLog(b64Image)}, ${JSON.stringify(personEntities)}`);
                         value = b64Image || null;
                     } else if (identifier === MqttEntityIdentifier.PersonRoom && room) {
                         value = room;
