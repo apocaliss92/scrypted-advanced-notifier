@@ -305,13 +305,20 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
                 logger.log(`Skipping Notification because notifier is disabled`);
             }
 
+            const pluginNotificationsEnabled = this.plugin.storageSettings.values.notificationsEnabled;
+
+            if (!pluginNotificationsEnabled) {
+                logger.log(`Skipping notification because plugin notifications disabled`);
+                canNotify = false;
+            }
+
             let cameraDevice = cameraId ? sdk.systemManager.getDeviceById<DeviceInterface>(cameraId) : undefined;
             if (!cameraDevice) {
                 cameraDevice = sdk.systemManager.getDeviceByName<DeviceInterface>(title);
             }
             const cameraMixin = cameraDevice ? this.plugin.currentCameraMixinsMap[cameraDevice.id] : undefined;
 
-            if (cameraDevice) {
+            if (canNotify && cameraDevice) {
                 if (canNotify) {
                     if (cameraDevice) {
                         if (cameraMixin) {

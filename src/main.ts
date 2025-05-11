@@ -1473,22 +1473,18 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 const cameraMixin = this.currentCameraMixinsMap[cameraDevice.id];
                 const notifier = systemManager.getDeviceById(notifierId) as unknown as Settings & ScryptedDeviceBase;
 
-                if (!cameraMixin?.storageSettings.values.notificationsEnabled) {
-                    logger.log(`Notification skipped because disabled`);
-                } else {
-                    this.notifyCamera({
-                        triggerDevice,
-                        cameraDevice,
-                        notifierId,
-                        time: triggerTime,
-                        image,
-                        detection: match,
-                        source: NotificationSource.DETECTION,
-                        eventType,
-                        logger,
-                        rule: rule as DetectionRule,
-                    }).catch(e => logger.log(`Error on notifier ${notifier.name} `, e));
-                }
+                this.notifyCamera({
+                    triggerDevice,
+                    cameraDevice,
+                    notifierId,
+                    time: triggerTime,
+                    image,
+                    detection: match,
+                    source: NotificationSource.DETECTION,
+                    eventType,
+                    logger,
+                    rule: rule as DetectionRule,
+                }).catch(e => logger.log(`Error on notifier ${notifier.name} `, e));
             }
         } else if (rule.ruleType === RuleType.Timelapse) {
             logger.debug(`Storing timelapse image for rule ${rule.name}: ${JSON.stringify({
@@ -1998,13 +1994,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const cameraMixin = this.currentCameraMixinsMap[device.id];
         const logger = cameraMixin.getLogger();
 
-        const { notificationsEnabled } = this.storageSettings.values;
-
-        if (!notificationsEnabled) {
-            logger.log(`Skipping notification because plugin notifications disabled`);
-            return;
-        }
-
         let title = titleParent;
         if (!title) {
             title = device.name;
@@ -2320,15 +2309,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 });
                 await once(cp, 'exit');
 
-                if (!this.currentCameraMixinsMap[device.id]?.storageSettings.values.notificationsEnabled) {
-                    logger.log(`Skipping notification because disabled`);
-                } else {
-                    await this.notifyTimelapse({
-                        cameraDevice: device as DeviceInterface,
-                        timelapseName,
-                        rule
-                    });
-                }
+                await this.notifyTimelapse({
+                    cameraDevice: device as DeviceInterface,
+                    timelapseName,
+                    rule
+                });
             } catch (e) {
                 logger.log('Error generating timelapse', e);
             }
