@@ -368,18 +368,18 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 type: ScryptedDeviceType.Notifier,
             },
         );
-        // await sdk.deviceManager.onDeviceDiscovered(
-        //     {
-        //         name: 'Advanced alarm system',
-        //         nativeId: ALARM_SYSTEM_NATIVE_ID,
-        //         interfaces: [
-        //             ScryptedInterface.SecuritySystem, 
-        //             ScryptedInterface.Settings, 
-        //             ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE
-        //         ],
-        //         type: ScryptedDeviceType.SecuritySystem,
-        //     }
-        // );
+        await sdk.deviceManager.onDeviceDiscovered(
+            {
+                name: 'Advanced alarm system',
+                nativeId: ALARM_SYSTEM_NATIVE_ID,
+                interfaces: [
+                    ScryptedInterface.SecuritySystem, 
+                    ScryptedInterface.Settings, 
+                    ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE
+                ],
+                type: ScryptedDeviceType.SecuritySystem,
+            }
+        );
         await this.executeCameraDiscovery(this.storageSettings.values.enableCameraDevice);
 
         await this.initPluginSettings();

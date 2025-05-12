@@ -26,7 +26,8 @@ type StorageKeys = 'notifiers' |
     'defuseMessage' |
     'modeHomeText' |
     'modeNightText' |
-    'modeAwayText';
+    'modeAwayText' |
+    'noneText';
 
 export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements SecuritySystem, Settings {
     initStorage: StorageSettingsDict<StorageKeys> = {
@@ -159,6 +160,13 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
             type: 'string',
             group: 'Texts',
             defaultValue: 'Away',
+        },
+        noneText: {
+            title: 'Text for None(s)',
+            description: 'Used when device lists used are empty',
+            type: 'string',
+            group: 'Texts',
+            defaultValue: 'None',
         },
     };
 
@@ -378,6 +386,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
     async sendNotification(props: {
         mode: SecuritySystemMode,
         event: 'Preactivation' | 'Activate' | 'Blocked' | 'Trigger',
+        preactivationSeconds?: number,
         bypassedDevices?: string[],
         activeDevices?: string[],
         blockingDevices?: string[],
@@ -393,6 +402,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                 activeDevices = [],
                 bypassedDevices = [],
                 mode,
+                preactivationSeconds,
                 triggerDevices = []
             } = props;
             let message: string;
@@ -408,6 +418,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                 modeHomeText,
                 modeNightText,
                 notifiers,
+                noneText,
             } = this.storageSettings.values;
 
             if (mode === SecuritySystemMode.Disarmed) {
@@ -429,12 +440,15 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                     modeHomeText : mode === SecuritySystemMode.NightArmed ?
                         modeNightText : undefined;
 
+            const renderList = (list: string[]) => list.length > 0 ? list.join(', ') : noneText;
+
             const text = (message || '')
                 .replaceAll('${mode}', modeText)
-                .replaceAll('${bypassedDevices}', bypassedDevices.join(', '))
-                .replaceAll('${blockingDevices}', blockingDevices.join(', '))
-                .replaceAll('${triggerDevices}', triggerDevices.join(', '))
-                .replaceAll('${activeDevicesAmount}', String(activeDevices.length));
+                .replaceAll('${seconds}', String(preactivationSeconds ?? ''))
+                .replaceAll('${bypassedDevices}', renderList(bypassedDevices))
+                .replaceAll('${blockingDevices}', renderList(blockingDevices))
+                .replaceAll('${triggerDevices}', renderList(triggerDevices))
+                .replaceAll('${activeDevicesAmount}', !!activeDevices.length ? String(activeDevices.length) : noneText);
 
             for (const notifierId of notifiers) {
                 const notifier = sdk.systemManager.getDeviceById<Notifier>(notifierId);
@@ -449,17 +463,17 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
     async armSecuritySystem(mode: SecuritySystemMode): Promise<void> {
         const logger = this.getLogger();
 
+        this.resetActivationListener();
+
         if (mode === this.securitySystemState.mode) {
             return;
         }
 
+        if (mode === SecuritySystemMode.Disarmed) {
+            return await this.disarmSecuritySystem();
+        }
+
         try {
-            this.resetActivationListener();
-
-            if (mode === SecuritySystemMode.Disarmed) {
-                return await this.disarmSecuritySystem();
-            }
-
             const { autoCloseLocks } = this.storageSettings.values;
 
             const entity = getModeEntity({ mode, storage: this.storageSettings });
@@ -576,7 +590,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                     await this.updateMqtt({
                         mode: 'arming', info: {
                             activeDevices: [],
-                            bypassedDevices: []
+                            bypassedDevices: [],
                         }
                     });
 
@@ -585,6 +599,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                         bypassedDevices,
                         activeDevices,
                         event: 'Preactivation',
+                        preactivationSeconds: entity.preActivationTime,
                     });
                 } else {
                     await activate();
@@ -602,7 +617,6 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
         await this.putSetting('currentlyActiveDevices', []);
         await this.putSetting('currentlyBypassedDevices', []);
         await this.putSetting('arming', false);
-        await this.putSetting('activeMode', SecuritySystemMode.Disarmed);
         await this.updateMqtt({
             mode: scryptedToHaStateMap[SecuritySystemMode.Disarmed], info: {
                 activeDevices: [],
@@ -619,6 +633,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
             obstruction: undefined,
             mode: SecuritySystemMode.Disarmed
         };
+        await this.putSetting('activeMode', SecuritySystemMode.Disarmed);
     }
 
 }

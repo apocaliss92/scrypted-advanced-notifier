@@ -1,6 +1,6 @@
 import { SecuritySystemMode } from "@scrypted/sdk";
 import { StorageSetting, StorageSettings } from "@scrypted/sdk/storage-settings";
-import { deviceFilter } from "./utils";
+import { deviceFilter, sensorsFilter } from "./utils";
 
 export const supportedAlarmModes = [
     SecuritySystemMode.AwayArmed,
@@ -16,11 +16,9 @@ export const getAlarmKeys = (props: {
     const bypassableDevicesKey = `${mode}:bypassableDevices`;
     const preActivationTimeKey = `${mode}:preActivationTime`;
     const autoDisarmTimeKey = `${mode}:autoDisarmTime`;
-    const blacklistedDevicesKey = `${mode}:blacklistedDevices`;
 
     return {
         bypassableDevicesKey,
-        blacklistedDevicesKey,
         preActivationTimeKey,
         autoDisarmTimeKey,
     };
@@ -64,7 +62,6 @@ export const getAlarmSettings = (props: {
         bypassableDevicesKey,
         preActivationTimeKey,
         autoDisarmTimeKey,
-        // blacklistedDevicesKey,
     } = getAlarmKeys({ mode });
     const { autoDisarmTime, preactivationTime } = getAlarmDefaults({ mode });
     const group = `Mode: ${mode}`;
@@ -75,7 +72,7 @@ export const getAlarmSettings = (props: {
         description: 'Devices that can be in active state before activating the mode. Devices not present in this list will prevent the mode activation',
         group,
         type: 'device',
-        deviceFilter,
+        deviceFilter: sensorsFilter,
         multiple: true,
         defaultValue: [],
     };
@@ -119,7 +116,6 @@ export const getModeEntity = (props: {
         bypassableDevicesKey,
         preActivationTimeKey,
         autoDisarmTimeKey,
-        // blacklistedDevicesKey,
     } = getAlarmKeys({ mode });
     const {
         autoDisarmTime: autoDisarmTimeDefault,

@@ -1097,7 +1097,7 @@ const getInterfacesString = (interfaces: ScryptedInterface[]) =>
 // export const cameraFilter: StorageSetting['deviceFilter'] = device => basicFilter(device) && device.interfaces.some(int => cameraInterfaces.includes(int as ScryptedInterface));
 export const deviceFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && interfaces.some(int => ${getInterfacesString([...sensorInterfaces, ...cameraInterfaces])}.includes(int))`;
 export const notifierFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && interfaces.some(int => ${getInterfacesString(notifierInterfaces)}.includes(int))`;
-export const sensorsFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && interfaces.some(int => ${getInterfacesString(sensorInterfaces)}.includes(int))`;
+export const sensorsFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && type !== '${ScryptedDeviceType.Doorbell}' && interfaces.some(int => ${getInterfacesString(sensorInterfaces)}.includes(int))`;
 export const cameraFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && interfaces.some(int => ${getInterfacesString(cameraInterfaces)}.includes(int))`;
 
 type GetSpecificRules = (props: { group: string, subgroup: string, ruleName: string, showMore: boolean }) => StorageSetting[];
