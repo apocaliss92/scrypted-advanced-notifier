@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.6.7
+
+- [BREAKING CHANGE] Check occupancy (in seconds) changed with a boolean flag
+
 ### 3.6.1
 
 - Add support to camera AI generated

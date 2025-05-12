@@ -131,6 +131,14 @@ const getBasicMqttEntities = () => {
         retain: false,
         icon: 'mdi:microphone-variant'
     };
+    const occupancyCheckEnabledEntity: MqttEntity = {
+        domain: 'switch',
+        entity: 'occupancy_check_enabled',
+        name: 'Occupancy detection enabled',
+        entityCategory: 'diagnostic',
+        retain: false,
+        icon: 'mdi:camera-metering-spot'
+    };
     const decoderSnapshotsEnabledEntity: MqttEntity = {
         domain: 'switch',
         entity: 'decoder_snapshots_enabled',
@@ -235,6 +243,7 @@ const getBasicMqttEntities = () => {
         notificationsEnabledEntity,
         audioDetectionEnabledEntity,
         decoderSnapshotsEnabledEntity,
+        occupancyCheckEnabledEntity,
         audioPressureEntity,
         onlineEntity,
         recordingEntity,
@@ -797,6 +806,7 @@ export const subscribeToCameraMqttTopics = async (
         switchRecordingCb?: (active: boolean) => void,
         switchNotificationsEnabledCb: (active: boolean) => void,
         switchAudioDetectionCb: (active: boolean) => void,
+        switchOccupancyCheckCb: (active: boolean) => void,
         switchDecoderSnapshotsCb: (active: boolean) => void,
         rebootCb?: () => void,
         ptzCommandCb?: (command: PanTiltZoomCommand) => void,
@@ -814,6 +824,7 @@ export const subscribeToCameraMqttTopics = async (
         switchRecordingCb,
         switchNotificationsEnabledCb,
         switchAudioDetectionCb,
+        switchOccupancyCheckCb,
         switchDecoderSnapshotsCb,
         rebootCb,
         ptzCommandCb,
@@ -845,6 +856,7 @@ export const subscribeToCameraMqttTopics = async (
 
     const {
         audioDetectionEnabledEntity,
+        occupancyCheckEnabledEntity,
         decoderSnapshotsEnabledEntity,
         notificationsEnabledEntity,
         ptzDownEntity,
@@ -933,6 +945,17 @@ export const subscribeToCameraMqttTopics = async (
                 switchAudioDetectionCb(message === 'true');
 
                 await mqttClient.publish(stateTopic, message, audioDetectionEnabledEntity.retain);
+            }
+        });
+    }
+
+    if (switchOccupancyCheckCb) {
+        const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: occupancyCheckEnabledEntity, device });
+        await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
+            if (messageTopic === commandTopic) {
+                switchOccupancyCheckCb(message === 'true');
+
+                await mqttClient.publish(stateTopic, message, occupancyCheckEnabledEntity.retain);
             }
         });
     }
@@ -1128,6 +1151,7 @@ export const setupCameraAutodiscovery = async (props: {
 
     const {
         audioDetectionEnabledEntity,
+        occupancyCheckEnabledEntity,
         audioPressureEntity,
         batteryEntity,
         decoderSnapshotsEnabledEntity,
@@ -1147,6 +1171,10 @@ export const setupCameraAutodiscovery = async (props: {
         audioDetectionEnabledEntity,
         ...detectionMqttEntities
     ];
+
+    if (device.interfaces.includes(ScryptedInterface.ObjectDetector)) {
+        mqttEntities.push(cloneDeep(occupancyCheckEnabledEntity));
+    }
 
     if (device.interfaces.includes(ScryptedInterface.Battery)) {
         mqttEntities.push(cloneDeep(batteryEntity));
@@ -1467,6 +1495,7 @@ export const publishCameraValues = async (props: {
     device: ScryptedDeviceBase,
     isRecording?: boolean,
     checkSoundPressure?: boolean,
+    checkOccupancy?: boolean,
     useFramesGenerator?: boolean,
     notificationsEnabled: boolean,
     console: Console,
@@ -1482,6 +1511,7 @@ export const publishCameraValues = async (props: {
         rulesToEnable,
         console,
         checkSoundPressure,
+        checkOccupancy,
         useFramesGenerator
     } = props;
 
@@ -1491,6 +1521,7 @@ export const publishCameraValues = async (props: {
 
     const {
         audioDetectionEnabledEntity,
+        occupancyCheckEnabledEntity,
         batteryEntity,
         decoderSnapshotsEnabledEntity,
         notificationsEnabledEntity,
@@ -1522,6 +1553,9 @@ export const publishCameraValues = async (props: {
 
         const { stateTopic: checkSoundPressureStateTopic } = getMqttTopics({ mqttEntity: audioDetectionEnabledEntity, device });
         await mqttClient.publish(checkSoundPressureStateTopic, checkSoundPressure ? 'true' : 'false', audioDetectionEnabledEntity.retain);
+        
+        const { stateTopic: occupancyCheckEnabledEntityTopic } = getMqttTopics({ mqttEntity: occupancyCheckEnabledEntity, device });
+        await mqttClient.publish(occupancyCheckEnabledEntityTopic, checkOccupancy ? 'true' : 'false', occupancyCheckEnabledEntity.retain);
 
         const { stateTopic: useFramesGeneratorStateTopic } = getMqttTopics({ mqttEntity: decoderSnapshotsEnabledEntity, device });
         await mqttClient.publish(useFramesGeneratorStateTopic, useFramesGenerator ? 'true' : 'false', decoderSnapshotsEnabledEntity.retain);

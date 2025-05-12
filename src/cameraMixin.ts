@@ -64,7 +64,7 @@ type CameraSettingKey =
     | 'minSnapshotDelay'
     | 'minMqttPublishDelay'
     | 'motionDuration'
-    | 'occupancyCheckInterval'
+    | 'checkOccupancy'
     | 'checkSoundPressure'
     | 'useFramesGenerator'
     | 'lastSnapshotWebhook'
@@ -149,10 +149,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             type: 'number',
             defaultValue: 10
         },
-        occupancyCheckInterval: {
-            title: 'Check objects occupancy in seconds',
-            description: 'Regularly check objects presence and report it to MQTT, performance intensive. Set to 0 to disable',
-            type: 'number',
+        checkOccupancy: {
+            title: 'Check objects occupancy regularly',
+            description: 'Regularly check objects presence and report it to MQTT, performance intensive',
+            type: 'boolean',
+            immediate: true,
         },
         checkSoundPressure: {
             title: 'Audio pressure (dB) detection',
@@ -482,7 +483,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 const isDetectionListenerRunning = !!this.detectionListener || !!this.motionListener;
 
-                const { entityId, occupancyCheckInterval = 0, checkSoundPressure, useFramesGenerator, notificationsEnabled } = this.storageSettings.values;
+                const { entityId, checkOccupancy, checkSoundPressure, useFramesGenerator, notificationsEnabled } = this.storageSettings.values;
 
                 // logger.log(JSON.stringify({ allDetectionRules, detectionRules }))
                 if (isActiveForMqttReporting) {
@@ -496,7 +497,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 device: this.cameraDevice,
                                 console: logger,
                                 rules: allAvailableRules,
-                                occupancyEnabled: !!occupancyCheckInterval,
+                                occupancyEnabled: checkOccupancy,
                                 withAudio: checkSoundPressure,
                             }).then(async (activeTopics) => {
                                 await this.mqttClient.cleanupAutodiscoveryTopics(activeTopics);
@@ -518,11 +519,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                     await this.storageSettings.putSetting(`notificationsEnabled`, active);
                                 },
                                 switchAudioDetectionCb: async (active) => {
-                                    logger.log(`Setting audio detecion to ${!active}`);
+                                    logger.log(`Setting audio detecion to ${active}`);
                                     await this.storageSettings.putSetting(`checkSoundPressure`, active);
                                 },
+                                switchOccupancyCheckCb: async (active) => {
+                                    logger.log(`Setting occupancy check to ${active}`);
+                                    await this.storageSettings.putSetting(`checkOccupancy`, active);
+                                },
                                 switchDecoderSnapshotsCb: async (active) => {
-                                    logger.log(`Setting decoder snapshots to ${!active}`);
+                                    logger.log(`Setting decoder snapshots to ${active}`);
                                     await this.storageSettings.putSetting(`useFramesGenerator`, active);
                                 },
                                 switchRecordingCb: this.cameraDevice.interfaces.includes(ScryptedInterface.VideoRecorder) ?
@@ -568,7 +573,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             rulesToEnable,
                             rulesToDisable,
                             checkSoundPressure,
-                            useFramesGenerator
+                            useFramesGenerator,
+                            checkOccupancy
                         }).catch(logger.error);
                     }
                 }
@@ -629,12 +635,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     logger.log('Starting processing of accumulated detections');
                     this.startAccumulatedDetectionsInterval();
                 }
-
-                // Restart frame generator every minute
-                // if (!this.framesGeneratorSignal.finished && this.frameGenerationStartTime && (now - this.frameGenerationStartTime) >= 1000 * 60 * 1) {
-                //     logger.log(`Restarting frames generator`);
-                //     this.stopFramesGenerator();
-                // }
 
                 await this.checkOutdatedRules();
             } catch (e) {
@@ -919,8 +919,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         if (this.storageSettings.settings.minMqttPublishDelay) {
             this.storageSettings.settings.minMqttPublishDelay.hide = !enabledToMqtt;
         }
-        if (this.storageSettings.settings.occupancyCheckInterval) {
-            this.storageSettings.settings.occupancyCheckInterval.hide = !enabledToMqtt;
+        if (this.storageSettings.settings.checkOccupancy) {
+            this.storageSettings.settings.checkOccupancy.hide = !enabledToMqtt;
         }
         if (this.storageSettings.settings.checkSoundPressure) {
             this.storageSettings.settings.checkSoundPressure.hide = !enabledToMqtt;
@@ -1384,7 +1384,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const anyOutdatedOccupancyRule = this.runningOccupancyRules.some(rule => {
             const { forceUpdate, name } = rule;
             const currentState = this.occupancyState[name];
-            const shouldForceFrame = !currentState || (now - (currentState?.lastCheck ?? 0)) >= (1000 * (forceUpdate - 1));
+            const shouldForceFrame = !currentState ||
+                (now - (currentState?.lastCheck ?? 0)) >= (1000 * (forceUpdate - 1)) ||
+                (currentState.occupancyToConfirm != undefined && !!currentState.confirmationStart);
 
             if (!this.occupancyState[name]) {
                 logger.log(`Initializing occupancy data for rule ${name} to ${JSON.stringify(initOccupancyState)}`);
@@ -1400,7 +1402,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             })}`);
 
             return shouldForceFrame;
-        }) || this.storageSettings.values.occupancyCheckInterval;
+        }) || this.storageSettings.values.checkOccupancy;
 
         const timelapsesToRefresh = (this.runningTimelapseRules || []).filter(rule => {
             const { regularSnapshotInterval, name } = rule;
@@ -1460,7 +1462,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         try {
             const now = new Date().getTime();
-            const minDelayInSeconds = !!this.runningOccupancyRules.length ? 1 : (this.storageSettings.values.occupancyCheckInterval || 0);
+            const minDelayInSeconds = !!this.runningOccupancyRules.length || this.storageSettings.values.checkOccupancy ? 1 : 0;
 
             if (!minDelayInSeconds) {
                 return;
