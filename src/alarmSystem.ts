@@ -3,37 +3,71 @@ import sdk, { ScryptedDeviceBase, SecuritySystem, SecuritySystemMode, SecuritySy
 import { StorageSetting, StorageSettings, StorageSettingsDict } from '@scrypted/sdk/storage-settings';
 import { getBaseLogger, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
-import { getAlarmKeys, getAlarmSettings, getModeEntity, supportedAlarmModes } from './alarmUtils';
+import { getAlarmSettings, getModeEntity, supportedAlarmModes } from './alarmUtils';
 import AdvancedNotifierPlugin from './main';
-import { idPrefix } from './mqtt-utils';
+import { idPrefix, publishAlarmSystemValues, setupAlarmSystemAutodiscovery, subscribeToAlarmSystemMqttTopics } from './mqtt-utils';
 import { ALARM_SYSTEM_NATIVE_ID, binarySensorMetadataMap, convertSettingsToStorageSettings, DeviceInterface, isDeviceSupported } from './utils';
+import { scryptedToHaStateMap } from '../../scrypted-homeassistant/src/types/securitySystem';
 
 export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements SecuritySystem, Settings {
     initStorage: StorageSettingsDict<string> = {
+        debug: {
+            title: 'Log debug messages',
+            type: 'boolean',
+            defaultValue: false,
+            immediate: true,
+        },
+        info: {
+            title: 'Log info messages',
+            type: 'boolean',
+            defaultValue: false,
+            immediate: true,
+        },
+        mqttEnabled: {
+            title: 'MQTT enabled',
+            type: 'boolean',
+            defaultValue: true,
+            immediate: true,
+        },
         activeMode: {
             title: 'Active mode',
             type: 'string',
+            group: 'Status',
             combobox: true,
             immediate: true,
             choices: Object.values(SecuritySystemMode),
             defaultValue: SecuritySystemMode.Disarmed,
             onPut: async (_, mode) => await this.armSecuritySystem(mode)
         },
+        arming: {
+            title: 'Arming',
+            type: 'boolean',
+            group: 'Status',
+            readonly: true,
+        },
+        // disarming: {
+        //     title: 'Disarming',
+        //     type: 'boolean',
+        //     group: 'Status',
+        //     readonly: true,
+        // },
         currentlyActiveDevices: {
             title: `Currently active devices`,
             type: 'string',
+            group: 'Status',
             defaultValue: [],
             choices: [],
-            multiple:true,
+            multiple: true,
             combobox: true,
             readonly: true
         },
         currentlyBypassedDevices: {
             title: `Currently bypassed devices`,
             type: 'string',
+            group: 'Status',
             defaultValue: [],
             choices: [],
-            multiple:true,
+            multiple: true,
             combobox: true,
             readonly: true
         },
@@ -62,7 +96,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
             }
         }
 
-        this.clientId = `scrypted_an_alarm_syster_${this.id}`;
+        this.clientId = `scrypted_an_alarm_system_${this.id}`;
 
         this.initValues().then().catch(logger.log);
 
@@ -89,6 +123,34 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
 
         const funct = async () => {
             try {
+                const now = Date.now();
+
+                const { mqttEnabled } = this.storageSettings.values;
+                if (mqttEnabled) {
+                    const mqttClient = await this.getMqttClient();
+                    const logger = this.getLogger();
+                    if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
+                        this.lastAutoDiscovery = now;
+
+                        logger.log('Starting MQTT autodiscovery');
+                        setupAlarmSystemAutodiscovery({
+                            mqttClient,
+                            console: logger,
+                        }).then(async (activeTopics) => {
+                            await this.mqttClient.cleanupAutodiscoveryTopics(activeTopics);
+                        }).catch(logger.error);
+
+                        logger.log(`Subscribing to mqtt topics`);
+                        await subscribeToAlarmSystemMqttTopics({
+                            mqttClient,
+                            console: logger,
+                            modeSwitchCb: async (mode) => {
+                                logger.log(`Setting mode to ${mode}`);
+                                this.armSecuritySystem(mode);
+                            },
+                        });
+                    }
+                }
             } catch (e) {
                 logger.log('Error in startCheckInterval funct', e);
             }
@@ -212,6 +274,18 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
         return this.storageSettings.putSetting(key, value);
     }
 
+    async updateMqtt(props: { mode: string, info: { activeDevices: string[], bypassedDevices: string[] } }) {
+        const { info, mode } = props;
+        const logger = this.getLogger();
+        const mqttClient = await this.getMqttClient();
+
+        publishAlarmSystemValues({
+            mqttClient,
+            mode,
+            info,
+        }).catch(logger.error);
+    }
+
     async armSecuritySystem(mode: SecuritySystemMode): Promise<void> {
         this.resetActivationListener();
 
@@ -231,7 +305,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
         const activeRules = this.plugin.allAvailableRules
             .filter(item => item.securitySystemModes?.includes(mode));
 
-        const allActiveDevicesSet = new Set<string>();
+        const activeDevicesSet = new Set<string>();
         const bypassedDevicesSet = new Set<string>();
         const blockingDevicesSet = new Set<string>();
 
@@ -248,15 +322,15 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                         if (isActive) {
                             if (entity.bypassableDevices.includes(deviceId)) {
                                 bypassedDevicesSet.add(deviceId);
-                                allActiveDevicesSet.add(deviceId);
+                                activeDevicesSet.add(deviceId);
                             } else {
                                 blockingDevicesSet.add(deviceId);
                             }
                         } else {
-                            allActiveDevicesSet.add(deviceId);
+                            activeDevicesSet.add(deviceId);
                         }
                     } else {
-                        allActiveDevicesSet.add(deviceId);
+                        activeDevicesSet.add(deviceId);
                     }
                 }
             } catch (e) {
@@ -264,7 +338,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
             }
         }
 
-        const allActiveDevices = Array.from(allActiveDevicesSet)
+        const activeDevices = Array.from(activeDevicesSet)
             .map(deviceId => sdk.systemManager.getDeviceById(deviceId)?.name);
         const bypassedDevices = Array.from(bypassedDevicesSet)
             .map(deviceId => sdk.systemManager.getDeviceById(deviceId)?.name);
@@ -274,7 +348,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
         const anyBlockers = !!blockingDevices.length;
 
         logger.log({
-            allActiveDevices,
+            activeDevices,
             bypassedDevices,
             blockingDevices,
             anyBlockers,
@@ -297,8 +371,17 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                     triggered: false,
                     mode,
                 };
-                await this.putSetting('currentlyActiveDevices', allActiveDevices);
+                await this.putSetting('currentlyActiveDevices', activeDevices);
                 await this.putSetting('currentlyBypassedDevices', bypassedDevices);
+                await this.putSetting('activeMode', mode);
+                await this.putSetting('arming', false);
+                await this.updateMqtt({
+                    mode: scryptedToHaStateMap[mode],
+                    info: {
+                        activeDevices,
+                        bypassedDevices,
+                    }
+                });
             };
 
             if (entity.preActivationTime) {
@@ -307,6 +390,13 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                     await activate(),
                     entity.preActivationTime * 1000
                 );
+                await this.putSetting('arming', true);
+                await this.updateMqtt({
+                    mode: 'arming', info: {
+                        activeDevices: [],
+                        bypassedDevices: []
+                    }
+                });
             } else {
                 await activate();
             }
@@ -325,6 +415,13 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
         };
         await this.putSetting('currentlyActiveDevices', []);
         await this.putSetting('currentlyBypassedDevices', []);
+        await this.putSetting('arming', false);
+        await this.updateMqtt({
+            mode: scryptedToHaStateMap[SecuritySystemMode.Disarmed], info: {
+                activeDevices: [],
+                bypassedDevices: []
+            }
+        });
     }
 
 }

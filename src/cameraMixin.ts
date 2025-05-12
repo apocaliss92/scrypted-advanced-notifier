@@ -491,7 +491,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                     await this.storageSettings.putSetting(`${enabledKey}`, active);
                                 },
                                 switchNotificationsEnabledCb: async (active) => {
-                                    logger.log(`Setting notifications active to ${!active}`);
+                                    logger.log(`Setting notifications active to ${active}`);
                                     await this.storageSettings.putSetting(`notificationsEnabled`, active);
                                 },
                                 switchAudioDetectionCb: async (active) => {
