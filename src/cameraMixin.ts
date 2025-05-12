@@ -2092,17 +2092,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     });
 
                     if (timePassedForNotification) {
-                        const detectionKey = this.getDetectionKey(matchRule);
                         logger.log(`Starting notifiers for detection rule ${rule.name}, b64Image ${getB64ImageLog(b64Image)} from ${imageSource}`);
 
-                        this.plugin.matchDetectionFound({
+                        this.plugin.notifyDetectionEvent({
                             triggerDeviceId: this.id,
                             match,
                             rule,
                             image,
                             eventType: detectionClassesDefaultMap[match.className],
                             triggerTime,
-                            detectionKey,
                         });
                     }
                 }
@@ -2529,19 +2527,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         }
 
                         if (isFromNvr && rule.isNvr && this.isDelayPassed({ type: DelayType.RuleNotification, matchRule, eventSource })) {
-                            const detectionKey = this.getDetectionKey(matchRule);
                             if (rule.ruleType === RuleType.Detection) {
                                 logger.log(`Starting notifiers for detection rule ${rule.name}, b64Image ${getB64ImageLog(b64Image)}`);
                             }
 
-                            this.plugin.matchDetectionFound({
+                            this.plugin.notifyDetectionEvent({
                                 triggerDeviceId: this.id,
                                 match,
                                 rule,
                                 image,
                                 eventType: detectionClassesDefaultMap[match.className],
                                 triggerTime,
-                                detectionKey,
                             });
                         }
                     } catch (e) {

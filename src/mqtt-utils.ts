@@ -1553,7 +1553,7 @@ export const publishCameraValues = async (props: {
 
         const { stateTopic: checkSoundPressureStateTopic } = getMqttTopics({ mqttEntity: audioDetectionEnabledEntity, device });
         await mqttClient.publish(checkSoundPressureStateTopic, checkSoundPressure ? 'true' : 'false', audioDetectionEnabledEntity.retain);
-        
+
         const { stateTopic: occupancyCheckEnabledEntityTopic } = getMqttTopics({ mqttEntity: occupancyCheckEnabledEntity, device });
         await mqttClient.publish(occupancyCheckEnabledEntityTopic, checkOccupancy ? 'true' : 'false', occupancyCheckEnabledEntity.retain);
 
@@ -1628,7 +1628,7 @@ export const publishPluginValues = async (props: {
 export const publishAlarmSystemValues = async (props: {
     mqttClient?: MqttClient,
     mode: string,
-    info: any
+    info?: any
 }) => {
     const {
         mqttClient,
@@ -1646,7 +1646,7 @@ export const publishAlarmSystemValues = async (props: {
 
     const { stateTopic, infoTopic } = getMqttTopics({ mqttEntity: alarmSystemEntity, device: alarmSystemId });
     await mqttClient.publish(stateTopic, mode, alarmSystemEntity.retain);
-    await mqttClient.publish(infoTopic, JSON.stringify(info), alarmSystemEntity.retain);
+    info && await mqttClient.publish(infoTopic, JSON.stringify(info), alarmSystemEntity.retain);
 }
 
 export const reportNotifierValues = async (props: {

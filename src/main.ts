@@ -341,7 +341,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     private mainFlowInterval: NodeJS.Timeout;
     defaultNotifier: AdvancedNotifierNotifier;
     camera: AdvancedNotifierCamera;
-    securitySystem: AdvancedNotifierAlarmSystem;
+    alarmSystem: AdvancedNotifierAlarmSystem;
     runningDetectionRules: DetectionRule[] = [];
     lastNotExistingNotifier: number;
     public allAvailableRules: BaseRule[] = [];
@@ -365,7 +365,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     async init() {
         const logger = this.getLogger();
 
-        const cloudPlugin = systemManager.getDeviceByName('Scrypted Cloud') as unknown as Settings;
+        const cloudPlugin = systemManager.getDeviceByName<Settings>('Scrypted Cloud');
         if (cloudPlugin) {
             this.hasCloudPlugin = true;
         } else {
@@ -450,7 +450,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if (nativeId === CAMERA_NATIVE_ID)
             return this.camera ||= new AdvancedNotifierCamera(CAMERA_NATIVE_ID, this);
         if (nativeId === ALARM_SYSTEM_NATIVE_ID)
-            return this.securitySystem ||= new AdvancedNotifierAlarmSystem(ALARM_SYSTEM_NATIVE_ID, this);
+            return this.alarmSystem ||= new AdvancedNotifierAlarmSystem(ALARM_SYSTEM_NATIVE_ID, this);
     }
 
     async releaseDevice(id: string, nativeId: string): Promise<void> {
@@ -750,7 +750,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 return this.knownPeople;
             }
 
-            const objDetectionPlugin = systemManager.getDeviceByName('Scrypted NVR Object Detection') as unknown as Settings;
+            const objDetectionPlugin = systemManager.getDeviceByName<Settings>('Scrypted NVR Object Detection');
             const settings = await objDetectionPlugin.getSettings();
             const knownPeople = settings?.find(setting => setting.key === 'knownPeople')?.choices
                 ?.filter(choice => !!choice)
@@ -877,7 +877,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     private async initPluginSettings() {
         const logger = this.getLogger();
         if (this.hasCloudPlugin) {
-            const cloudPlugin = systemManager.getDeviceByName('Scrypted Cloud') as unknown as Settings;
+            const cloudPlugin = systemManager.getDeviceByName<Settings>('Scrypted Cloud');
             const oauthUrl = await (cloudPlugin as any).getOauthUrl();
             const url = new URL(oauthUrl);
             const serverId = url.searchParams.get('server_id');
@@ -1440,7 +1440,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     async onNvrNotification(cameraName: string, options?: NotifierOptions, image?: MediaObject, icon?: MediaObject | string) {
         const logger = this.getLogger();
         const triggerTime = options?.recordedEvent?.data.timestamp ?? new Date().getTime();
-        const cameraDevice = sdk.systemManager.getDeviceByName(cameraName) as unknown as DeviceInterface;
+        const cameraDevice = sdk.systemManager.getDeviceByName<DeviceInterface>(cameraName);
         const deviceSensors = this.videocameraDevicesMap[cameraDevice.id] ?? [];
         const result = await parseNvrNotificationMessage(cameraDevice, deviceSensors, options, logger);
         const {
@@ -1487,7 +1487,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     public getLinkedCamera = async (deviceId: string) => {
-        const device = systemManager.getDeviceById(deviceId) as unknown as DeviceInterface;
+        const device = systemManager.getDeviceById<DeviceInterface>(deviceId);
         const cameraDevice = await this.getCameraDevice(device);
 
         if (!device || !cameraDevice) {
@@ -1497,13 +1497,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         return { device: cameraDevice };
     }
 
-    public matchDetectionFound = async (props: {
+    public isAdvancedAlarmSystemActive() {
+        return this.storageSettings.values.securitySystem?.nativeId === ALARM_SYSTEM_NATIVE_ID;
+    }
+
+    public notifyDetectionEvent = async (props: {
         image?: MediaObject,
         match?: ObjectDetectionResult,
         rule: BaseRule,
         eventType: DetectionEvent,
         triggerDeviceId: string,
-        detectionKey: string,
         triggerTime: number,
     }) => {
         const {
@@ -1513,9 +1516,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             match,
             image,
             rule,
-            detectionKey,
         } = props;
-        const triggerDevice = systemManager.getDeviceById(triggerDeviceId) as unknown as DeviceInterface;
+        const triggerDevice = systemManager.getDeviceById<DeviceInterface>(triggerDeviceId);
         const cameraDevice = await this.getCameraDevice(triggerDevice);
         const logger = this.getLogger(cameraDevice);
 
@@ -1524,9 +1526,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
 
         if (rule.ruleType === RuleType.Detection) {
+            if (this.isAdvancedAlarmSystemActive()) {
+                this.alarmSystem.onEventTrigger({ triggerDevice }).catch(logger.log);
+            }
+
             for (const notifierId of rule.notifiers) {
-                const cameraMixin = this.currentCameraMixinsMap[cameraDevice.id];
-                const notifier = systemManager.getDeviceById(notifierId) as unknown as Settings & ScryptedDeviceBase;
+                const notifier = systemManager.getDeviceById<Settings & ScryptedDeviceBase>(notifierId);
 
                 this.notifyCamera({
                     triggerDevice,
@@ -2153,7 +2158,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
 
         const linkedCameraId = this.deviceVideocameraMap[deviceId];
-        return systemManager.getDeviceById(linkedCameraId) as unknown as DeviceInterface;
+        return systemManager.getDeviceById<DeviceInterface>(linkedCameraId);
     }
 
     public getImagePath = (props: { imageIdentifier: string, device: ScryptedDeviceBase }) => {

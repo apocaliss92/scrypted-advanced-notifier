@@ -365,13 +365,12 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                         rule,
                     }));
 
-                    this.plugin.matchDetectionFound({
+                    this.plugin.notifyDetectionEvent({
                         triggerDeviceId: this.id,
                         eventType: this.supportedSensorType,
                         triggerTime,
                         rule,
                         image,
-                        detectionKey: `sensor_${this.id}`
                     });
                 }
             }

@@ -28,7 +28,7 @@ export class AdvancedNotifierNotifier extends ScryptedDeviceBase implements Noti
                 await thisDevice.putSetting('nvr:defaultNotifications', defaultNotificationsSetting.choices);
 
                 const allUsers = Object.keys(sdk.systemManager.getSystemState())
-                    .map(deviceId => sdk.systemManager.getDeviceById(deviceId) as unknown as DeviceInterface)
+                    .map(deviceId => sdk.systemManager.getDeviceById<DeviceInterface>(deviceId))
                     .filter(device => device.interfaces.includes(ScryptedInterface.ScryptedUser));
 
                 await thisDevice.putSetting('nvr:userId', allUsers[0].id);

@@ -1,13 +1,13 @@
 
-import sdk, { Notifier, ScryptedDeviceBase, ScryptedDeviceType, SecuritySystem, SecuritySystemMode, SecuritySystemObstruction, Setting, Settings, SettingValue } from '@scrypted/sdk';
+import sdk, { Lock, Notifier, ScryptedDeviceBase, ScryptedDeviceType, SecuritySystem, SecuritySystemMode, SecuritySystemObstruction, Setting, Settings, SettingValue } from '@scrypted/sdk';
 import { StorageSetting, StorageSettings, StorageSettingsDict } from '@scrypted/sdk/storage-settings';
 import { getBaseLogger, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
+import { scryptedToHaStateMap } from '../../scrypted-homeassistant/src/types/securitySystem';
 import { getAlarmSettings, getModeEntity, supportedAlarmModes } from './alarmUtils';
 import AdvancedNotifierPlugin from './main';
 import { idPrefix, publishAlarmSystemValues, setupAlarmSystemAutodiscovery, subscribeToAlarmSystemMqttTopics } from './mqtt-utils';
-import { ALARM_SYSTEM_NATIVE_ID, binarySensorMetadataMap, convertSettingsToStorageSettings, DeviceInterface, isDeviceSupported } from './utils';
-import { scryptedToHaStateMap } from '../../scrypted-homeassistant/src/types/securitySystem';
+import { binarySensorMetadataMap, convertSettingsToStorageSettings, DeviceInterface, isDeviceSupported } from './utils';
 
 type StorageKeys = 'notifiers' |
     'autoCloseLocks' |
@@ -16,6 +16,7 @@ type StorageKeys = 'notifiers' |
     'mqttEnabled' |
     'activeMode' |
     'arming' |
+    'triggered' |
     'currentlyActiveDevices' |
     'currentlyBypassedDevices' |
     'armingMessage' |
@@ -77,6 +78,12 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
         },
         arming: {
             title: 'Arming',
+            type: 'boolean',
+            group: 'Status',
+            readonly: true,
+        },
+        triggered: {
+            title: 'Triggered',
             type: 'boolean',
             group: 'Status',
             readonly: true,
@@ -177,6 +184,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
     killed: boolean;
     mainLoopListener: NodeJS.Timeout;
     activationListener: NodeJS.Timeout;
+    disarmListener: NodeJS.Timeout;
     initializingMqtt: boolean;
     lastAutoDiscovery: number;
 
@@ -201,7 +209,6 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
     }
 
     public async startStop(enabled: boolean) {
-        const logger = this.getLogger();
         const activeMode = this.securitySystemState.mode;
 
         if (activeMode !== this.storageSettings.values.activeMode) {
@@ -259,19 +266,71 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                 if (this.killed) {
                     await this.release();
                 } else {
-                    const currentSystem = this.plugin.storageSettings.values.securitySystem;
-                    if (currentSystem?.nativeId === ALARM_SYSTEM_NATIVE_ID) {
-                        await funct();
-                    } else {
-                        // if (this.securitySystemState.mode !== SecuritySystemMode.Disarmed) {
-                        //     await this.disarmSecuritySystem();
-                        // }
-                    }
+                    await funct();
                 }
             } catch (e) {
                 logger.log('Error in mainLoopListener', e);
             }
         }, 1000 * 2);
+    }
+
+    async trigger(deviceName: string) {
+        if (!this.securitySystemState.triggered) {
+            await this.putSetting('triggered', true);
+            this.securitySystemState = {
+                ...this.securitySystemState,
+                triggered: true
+            };
+
+            await this.updateMqtt({
+                mode: 'triggered',
+            });
+            await this.sendNotification({
+                mode: this.securitySystemState.mode,
+                event: 'Trigger',
+                activeDevices: [deviceName]
+            });
+        }
+    }
+
+    async defuse(automatically: boolean) {
+        if (this.securitySystemState.triggered) {
+            await this.putSetting('triggered', false);
+            this.securitySystemState = {
+                ...this.securitySystemState,
+                triggered: false
+            };
+            await this.sendNotification({
+                mode: this.securitySystemState.mode,
+                event: automatically ? 'DefuseAuto' : 'DefuseManual',
+            });
+        }
+    }
+
+    async onEventTrigger(props: { triggerDevice: DeviceInterface }) {
+        const logger = this.getLogger();
+
+        const { triggerDevice } = props;
+        const { currentlyActiveDevices } = this.storageSettings.values;
+
+        if (this.securitySystemState.mode === SecuritySystemMode.Disarmed) {
+            return;
+        }
+
+        if (currentlyActiveDevices.includes(triggerDevice.name)) {
+            logger.log(`Alarm triggered by ${triggerDevice.name}`);
+            const { autoDisarmTime } = getModeEntity({ mode: this.securitySystemState.mode, storage: this.storageSettings });
+
+            await this.trigger(triggerDevice.name);
+
+            if (autoDisarmTime) {
+                this.resetDisarmListener();
+                this.disarmListener = setTimeout(async () => {
+                    await this.defuse(true);
+                    await this.disarmSecuritySystem();
+                }, 1000 * autoDisarmTime);
+            }
+        }
     }
 
     async release() {
@@ -288,8 +347,14 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
         this.activationListener = undefined;
     }
 
+    resetDisarmListener() {
+        this.disarmListener && clearTimeout(this.disarmListener);
+        this.disarmListener = undefined;
+    }
+
     resetListeners() {
         this.resetActivationListener();
+        this.resetDisarmListener();
         this.mainLoopListener && clearInterval(this.mainLoopListener);
         this.mainLoopListener = undefined;
     }
@@ -371,7 +436,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
         return this.storageSettings.putSetting(key, value);
     }
 
-    async updateMqtt(props: { mode: string, info: { activeDevices: string[], bypassedDevices: string[] } }) {
+    async updateMqtt(props: { mode: string, info?: { activeDevices: string[], bypassedDevices: string[] } }) {
         const { info, mode } = props;
         const logger = this.getLogger();
         const mqttClient = await this.getMqttClient();
@@ -385,7 +450,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
 
     async sendNotification(props: {
         mode: SecuritySystemMode,
-        event: 'Preactivation' | 'Activate' | 'Blocked' | 'Trigger',
+        event: 'Preactivation' | 'Activate' | 'Blocked' | 'Trigger' | 'DefuseAuto' | 'DefuseManual',
         preactivationSeconds?: number,
         bypassedDevices?: string[],
         activeDevices?: string[],
@@ -424,14 +489,23 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
             if (mode === SecuritySystemMode.Disarmed) {
                 message = triggered ? defuseMessage : disarmingMessage;
             } else {
-                if (event === 'Preactivation') {
-                    message = preActivationStartMessage
-                } else if (event === 'Blocked') {
-                    message = armingErrorMessage
-                } else if (event === 'Activate') {
-                    message = armingMessage
-                } else if (event === 'Trigger') {
-                    message = triggerMessage
+                switch (event) {
+                    case 'Preactivation':
+                        message = preActivationStartMessage;
+                        break;
+                    case 'Blocked':
+                        message = armingErrorMessage;
+                        break;
+                    case 'Activate':
+                        message = armingMessage;
+                        break;
+                    case 'Trigger':
+                        message = triggerMessage;
+                        break;
+                    case 'DefuseAuto':
+                    case 'DefuseManual':
+                        message = defuseMessage;
+                        break;
                 }
             }
 
@@ -469,6 +543,11 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
             return;
         }
 
+        this.resetDisarmListener();
+        if (this.securitySystemState.triggered) {
+            this.defuse(false);
+        }
+
         if (mode === SecuritySystemMode.Disarmed) {
             return await this.disarmSecuritySystem();
         }
@@ -481,6 +560,8 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
 
             const activeRules = this.plugin.allAvailableRules
                 .filter(item => item.securitySystemModes?.includes(mode));
+
+            logger.log(`${activeRules} rules found ${activeRules.map(rule => rule.name).join(', ')}`);
 
             const activeDevicesSet = new Set<string>();
             const bypassedDevicesSet = new Set<string>();
@@ -578,6 +659,11 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                         activeDevices,
                         event: 'Activate',
                     });
+
+                    for (const lockName of locksToLock) {
+                        const lockDevice = sdk.systemManager.getDeviceByName<Lock>(lockName);
+                        await lockDevice.lock();
+                    }
                 };
 
                 if (entity.preActivationTime) {

@@ -81,7 +81,7 @@ export type IsDelayPassedProps =
     { type: DelayType.RuleNotification, matchRule: MatchRule, eventSource: ScryptedEventSource };
 
 export const getElegibleDevices = () => {
-    const allDevices = Object.keys(sdk.systemManager.getSystemState()).map(deviceId => sdk.systemManager.getDeviceById(deviceId) as unknown as DeviceInterface);
+    const allDevices = Object.keys(sdk.systemManager.getSystemState()).map(deviceId => sdk.systemManager.getDeviceById<DeviceInterface>(deviceId));
 
     return allDevices.filter(device => {
         const { isSupported, isNotifier } = isDeviceSupported(device);
@@ -304,7 +304,7 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
             })
 
             if (foundSensor) {
-                triggerDevice = sdk.systemManager.getDeviceById(foundSensor) as unknown as DeviceInterface
+                triggerDevice = sdk.systemManager.getDeviceById<DeviceInterface>(foundSensor)
             } else {
                 console.log(`Trigger sensor not found: ${JSON.stringify({ deviceSensors })}`);
             }
