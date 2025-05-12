@@ -607,7 +607,6 @@ export const ruleTypeMetadataMap: Record<RuleType, { rulesKey: string, rulePrefi
 
 export const mixinRulesGroup = 'Advanced notifier rules';
 export const pluginRulesGroup = 'Rules';
-export const rulesKey = 'advancedNotifierRules';
 
 export type MixinBaseSettingKey =
     | 'info'
@@ -615,7 +614,11 @@ export type MixinBaseSettingKey =
     | 'entityId'
     | 'enabledToMqtt'
     | 'useNvrDetections'
-    | typeof rulesKey;
+    | 'minDelayTime'
+    | 'detectionRules'
+    | 'occupancyRules'
+    | 'timelapseRules'
+    | 'audioRules'
 
 export enum NotificationPriority {
     SuperLow = "SuperLow",
@@ -660,13 +663,13 @@ export const getMixinBaseSettings = (props: {
         } as StorageSettingsDict<MixinBaseSettingKey>;
 
         if (isCamera || isSensor) {
-            settings['entityId'] = {
+            settings.entityId = {
                 title: 'EntityID',
                 type: 'string',
                 defaultValue: defaultEntityId,
                 immediate: true,
             };
-            settings['useNvrDetections'] = {
+            settings.useNvrDetections = {
                 title: 'Use NVR detections',
                 description: 'If enabled, the NVR notifications will be used (cropped images and more precise). If not raw detections will be used (snapshot will be roughlty taken at the beginning of the event) Make sure to extend the notifiers with this extension',
                 type: 'boolean',
@@ -720,7 +723,7 @@ export const getMixinBaseSettings = (props: {
         }
 
         if (isCamera || isNotifier || isSensor) {
-            settings['enabledToMqtt'] = {
+            settings.enabledToMqtt = {
                 title: 'Report to MQTT',
                 description: 'Autodiscovery this device on MQTT',
                 type: 'boolean',
@@ -730,7 +733,7 @@ export const getMixinBaseSettings = (props: {
         }
 
         if (isCamera || isSensor) {
-            settings['minDelayTime'] = {
+            settings.minDelayTime = {
                 title: 'Minimum notification delay',
                 subgroup: isCamera ? 'Notifier' : undefined,
                 description: 'Minimum amount of seconds to wait until a notification is sent. Set 0 to disable',

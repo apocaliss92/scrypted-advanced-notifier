@@ -15,7 +15,7 @@ import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, is
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { AudioRule, BaseRule, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImageSource, IsDelayPassedProps, MatchRule, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDecibelsFromRtp_PCMU8, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebHookUrls, splitRules } from "./utils";
+import { AudioRule, BaseRule, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDecibelsFromRtp_PCMU8, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebHookUrls, splitRules } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -53,8 +53,31 @@ export type OccupancyRuleData = {
 
 interface AccumulatedDetection { detect: ObjectsDetected, eventId: string };
 
+type CameraSettingKey =
+    | 'ignoreCameraDetections'
+    | 'notificationsEnabled'
+    | 'aiEnabled'
+    | 'schedulerEnabled'
+    | 'startTime'
+    | 'endTime'
+    | 'notifierActions'
+    | 'minSnapshotDelay'
+    | 'minMqttPublishDelay'
+    | 'motionDuration'
+    | 'occupancyCheckInterval'
+    | 'checkSoundPressure'
+    | 'useFramesGenerator'
+    | 'lastSnapshotWebhook'
+    | 'lastSnapshotWebhookCloudUrl'
+    | 'lastSnapshotWebhookLocalUrl'
+    | 'postDetectionImageWebhook'
+    | 'postDetectionImageUrls'
+    | 'postDetectionImageClasses'
+    | 'postDetectionImageMinDelay'
+    | MixinBaseSettingKey;
+
 export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> implements Settings {
-    initStorage: StorageSettingsDict<string> = {
+    initStorage: StorageSettingsDict<CameraSettingKey> = {
         ...getMixinBaseSettings({
             plugin: this.plugin,
             mixin: this,

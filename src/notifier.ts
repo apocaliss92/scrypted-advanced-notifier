@@ -1,7 +1,6 @@
 
-import sdk, { ScryptedDeviceBase, Notifier, NotifierOptions, MediaObject, ScryptedDevice, Settings, Setting, SettingValue, ScryptedInterface } from '@scrypted/sdk';
+import sdk, { MediaObject, Notifier, NotifierOptions, ScryptedDeviceBase, ScryptedInterface, Settings } from '@scrypted/sdk';
 import AdvancedNotifierPlugin from './main';
-import { delay } from 'lodash';
 import { DeviceInterface } from './utils';
 const { systemManager } = sdk;
 

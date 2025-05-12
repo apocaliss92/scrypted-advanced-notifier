@@ -5,12 +5,23 @@ import { getBaseLogger, getMqttBasicClient } from "../../scrypted-apocaliss-base
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, reportNotifierValues, setupNotifierAutodiscovery, subscribeToNotifierMqttTopics } from "./mqtt-utils";
-import { convertSettingsToStorageSettings, DetectionRule, DeviceInterface, GetImageReason, getMixinBaseSettings, getSnoozeId, getTextSettings, getWebHookUrls, isSchedulerActive, NVR_NOTIFIER_INTERFACE, parseNvrNotificationMessage } from "./utils";
+import { convertSettingsToStorageSettings, DetectionRule, DeviceInterface, GetImageReason, getMixinBaseSettings, getTextSettings, getWebHookUrls, isSchedulerActive, MixinBaseSettingKey, NVR_NOTIFIER_INTERFACE, parseNvrNotificationMessage, TextSettingKey } from "./utils";
 
 export type SendNotificationToPluginFn = (notifierId: string, title: string, options?: NotifierOptions, media?: MediaObject, icon?: MediaObject | string) => Promise<void>
 
+type NotifierSettingKey =
+    | 'enabled'
+    | 'enableTranslations'
+    | 'postNotificationWebhook'
+    | 'aiEnabled'
+    | 'schedulerEnabled'
+    | 'startTime'
+    | 'endTime'
+    | TextSettingKey
+    | MixinBaseSettingKey;
+
 export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> implements Settings, Notifier {
-    initStorage: StorageSettingsDict<string> = {
+    initStorage: StorageSettingsDict<NotifierSettingKey> = {
         ...getMixinBaseSettings({
             plugin: this.plugin,
             mixin: this,
@@ -60,7 +71,7 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
             type: 'time',
             immediate: true,
         },
-        ...getTextSettings({ forMixin: true }) as any,
+        ...getTextSettings({ forMixin: true }),
     };
     storageSettings = new StorageSettings(this, this.initStorage);
 

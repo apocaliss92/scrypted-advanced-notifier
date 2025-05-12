@@ -6,7 +6,7 @@ import { once } from "events";
 import fs from 'fs';
 import { cloneDeep, isEqual, sortBy } from 'lodash';
 import path from 'path';
-import { BasePlugin, getBaseSettings, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { BasePlugin, BaseSettingsKey, getBaseSettings, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { getRpcData } from '../../scrypted-monitor/src/utils';
 import { name as pluginName, version } from '../package.json';
 import { AiPlatform, getAiMessage } from "./aiUtils";
@@ -37,8 +37,46 @@ interface NotifyCameraProps {
     logger: Console,
 }
 
+export type PluginSettingKey =
+    | 'pluginEnabled'
+    | 'mqttEnabled'
+    | 'notificationsEnabled'
+    | 'debug'
+    | 'sendDevNotifications'
+    | 'serverId'
+    | 'localAddresses'
+    | 'localIp'
+    | 'scryptedToken'
+    | 'nvrUrl'
+    | 'enableCameraDevice'
+    | 'domains'
+    | 'fetchHaEntities'
+    | 'mqttActiveEntitiesTopic'
+    | 'useNvrDetectionsForMqtt'
+    | 'activeDevicesForNotifications'
+    | 'objectDetectionDevice'
+    | 'securitySystem'
+    | 'testDevice'
+    | 'testNotifier'
+    | 'testEventType'
+    | 'testPriority'
+    | 'testUseAi'
+    | 'testBypassSnooze'
+    | 'testAddSnoozing'
+    | 'testAddActions'
+    | 'testButton'
+    | 'checkConfigurations'
+    | 'aiPlatform'
+    | 'imagesPath'
+    | 'imagesRegex'
+    | 'cleanup340'
+    | 'texts3412'
+    | 'eventsChanged350'
+    | BaseSettingsKey
+    | TextSettingKey;
+
 export default class AdvancedNotifierPlugin extends BasePlugin implements MixinProvider, HttpRequestHandler, DeviceProvider, PushHandler {
-    initStorage: StorageSettingsDict<string> = {
+    initStorage: StorageSettingsDict<PluginSettingKey> = {
         ...getBaseSettings({
             onPluginSwitch: async (_, enabled) => {
                 await this.startStop(enabled);
@@ -373,8 +411,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 name: 'Advanced alarm system',
                 nativeId: ALARM_SYSTEM_NATIVE_ID,
                 interfaces: [
-                    ScryptedInterface.SecuritySystem, 
-                    ScryptedInterface.Settings, 
+                    ScryptedInterface.SecuritySystem,
+                    ScryptedInterface.Settings,
                     ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE
                 ],
                 type: ScryptedDeviceType.SecuritySystem,
