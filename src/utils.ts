@@ -1107,10 +1107,11 @@ export const getNotifierData = (props: { notifierId: string, ruleType: RuleType 
     const pluginId = notifier.pluginId;
     const priorityChoices: NotificationPriority[] = [];
     const isDetectionRule = ruleType === RuleType.Detection;
+    const isAudioRule = ruleType === RuleType.Audio;
     const withActions = ![NTFY_PLUGIN_ID, NVR_PLUGIN_ID].includes(pluginId) && isDetectionRule;
     const snoozingDefault = pluginId !== PUSHOVER_PLUGIN_ID;
     const addCameraActionsDefault = pluginId !== PUSHOVER_PLUGIN_ID;
-    const withSnoozing = isDetectionRule;
+    const withSnoozing = isDetectionRule || isAudioRule;
 
     if (pluginId === HOMEASSISTANT_PLUGIN_ID) {
         priorityChoices.push(
@@ -3141,15 +3142,23 @@ export const splitRules = (props: {
 }
 
 export const getSnoozeId = (props: {
-    classname: string,
-    label?: string,
     cameraId: string,
     notifierId: string,
-    priority: NotificationPriority
+    priority: NotificationPriority,
+    rule?: BaseRule,
+    detection?: ObjectDetectionResult
 }) => {
-    const { cameraId, classname, priority, label, notifierId } = props;
-    const classKey = label ? `${classname}_${label}` : classname;
-    return `${cameraId}_${notifierId}_${classKey}_${priority}`;
+    const { cameraId, priority, notifierId, detection, rule } = props;
+
+    let specificIdentifier: string;
+    if (detection && rule?.ruleType === RuleType.Detection) {
+        const { className, label } = detection;
+        specificIdentifier = label ? `${className}_${label}` : className;
+    } else if (rule?.ruleType === RuleType.Audio) {
+        specificIdentifier = rule.name;
+    }
+
+    return `${cameraId}_${notifierId}_${specificIdentifier}_${priority}`;
 }
 
 export const getB64ImageLog = (b64Image: string) => `${b64Image ? b64Image?.substring(0, 10) + '...' : 'NO_IMAGE'}`;

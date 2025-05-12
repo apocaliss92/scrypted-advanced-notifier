@@ -1680,11 +1680,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         let snoozeId = snoozeIdParent;
         if (!snoozeId) {
             snoozeId = getSnoozeId({
-                classname: detection.className,
                 cameraId: device.id,
                 notifierId,
                 priority,
-                label: detection.label
+                rule,
+                detection,
             });
         }
 
