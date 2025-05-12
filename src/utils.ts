@@ -14,6 +14,7 @@ export type DeviceInterface = Camera & ScryptedDeviceBase & Notifier & Settings 
 export const ADVANCED_NOTIFIER_INTERFACE = name;
 export const ADVANCED_NOTIFIER_CAMERA_INTERFACE = `${ADVANCED_NOTIFIER_INTERFACE}:Camera`;
 export const ADVANCED_NOTIFIER_NOTIFIER_INTERFACE = `${ADVANCED_NOTIFIER_INTERFACE}:Notifier`;
+export const ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE = `${ADVANCED_NOTIFIER_INTERFACE}:SecuritySystem`;
 export const PUSHOVER_PLUGIN_ID = '@scrypted/pushover';
 export const NTFY_PLUGIN_ID = '@apocaliss92/ntfy';
 export const NVR_PLUGIN_ID = '@scrypted/nvr';
@@ -24,6 +25,7 @@ export const SNAPSHOT_WIDTH = 1280;
 export const LATEST_IMAGE_SUFFIX = '-latest';
 export const NOTIFIER_NATIVE_ID = 'advancedNotifierDefaultNotifier';
 export const CAMERA_NATIVE_ID = 'advancedNotifierCamera';
+export const ALARM_SYSTEM_NATIVE_ID = 'advancedNotifierAlarmSystem';
 export const MAX_PENDING_RESULT_PER_CAMERA = 5;
 export const MAX_RPC_OBJECTS_PER_CAMERA = 50;
 

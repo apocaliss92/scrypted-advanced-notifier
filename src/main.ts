@@ -17,7 +17,8 @@ import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodisco
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getEventTextKey, GetImageReason, getNotifierData, getNowFriendlyDate, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImageSource, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TextSettingKey, TimelapseRule } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getEventTextKey, GetImageReason, getNotifierData, getNowFriendlyDate, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImageSource, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TextSettingKey, TimelapseRule } from "./utils";
+import { AdvancedNotifierAlarmSystem } from "./alarmSystem";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -39,9 +40,9 @@ interface NotifyCameraProps {
 export default class AdvancedNotifierPlugin extends BasePlugin implements MixinProvider, HttpRequestHandler, DeviceProvider, PushHandler {
     initStorage: StorageSettingsDict<string> = {
         ...getBaseSettings({
-            onPluginSwitch: (_, enabled) => {
-                this.startStop(enabled);
-                this.startStopMixins(enabled);
+            onPluginSwitch: async (_, enabled) => {
+                await this.startStop(enabled);
+                await this.startStopMixins(enabled);
             },
             hideHa: false,
             baseGroupName: ''
@@ -302,9 +303,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     private mainFlowInterval: NodeJS.Timeout;
     defaultNotifier: AdvancedNotifierNotifier;
     camera: AdvancedNotifierCamera;
+    securitySystem: AdvancedNotifierAlarmSystem;
     runningDetectionRules: DetectionRule[] = [];
     lastNotExistingNotifier: number;
-    allAvailableRules: BaseRule[] = [];
+    public allAvailableRules: BaseRule[] = [];
     fetchedEntities: string[] = [];
     lastAutoDiscovery: number;
     lastConfigurationsCheck: number;
@@ -366,6 +368,18 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 type: ScryptedDeviceType.Notifier,
             },
         );
+        await sdk.deviceManager.onDeviceDiscovered(
+            {
+                name: 'Advanced alarm system',
+                nativeId: ALARM_SYSTEM_NATIVE_ID,
+                interfaces: [
+                    ScryptedInterface.SecuritySystem, 
+                    ScryptedInterface.Settings, 
+                    ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE
+                ],
+                type: ScryptedDeviceType.SecuritySystem,
+            }
+        );
         await this.executeCameraDiscovery(this.storageSettings.values.enableCameraDevice);
 
         await this.initPluginSettings();
@@ -397,6 +411,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             return this.defaultNotifier ||= new AdvancedNotifierNotifier(NOTIFIER_NATIVE_ID, this);
         if (nativeId === CAMERA_NATIVE_ID)
             return this.camera ||= new AdvancedNotifierCamera(CAMERA_NATIVE_ID, this);
+        if (nativeId === ALARM_SYSTEM_NATIVE_ID)
+            return this.securitySystem ||= new AdvancedNotifierAlarmSystem(ALARM_SYSTEM_NATIVE_ID, this);
     }
 
     async releaseDevice(id: string, nativeId: string): Promise<void> {
@@ -928,6 +944,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.haEntityDeviceMap = haEntityDeviceMap;
             this.deviceVideocameraMap = deviceVideocameraMap;
             this.videocameraDevicesMap = videocameraDevicesMap;
+            this.allAvailableRules = availableRules;
 
             const now = Date.now();
 
@@ -953,8 +970,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     }).then(async (activeTopics) => {
                         await this.mqttClient.cleanupAutodiscoveryTopics(activeTopics);
                     }).catch(logger.error);
-
-                    this.allAvailableRules = availableRules;
 
                     await this.setupMqttEntities();
                 }

@@ -29,6 +29,8 @@
     "notifier",
     "filter",
     "timelapses",
+    "securitySystem",
+    "alarm",
     "track"
   ],
   "scrypted": {
