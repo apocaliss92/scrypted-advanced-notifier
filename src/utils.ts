@@ -864,20 +864,16 @@ export const getEventTextKey = (props: { eventType: DetectionEvent }) => {
             key = 'offlineText';
             break;
         case SupportedSensorType.Binary:
-            key = 'objectDetectionText';
-            subKey = 'doorWindowText';
+            key = 'doorWindowText';
             break;
         case SupportedSensorType.Lock:
-            key = 'objectDetectionText';
-            subKey = 'doorlockText';
+            key = 'doorlockText';
             break;
         case SupportedSensorType.Entry:
-            key = 'objectDetectionText';
-            subKey = 'entrySensorText';
+            key = 'entrySensorText';
             break;
         case SupportedSensorType.Flood:
-            key = 'objectDetectionText';
-            subKey = 'floodingText';
+            key = 'floodingText';
             break;
         case DetectionClass.Animal:
             key = 'objectDetectionText';
