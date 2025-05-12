@@ -290,7 +290,7 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
 
         try {
             let canNotify = true;
-            const { isNotificationFromPlugin, cameraId, snoozeId } = options.data;
+            const { isNotificationFromPlugin, cameraId, snoozeId } = options?.data ?? {};
 
             const {
                 schedulerEnabled,
