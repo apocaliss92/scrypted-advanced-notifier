@@ -1205,8 +1205,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const { isCamera } = testDevice ? isDeviceSupported(testDevice) : {};
             this.storageSettings.settings.testEventType.hide = !isCamera;
 
-            const { priorityChoices } = getNotifierData({ notifierId: testNotifier.id, ruleType: RuleType.Detection });
-            this.storageSettings.settings.testPriority.choices = priorityChoices;
+            if (testNotifier) {
+                const { priorityChoices } = getNotifierData({ notifierId: testNotifier.id, ruleType: RuleType.Detection });
+                this.storageSettings.settings.testPriority.choices = priorityChoices;
+            }
 
             return super.getSettings();
         } catch (e) {
