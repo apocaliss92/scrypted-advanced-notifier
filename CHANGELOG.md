@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.6.8
+
+- Advanced Security System released, an onboard security system mechanism linked to detection rules
+
 ### 3.6.7
 
 - [BREAKING CHANGE] Check occupancy (in seconds) changed with a boolean flag

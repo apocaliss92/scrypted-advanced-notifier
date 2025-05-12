@@ -923,6 +923,7 @@ export enum DetectionRuleActivation {
     Always = 'Always',
     OnActive = 'OnActive',
     Schedule = 'Schedule',
+    AdvancedSecuritySystem = 'AdvancedSecuritySystem',
 }
 
 export enum NvrEvent {
@@ -1100,7 +1101,7 @@ export const sensorsFilter: StorageSetting['deviceFilter'] = `interfaces.include
 export const cameraFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && interfaces.some(int => ${getInterfacesString(cameraInterfaces)}.includes(int))`;
 
 type GetSpecificRules = (props: { group: string, subgroup: string, ruleName: string, showMore: boolean }) => StorageSetting[];
-type OnShowMore = (showMore: boolean) => Promise<void>
+type OnRefreshSettings = () => Promise<void>
 
 export const getNotifierData = (props: { notifierId: string, ruleType: RuleType }) => {
     const { notifierId, ruleType } = props;
@@ -1188,6 +1189,7 @@ const getNotifierSettings = (props: {
         subgroup,
         type: 'html',
         title: `<<${notifier.name}>>`,
+        hide: !showMoreConfigurations,
         defaultValue: `<h4>Set specific seetings for the notifier ${notifier.name}</h4>`,
     };
     const prioritySetting: StorageSetting = {
@@ -1250,13 +1252,16 @@ export const getRuleSettings = (props: {
     storage: StorageSettings<any>,
     ruleSource: RuleSource,
     getSpecificRules: GetSpecificRules,
-    refreshSettings: OnShowMore,
+    refreshSettings: OnRefreshSettings,
     logger: Console
 }) => {
     const { ruleType, storage, ruleSource, getSpecificRules, refreshSettings, logger } = props;
-    const group = ruleSource === RuleSource.Device ? mixinRulesGroup : pluginRulesGroup;
+    const isPlugin = ruleSource === RuleSource.Plugin;
+    const group = isPlugin ? pluginRulesGroup : mixinRulesGroup;
     const settings: StorageSetting[] = [];
     const { rulesKey, subgroupPrefix } = ruleTypeMetadataMap[ruleType];
+    const isDetectionRule = ruleType === RuleType.Detection;
+    const isAudioRule = ruleType === RuleType.Audio;
 
     const rules = storage.getItem(rulesKey);
     for (const ruleName of rules) {
@@ -1282,6 +1287,8 @@ export const getRuleSettings = (props: {
         const currentActivation = storage.getItem(activationKey as any) as DetectionRuleActivation || DetectionRuleActivation.Always;
         const showMoreConfigurations = safeParseJson<boolean>(storage.getItem(showMoreConfigurationsKey), false);
         const notifiers = safeParseJson<string[]>(storage.getItem(notifiersKey), []);
+        const advancedSecurityEnabled = ruleType === RuleType.Detection && isPlugin;
+        const isAdvancedSecuritySystem = advancedSecurityEnabled && currentActivation === DetectionRuleActivation.AdvancedSecuritySystem;
 
         settings.push(
             {
@@ -1308,11 +1315,11 @@ export const getRuleSettings = (props: {
                 group,
                 subgroup,
                 immediate: true,
-                onPut: async (_, showMore) => await refreshSettings(showMore),
+                onPut: async () => await refreshSettings(),
             },
         );
 
-        if (ruleType === RuleType.Detection) {
+        if (isDetectionRule) {
             settings.push(
                 {
                     key: aiEnabledKey,
@@ -1332,7 +1339,12 @@ export const getRuleSettings = (props: {
                 title: 'Activation',
                 group,
                 subgroup,
-                choices: [
+                choices: advancedSecurityEnabled ? [
+                    DetectionRuleActivation.Always,
+                    DetectionRuleActivation.OnActive,
+                    DetectionRuleActivation.Schedule,
+                    DetectionRuleActivation.AdvancedSecuritySystem,
+                ] : [
                     DetectionRuleActivation.Always,
                     DetectionRuleActivation.OnActive,
                     DetectionRuleActivation.Schedule,
@@ -1340,7 +1352,34 @@ export const getRuleSettings = (props: {
                 defaultValue: DetectionRuleActivation.Always,
                 placeholder: DetectionRuleActivation.Always,
                 immediate: true,
-                combobox: true
+                combobox: true,
+                onPut: async () => await refreshSettings()
+            });
+        }
+
+        const securitySystemModesSetting: StorageSetting = {
+            key: securitySystemModesKey,
+            title: 'Alarm modes',
+            description: 'Modes of the selected security system to trigger this rule',
+            group,
+            subgroup,
+            multiple: true,
+            combobox: true,
+            type: 'string',
+            choices: [
+                SecuritySystemMode.Disarmed,
+                SecuritySystemMode.HomeArmed,
+                SecuritySystemMode.NightArmed,
+                SecuritySystemMode.AwayArmed,
+            ],
+            defaultValue: [],
+            hide: !showMoreConfigurations
+        };
+
+        if (isAdvancedSecuritySystem) {
+            settings.push({
+                ...securitySystemModesSetting,
+                hide: false,
             });
         }
 
@@ -1356,7 +1395,7 @@ export const getRuleSettings = (props: {
                 deviceFilter: notifierFilter,
                 defaultValue: [],
                 immediate: true,
-                onPut: async () => await refreshSettings(undefined)
+                onPut: async () => await refreshSettings()
             }
         );
 
@@ -1390,8 +1429,6 @@ export const getRuleSettings = (props: {
 
         settings.push(...getSpecificRules({ ruleName, subgroup, group, showMore: showMoreConfigurations }));
 
-        const isDetectionRule = ruleType === RuleType.Detection;
-        const isAudioRule = ruleType === RuleType.Audio;
         if (ruleType !== RuleType.Occupancy) {
             settings.push({
                 key: textKey,
@@ -1407,50 +1444,37 @@ export const getRuleSettings = (props: {
             });
         }
 
-        settings.push(
-            {
-                key: enabledSensorsKey,
-                title: 'Open sensors',
-                description: 'Sensors that must be enabled to trigger this rule',
-                group,
-                subgroup,
-                multiple: true,
-                combobox: true,
-                type: 'device',
-                deviceFilter: sensorsFilter,
-                hide: !showMoreConfigurations
-            },
-            {
-                key: disabledSensorsKey,
-                title: 'Closed sensors',
-                description: 'Sensors that must be disabled to trigger this rule',
-                group,
-                subgroup,
-                multiple: true,
-                combobox: true,
-                type: 'device',
-                deviceFilter: sensorsFilter,
-                hide: !showMoreConfigurations
-            },
-            {
-                key: securitySystemModesKey,
-                title: 'Alarm modes',
-                description: 'Modes of the selected security system to trigger this rule',
-                group,
-                subgroup,
-                multiple: true,
-                combobox: true,
-                type: 'string',
-                choices: [
-                    SecuritySystemMode.Disarmed,
-                    SecuritySystemMode.HomeArmed,
-                    SecuritySystemMode.NightArmed,
-                    SecuritySystemMode.AwayArmed,
-                ],
-                defaultValue: [],
-                hide: !showMoreConfigurations
-            },
-        );
+        if (!isAdvancedSecuritySystem) {
+            settings.push(
+                {
+                    key: enabledSensorsKey,
+                    title: 'Open sensors',
+                    description: 'Sensors that must be enabled to trigger this rule',
+                    group,
+                    subgroup,
+                    multiple: true,
+                    combobox: true,
+                    type: 'device',
+                    deviceFilter: sensorsFilter,
+                    hide: !showMoreConfigurations
+                },
+                {
+                    key: disabledSensorsKey,
+                    title: 'Closed sensors',
+                    description: 'Sensors that must be disabled to trigger this rule',
+                    group,
+                    subgroup,
+                    multiple: true,
+                    combobox: true,
+                    type: 'device',
+                    deviceFilter: sensorsFilter,
+                    hide: !showMoreConfigurations
+                },
+                {
+                    ...securitySystemModesSetting,
+                }
+            );
+        }
 
         for (const notifierId of notifiers) {
             const notifierSettings = getNotifierSettings({
@@ -1475,7 +1499,7 @@ export const getDetectionRulesSettings = async (props: {
     people?: string[],
     ruleSource: RuleSource,
     device?: DeviceBase,
-    refreshSettings: OnShowMore,
+    refreshSettings: OnRefreshSettings,
     logger: Console
 }) => {
     const { storage, zones, device, ruleSource, refreshSettings, logger, people } = props;
@@ -1535,7 +1559,7 @@ export const getDetectionRulesSettings = async (props: {
                     defaultValue: [],
                     immediate: true,
                     onPut: async () => {
-                        await refreshSettings(undefined)
+                        await refreshSettings()
                     },
                 },
                 {
@@ -1809,7 +1833,7 @@ export const getOccupancyRulesSettings = async (props: {
     storage: StorageSettings<any>,
     zones?: string[],
     ruleSource: RuleSource,
-    refreshSettings: OnShowMore,
+    refreshSettings: OnRefreshSettings,
     logger: Console
 }) => {
     const { storage, zones, ruleSource, refreshSettings, logger } = props;
@@ -1957,7 +1981,7 @@ export const getTimelapseRulesSettings = async (props: {
     ruleSource: RuleSource,
     onGenerateTimelapse: (ruleName: string) => Promise<void>,
     onCleanDataTimelapse: (ruleName: string) => Promise<void>,
-    refreshSettings: OnShowMore,
+    refreshSettings: OnRefreshSettings,
     logger: Console
 }) => {
     const { storage, ruleSource, onCleanDataTimelapse, onGenerateTimelapse, refreshSettings, logger } = props;
@@ -2086,7 +2110,7 @@ export const getTimelapseRulesSettings = async (props: {
 export const getAudioRulesSettings = async (props: {
     storage: StorageSettings<any>,
     ruleSource: RuleSource,
-    refreshSettings: OnShowMore,
+    refreshSettings: OnRefreshSettings,
     logger: Console
 }) => {
     const { storage, ruleSource, refreshSettings, logger } = props;
@@ -2341,16 +2365,26 @@ const initBasicRule = (props: {
         }
     }
 
-    let isSecuritySystemEnabled = true;
+    const isAdvancedSecuritySystem = activationType === DetectionRuleActivation.AdvancedSecuritySystem;
+
+    let isSecuritySystemEnabled = !isAdvancedSecuritySystem;
     let securitySyetemState;
     const securitySystemDeviceId = securitySystem?.id;
-    if (securitySystemDeviceId && securitySystemModes?.length) {
-        const securitySystemDevice = sdk.systemManager.getDeviceById<SecuritySystem>(securitySystemDeviceId);
-        if (securitySystemDevice) {
-            securitySyetemState = securitySystemDevice.securitySystemState;
-            const currentMode = securitySyetemState?.mode;
-            isSecuritySystemEnabled = currentMode ? securitySystemModes.includes(currentMode) : false;
-        }
+    let securitySystemDevice: SecuritySystem;
+
+    if (isAdvancedSecuritySystem) {
+        securitySystemDevice = sdk.systemManager.getDeviceById<SecuritySystem>(
+            ADVANCED_NOTIFIER_INTERFACE,
+            ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE
+        );
+    } else if (securitySystemDeviceId) {
+        securitySystemDevice = sdk.systemManager.getDeviceById<SecuritySystem>(securitySystemDeviceId);
+    }
+
+    if (securitySystemDevice && securitySystemModes?.length) {
+        securitySyetemState = securitySystemDevice.securitySystemState;
+        const currentMode = securitySyetemState?.mode;
+        isSecuritySystemEnabled = currentMode ? securitySystemModes.includes(currentMode) : false;
     }
 
     const basicRuleAllowed =

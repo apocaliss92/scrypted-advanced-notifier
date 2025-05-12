@@ -213,7 +213,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             group: pluginRulesGroup,
             description: 'Select the security system device that will be used to enable rules.',
             type: 'device',
-            deviceFilter: `type === '${ScryptedDeviceType.SecuritySystem}'`,
+            deviceFilter: `type === '${ScryptedDeviceType.SecuritySystem}' && !interfaces.includes('${ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE}')`,
             immediate: true,
         },
         testDevice: {
@@ -1497,10 +1497,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         return { device: cameraDevice };
     }
 
-    public isAdvancedAlarmSystemActive() {
-        return this.storageSettings.values.securitySystem?.nativeId === ALARM_SYSTEM_NATIVE_ID;
-    }
-
     public notifyDetectionEvent = async (props: {
         image?: MediaObject,
         match?: ObjectDetectionResult,
@@ -1526,7 +1522,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
 
         if (rule.ruleType === RuleType.Detection) {
-            if (this.isAdvancedAlarmSystemActive()) {
+            if (rule.activationType === DetectionRuleActivation.AdvancedSecuritySystem) {
                 this.alarmSystem.onEventTrigger({ triggerDevice }).catch(logger.log);
             }
 
