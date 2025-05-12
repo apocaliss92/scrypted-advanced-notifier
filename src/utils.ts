@@ -1,4 +1,4 @@
-import sdk, { BinarySensor, Camera, DeviceBase, EntrySensor, LockState, Notifier, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, OnOff, PanTiltZoom, Point, Reboot, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, VideoCamera } from "@scrypted/sdk";
+import sdk, { BinarySensor, Camera, DeviceBase, EntrySensor, LockState, MediaObject, Notifier, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, OnOff, PanTiltZoom, Point, Reboot, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, VideoCamera } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDevice, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep, sortBy, uniq, uniqBy } from "lodash";
@@ -3212,3 +3212,13 @@ export const haSnoozeAutomation = {
     ],
     "mode": "single"
 };
+
+export const moToB64 = async (mo: MediaObject) => {
+    const bufferImage = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
+    return bufferImage?.toString('base64');
+}
+
+export const b64ToMo = async (b64: string) => {
+    const buffer = Buffer.from(b64, 'base64');
+    return await sdk.mediaManager.createMediaObject(buffer, 'image/jpeg');
+}

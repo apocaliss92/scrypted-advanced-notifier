@@ -1324,16 +1324,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         triggerTime: number,
         rule: OccupancyRule,
         image: MediaObject,
-        occupanceData: OccupancyRuleData
+        occupancyData: OccupancyRuleData
     }) {
-        const { cameraDevice, rule, triggerTime, image, occupanceData } = props;
+        const { cameraDevice, rule, triggerTime, image, occupancyData } = props;
 
-        let message = occupanceData.occupies ?
+        let message = occupancyData.occupies ?
             rule.zoneOccupiedText :
             rule.zoneNotOccupiedText;
 
         message = message.toString()
-            .replace('${detectedObjects}', String(occupanceData.objectsDetected) ?? '')
+            .replace('${detectedObjects}', String(occupancyData.objectsDetected) ?? '')
             .replace('${maxObjects}', String(rule.maxObjects) ?? '')
 
         for (const notifierId of rule.notifiers) {

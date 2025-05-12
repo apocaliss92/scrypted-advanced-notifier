@@ -13,7 +13,7 @@ To enable MQTT exporting:
 - setup the authentication parameters in the tab general -> MQTT, check the `Use MQTT plugin credentials` to use the credentials set on the MQTT plugin
 - Check `Use NVR detections` if you want the images stored on MQTT to be the clipped ones from NVR.
 - Check `Audio pressure (dB) detection` if you want a continuous reporting of the audio kept by the camera (dBs)
-- Set a positive number to `Check objects occupancy in seconds` to regularly check the static objects on the frame
+- Check `Check objects occupancy regularly` if you want regular occupancy data checks on the camera
 - Cameras enabled to the plugin will be automatically enabled to MQTT. Can be disabled in the camera's section Advanced notifier -> Report to MQTT
 
 The plugin will export to MQTT the following entities:

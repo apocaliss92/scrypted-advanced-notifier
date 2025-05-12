@@ -283,10 +283,10 @@ export const getAiMessage = async (props: {
             const { aiPlatform } = plugin.storageSettings.values
             const { apiKeyKey, apiUrlKey, modelKey, systemPromptKey } = getAiSettingKeys(aiPlatform);
 
-            const apiKey = plugin.storageSettings.getItem(apiKeyKey);
-            const apiUrl = plugin.storageSettings.getItem(apiUrlKey);
-            const model = plugin.storageSettings.getItem(modelKey);
-            const systemPrompt = plugin.storageSettings.getItem(systemPromptKey);
+            const apiKey = plugin.storageSettings.getItem(apiKeyKey as any);
+            const apiUrl = plugin.storageSettings.getItem(apiUrlKey as any);
+            const model = plugin.storageSettings.getItem(modelKey as any);
+            const systemPrompt = plugin.storageSettings.getItem(systemPromptKey as any);
 
             logger.debug(`Calling ${aiPlatform} with ${JSON.stringify({
                 aiPlatform,
