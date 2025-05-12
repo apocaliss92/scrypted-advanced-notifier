@@ -285,6 +285,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     snoozeUntilDic: Record<string, number> = {};
     consumedDetectionIdsSet: Set<string> = new Set();
 
+    lastMotionEnd: number;
+
     constructor(
         options: SettingsMixinDeviceOptions<any>,
         public plugin: HomeAssistantUtilitiesProvider
@@ -1385,8 +1387,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const { forceUpdate, name } = rule;
             const currentState = this.occupancyState[name];
             const shouldForceFrame = !currentState ||
-                (now - (currentState?.lastCheck ?? 0)) >= (1000 * (forceUpdate - 1)) ||
-                (currentState.occupancyToConfirm != undefined && !!currentState.confirmationStart);
+                (now - (currentState?.lastCheck ?? 0)) >= (1000 * (forceUpdate - 1));
+            // const shouldForceFrame = !currentState ||
+            //     (now - (currentState?.lastCheck ?? 0)) >= (1000 * (forceUpdate - 1)) ||
+            //     (currentState.occupancyToConfirm != undefined && !!currentState.confirmationStart);
 
             if (!this.occupancyState[name]) {
                 logger.log(`Initializing occupancy data for rule ${name} to ${JSON.stringify(initOccupancyState)}`);
@@ -1457,12 +1461,21 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         if (!imageParent) {
             return;
         }
+        const now = Date.now();
+
+        // Don't check if there is no motion or it's over since a while
+        const isMotionOk = this.cameraDevice.motionDetected ||
+            !this.lastMotionEnd ||
+            (now - this.lastMotionEnd) > 1000 * 10;
+
+        if (!isMotionOk) {
+            return;
+        }
 
         const logger = this.getLogger();
 
         try {
-            const now = new Date().getTime();
-            const minDelayInSeconds = !!this.runningOccupancyRules.length || this.storageSettings.values.checkOccupancy ? 1 : 0;
+            const minDelayInSeconds = !!this.runningOccupancyRules.length || this.storageSettings.values.checkOccupancy ? 0.3 : 0;
 
             if (!minDelayInSeconds) {
                 return;
@@ -2626,10 +2639,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 event: ScryptedInterface.MotionSensor,
             }, async (_, __, data) => {
                 const { useFramesGenerator } = this.storageSettings.values;
+                const now = Date.now();
 
                 if (data) {
                     this.consumedDetectionIdsSet = new Set();
-                    const timestamp = Date.now();
+                    const timestamp = now;
                     const detections: ObjectDetectionResult[] = [{
                         className: 'motion',
                         score: 1,
@@ -2640,6 +2654,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         this.startFramesGenerator().catch(logger.error);
                     }
                 } else {
+                    this.lastMotionEnd = now;
                     this.resetDetectionEntities({
                         resetSource: 'MotionSensor'
                     }).catch(logger.log);
