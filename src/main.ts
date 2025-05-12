@@ -1721,7 +1721,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
         let payload: any = {
             data: {
-                isNotificationFromPlugin: true,
+                isNotificationFromAnPlugin: true,
                 cameraId,
                 eventType,
                 snoozeId,

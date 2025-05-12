@@ -288,115 +288,121 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
     async sendNotification(title: string, options?: NotifierOptions, media?: MediaObject | string, icon?: MediaObject | string): Promise<void> {
         const logger = this.getLogger();
 
-        try {
-            let canNotify = true;
-            const { isNotificationFromPlugin, cameraId, snoozeId } = options?.data ?? {};
+        const { isNotificationFromAnPlugin, cameraId, snoozeId } = options?.data ?? {};
+        const isNotificationFromNvr = options.tag || options.recordedEvent;
 
-            const {
-                schedulerEnabled,
-                startTime,
-                endTime,
-                enabled,
-                enableTranslations,
-            } = this.storageSettings.values;
+        if (isNotificationFromAnPlugin || isNotificationFromNvr) {
+            try {
+                let canNotify = true;
 
-            if (!enabled) {
-                canNotify = false;
-                logger.log(`Skipping Notification because notifier is disabled`);
-            }
+                const {
+                    schedulerEnabled,
+                    startTime,
+                    endTime,
+                    enabled,
+                    enableTranslations,
+                } = this.storageSettings.values;
 
-            const pluginNotificationsEnabled = this.plugin.storageSettings.values.notificationsEnabled;
+                if (!enabled) {
+                    canNotify = false;
+                    logger.log(`Skipping Notification because notifier is disabled`);
+                }
 
-            if (!pluginNotificationsEnabled) {
-                logger.log(`Skipping notification because plugin notifications disabled`);
-                canNotify = false;
-            }
+                const pluginNotificationsEnabled = this.plugin.storageSettings.values.notificationsEnabled;
 
-            let cameraDevice = cameraId ? sdk.systemManager.getDeviceById<DeviceInterface>(cameraId) : undefined;
-            if (!cameraDevice) {
-                cameraDevice = sdk.systemManager.getDeviceByName<DeviceInterface>(title);
-            }
-            const cameraMixin = cameraDevice ? this.plugin.currentCameraMixinsMap[cameraDevice.id] : undefined;
+                if (!pluginNotificationsEnabled) {
+                    logger.log(`Skipping notification because plugin notifications disabled`);
+                    canNotify = false;
+                }
 
-            if (canNotify && cameraDevice) {
-                if (canNotify) {
-                    if (cameraDevice) {
-                        if (cameraMixin) {
-                            const notificationsEnabled = cameraMixin.storageSettings.values.notificationsEnabled;
+                let cameraDevice = cameraId ? sdk.systemManager.getDeviceById<DeviceInterface>(cameraId) : undefined;
+                if (!cameraDevice) {
+                    cameraDevice = sdk.systemManager.getDeviceByName<DeviceInterface>(title);
+                }
+                const cameraMixin = cameraDevice ? this.plugin.currentCameraMixinsMap[cameraDevice.id] : undefined;
 
-                            if (!notificationsEnabled) {
-                                canNotify = false;
-                                logger.log(`Skipping Notification because camera ${cameraDevice?.name} is disabled`);
-                            }
-                            const {
-                                schedulerEnabled,
-                                startTime,
-                                endTime,
-                            } = cameraMixin.storageSettings.values;
+                if (canNotify && cameraDevice) {
+                    if (canNotify) {
+                        if (cameraDevice) {
+                            if (cameraMixin) {
+                                const notificationsEnabled = cameraMixin.storageSettings.values.notificationsEnabled;
 
-                            if (schedulerEnabled) {
-                                const schedulerActive = isSchedulerActive({ endTime, startTime });
-
-                                if (!schedulerActive) {
+                                if (!notificationsEnabled) {
                                     canNotify = false;
-                                    logger.log(`Skipping Notification because camera scheduler is not active`);
+                                    logger.log(`Skipping Notification because camera ${cameraDevice?.name} is disabled`);
+                                }
+                                const {
+                                    schedulerEnabled,
+                                    startTime,
+                                    endTime,
+                                } = cameraMixin.storageSettings.values;
+
+                                if (schedulerEnabled) {
+                                    const schedulerActive = isSchedulerActive({ endTime, startTime });
+
+                                    if (!schedulerActive) {
+                                        canNotify = false;
+                                        logger.log(`Skipping Notification because camera scheduler is not active`);
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                if (canNotify && schedulerEnabled) {
-                    const schedulerActive = isSchedulerActive({ endTime, startTime });
+                    if (canNotify && schedulerEnabled) {
+                        const schedulerActive = isSchedulerActive({ endTime, startTime });
 
-                    if (!schedulerActive) {
-                        canNotify = false;
-                        logger.log(`Skipping Notification because notifier scheduler is not active`);
+                        if (!schedulerActive) {
+                            canNotify = false;
+                            logger.log(`Skipping Notification because notifier scheduler is not active`);
+                        }
+                    }
+
+                    if (canNotify && isNotificationFromAnPlugin) {
+                        const now = Date.now();
+                        const lastSnoozed = cameraMixin.snoozeUntilDic[snoozeId];
+                        const isSnoozed = lastSnoozed && now < lastSnoozed;
+
+                        if (isSnoozed) {
+                            logger.log(`Skipping Notification because ${snoozeId} still snoozed for ${(lastSnoozed - now) / 1000} seconds`);
+                            canNotify = false;
+                        }
                     }
                 }
 
-                if (canNotify && isNotificationFromPlugin) {
-                    const now = Date.now();
-                    const lastSnoozed = cameraMixin.snoozeUntilDic[snoozeId];
-                    const isSnoozed = lastSnoozed && now < lastSnoozed;
+                if (canNotify) {
+                    let titleToUse = title;
+                    if (!isNotificationFromAnPlugin && enableTranslations && cameraDevice) {
+                        const deviceSensors = this.plugin.videocameraDevicesMap[cameraDevice.id] ?? [];
+                        const { eventType, detection, triggerTime } = await parseNvrNotificationMessage(cameraDevice, deviceSensors, options, logger);
 
-                    if (isSnoozed) {
-                        logger.log(`Skipping Notification because ${snoozeId} still snoozed for ${(lastSnoozed - now) / 1000} seconds`);
-                        canNotify = false;
+                        const image = typeof media === 'string' ? (await sdk.mediaManager.createMediaObjectFromUrl(media)) : media;
+                        const { b64Image } = await cameraMixin.getImage({ image, reason: GetImageReason.FromNvr });
+                        const { message } = await this.plugin.getNotificationContent({
+                            device: cameraDevice,
+                            notifier: this.notifierDevice,
+                            triggerTime,
+                            logger,
+                            b64Image,
+                            detection,
+                            eventType,
+                            rule: { notifierData: { [this.id]: {} } } as DetectionRule
+                        });
+                        const tapToViewText = this.plugin.getTextKey({ notifierId: this.id, textKey: 'tapToViewText' });
+
+                        options.subtitle = message;
+                        options.bodyWithSubtitle = tapToViewText;
+
+                        logger.log(`Content translated to ${message} ${tapToViewText}`);
                     }
+
+                    return this.mixinDevice.sendNotification(titleToUse, options, media, icon);
                 }
+            } catch (e) {
+                logger.log('Error in sendNotification', e);
             }
-
-            if (canNotify) {
-                let titleToUse = title;
-                if (!isNotificationFromPlugin && enableTranslations && cameraDevice) {
-                    const deviceSensors = this.plugin.videocameraDevicesMap[cameraDevice.id] ?? [];
-                    const { eventType, detection, triggerTime } = await parseNvrNotificationMessage(cameraDevice, deviceSensors, options, logger);
-
-                    const image = typeof media === 'string' ? (await sdk.mediaManager.createMediaObjectFromUrl(media)) : media;
-                    const { b64Image } = await cameraMixin.getImage({ image, reason: GetImageReason.FromNvr });
-                    const { message } = await this.plugin.getNotificationContent({
-                        device: cameraDevice,
-                        notifier: this.notifierDevice,
-                        triggerTime,
-                        logger,
-                        b64Image,
-                        detection,
-                        eventType,
-                        rule: { notifierData: { [this.id]: {} } } as DetectionRule
-                    });
-                    const tapToViewText = this.plugin.getTextKey({ notifierId: this.id, textKey: 'tapToViewText' });
-
-                    options.subtitle = message;
-                    options.bodyWithSubtitle = tapToViewText;
-
-                    logger.log(`Content translated to ${message} ${tapToViewText}`);
-                }
-
-                return this.mixinDevice.sendNotification(titleToUse, options, media, icon);
-            }
-        } catch (e) {
-            logger.log('Error in sendNotification', e);
+        } else {
+            return this.mixinDevice.sendNotification(title, options, media, icon);
         }
     }
 

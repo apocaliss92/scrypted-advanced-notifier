@@ -449,15 +449,15 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
     async armSecuritySystem(mode: SecuritySystemMode): Promise<void> {
         const logger = this.getLogger();
 
+        if (mode === this.securitySystemState.mode) {
+            return;
+        }
+
         try {
             this.resetActivationListener();
 
             if (mode === SecuritySystemMode.Disarmed) {
                 return await this.disarmSecuritySystem();
-            }
-
-            if (mode === this.securitySystemState.mode) {
-                return;
             }
 
             const { autoCloseLocks } = this.storageSettings.values;
@@ -602,6 +602,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
         await this.putSetting('currentlyActiveDevices', []);
         await this.putSetting('currentlyBypassedDevices', []);
         await this.putSetting('arming', false);
+        await this.putSetting('activeMode', SecuritySystemMode.Disarmed);
         await this.updateMqtt({
             mode: scryptedToHaStateMap[SecuritySystemMode.Disarmed], info: {
                 activeDevices: [],

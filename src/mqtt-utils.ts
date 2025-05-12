@@ -269,7 +269,8 @@ const getBasicMqttAutodiscoveryConfiguration = (props: {
         name,
         platform: domain,
         optimistic: false,
-        retain: true,
+        retain: false,
+        // retain: true,
         qos: 0,
         device_class: deviceClass,
         state_class: stateClass,
@@ -754,8 +755,6 @@ export const subscribeToAlarmSystemMqttTopics = async (
         const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: alarmSystemEntity, device: alarmSystemId });
         await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
             if (messageTopic === commandTopic) {
-                console.log(message);
-
                 modeSwitchCb(message as SecuritySystemMode);
 
                 await mqttClient.publish(stateTopic, message, alarmSystemEntity.retain);
