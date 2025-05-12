@@ -1,5 +1,5 @@
 
-import sdk, { ScryptedDeviceBase, SecuritySystem, SecuritySystemMode, SecuritySystemObstruction, Setting, Settings, SettingValue } from '@scrypted/sdk';
+import sdk, { Notifier, ScryptedDeviceBase, ScryptedDeviceType, SecuritySystem, SecuritySystemMode, SecuritySystemObstruction, Setting, Settings, SettingValue } from '@scrypted/sdk';
 import { StorageSetting, StorageSettings, StorageSettingsDict } from '@scrypted/sdk/storage-settings';
 import { getBaseLogger, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
@@ -9,8 +9,43 @@ import { idPrefix, publishAlarmSystemValues, setupAlarmSystemAutodiscovery, subs
 import { ALARM_SYSTEM_NATIVE_ID, binarySensorMetadataMap, convertSettingsToStorageSettings, DeviceInterface, isDeviceSupported } from './utils';
 import { scryptedToHaStateMap } from '../../scrypted-homeassistant/src/types/securitySystem';
 
+type StorageKeys = 'notifiers' |
+    'autoCloseLocks' |
+    'debug' |
+    'info' |
+    'mqttEnabled' |
+    'activeMode' |
+    'arming' |
+    'currentlyActiveDevices' |
+    'currentlyBypassedDevices' |
+    'armingMessage' |
+    'preActivationStartMessage' |
+    'armingErrorMessage' |
+    'triggerMessage' |
+    'disarmingMessage' |
+    'defuseMessage' |
+    'modeHomeText' |
+    'modeNightText' |
+    'modeAwayText';
+
 export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements SecuritySystem, Settings {
-    initStorage: StorageSettingsDict<string> = {
+    initStorage: StorageSettingsDict<StorageKeys> = {
+        notifiers: {
+            title: 'Notifiers',
+            type: 'device',
+            multiple: true,
+            combobox: true,
+            deviceFilter: `type === '${ScryptedDeviceType.Notifier}'`,
+            defaultValue: [],
+            immediate: true,
+        },
+        autoCloseLocks: {
+            title: 'Automatically close open locks when araming',
+            description: 'If checked, locks will be automatically bypassed',
+            type: 'boolean',
+            defaultValue: true,
+            immediate: true,
+        },
         debug: {
             title: 'Log debug messages',
             type: 'boolean',
@@ -45,12 +80,6 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
             group: 'Status',
             readonly: true,
         },
-        // disarming: {
-        //     title: 'Disarming',
-        //     type: 'boolean',
-        //     group: 'Status',
-        //     readonly: true,
-        // },
         currentlyActiveDevices: {
             title: `Currently active devices`,
             type: 'string',
@@ -70,6 +99,66 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
             multiple: true,
             combobox: true,
             readonly: true
+        },
+        armingMessage: {
+            title: 'Arming message',
+            description: 'Message sent when the alarm is armed. Available placeholders are ${mode}, ${bypassedDevices}, ${activeDevicesAmount}',
+            type: 'textarea',
+            group: 'Texts',
+            defaultValue: 'Alarm armed in "${mode}" mode. ${activeDevicesAmount} active devices. Bypassed devices: ${bypassedDevices}',
+        },
+        preActivationStartMessage: {
+            title: 'Preactivation message',
+            description: 'Message sent when the alarm starts the preactivation. Available placeholders are ${mode}, ${bypassedDevices}, ${activeDevicesAmount} and ${seconds}',
+            type: 'textarea',
+            group: 'Texts',
+            defaultValue: 'Alarm will be armed in "${mode}" mode in ${seconds} seconds. ${activeDevicesAmount} active devices. Bypassed devices: ${bypassedDevices}',
+        },
+        armingErrorMessage: {
+            title: 'Arming erorr message',
+            description: 'Message sent when the alarm cannot be armed. Available placeholders are ${mode} and ${blockingDevices}',
+            type: 'textarea',
+            group: 'Texts',
+            defaultValue: 'Alarm cannot be armed in "${mode}" mode. Blocking devices: ${blockingDevices}',
+        },
+        triggerMessage: {
+            title: 'Trigger erorr message',
+            description: 'Message sent when the alarm is triggered. Available placeholders are ${triggerDevices}',
+            type: 'textarea',
+            group: 'Texts',
+            defaultValue: 'Alarm fired by ${triggerDevices}',
+        },
+        disarmingMessage: {
+            title: 'Disarming message',
+            description: 'Message sent when the alarm is disarmed',
+            type: 'string',
+            group: 'Texts',
+            defaultValue: 'Alarm disarmed',
+        },
+        defuseMessage: {
+            title: 'Defuse message',
+            description: 'Message sent when the alarm is disarmed while triggered',
+            type: 'string',
+            group: 'Texts',
+            defaultValue: 'Alarm defused',
+        },
+        modeHomeText: {
+            title: 'Text for mode HomeArmed',
+            type: 'string',
+            group: 'Texts',
+            defaultValue: 'Home',
+        },
+        modeNightText: {
+            title: 'Text for mode NightArmed',
+            type: 'string',
+            group: 'Texts',
+            defaultValue: 'Night',
+        },
+        modeAwayText: {
+            title: 'Text for mode AwayArmed',
+            type: 'string',
+            group: 'Texts',
+            defaultValue: 'Away',
         },
     };
 
@@ -286,120 +375,223 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
         }).catch(logger.error);
     }
 
-    async armSecuritySystem(mode: SecuritySystemMode): Promise<void> {
-        this.resetActivationListener();
-
-        if (mode === SecuritySystemMode.Disarmed) {
-            return await this.disarmSecuritySystem();
-        }
-
-        if (mode === this.securitySystemState.mode) {
-            return;
-        }
-
+    async sendNotification(props: {
+        mode: SecuritySystemMode,
+        event: 'Preactivation' | 'Activate' | 'Blocked' | 'Trigger',
+        bypassedDevices?: string[],
+        activeDevices?: string[],
+        blockingDevices?: string[],
+        triggerDevices?: string[],
+    }) {
         const logger = this.getLogger();
-        logger.log(`Trying to arm into ${mode} mode`);
-        const entity = getModeEntity({ mode, storage: this.storageSettings });
-        logger.log('Mode configurations', entity);
 
-        const activeRules = this.plugin.allAvailableRules
-            .filter(item => item.securitySystemModes?.includes(mode));
+        try {
+            const { triggered } = this.securitySystemState;
+            const {
+                blockingDevices = [],
+                event,
+                activeDevices = [],
+                bypassedDevices = [],
+                mode,
+                triggerDevices = []
+            } = props;
+            let message: string;
 
-        const activeDevicesSet = new Set<string>();
-        const bypassedDevicesSet = new Set<string>();
-        const blockingDevicesSet = new Set<string>();
+            const {
+                preActivationStartMessage,
+                defuseMessage,
+                disarmingMessage,
+                armingErrorMessage,
+                armingMessage,
+                triggerMessage,
+                modeAwayText,
+                modeHomeText,
+                modeNightText,
+                notifiers,
+            } = this.storageSettings.values;
 
-        for (const rule of activeRules) {
-            try {
-                for (const deviceId of rule.devices) {
-                    const device = sdk.systemManager.getDeviceById<DeviceInterface>(deviceId);
+            if (mode === SecuritySystemMode.Disarmed) {
+                message = triggered ? defuseMessage : disarmingMessage;
+            } else {
+                if (event === 'Preactivation') {
+                    message = preActivationStartMessage
+                } else if (event === 'Blocked') {
+                    message = armingErrorMessage
+                } else if (event === 'Activate') {
+                    message = armingMessage
+                } else if (event === 'Trigger') {
+                    message = triggerMessage
+                }
+            }
 
-                    const { sensorType } = isDeviceSupported(device);
-                    if (sensorType) {
-                        const { isActiveFn } = binarySensorMetadataMap[sensorType];
-                        const isActive = isActiveFn(device);
+            const modeText = mode === SecuritySystemMode.AwayArmed ?
+                modeAwayText : mode === SecuritySystemMode.HomeArmed ?
+                    modeHomeText : mode === SecuritySystemMode.NightArmed ?
+                        modeNightText : undefined;
 
-                        if (isActive) {
-                            if (entity.bypassableDevices.includes(deviceId)) {
-                                bypassedDevicesSet.add(deviceId);
-                                activeDevicesSet.add(deviceId);
+            const text = (message || '')
+                .replaceAll('${mode}', modeText)
+                .replaceAll('${bypassedDevices}', bypassedDevices.join(', '))
+                .replaceAll('${blockingDevices}', blockingDevices.join(', '))
+                .replaceAll('${triggerDevices}', triggerDevices.join(', '))
+                .replaceAll('${activeDevicesAmount}', String(activeDevices.length));
+
+            for (const notifierId of notifiers) {
+                const notifier = sdk.systemManager.getDeviceById<Notifier>(notifierId);
+
+                await notifier.sendNotification(this.name, { body: text });
+            }
+        } catch (e) {
+            logger.log(`Error in sendNotification`, e);
+        }
+    }
+
+    async armSecuritySystem(mode: SecuritySystemMode): Promise<void> {
+        const logger = this.getLogger();
+
+        try {
+            this.resetActivationListener();
+
+            if (mode === SecuritySystemMode.Disarmed) {
+                return await this.disarmSecuritySystem();
+            }
+
+            if (mode === this.securitySystemState.mode) {
+                return;
+            }
+
+            const { autoCloseLocks } = this.storageSettings.values;
+
+            const entity = getModeEntity({ mode, storage: this.storageSettings });
+            logger.log(`Trying to arm into ${mode} mode:`, entity);
+
+            const activeRules = this.plugin.allAvailableRules
+                .filter(item => item.securitySystemModes?.includes(mode));
+
+            const activeDevicesSet = new Set<string>();
+            const bypassedDevicesSet = new Set<string>();
+            const blockingDevicesSet = new Set<string>();
+            const locksToLockSet = new Set<string>();
+
+            for (const rule of activeRules) {
+                try {
+                    for (const deviceId of rule.devices) {
+                        const device = sdk.systemManager.getDeviceById<DeviceInterface>(deviceId);
+
+                        const { sensorType, isLock } = isDeviceSupported(device);
+                        if (sensorType) {
+                            const { isActiveFn } = binarySensorMetadataMap[sensorType];
+                            const isActive = isActiveFn(device);
+
+                            if (isActive) {
+                                if (isLock && autoCloseLocks) {
+                                    locksToLockSet.add(deviceId);
+                                    activeDevicesSet.add(deviceId);
+                                } else {
+                                    if (entity.bypassableDevices.includes(deviceId)) {
+                                        bypassedDevicesSet.add(deviceId);
+                                        activeDevicesSet.add(deviceId);
+                                    } else {
+                                        blockingDevicesSet.add(deviceId);
+                                    }
+                                }
                             } else {
-                                blockingDevicesSet.add(deviceId);
+                                activeDevicesSet.add(deviceId);
                             }
                         } else {
                             activeDevicesSet.add(deviceId);
                         }
-                    } else {
-                        activeDevicesSet.add(deviceId);
                     }
+                } catch (e) {
+                    logger.log(`Error in checking rule ${rule.name}`, e.message);
                 }
-            } catch (e) {
-                logger.log(`Error in checking rule ${rule.name}`, e.message);
             }
-        }
 
-        const activeDevices = Array.from(activeDevicesSet)
-            .map(deviceId => sdk.systemManager.getDeviceById(deviceId)?.name);
-        const bypassedDevices = Array.from(bypassedDevicesSet)
-            .map(deviceId => sdk.systemManager.getDeviceById(deviceId)?.name);
-        const blockingDevices = Array.from(blockingDevicesSet)
-            .map(deviceId => sdk.systemManager.getDeviceById(deviceId)?.name);
+            const activeDevices = Array.from(activeDevicesSet)
+                .map(deviceId => sdk.systemManager.getDeviceById(deviceId)?.name);
+            const bypassedDevices = Array.from(bypassedDevicesSet)
+                .map(deviceId => sdk.systemManager.getDeviceById(deviceId)?.name);
+            const blockingDevices = Array.from(blockingDevicesSet)
+                .map(deviceId => sdk.systemManager.getDeviceById(deviceId)?.name);
+            const locksToLock = Array.from(locksToLockSet)
+                .map(deviceId => sdk.systemManager.getDeviceById(deviceId)?.name);
 
-        const anyBlockers = !!blockingDevices.length;
+            const anyBlockers = !!blockingDevices.length;
 
-        logger.log({
-            activeDevices,
-            bypassedDevices,
-            blockingDevices,
-            anyBlockers,
-        });
+            logger.log({
+                activeDevices,
+                bypassedDevices,
+                blockingDevices,
+                locksToLock,
+                anyBlockers,
+            });
 
-        if (anyBlockers) {
-            await this.putSetting('activeMode', this.securitySystemState.mode);
-            this.securitySystemState = {
-                ...this.securitySystemState,
-                // Scale when need to support more types
-                obstruction: SecuritySystemObstruction.Sensor,
-                triggered: false,
-            };
-        } else {
-            const activate = async () => {
-                logger.log(`New mode set to ${mode}`);
+            if (anyBlockers) {
+                await this.putSetting('activeMode', this.securitySystemState.mode);
                 this.securitySystemState = {
                     ...this.securitySystemState,
-                    obstruction: undefined,
+                    obstruction: SecuritySystemObstruction.Sensor,
                     triggered: false,
-                    mode,
                 };
-                await this.putSetting('currentlyActiveDevices', activeDevices);
-                await this.putSetting('currentlyBypassedDevices', bypassedDevices);
-                await this.putSetting('activeMode', mode);
-                await this.putSetting('arming', false);
-                await this.updateMqtt({
-                    mode: scryptedToHaStateMap[mode],
-                    info: {
-                        activeDevices,
-                        bypassedDevices,
-                    }
-                });
-            };
-
-            if (entity.preActivationTime) {
-                logger.log(`New mode will be set in ${entity.preActivationTime}`);
-                this.activationListener = setTimeout(async () =>
-                    await activate(),
-                    entity.preActivationTime * 1000
-                );
-                await this.putSetting('arming', true);
-                await this.updateMqtt({
-                    mode: 'arming', info: {
-                        activeDevices: [],
-                        bypassedDevices: []
-                    }
+                await this.sendNotification({
+                    mode,
+                    blockingDevices,
+                    event: 'Blocked',
                 });
             } else {
-                await activate();
+                const activate = async () => {
+                    logger.log(`New mode set to ${mode}`);
+                    this.securitySystemState = {
+                        ...this.securitySystemState,
+                        obstruction: undefined,
+                        triggered: false,
+                        mode,
+                    };
+                    await this.putSetting('currentlyActiveDevices', activeDevices);
+                    await this.putSetting('currentlyBypassedDevices', bypassedDevices);
+                    await this.putSetting('activeMode', mode);
+                    await this.putSetting('arming', false);
+                    await this.updateMqtt({
+                        mode: scryptedToHaStateMap[mode],
+                        info: {
+                            activeDevices,
+                            bypassedDevices,
+                        }
+                    });
+                    await this.sendNotification({
+                        mode,
+                        bypassedDevices,
+                        activeDevices,
+                        event: 'Activate',
+                    });
+                };
+
+                if (entity.preActivationTime) {
+                    logger.log(`New mode will be set in ${entity.preActivationTime}`);
+                    this.activationListener = setTimeout(async () =>
+                        await activate(),
+                        entity.preActivationTime * 1000
+                    );
+                    await this.putSetting('arming', true);
+                    await this.updateMqtt({
+                        mode: 'arming', info: {
+                            activeDevices: [],
+                            bypassedDevices: []
+                        }
+                    });
+
+                    await this.sendNotification({
+                        mode,
+                        bypassedDevices,
+                        activeDevices,
+                        event: 'Preactivation',
+                    });
+                } else {
+                    await activate();
+                }
             }
+        } catch (e) {
+            logger.log(`Error in armSecuritySystem`, e);
         }
     }
 
@@ -407,12 +599,6 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
         this.resetActivationListener();
         const logger = this.getLogger();
         logger.log(`Disarmed`);
-        this.securitySystemState = {
-            ...this.securitySystemState,
-            triggered: false,
-            obstruction: undefined,
-            mode: SecuritySystemMode.Disarmed
-        };
         await this.putSetting('currentlyActiveDevices', []);
         await this.putSetting('currentlyBypassedDevices', []);
         await this.putSetting('arming', false);
@@ -422,6 +608,16 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                 bypassedDevices: []
             }
         });
+        await this.sendNotification({
+            mode: SecuritySystemMode.Disarmed,
+            event: 'Activate',
+        });
+        this.securitySystemState = {
+            ...this.securitySystemState,
+            triggered: false,
+            obstruction: undefined,
+            mode: SecuritySystemMode.Disarmed
+        };
     }
 
 }
