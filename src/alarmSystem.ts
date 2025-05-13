@@ -47,7 +47,6 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
         activeNotifiers: {
             title: `Currently active notifiers`,
             type: 'string',
-            group: 'Status',
             defaultValue: [],
             choices: [],
             multiple: true,
