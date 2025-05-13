@@ -8,6 +8,7 @@ import { name, scrypted } from '../package.json';
 import { AiPlatform, defaultModel } from "./aiUtils";
 import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detectionClasses";
 import AdvancedNotifierPlugin, { PluginSettingKey } from "./main";
+import { supportedAlarmModes } from "./alarmUtils";
 const { endpointManager } = sdk;
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Notifier & Settings & ObjectDetector & VideoCamera & EntrySensor & Lock & BinarySensor & Reboot & PanTiltZoom & OnOff;
@@ -115,6 +116,7 @@ export const getWebooks = async () => {
     const timelapseThumbnail = 'timelapseThumbnail';
     const snoozeNotification = 'snoozeNotification';
     const postNotification = 'postNotification';
+    const setAlarm = 'setAlarm';
 
     return {
         lastSnapshot,
@@ -124,6 +126,7 @@ export const getWebooks = async () => {
         timelapseThumbnail,
         snoozeNotification,
         postNotification,
+        setAlarm,
     }
 }
 
@@ -142,7 +145,17 @@ export const getWebHookUrls = async (props: {
     snoozeId?: string,
     snoozePlaceholder?: string,
 }) => {
-    const { cameraIdOrAction, console, rule, device, timelapseName, snoozes, snoozeId, snoozePlaceholder } = props;
+    const {
+        cameraIdOrAction,
+        console,
+        rule,
+        device,
+        timelapseName,
+        snoozes,
+        snoozeId,
+        snoozePlaceholder
+    } = props;
+
     let lastSnapshotCloudUrl: string;
     let lastSnapshotLocalUrl: string;
     let haActionUrl: string;
@@ -153,8 +166,18 @@ export const getWebHookUrls = async (props: {
     let endpoint: string;
 
     const snoozeActions: NotificationAction[] = [];
+    const alarmActions: NotificationAction[] = [];
 
-    const { lastSnapshot, haAction, timelapseDownload, timelapseStream, timelapseThumbnail, snoozeNotification, postNotification } = await getWebooks();
+    const {
+        lastSnapshot,
+        haAction,
+        timelapseDownload,
+        timelapseStream,
+        timelapseThumbnail,
+        snoozeNotification,
+        postNotification,
+        setAlarm,
+    } = await getWebooks();
 
     try {
         const cloudEndpointRaw = await endpointManager.getCloudEndpoint(undefined, { public: true });
@@ -189,8 +212,17 @@ export const getWebHookUrls = async (props: {
                     title: text,
                     action: `snooze${snooze}`,
                     data: snooze,
-                })
+                });
             }
+        }
+
+        for (const alarmMode of supportedAlarmModes) {
+            snoozeActions.push({
+                url: `${cloudEndpoint}${setAlarm}/${alarmMode}${paramString}`,
+                title: `Set: ${alarmMode}`,
+                action: `setAlarm${alarmMode}`,
+                data: alarmMode,
+            });
         }
     } catch (e) {
         console.log('Error fetching webhookUrls. Probably Cloud plugin is not setup correctly', e.message);
