@@ -751,7 +751,6 @@ export const subscribeToAlarmSystemMqttTopics = async (
     const {
         mqttClient,
         modeSwitchCb,
-        console,
     } = props;
 
     if (!mqttClient) {

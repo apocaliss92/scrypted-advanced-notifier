@@ -1,6 +1,11 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.6.11
+
+- Quick actions added to alarm notifications
+- Allow using active rules notfiers for alarm notifications
+
 ### 3.6.9
 
 - [BREAKING CHANGE] Homeassistant data fetching removed. OnActive devices won't support entity IDs anymore. Use instead device id or name

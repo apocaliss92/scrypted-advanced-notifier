@@ -6,9 +6,9 @@ import moment, { Moment } from "moment";
 import sharp from 'sharp';
 import { name, scrypted } from '../package.json';
 import { AiPlatform, defaultModel } from "./aiUtils";
+import { supportedAlarmModes } from "./alarmUtils";
 import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detectionClasses";
 import AdvancedNotifierPlugin, { PluginSettingKey } from "./main";
-import { supportedAlarmModes } from "./alarmUtils";
 const { endpointManager } = sdk;
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Notifier & Settings & ObjectDetector & VideoCamera & EntrySensor & Lock & BinarySensor & Reboot & PanTiltZoom & OnOff;
@@ -138,7 +138,7 @@ export const isDetectionRule = (rule: BaseRule) => [
 export const getWebHookUrls = async (props: {
     cameraIdOrAction?: string,
     console: Console,
-    device: ScryptedDeviceBase,
+    device?: ScryptedDeviceBase,
     rule?: TimelapseRule,
     timelapseName?: string,
     snoozes?: number[],
@@ -166,7 +166,6 @@ export const getWebHookUrls = async (props: {
     let endpoint: string;
 
     const snoozeActions: NotificationAction[] = [];
-    const alarmActions: NotificationAction[] = [];
 
     const {
         lastSnapshot,
@@ -185,7 +184,7 @@ export const getWebHookUrls = async (props: {
         // const cloudPushEndpoint = await sdk.endpointManager.getCloudPushEndpoint(this.nativeId);
 
         const [cloudEndpoint, parameters] = cloudEndpointRaw.split('?') ?? '';
-        const encodedId = encodeURIComponent(cameraIdOrAction ?? device.id);
+        const encodedId = encodeURIComponent(cameraIdOrAction ?? device?.id);
         endpoint = cloudEndpoint;
 
         const paramString = parameters ? `?${parameters}` : '';
@@ -214,15 +213,6 @@ export const getWebHookUrls = async (props: {
                     data: snooze,
                 });
             }
-        }
-
-        for (const alarmMode of supportedAlarmModes) {
-            snoozeActions.push({
-                url: `${cloudEndpoint}${setAlarm}/${alarmMode}${paramString}`,
-                title: `Set: ${alarmMode}`,
-                action: `setAlarm${alarmMode}`,
-                data: alarmMode,
-            });
         }
     } catch (e) {
         console.log('Error fetching webhookUrls. Probably Cloud plugin is not setup correctly', e.message);
@@ -1127,7 +1117,10 @@ export const cameraFilter: StorageSetting['deviceFilter'] = `interfaces.includes
 type GetSpecificRules = (props: { group: string, subgroup: string, ruleName: string, showMore: boolean }) => StorageSetting[];
 type OnRefreshSettings = () => Promise<void>
 
-export const getNotifierData = (props: { notifierId: string, ruleType: RuleType }) => {
+export const getNotifierData = (props: {
+    notifierId: string,
+    ruleType: RuleType,
+}) => {
     const { notifierId, ruleType } = props;
     const notifier = sdk.systemManager.getDeviceById(notifierId);
     const pluginId = notifier.pluginId;

@@ -1,13 +1,13 @@
 
-import sdk, { Lock, Notifier, ScryptedDeviceBase, ScryptedDeviceType, SecuritySystem, SecuritySystemMode, SecuritySystemObstruction, Setting, Settings, SettingValue } from '@scrypted/sdk';
+import sdk, { Lock, Notifier, NotifierOptions, ScryptedDeviceBase, ScryptedDeviceType, SecuritySystem, SecuritySystemMode, SecuritySystemObstruction, Setting, Settings, SettingValue } from '@scrypted/sdk';
 import { StorageSetting, StorageSettings, StorageSettingsDict } from '@scrypted/sdk/storage-settings';
 import { getBaseLogger, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 import { scryptedToHaStateMap } from '../../scrypted-homeassistant/src/types/securitySystem';
-import { getAlarmSettings, getModeEntity, supportedAlarmModes } from './alarmUtils';
+import { getAlarmSettings, getAlarmWebhookUrls, getModeEntity, supportedAlarmModes } from './alarmUtils';
 import AdvancedNotifierPlugin from './main';
 import { idPrefix, publishAlarmSystemValues, setupAlarmSystemAutodiscovery, subscribeToAlarmSystemMqttTopics } from './mqtt-utils';
-import { binarySensorMetadataMap, convertSettingsToStorageSettings, DeviceInterface, isDeviceSupported } from './utils';
+import { BaseRule, binarySensorMetadataMap, convertSettingsToStorageSettings, DeviceInterface, HOMEASSISTANT_PLUGIN_ID, isDeviceSupported, NotificationPriority, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, PUSHOVER_PLUGIN_ID } from './utils';
 
 type StorageKeys = 'notifiers' |
     'autoCloseLocks' |
@@ -19,19 +19,41 @@ type StorageKeys = 'notifiers' |
     'triggered' |
     'currentlyActiveDevices' |
     'currentlyBypassedDevices' |
+    'activeRules' |
+    'activeNotifiers' |
+    'useRuleNotifiers' |
     'armingMessage' |
     'preActivationStartMessage' |
     'armingErrorMessage' |
     'triggerMessage' |
     'disarmingMessage' |
     'defuseMessage' |
+    'deactivateMessage' |
     'modeHomeText' |
     'modeNightText' |
     'modeAwayText' |
+    'setModeMessage' |
     'noneText';
 
 export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements SecuritySystem, Settings {
     initStorage: StorageSettingsDict<StorageKeys> = {
+        useRuleNotifiers: {
+            title: 'Use rule notifiers',
+            description: 'If checked, the notifiers will be automatically picked from the active rules, with same settings',
+            type: 'boolean',
+            defaultValue: false,
+            immediate: true,
+        },
+        activeNotifiers: {
+            title: `Currently active notifiers`,
+            type: 'string',
+            group: 'Status',
+            defaultValue: [],
+            choices: [],
+            multiple: true,
+            combobox: true,
+            readonly: true
+        },
         notifiers: {
             title: 'Notifiers',
             type: 'device',
@@ -108,6 +130,16 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
             combobox: true,
             readonly: true
         },
+        activeRules: {
+            title: `Currently active rules`,
+            type: 'string',
+            group: 'Status',
+            defaultValue: [],
+            choices: [],
+            multiple: true,
+            combobox: true,
+            readonly: true
+        },
         armingMessage: {
             title: 'Arming message',
             description: 'Message sent when the alarm is armed. Available placeholders are ${mode}, ${bypassedDevices}, ${activeDevicesAmount}',
@@ -150,6 +182,19 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
             group: 'Texts',
             defaultValue: 'Alarm defused',
         },
+        deactivateMessage: {
+            title: 'Text for notifications to disable the alarm',
+            type: 'string',
+            group: 'Texts',
+            defaultValue: 'Deactivate',
+        },
+        setModeMessage: {
+            title: 'Text for notifications to set a mode',
+            description: 'Placeholder ${mode}',
+            type: 'string',
+            group: 'Texts',
+            defaultValue: 'Set: ${mode}',
+        },
         modeHomeText: {
             title: 'Text for mode HomeArmed',
             type: 'string',
@@ -187,6 +232,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
     disarmListener: NodeJS.Timeout;
     initializingMqtt: boolean;
     lastAutoDiscovery: number;
+    activeRules: BaseRule[];
 
     constructor(nativeId: string, private plugin: AdvancedNotifierPlugin) {
         super(nativeId);
@@ -307,7 +353,9 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
         }
     }
 
-    async onEventTrigger(props: { triggerDevice: DeviceInterface }) {
+    async onEventTrigger(props: {
+        triggerDevice: DeviceInterface,
+    }) {
         const logger = this.getLogger();
 
         const { triggerDevice } = props;
@@ -426,7 +474,9 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
     }
 
     async getSettings(): Promise<Setting[]> {
-        const logger = this.getLogger();
+        const { useRuleNotifiers } = this.storageSettings.values;
+        this.storageSettings.settings.notifiers.hide = useRuleNotifiers;
+        this.storageSettings.settings.activeNotifiers.hide = !useRuleNotifiers;
         const settings = await this.storageSettings.getSettings();
 
         return settings;
@@ -483,7 +533,10 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                 modeHomeText,
                 modeNightText,
                 notifiers,
+                useRuleNotifiers,
                 noneText,
+                setModeMessage,
+                deactivateMessage,
             } = this.storageSettings.values;
 
             if (mode === SecuritySystemMode.Disarmed) {
@@ -524,10 +577,106 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                 .replaceAll('${triggerDevices}', renderList(triggerDevices))
                 .replaceAll('${activeDevicesAmount}', !!activeDevices.length ? String(activeDevices.length) : noneText);
 
-            for (const notifierId of notifiers) {
-                const notifier = sdk.systemManager.getDeviceById<Notifier>(notifierId);
+            const alarmActions = await getAlarmWebhookUrls({
+                deactivateMessage,
+                modeAwayText,
+                modeHomeText,
+                modeNightText,
+                setModeMessage
+            });
 
-                await notifier.sendNotification(this.name, { body: text });
+            const notifierPriority: Record<string, NotificationPriority> = {};
+            let notifiersToUse = notifiers;
+            if (useRuleNotifiers) {
+                const notifiersSet = new Set<string>();
+                for (const rule of this.activeRules) {
+                    for (const notifierId of rule.notifiers) {
+                        notifiersSet.add(notifierId);
+                        notifierPriority[notifierId] = rule.notifierData[notifierId]?.priority;
+                    }
+                }
+
+                notifiersToUse = Array.from(notifiersSet);
+            }
+
+            let additionalMessageText = '';
+
+            for (const notifierId of notifiersToUse) {
+                const notifier = sdk.systemManager.getDeviceById<Notifier & ScryptedDeviceBase>(notifierId);
+
+                let payload: any = {
+                    data: {}
+                };
+
+                const supPriority = notifierPriority[notifierId];
+                const isSupPriorityLow = supPriority && [NotificationPriority.Low, NotificationPriority.SuperLow].includes(supPriority);
+                const isCritical = event === 'Trigger';
+                if (notifier.pluginId === PUSHOVER_PLUGIN_ID) {
+                    const priority = isSupPriorityLow ?
+                        (supPriority === NotificationPriority.Low ? -1 : -2)
+                        : isCritical ? 1 : 0;
+
+                    payload.data.pushover = {
+                        priority,
+                        html: 1,
+                    };
+
+                    additionalMessageText += '\n';
+                    for (const { title, url } of alarmActions) {
+                        additionalMessageText += `<a href="${url}">${title}</a>\n`;
+                    }
+                } else if (notifier.pluginId === HOMEASSISTANT_PLUGIN_ID) {
+                    payload.data.ha = {};
+
+                    const haActions: any[] = [];
+                    for (const { action, icon, title } of alarmActions) {
+                        haActions.push({
+                            action,
+                            icon,
+                            title,
+                        })
+                    }
+                    payload.data.ha.actions = haActions;
+
+                    if (isCritical && !isSupPriorityLow) {
+                        payload.data.ha.push = {
+                            'interruption-level': 'critical',
+                            sound: {
+                                name: 'default',
+                                critical: 1,
+                                volume: 1.0
+                            }
+                        };
+                    }
+                } else if (notifier.pluginId === NTFY_PLUGIN_ID) {
+                    const ntfyActions: any[] = [];
+
+                    ntfyActions.push(...alarmActions.slice(0, 3).map(action => ({
+                        action: 'http',
+                        label: action.title,
+                        url: action.url,
+                        method: 'GET',
+                    })));
+
+                    const priority = isSupPriorityLow ?
+                        (supPriority === NotificationPriority.Low ? 2 : 1)
+                        : isCritical ? 5 : 3;
+                    payload.data.ntfy = {
+                        actions: ntfyActions,
+                        priority,
+                    };
+                } else if (notifier.pluginId === NVR_PLUGIN_ID) {
+                    if (isCritical && !isSupPriorityLow) {
+                        payload.critical = true;
+                    }
+                }
+
+                const notifierOptions: NotifierOptions = {
+                    body: text + additionalMessageText,
+                    ...payload,
+                }
+
+                await notifier.sendNotification(this.name, notifierOptions);
             }
         } catch (e) {
             logger.log(`Error in sendNotification`, e);
@@ -561,7 +710,19 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
             const activeRules = this.plugin.allAvailableRules
                 .filter(item => item.securitySystemModes?.includes(mode));
 
-            logger.log(`${activeRules} rules found ${activeRules.map(rule => rule.name).join(', ')}`);
+            const activeRuleNames = activeRules.map(rule => rule.name);
+            logger.log(`${activeRules.length} rules found ${activeRuleNames.join(', ')}`);
+            await this.putSetting('activeRules', activeRuleNames);
+            this.activeRules = activeRules;
+
+            const activeNotifiers = new Set<string>();
+            for (const rule of activeRules) {
+                for (const notifierId of rule.notifiers) {
+                    const notifier = sdk.systemManager.getDeviceById(notifierId);
+                    activeNotifiers.add(notifier.name);
+                }
+            }
+            await this.putSetting('activeNotifiers', Array.from(activeNotifiers));
 
             const activeDevicesSet = new Set<string>();
             const bypassedDevicesSet = new Set<string>();
@@ -700,18 +861,20 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
         this.resetActivationListener();
         const logger = this.getLogger();
         logger.log(`Disarmed`);
+        await this.sendNotification({
+            mode: SecuritySystemMode.Disarmed,
+            event: 'Activate',
+        });
         await this.putSetting('currentlyActiveDevices', []);
         await this.putSetting('currentlyBypassedDevices', []);
+        await this.putSetting('activeRules', []);
+        this.activeRules = [];
         await this.putSetting('arming', false);
         await this.updateMqtt({
             mode: scryptedToHaStateMap[SecuritySystemMode.Disarmed], info: {
                 activeDevices: [],
                 bypassedDevices: []
             }
-        });
-        await this.sendNotification({
-            mode: SecuritySystemMode.Disarmed,
-            event: 'Activate',
         });
         this.securitySystemState = {
             ...this.securitySystemState,

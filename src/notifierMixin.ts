@@ -33,6 +33,14 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
             defaultValue: true,
             immediate: true,
         },
+        aiEnabled: {
+            title: 'AI descriptions',
+            description: 'Use configured AI to generate descriptions',
+            type: 'boolean',
+            immediate: true,
+            defaultValue: false,
+            onPut: async () => await this.refreshSettings()
+        },
         enableTranslations: {
             title: 'Translations',
             description: 'Use the plugin configured Texts to provide notifications text',
@@ -46,14 +54,6 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
             description: 'POST with body containing: cameraId, imageUrl, timestamp, message, hash (identifier of the webhook call)',
             title: 'Cloud URL',
             readonly: true,
-        },
-        aiEnabled: {
-            title: 'AI descriptions',
-            description: 'Use configured AI to generate descriptions',
-            type: 'boolean',
-            immediate: true,
-            defaultValue: false,
-            onPut: async () => await this.refreshSettings()
         },
         schedulerEnabled: {
             type: 'boolean',
@@ -142,9 +142,6 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
         }
         if (this.storageSettings.settings.enableTranslations) {
             this.storageSettings.settings.enableTranslations.hide = !this.isNvrNotifier;
-        }
-        if (this.storageSettings.settings.aiEnabled) {
-            this.storageSettings.settings.aiEnabled.hide = !this.isNvrNotifier;
         }
         if (this.storageSettings.settings.enableTranslations) {
             this.storageSettings.settings.enableTranslations.hide = aiEnabled;

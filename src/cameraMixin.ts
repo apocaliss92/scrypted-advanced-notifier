@@ -49,6 +49,7 @@ export type OccupancyRuleData = {
     b64Image?: string;
     triggerTime: number;
     objectsDetected?: number;
+    objectsDetectedResult: ObjectsDetected[];
 };
 
 interface AccumulatedDetection { detect: ObjectsDetected, eventId: string };
@@ -1599,6 +1600,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         triggerTime: now,
                         objectsDetected: objectsDetected,
                         image,
+                        objectsDetectedResult: [detectedResult]
                     }
                 } else if (!existingRule.occupies && occupies) {
                     existingRule.occupies = true;
@@ -1678,25 +1680,19 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 lastChange: now,
                             };
 
-                            // const stateActuallyChanged = occupancyRuleTmpData.occupies !== occupancyRuleTmpData.rule.occupies;
-
-                            // if (!stateActuallyChanged) {
-                            //     rulesToNotNotify.push(occupancyRuleTmpData.rule.name);
-                            // } else {
                             logger.log(`Confirming occupancy rule ${name}: ${occupancyRuleTmpData.occupies} ${occupancyRuleTmpData.objectsDetected}`);
+                            const { b64Image: _, ...rest } = currentState;
                             logger.log(JSON.stringify({
-                                occupancyRuleData: occupancyRuleTmpData,
-                                currentState,
+                                occupancyRuleTmpData,
+                                currentState: rest,
                                 occupancyData,
                             }));
-                            // }
 
                             occupancyRulesData.push({
                                 ...occupancyRuleTmpData,
                                 triggerTime: currentState.confirmationStart,
                                 changed: true,
                                 b64Image: currentState.b64Image
-                                // changed: stateActuallyChanged,
                             });
 
                             await this.storageSettings.putSetting(occupiesKey, occupancyRuleTmpData.occupies);
