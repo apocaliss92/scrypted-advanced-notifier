@@ -253,13 +253,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             dynamicSettings,
             initStorage: this.initStorage
         });
-
-        this.storageSettings.settings.entityId.onGet = async () => {
-            const entities = this.plugin.fetchedEntities;
-            return {
-                choices: entities ?? []
-            }
-        }
     }
 
     async getMixinSettings(): Promise<Setting[]> {

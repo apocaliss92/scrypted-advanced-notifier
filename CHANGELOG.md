@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.6.9
+
+- [BREAKING CHANGE] Homeassistant data fetching removed. OnActive devices won't support entity IDs anymore. Use instead device id or name
+
 ### 3.6.8
 
 - Advanced Security System released, an onboard security system mechanism linked to detection rules

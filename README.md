@@ -182,6 +182,8 @@ on some classes and define a minimum delay.
 
 ## Adanced Alarm System
 
-The plugin provides a security system hooked into the plugin rules. To use it this will be required:
+The plugin provides a security system hooked into the plugin detection rules. To use it this will be required:
 - Create 1 or more detection rule on the plugin page with activation type `AdvancedSecuritySystem` and set 1 or more modes to activate the rule
 - Setup the provided `Advanced security system` device with preferred preferences, such as texts or devices that can be bypassed during the activation
+
+The device is discovered on MQTT and completely compatible with Homekit.

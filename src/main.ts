@@ -49,11 +49,9 @@ export type PluginSettingKey =
     | 'scryptedToken'
     | 'nvrUrl'
     | 'enableCameraDevice'
-    | 'domains'
-    | 'fetchHaEntities'
     | 'mqttActiveEntitiesTopic'
     | 'useNvrDetectionsForMqtt'
-    | 'activeDevicesForNotifications'
+    | 'onActiveDevices'
     | 'objectDetectionDevice'
     | 'securitySystem'
     | 'testDevice'
@@ -151,24 +149,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             immediate: true,
             onPut: async (_, active) => this.executeCameraDiscovery(active)
         },
-        domains: {
-            subgroup: 'Homeassistant',
-            title: 'Entity regex patterns',
-            description: 'Regex to filter out entities fetched',
-            type: 'string',
-            multiple: true,
-            defaultValue: ['binary_sensor.(.*)_triggered'],
-        },
-        fetchHaEntities: {
-            subgroup: 'Homeassistant',
-            title: 'Fetch entities from HA',
-            type: 'button',
-            onPut: async () => await this.fetchHomeassistantData()
-        },
         mqttActiveEntitiesTopic: {
             title: 'Active entities topic',
             subgroup: 'MQTT',
-            description: 'Topic containing the active entities, will trigger the related devices activation for notifications',
+            description: 'Topic containing a list of device names/ids, it will be used for the "OnActive" rules',
             onPut: async () => {
                 await this.setupMqttEntities();
             },
@@ -191,7 +175,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             defaultValue: [],
             onPut: async () => await this.refreshSettings()
         },
-        activeDevicesForNotifications: {
+        onActiveDevices: {
             title: '"OnActive" devices',
             group: pluginRulesGroup,
             type: 'device',
@@ -310,7 +294,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         },
         imagesRegex: {
             title: 'Images name',
-            description: 'Filename for the images. Possible values to be used are: ${name} ${timestamp}. Using only ${name} will ensure to have only 1 image per file',
+            description: 'Filename for the images. Possible values to be used are: ${name} ${timestamp}. Using only ${name} will ensure to have only 1 image per type',
             group: 'Storage',
             type: 'string',
             defaultValue: '${name}',
@@ -331,8 +315,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     };
     storageSettings = new StorageSettings(this, this.initStorage);
 
-    private deviceHaEntityMap: Record<string, string> = {};
-    private haEntityDeviceMap: Record<string, string> = {};
     private deviceVideocameraMap: Record<string, string> = {};
     public videocameraDevicesMap: Record<string, string[]> = {};
     public currentCameraMixinsMap: Record<string, AdvancedNotifierCameraMixin> = {};
@@ -345,7 +327,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     runningDetectionRules: DetectionRule[] = [];
     lastNotExistingNotifier: number;
     public allAvailableRules: BaseRule[] = [];
-    fetchedEntities: string[] = [];
     lastAutoDiscovery: number;
     lastConfigurationsCheck: number;
     lastKnownPeopleFetched: number;
@@ -828,7 +809,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     rules: this.allAvailableRules,
                     activeEntitiesCb: async (message) => {
                         logger.debug(`Received update for ${mqttActiveEntitiesTopic} topic: ${JSON.stringify(message)}`);
-                        await this.syncHaEntityIds(message);
+                        await this.updateOnActiveDevices(message);
                     },
                     activationRuleCb: async ({ active, ruleName }) => {
                         const { common: { enabledKey } } = getRuleKeys({ ruleName, ruleType: RuleType.Detection });
@@ -846,31 +827,34 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
     }
 
-    private async syncHaEntityIds(devices: string[]) {
+    private async updateOnActiveDevices(deviceIdentifiers: string[]) {
         const logger = this.getLogger();
         const deviceIds: string[] = [];
-        for (const device of devices) {
-            const deviceNameFromEntity = this.haEntityDeviceMap[device];
-            const entityFromDeviceName = this.deviceHaEntityMap[device];
+        for (const deviceIdentifier of deviceIdentifiers) {
+            let device = sdk.systemManager.getDeviceById(deviceIdentifier);
 
-            if (deviceNameFromEntity) {
-                deviceIds.push(deviceNameFromEntity);
-            } else if (entityFromDeviceName) {
-                deviceIds.push(device);
+            if (!device) {
+                device = sdk.systemManager.getDeviceByName(deviceIdentifier);
+            }
+
+            if (device) {
+                deviceIds.push(device.id);
+            } else {
+                logger.log(`Device identifier ${deviceIdentifier} not found`);
             }
         }
 
-        logger.debug(`SyncHaEntityIds: ${JSON.stringify({
-            devices,
-            stored: this.storageSettings.values.activeDevicesForNotifications ?? [],
-            isEqual: isEqual(sortBy(deviceIds), sortBy(this.storageSettings.values.activeDevicesForNotifications ?? []))
+        logger.debug(`updateOnActiveDevices: ${JSON.stringify({
+            deviceIdentifiers,
+            stored: this.storageSettings.values.onActiveDevices ?? [],
+            isEqual: isEqual(sortBy(deviceIds), sortBy(this.storageSettings.values.onActiveDevices ?? []))
         })}`);
 
-        if (isEqual(sortBy(deviceIds), sortBy(this.storageSettings.values.activeDevicesForNotifications ?? []))) {
+        if (isEqual(sortBy(deviceIds), sortBy(this.storageSettings.values.onActiveDevices ?? []))) {
             logger.debug('Devices did not change');
         } else {
             logger.log(`"OnActiveDevices" changed: ${JSON.stringify(deviceIds)}`);
-            this.putSetting('activeDevicesForNotifications', deviceIds);
+            this.putSetting('onActiveDevices', deviceIds);
         }
     }
 
@@ -895,16 +879,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         logger.log(`Local IP found: ${localIp}`);
 
         if (this.storageSettings.values.haEnabled) {
-            await this.fetchHomeassistantData();
+            await this.generateHomeassistantHelpers();
         }
     }
 
     private async mainFlow() {
         const logger = this.getLogger();
         try {
-            const haEntities: string[] = [];
-            const deviceHaEntityMap: Record<string, string> = {};
-            const haEntityDeviceMap: Record<string, string> = {};
             const deviceVideocameraMap: Record<string, string> = {};
             const videocameraDevicesMap: Record<string, string[]> = {};
 
@@ -914,17 +895,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 const deviceId = device.id;
                 try {
                     const settings = await device.getSettings();
-                    const haEntityId = settings.find(setting => setting.key === 'homeassistantMetadata:entityId')?.value as string;
                     const linkedCamera = settings.find(setting => setting.key === 'homeassistantMetadata:linkedCamera')?.value as string;
                     const nearbySensors = (settings.find(setting => setting.key === 'recording:nearbySensors')?.value as string[]) ?? [];
                     const nearbyLocks = (settings.find(setting => setting.key === 'recording:nearbyLocks')?.value as string[]) ?? [];
-
-                    if (haEntityId) {
-                        haEntities.push(haEntityId);
-
-                        deviceHaEntityMap[deviceId] = haEntityId;
-                        haEntityDeviceMap[haEntityId] = deviceId;
-                    }
 
                     if (linkedCamera) {
                         const cameraDevice = systemManager.getDeviceById(linkedCamera);
@@ -978,8 +951,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
 
             this.runningDetectionRules = cloneDeep(allowedRules) || [];
-            this.deviceHaEntityMap = deviceHaEntityMap;
-            this.haEntityDeviceMap = haEntityDeviceMap;
             this.deviceVideocameraMap = deviceVideocameraMap;
             this.videocameraDevicesMap = videocameraDevicesMap;
             this.allAvailableRules = availableRules;
@@ -1129,10 +1100,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 device => device.type === ScryptedDeviceType.Sensor && !this.deviceVideocameraMap[device.id]
             ).map(sensor => sensor.name);
 
-            const entitiesWithWrongEntityId = allDevices.filter(
-                device => !this.deviceHaEntityMap[device.id] || !this.fetchedEntities.includes(this.deviceHaEntityMap[device.id])
-            ).map(sensor => sensor.name);
-
             const {
                 devNotifier,
                 sendDevNotifications,
@@ -1166,7 +1133,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 missingNotifiersOfPluginRules: missingNotifiersOfPluginRules.length ? missingNotifiersOfPluginRules : undefined,
                 missingDevicesOfPluginRules: missingDevicesOfPluginRules.length ? missingDevicesOfPluginRules : undefined,
                 sensorsNotLinkedToAnyCamera: sensorsNotLinkedToAnyCamera.length ? sensorsNotLinkedToAnyCamera : undefined,
-                entitiesWithWrongEntityId: entitiesWithWrongEntityId.length ? entitiesWithWrongEntityId : undefined,
                 devicesWithoutRoom: devicesWithoutRoom.length ? devicesWithoutRoom : undefined,
                 storagePathError: storagePathError ?? (imagesPathSet ? 'No error' : 'Not set'),
                 scryptedToken: scryptedToken ? 'Set' : 'Not set',
@@ -1188,7 +1154,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     missingDevicesOfPluginRules.length ||
                     sensorsNotLinkedToAnyCamera.length ||
                     (alertHaIssues && devicesWithoutRoom.length) ||
-                    (alertHaIssues && entitiesWithWrongEntityId.length) ||
                     !!storagePathError
                 ) {
                     sendDevNotifications && (devNotifier as Notifier).sendNotification('Advanced notifier not correctly configured', {
@@ -1248,9 +1213,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     async getSettings() {
         try {
-            const { haEnabled, mqttEnabled, testDevice, testNotifier } = this.storageSettings.values;
-            this.storageSettings.settings.domains.hide = !haEnabled;
-            this.storageSettings.settings.fetchHaEntities.hide = !haEnabled;
+            const { mqttEnabled, testDevice, testNotifier } = this.storageSettings.values;
 
             this.storageSettings.settings.mqttActiveEntitiesTopic.hide = !mqttEnabled;
             this.storageSettings.settings.useNvrDetectionsForMqtt.hide = !mqttEnabled;
@@ -1270,31 +1233,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
     }
 
-    fetchHomeassistantData = async () => {
-        const { domains } = this.storageSettings.values;
+    generateHomeassistantHelpers = async () => {
         const logger = this.getLogger();
 
-        let entityIds: string[] = [];
-
         try {
-            logger.log(`Fetching homeassistant data`);
             const haApi = await this.getHaApi();
-            const entitiesResponse = await haApi.getStatesData();
-            entityIds = sortBy(
-                entitiesResponse.data
-                    .filter(entityStatus => domains.length > 0 ? domains.some(domain => new RegExp(domain).test(entityStatus.entity_id)) : true),
-                elem => elem.entity_id)
-                .map(entityStatus => entityStatus.entity_id);
-
             const res = await haApi.postAutomation(haSnoozeAutomationId, haSnoozeAutomation);
             logger.log(`Generation snoozing automation: ${res.data.result}`);
         } catch (e) {
             logger.log(e);
-        } finally {
-            logger.debug(`Entities found: ${JSON.stringify(entityIds)}`);
-            this.fetchedEntities = entityIds;
-
-            logger.log(`HA data fetched`);
         }
     }
 

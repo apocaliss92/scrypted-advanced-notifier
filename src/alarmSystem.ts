@@ -42,7 +42,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
             immediate: true,
         },
         autoCloseLocks: {
-            title: 'Automatically close open locks when araming',
+            title: 'Automatically close open locks when arming',
             description: 'If checked, locks will be automatically bypassed',
             type: 'boolean',
             defaultValue: true,

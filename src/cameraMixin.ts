@@ -485,7 +485,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 const isDetectionListenerRunning = !!this.detectionListener || !!this.motionListener;
 
-                const { entityId, checkOccupancy, checkSoundPressure, useFramesGenerator, notificationsEnabled } = this.storageSettings.values;
+                const { checkOccupancy, checkSoundPressure, useFramesGenerator, notificationsEnabled } = this.storageSettings.values;
 
                 // logger.log(JSON.stringify({ allDetectionRules, detectionRules }))
                 if (isActiveForMqttReporting) {
@@ -625,13 +625,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     await this.startAudioDetection();
                 }
                 this.isActiveForAudioDetections = shouldCheckAudio;
-
-
-                const { haEnabled } = this.plugin.storageSettings.values;
-
-                if (haEnabled && entityId && !this.plugin.fetchedEntities.includes(entityId)) {
-                    logger.debug(`Entity id ${entityId} does not exists on HA`);
-                }
 
                 if (!this.processDetectionsInterval) {
                     logger.log('Starting processing of accumulated detections');
@@ -933,13 +926,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
         if (this.storageSettings.settings.endTime) {
             this.storageSettings.settings.endTime.hide = !schedulerEnabled;
-        }
-
-        this.storageSettings.settings.entityId.onGet = async () => {
-            const entities = this.plugin.fetchedEntities;
-            return {
-                choices: entities ?? []
-            }
         }
     }
 

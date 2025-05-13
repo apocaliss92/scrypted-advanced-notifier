@@ -7,7 +7,7 @@ import sharp from 'sharp';
 import { name, scrypted } from '../package.json';
 import { AiPlatform, defaultModel } from "./aiUtils";
 import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detectionClasses";
-import AdvancedNotifierPlugin from "./main";
+import AdvancedNotifierPlugin, { PluginSettingKey } from "./main";
 const { endpointManager } = sdk;
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Notifier & Settings & ObjectDetector & VideoCamera & EntrySensor & Lock & BinarySensor & Reboot & PanTiltZoom & OnOff;
@@ -611,7 +611,6 @@ export const pluginRulesGroup = 'Rules';
 export type MixinBaseSettingKey =
     | 'info'
     | 'debug'
-    | 'entityId'
     | 'enabledToMqtt'
     | 'useNvrDetections'
     | 'minDelayTime'
@@ -645,7 +644,6 @@ export const getMixinBaseSettings = (props: {
         const { mixin, refreshSettings } = props;
         const device = sdk.systemManager.getDeviceById<ScryptedDeviceBase>(mixin.id);
         const { isCamera, isSensor, isNotifier } = isDeviceSupported(device);
-        const defaultEntityId = !isCamera ? device.nativeId.split(':')[1] : getDefaultEntityId(device.name);
 
         const settings: StorageSettingsDict<MixinBaseSettingKey> = {
             debug: {
@@ -663,12 +661,6 @@ export const getMixinBaseSettings = (props: {
         } as StorageSettingsDict<MixinBaseSettingKey>;
 
         if (isCamera || isSensor) {
-            settings.entityId = {
-                title: 'EntityID',
-                type: 'string',
-                defaultValue: defaultEntityId,
-                immediate: true,
-            };
             settings.useNvrDetections = {
                 title: 'Use NVR detections',
                 description: 'If enabled, the NVR notifications will be used (cropped images and more precise). If not raw detections will be used (snapshot will be roughlty taken at the beginning of the event) Make sure to extend the notifiers with this extension',
@@ -2407,7 +2399,7 @@ const initBasicRule = (props: {
 
 export const getDetectionRules = (props: {
     deviceStorage?: StorageSettings<any>,
-    pluginStorage: StorageSettings<any>,
+    pluginStorage: StorageSettings<PluginSettingKey>,
     device?: DeviceBase & StorageSettingsDevice,
     console: Console,
 }) => {
@@ -2420,7 +2412,7 @@ export const getDetectionRules = (props: {
     const deviceId = device?.id;
     const allDevices = getElegibleDevices().map(device => device.id);
 
-    const { activeDevicesForNotifications: onActiveDevices, securitySystem } = pluginStorage.values;
+    const { onActiveDevices, securitySystem } = pluginStorage.values;
 
     const { rulesKey } = ruleTypeMetadataMap[RuleType.Detection];
 
