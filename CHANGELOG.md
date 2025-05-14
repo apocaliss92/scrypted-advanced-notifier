@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.6.14
+
+- Add notification sound customization for Pushover
+
 ### 3.6.13
 
 - Add notification sound customization (currently only for HA notifiers) 

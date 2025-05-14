@@ -1734,6 +1734,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 timestamp: triggerTime,
                 url: !videoUrl ? externalUrl : videoUrl,
                 html: 1,
+                sound
             };
 
             if (allActions.length) {

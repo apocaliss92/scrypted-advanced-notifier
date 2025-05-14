@@ -1137,7 +1137,7 @@ export const getNotifierData = (props: {
     const snoozingDefault = pluginId !== PUSHOVER_PLUGIN_ID;
     const addCameraActionsDefault = pluginId !== PUSHOVER_PLUGIN_ID;
     const withSnoozing = isDetectionRule || isAudioRule;
-    const withSound = pluginId === HOMEASSISTANT_PLUGIN_ID;
+    const withSound = [PUSHOVER_PLUGIN_ID, HOMEASSISTANT_PLUGIN_ID].includes(pluginId);
 
     if (pluginId === HOMEASSISTANT_PLUGIN_ID) {
         priorityChoices.push(
