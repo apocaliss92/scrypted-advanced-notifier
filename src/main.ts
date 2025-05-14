@@ -61,6 +61,7 @@ export type PluginSettingKey =
     | 'testEventType'
     | 'testPriority'
     | 'testUseAi'
+    | 'testSound'
     | 'testBypassSnooze'
     | 'testAddSnoozing'
     | 'testAddActions'
@@ -241,6 +242,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             type: 'boolean',
             immediate: true,
             defaultValue: false
+        },
+        testSound: {
+            group: 'Test',
+            title: 'Sound',
+            type: 'string',
         },
         testBypassSnooze: {
             group: 'Test',
@@ -1647,8 +1653,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { notifierData } = rule ?? {};
         const notifierId = notifier.id;
         const cameraId = device?.id;
-        const { actions, priority, addSnooze, addCameraActions } = notifierData[notifierId] ?? {};
-        const { withActions, withSnoozing } = getNotifierData({ notifierId, ruleType: rule.ruleType });
+        const { actions, priority, addSnooze, addCameraActions, sound } = notifierData[notifierId] ?? {};
+        const { withActions, withSnoozing, withSound } = getNotifierData({ notifierId, ruleType: rule.ruleType });
         const cameraMixin = cameraId ? this.currentCameraMixinsMap[cameraId] : undefined;
         const notifierMixin = this.currentNotifierMixinsMap[notifierId];
         const { notifierActions, aiEnabled: cameraAiEnabled } = cameraMixin?.storageSettings.values ?? {}
@@ -1748,6 +1754,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 url: videoUrl ?? haUrl,
                 clickAction: videoUrl ?? haUrl,
                 video: videoUrl,
+                push: {
+                    sound: {
+                        name: withSound && sound ? sound : 'default'
+                    }
+                }
             };
 
             const haActions: any[] = [];
@@ -1779,15 +1790,20 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             payload.data.ha.actions = haActions;
 
             if (priority === NotificationPriority.High) {
-                payload.data.ha.push = {
-                    'interruption-level': 'critical',
-                    sound: {
-                        name: 'default',
-                        critical: 1,
-                        volume: 1.0
-                    }
+                payload.data.ha.push['interruption-level'] = 'critical';
+                payload.data.ha.push.sound = {
+                    ...payload.data.ha.push.sound,
+                    critical: 1,
+                    volume: 1.0
                 };
             }
+
+            // if (withSound) {
+            //     payload.data.ha.push.sound = {
+            //         ...payload.data.ha.push.sound,
+            //         sound,
+            //     };
+            // }
         } else if (notifier.pluginId === NTFY_PLUGIN_ID) {
             const ntfyActions: any[] = [{
                 action: 'view',
@@ -1978,6 +1994,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 eventType,
                 snoozeId,
                 forceAi,
+                logger,
             });
         } catch (e) {
             this.getLogger().log('Error in notifyCamera', e);
@@ -2000,6 +2017,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         device?: DeviceInterface,
         eventType?: DetectionEvent,
         forceAi?: boolean,
+        logger?: Console
     }) {
         const {
             title: titleParent,
@@ -2017,9 +2035,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             detection,
             eventType,
             forceAi,
+            logger: loggerParent
         } = props;
         const cameraMixin = this.currentCameraMixinsMap[device.id];
-        const logger = cameraMixin.getLogger();
+        const logger = loggerParent ?? cameraMixin.getLogger();
 
         let title = titleParent;
         if (!title) {
@@ -2069,8 +2088,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const testBypassSnooze = this.storageSettings.getItem('testBypassSnooze') as boolean;
         const testAddActions = this.storageSettings.getItem('testAddActions') as boolean;
         const testAddSnoozing = this.storageSettings.getItem('testAddSnoozing') as boolean;
+        const testSound = this.storageSettings.getItem('testSound') as string;
 
-        const logger = this.getLogger(testDevice);
+        const logger = this.getLogger();
 
         try {
             if (testDevice && testEventType && testNotifier) {
@@ -2080,7 +2100,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 const eventType = sensorType ?? testEventType;
                 const isDetection = isDetectionClass(testEventType);
 
-                logger.log(`Sending ${eventType} test notification to ${testNotifier.name} - ${testDevice.name} - ${testEventType} ${sensorType}`);
+                logger.log(`Sending ${eventType} test notification to ${testNotifier.name} - ${testDevice.name} - ${testEventType} ${sensorType} ${testSound}`);
 
                 const snoozeId = testBypassSnooze ? Math.random().toString(36).substring(2, 12) : undefined;
                 this.notifyCamera({
@@ -2100,6 +2120,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                                 actions: [],
                                 addSnooze: testAddSnoozing,
                                 addCameraActions: testAddActions,
+                                sound: testSound
                             }
                         },
                         useAi: testUseAi,

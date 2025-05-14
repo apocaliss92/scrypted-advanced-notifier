@@ -1137,6 +1137,7 @@ export const getNotifierData = (props: {
     const snoozingDefault = pluginId !== PUSHOVER_PLUGIN_ID;
     const addCameraActionsDefault = pluginId !== PUSHOVER_PLUGIN_ID;
     const withSnoozing = isDetectionRule || isAudioRule;
+    const withSound = pluginId === HOMEASSISTANT_PLUGIN_ID;
 
     if (pluginId === HOMEASSISTANT_PLUGIN_ID) {
         priorityChoices.push(
@@ -1171,7 +1172,8 @@ export const getNotifierData = (props: {
         withActions,
         snoozingDefault,
         withSnoozing,
-        addCameraActionsDefault
+        addCameraActionsDefault,
+        withSound,
     };
 };
 
@@ -1188,8 +1190,16 @@ export const getNotifierKeys = (props: {
     const priorityKey = `${prefix}:${ruleName}:${notifierId}:priority`;
     const addSnoozeKey = `${prefix}:${ruleName}:${notifierId}:addSnooze`;
     const addCameraActionsKey = `${prefix}:${ruleName}:${notifierId}:addCameraActions`;
+    const soundKey = `${prefix}:${ruleName}:${notifierId}:sound`;
 
-    return { actionsKey, priorityKey, addSnoozeKey, addCameraActionsKey, titleKey };
+    return {
+        actionsKey,
+        priorityKey,
+        addSnoozeKey,
+        addCameraActionsKey,
+        titleKey,
+        soundKey
+    };
 };
 
 const getNotifierSettings = (props: {
@@ -1202,9 +1212,9 @@ const getNotifierSettings = (props: {
 }) => {
     const { notifierId, ruleName, ruleType, group, subgroup, showMoreConfigurations } = props;
     const notifier = sdk.systemManager.getDeviceById(notifierId);
-    const { actionsKey, priorityKey, addSnoozeKey, addCameraActionsKey, titleKey } = getNotifierKeys({ notifierId, ruleName, ruleType });
+    const { actionsKey, priorityKey, addSnoozeKey, addCameraActionsKey, titleKey, soundKey } = getNotifierKeys({ notifierId, ruleName, ruleType });
 
-    const { priorityChoices, snoozingDefault, withActions, withSnoozing, addCameraActionsDefault } = getNotifierData({ notifierId, ruleType });
+    const { priorityChoices, snoozingDefault, withActions, withSnoozing, addCameraActionsDefault, withSound } = getNotifierData({ notifierId, ruleType });
 
     const titleSetting: StorageSetting = {
         key: titleKey,
@@ -1259,12 +1269,23 @@ const getNotifierSettings = (props: {
         defaultValue: addCameraActionsDefault,
         immediate: true
     };
+    const soundSetting: StorageSetting = {
+        key: soundKey,
+        title: `Notification sound`,
+        type: 'string',
+        group,
+        subgroup,
+        hide: !showMoreConfigurations,
+    };
     const settings = [titleSetting, prioritySetting, addCameraActionsSetting];
     if (withSnoozing) {
         settings.push(addSnoozeSetting);
     }
     if (withActions) {
         settings.push(actionsSetting);
+    }
+    if (withSound) {
+        settings.push(soundSetting);
     }
 
     return settings;
@@ -2232,6 +2253,7 @@ export interface BaseRule {
         priority: NotificationPriority,
         addSnooze: boolean,
         addCameraActions: boolean,
+        sound: string,
     }>;
 }
 
@@ -2327,17 +2349,19 @@ const initBasicRule = (props: {
     };
 
     for (const notifierId of notifiers) {
-        const { withActions, withSnoozing, snoozingDefault, addCameraActionsDefault } = getNotifierData({ notifierId, ruleType });
-        const { actionsKey, priorityKey, addSnoozeKey, addCameraActionsKey } = getNotifierKeys({ notifierId, ruleName, ruleType });
+        const { withActions, withSnoozing, snoozingDefault, addCameraActionsDefault, withSound } = getNotifierData({ notifierId, ruleType });
+        const { actionsKey, priorityKey, addSnoozeKey, addCameraActionsKey, soundKey } = getNotifierKeys({ notifierId, ruleName, ruleType });
         const actions = storage.getItem(actionsKey) as string[] ?? [];
         const priority = storage.getItem(priorityKey) as NotificationPriority;
         const addSnooze = withSnoozing ? storage.getItem(addSnoozeKey) ?? snoozingDefault : false;
+        const sound = withSound ? storage.getItem(soundKey) : undefined;
         const addCameraActions = storage.getItem(addCameraActionsKey) ?? addCameraActionsDefault;
         rule.notifierData[notifierId] = {
             actions: withActions ? actions.map(action => safeParseJson(action)) : [],
             priority,
             addSnooze,
             addCameraActions,
+            sound,
         };
     }
 
