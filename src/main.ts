@@ -1509,20 +1509,21 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     rule: rule as DetectionRule,
                 }).catch(e => logger.log(`Error on notifier ${notifier.name} `, e));
             }
-        } else if (rule.ruleType === RuleType.Timelapse) {
-            logger.debug(`Storing timelapse image for rule ${rule.name}: ${JSON.stringify({
-                timestamp: triggerTime,
-                id: this.id
-            })
-                } `);
-
-            this.storeTimelapseFrame({
-                imageMo: image,
-                timestamp: triggerTime,
-                device: cameraDevice,
-                rule: rule as TimelapseRule
-            }).catch(logger.log);
         }
+        //  else if (rule.ruleType === RuleType.Timelapse) {
+        //     logger.debug(`Storing timelapse image for rule ${rule.name}: ${JSON.stringify({
+        //         timestamp: triggerTime,
+        //         id: this.id
+        //     })
+        //         } `);
+
+        //     this.storeTimelapseFrame({
+        //         imageMo: image,
+        //         timestamp: triggerTime,
+        //         device: cameraDevice,
+        //         rule: rule as TimelapseRule
+        //     }).catch(logger.log);
+        // }
     };
 
     async getMixin(mixinDevice: any, mixinDeviceInterfaces: ScryptedInterface[], mixinDeviceState: WritableDeviceState): Promise<any> {

@@ -43,6 +43,12 @@ export interface ObserveZoneData {
 
 export interface MatchRule { match?: ObjectDetectionResult, rule: BaseRule, dataToReport?: any }
 
+export enum DecoderType {
+    Off = 'Off',
+    OnMotion = 'OnMotion',
+    Always = 'Always',
+}
+
 export enum DelayType {
     BasicDetection = 'BasicDetection',
     RuleImageUpdate = 'RuleImageUpdate',

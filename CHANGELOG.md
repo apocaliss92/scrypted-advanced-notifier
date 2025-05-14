@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.6.12
+
+- Decoder usage checkbox changed with a selection, Off, OnMotion (previous default), Always 
+
 ### 3.6.11
 
 - Quick actions added to alarm notifications
