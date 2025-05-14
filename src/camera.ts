@@ -131,8 +131,8 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
     }) {
         const logger = this.plugin.getLogger();
         const { videoclipUrl, ruleName } = props;
-        const { mainTimelapsePath } = this.plugin.getTimelapseFolder({ ruleName });
-        const thumbnailsPath = path.join(mainTimelapsePath, 'snapshots');
+        const { mainPath } = this.plugin.getTimelapseFolder({ ruleName });
+        const thumbnailsPath = path.join(mainPath, 'snapshots');
         let thumbnailMo: MediaObject;
 
         const filename = `${ruleName.replaceAll(' ', '')}_${videoclipUrl.split('/').pop().replace('.mp4', '.jpg')}`;

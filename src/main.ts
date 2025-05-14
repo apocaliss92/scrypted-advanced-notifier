@@ -1510,20 +1510,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 }).catch(e => logger.log(`Error on notifier ${notifier.name} `, e));
             }
         }
-        //  else if (rule.ruleType === RuleType.Timelapse) {
-        //     logger.debug(`Storing timelapse image for rule ${rule.name}: ${JSON.stringify({
-        //         timestamp: triggerTime,
-        //         id: this.id
-        //     })
-        //         } `);
-
-        //     this.storeTimelapseFrame({
-        //         imageMo: image,
-        //         timestamp: triggerTime,
-        //         device: cameraDevice,
-        //         rule: rule as TimelapseRule
-        //     }).catch(logger.log);
-        // }
     };
 
     async getMixin(mixinDevice: any, mixinDeviceInterfaces: ScryptedInterface[], mixinDeviceState: WritableDeviceState): Promise<any> {
@@ -2230,13 +2216,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
 
         const { ruleName } = props;
-        const mainTimelapsePath = path.join(imagesPath, 'timelapses');
-        const timelapsePath = path.join(mainTimelapsePath, ruleName);
+        const mainPath = path.join(imagesPath, 'timelapses');
+        const timelapsePath = path.join(mainPath, ruleName);
         const framesPath = path.join(timelapsePath, 'frames');
         const generatedPath = path.join(timelapsePath, 'generated');
 
         return {
-            mainTimelapsePath,
+            mainPath,
             timelapsePath,
             framesPath,
             generatedPath,
@@ -2255,7 +2241,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         let imageMo = imageMoParent;
 
         if (!imageMo) {
-            imageMo = (await (this.currentCameraMixinsMap[device.id])?.getImage({ reason: GetImageReason.RulesRefresh }))?.image;
+            return;
         }
 
         if (imagesPath && imageMo) {
@@ -2280,7 +2266,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { device, rule, logger } = props;
         try {
             logger.log(`Clearing frames for rule ${rule.name}.`);
-            this.clearFramesData({
+            this.clearTimelapseFrames({
                 device,
                 logger,
                 rule,
@@ -2290,7 +2276,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
     }
 
-    public clearFramesData = async (props: {
+    public clearTimelapseFrames = async (props: {
         rule: TimelapseRule,
         device: ScryptedDeviceBase,
         logger: Console
@@ -2361,6 +2347,66 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 logger.log('Error generating timelapse', e);
             }
         }
+    }
+
+    public getDetectionSessionPath = (props: {
+        device: ScryptedDeviceBase,
+    }) => {
+        let { imagesPath } = this.storageSettings.values;
+        if (!imagesPath) {
+            imagesPath = process.env.SCRYPTED_PLUGIN_VOLUME;
+        }
+
+        const { device } = props;
+        const mainPath = path.join(imagesPath, 'detectionSessions');
+        const detectionSessionPath = path.join(mainPath, device.name);
+        const framesPath = path.join(detectionSessionPath, 'frames');
+        const generatedPath = path.join(detectionSessionPath, 'generated');
+
+        return {
+            detectionSessionPath,
+            framesPath,
+            generatedPath,
+        };
+    }
+
+    public storeDetectionFrame = async (props: {
+        timestamp: number,
+        device: ScryptedDeviceBase,
+        imageMo: MediaObject
+    }) => {
+        const { timestamp, imageMo: imageMoParent, device } = props;
+        const { imagesPath } = this.storageSettings.values;
+
+        let imageMo = imageMoParent;
+
+        if (!imageMo) {
+            return;
+        }
+
+        if (imagesPath && imageMo) {
+            const { framesPath } = this.getDetectionSessionPath({ device });
+
+            try {
+                await fs.promises.access(framesPath);
+            } catch {
+                await fs.promises.mkdir(framesPath, { recursive: true });
+            }
+
+            const jpeg = await mediaManager.convertMediaObjectToBuffer(imageMo, 'image/jpeg');
+            await fs.promises.writeFile(path.join(framesPath, `${timestamp}.jpg`), jpeg);
+        }
+    }
+
+    public clearDetectionSessionFrames = async (props: {
+        device: ScryptedDeviceBase,
+        logger: Console
+    }) => {
+        const { device, logger } = props;
+        const { framesPath } = this.getDetectionSessionPath({ device });
+
+        await fs.promises.rm(framesPath, { recursive: true, force: true, maxRetries: 10 });
+        logger.log(`Folder ${framesPath} removed`);
     }
 }
 
