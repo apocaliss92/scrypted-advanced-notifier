@@ -639,7 +639,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 if (shouldActivateDecoder && this.frameGenerationStartTime && (now - this.frameGenerationStartTime) >= 1000 * 30) {
                     logger.log(`Restarting decoder`);
                     this.stopDecoder();
-                    await this.startDecoder();
                 }
 
                 const shouldCheckAudio = shouldListenAudio || checkSoundPressure;
