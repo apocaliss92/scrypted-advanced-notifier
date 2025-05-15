@@ -117,6 +117,7 @@ export const safeParseJson = <T = any>(maybeStringValue: string | object, fallba
 export const getWebooks = async () => {
     const lastSnapshot = 'snapshot';
     const haAction = 'haAction';
+    const detectionClipDownload = 'detectionClipDownload';
     const timelapseDownload = 'timelapseDownload';
     const timelapseStream = 'timelapseStream';
     const timelapseThumbnail = 'timelapseThumbnail';
@@ -133,6 +134,7 @@ export const getWebooks = async () => {
         snoozeNotification,
         postNotification,
         setAlarm,
+        detectionClipDownload,
     }
 }
 
@@ -146,7 +148,7 @@ export const getWebHookUrls = async (props: {
     console: Console,
     device?: ScryptedDeviceBase,
     rule?: TimelapseRule,
-    timelapseName?: string,
+    clipName?: string,
     snoozes?: number[],
     snoozeId?: string,
     snoozePlaceholder?: string,
@@ -156,7 +158,7 @@ export const getWebHookUrls = async (props: {
         console,
         rule,
         device,
-        timelapseName,
+        clipName,
         snoozes,
         snoozeId,
         snoozePlaceholder
@@ -170,6 +172,7 @@ export const getWebHookUrls = async (props: {
     let timelapseThumbnailUrl: string;
     let postNotificationUrl: string;
     let endpoint: string;
+    let detectionClipDownloadUrl: string;
 
     const snoozeActions: NotificationAction[] = [];
 
@@ -181,7 +184,7 @@ export const getWebHookUrls = async (props: {
         timelapseThumbnail,
         snoozeNotification,
         postNotification,
-        setAlarm,
+        detectionClipDownload,
     } = await getWebooks();
 
     try {
@@ -203,9 +206,11 @@ export const getWebHookUrls = async (props: {
         if (rule) {
             const encodedRuleName = encodeURIComponent(rule.name);
 
-            timelapseStreamUrl = `${cloudEndpoint}${timelapseStream}/${encodedId}/${encodedRuleName}/${timelapseName}${paramString}`;
-            timelapseDownloadUrl = `${cloudEndpoint}${timelapseDownload}/${encodedId}/${encodedRuleName}/${timelapseName}${paramString}`;
-            timelapseThumbnailUrl = `${cloudEndpoint}${timelapseThumbnail}/${encodedId}/${encodedRuleName}/${timelapseName}${paramString}`;
+            timelapseStreamUrl = `${cloudEndpoint}${timelapseStream}/${encodedId}/${encodedRuleName}/${clipName}${paramString}`;
+            timelapseDownloadUrl = `${cloudEndpoint}${timelapseDownload}/${encodedId}/${encodedRuleName}/${clipName}${paramString}`;
+            timelapseThumbnailUrl = `${cloudEndpoint}${timelapseThumbnail}/${encodedId}/${clipName}${paramString}`;
+
+            detectionClipDownloadUrl = `${cloudEndpoint}${detectionClipDownload}/${encodedId}/${encodedRuleName}/${clipName}${paramString}`;
         }
 
         if (snoozes) {
@@ -234,6 +239,7 @@ export const getWebHookUrls = async (props: {
         snoozeActions,
         postNotificationUrl,
         endpoint,
+        detectionClipDownloadUrl,
     };
 }
 
@@ -984,6 +990,7 @@ export const getRuleKeys = (props: {
     const detectionClassesKey = `${prefix}:${ruleName}:detecionClasses`;
     const nvrEventsKey = `${prefix}:${ruleName}:nvrEvents`;
     const useNvrDetectionsKey = `${prefix}:${ruleName}:useNvrDetections`;
+    const generateClipKey = `${prefix}:${ruleName}:generateClip`;
     const whitelistedZonesKey = `${prefix}:${ruleName}:whitelistedZones`;
     const blacklistedZonesKey = `${prefix}:${ruleName}:blacklistedZones`;
     const markDetectionsKey = `${prefix}:${ruleName}:markDetections`;
@@ -1043,6 +1050,7 @@ export const getRuleKeys = (props: {
         detection: {
             useNvrDetectionsKey,
             whitelistedZonesKey,
+            generateClipKey,
             blacklistedZonesKey,
             recordingTriggerSecondsKey,
             nvrEventsKey,
@@ -1569,6 +1577,7 @@ export const getDetectionRulesSettings = async (props: {
             plateMaxDistanceKey,
             platesKey,
             labelScoreKey,
+            generateClipKey,
         } = detection;
 
         const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean ?? false;
@@ -1586,6 +1595,20 @@ export const getDetectionRulesSettings = async (props: {
                 immediate: true
             }
         );
+
+        if (isCamera || isPlugin) {
+            settings.push(
+                {
+                    key: generateClipKey,
+                    title: 'Notify with a clip',
+                    description: 'Currently supported only by HA notifiers',
+                    type: 'boolean',
+                    group,
+                    subgroup,
+                    immediate: true
+                }
+            );
+        }
 
         if (showCameraSettings) {
             settings.push(
@@ -2269,6 +2292,7 @@ export interface DetectionRule extends BaseRule {
     plates?: string[];
     plateMaxDistance?: number;
     disableNvrRecordingSeconds?: number;
+    generateClip: boolean;
 }
 
 export const getMinutes = (date: Moment) => date.minutes() + (date.hours() * 60);
@@ -2497,12 +2521,14 @@ export const getDetectionRules = (props: {
                     plateMaxDistanceKey,
                     platesKey,
                     labelScoreKey,
+                    generateClipKey,
                 } } = getRuleKeys({
                     ruleType: RuleType.Detection,
                     ruleName: detectionRuleName,
                 });
 
             const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean;
+            const generateClip = storage.getItem(generateClipKey) as boolean;
             const markDetections = storage.getItem(markDetectionsKey) as boolean ?? false;
             const activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
             const customText = storage.getItem(textKey) as string || undefined;
@@ -2538,7 +2564,8 @@ export const getDetectionRules = (props: {
                 disableNvrRecordingSeconds,
                 minDelay,
                 minMqttPublishDelay,
-                isNvr: useNvrDetections
+                isNvr: useNvrDetections,
+                generateClip,
             };
 
             if (!isPlugin) {

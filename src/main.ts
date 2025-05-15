@@ -1,4 +1,4 @@
-import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, NotificationAction, Notifier, NotifierOptions, ObjectDetectionResult, PushHandler, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SecuritySystem, SecuritySystemMode, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, NotificationAction, Notifier, NotifierOptions, ObjectDetectionResult, PushHandler, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SecuritySystem, SecuritySystemMode, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
 import child_process from 'child_process';
@@ -10,6 +10,8 @@ import { BasePlugin, BaseSettingsKey, getBaseSettings, getMqttBasicClient } from
 import { getRpcData } from '../../scrypted-monitor/src/utils';
 import { name as pluginName, version } from '../package.json';
 import { AiPlatform, getAiMessage } from "./aiUtils";
+import { AdvancedNotifierAlarmSystem } from "./alarmSystem";
+import { haAlarmAutomation, haAlarmAutomationId } from "./alarmUtils";
 import { AdvancedNotifierCamera } from "./camera";
 import { AdvancedNotifierCameraMixin, OccupancyRuleData } from "./cameraMixin";
 import { DetectionClass } from "./detectionClasses";
@@ -18,26 +20,8 @@ import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getEventTextKey, GetImageReason, getNotifierData, getNowFriendlyDate, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImageSource, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TextSettingKey, TimelapseRule } from "./utils";
-import { AdvancedNotifierAlarmSystem } from "./alarmSystem";
-import { haAlarmAutomation, haAlarmAutomationId } from "./alarmUtils";
 
 const { systemManager, mediaManager } = sdk;
-
-interface NotifyCameraProps {
-    cameraDevice?: DeviceInterface,
-    triggerDevice: DeviceInterface,
-    notifierId: string,
-    snoozeId?: string,
-    time: number,
-    message?: string,
-    image?: MediaObject,
-    detection?: ObjectDetectionResult
-    eventType?: DetectionEvent,
-    rule?: DetectionRule,
-    source?: NotificationSource,
-    logger: Console,
-    forceAi?: boolean,
-}
 
 export type PluginSettingKey =
     | 'pluginEnabled'
@@ -526,6 +510,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 snoozeNotification,
                 postNotification,
                 setAlarm,
+                detectionClipDownload,
             } = await getWebooks();
             if (webhook === haAction) {
                 const { url, accessToken } = await this.getHaApiUrl();
@@ -713,7 +698,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 const logMessage = `Notifying image ${getB64ImageLog(imageUrl)} to notifier ${notifier.name} through camera ${camera.name}. timestamp ${timestamp}`;
                 logger.log(logMessage);
 
-                this.notifyCamera({
+                this.notifyDetection({
                     triggerDevice: camera,
                     notifierId: deviceIdOrAction,
                     time: timestamp,
@@ -727,6 +712,25 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 response.send(logMessage, {
                     code: 200,
                 });
+            } else if (webhook === detectionClipDownload) {
+                const decodedClipName = decodeURIComponent(timelapseNameOrSnoozeTime);
+                const device = systemManager.getDeviceById<ScryptedDeviceBase>(deviceIdOrAction);
+
+                const { generatedPath } = this.getDetectionSessionPath({
+                    device,
+                });
+
+                const clipPath = path.join(generatedPath, decodedClipName);
+                logger.debug(`Requesting detection clip ${decodedClipName} for download: ${JSON.stringify({
+                    generatedPath,
+                    timelapseName: timelapseNameOrSnoozeTime,
+                    decodedClipName,
+                    ruleName: ruleNameOrSnoozeIdOrSnapshotId,
+                    clipPath,
+                })}`);
+
+                response.sendFile(clipPath);
+                return;
             }
         } catch (e) {
             response.send(`${JSON.stringify(e)}, ${e.message}`, {
@@ -807,7 +811,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         return this.mqttClient;
     }
-
     getLogger(device?: ScryptedDeviceBase) {
         let logger = super.getLogger();
         if (device) {
@@ -1357,7 +1360,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { timelapseDownloadUrl } = await getWebHookUrls({
             console: logger,
             device: cameraDevice,
-            timelapseName,
+            clipName: timelapseName,
             rule,
         });
 
@@ -1473,7 +1476,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     public notifyDetectionEvent = async (props: {
         image?: MediaObject,
         match?: ObjectDetectionResult,
-        rule: BaseRule,
+        rule: DetectionRule,
         eventType: DetectionEvent,
         triggerDeviceId: string,
         triggerTime: number,
@@ -1490,31 +1493,46 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const cameraDevice = await this.getCameraDevice(triggerDevice);
         const logger = this.getLogger(cameraDevice);
 
-        if (rule.ruleType !== RuleType.Timelapse && rule.notifiers.length) {
-            logger.log(`${rule.notifiers.length} notifiers will be notified: ${JSON.stringify({ match, rule })} `);
+        logger.log(`${rule.notifiers.length} notifiers will be notified: ${JSON.stringify({ match, rule })} `);
+
+        if (rule.activationType === DetectionRuleActivation.AdvancedSecuritySystem) {
+            this.alarmSystem.onEventTrigger({ triggerDevice }).catch(logger.log);
         }
 
-        if (rule.ruleType === RuleType.Detection) {
-            if (rule.activationType === DetectionRuleActivation.AdvancedSecuritySystem) {
-                this.alarmSystem.onEventTrigger({ triggerDevice }).catch(logger.log);
-            }
+        let videoUrl: string;
 
-            for (const notifierId of rule.notifiers) {
-                const notifier = systemManager.getDeviceById<Settings & ScryptedDeviceBase>(notifierId);
+        if (rule.generateClip) {
+            const clipName = await this.generateDetectionSessionClip({
+                device: cameraDevice,
+                logger,
+                rule,
+                triggerTime
+            });
+            const { detectionClipDownloadUrl } = await getWebHookUrls({
+                console: logger,
+                device: cameraDevice,
+                clipName,
+                rule,
+            });
+            videoUrl = detectionClipDownloadUrl
+        }
 
-                this.notifyCamera({
-                    triggerDevice,
-                    cameraDevice,
-                    notifierId,
-                    time: triggerTime,
-                    image,
-                    detection: match,
-                    source: NotificationSource.DETECTION,
-                    eventType,
-                    logger,
-                    rule: rule as DetectionRule,
-                }).catch(e => logger.log(`Error on notifier ${notifier.name} `, e));
-            }
+        for (const notifierId of rule.notifiers) {
+            const notifier = systemManager.getDeviceById<Settings & ScryptedDeviceBase>(notifierId);
+
+            this.notifyDetection({
+                triggerDevice,
+                cameraDevice,
+                notifierId,
+                time: triggerTime,
+                image,
+                detection: match,
+                source: NotificationSource.DETECTION,
+                eventType,
+                logger,
+                rule: rule as DetectionRule,
+                videoUrl,
+            }).catch(e => logger.log(`Error on notifier ${notifier.name} `, e));
         }
     };
 
@@ -1933,7 +1951,22 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         return { payload, message, aiUsed };
     }
 
-    async notifyCamera(props: NotifyCameraProps) {
+    async notifyDetection(props: {
+        cameraDevice?: DeviceInterface,
+        triggerDevice: DeviceInterface,
+        notifierId: string,
+        snoozeId?: string,
+        time: number,
+        message?: string,
+        image?: MediaObject,
+        detection?: ObjectDetectionResult
+        eventType?: DetectionEvent,
+        rule?: DetectionRule,
+        source?: NotificationSource,
+        logger: Console,
+        forceAi?: boolean,
+        videoUrl?: string,
+    }) {
         try {
             const {
                 triggerDevice,
@@ -1949,6 +1982,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 eventType,
                 message,
                 forceAi,
+                videoUrl
             } = props;
 
             const device = cameraDevice ?? await this.getCameraDevice(triggerDevice);
@@ -1996,6 +2030,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 snoozeId,
                 forceAi,
                 logger,
+                videoUrl,
             });
         } catch (e) {
             this.getLogger().log('Error in notifyCamera', e);
@@ -2104,7 +2139,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 logger.log(`Sending ${eventType} test notification to ${testNotifier.name} - ${testDevice.name} - ${testEventType} ${sensorType} ${testSound}`);
 
                 const snoozeId = testBypassSnooze ? Math.random().toString(36).substring(2, 12) : undefined;
-                this.notifyCamera({
+                this.notifyDetection({
                     triggerDevice: testDevice,
                     notifierId: testNotifierId,
                     time: currentTime,
@@ -2124,6 +2159,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                                 sound: testSound
                             }
                         },
+                        generateClip: false,
                         useAi: testUseAi,
                         ruleType: RuleType.Detection,
                         markDetections: false,
@@ -2280,42 +2316,29 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
     }
 
-    public timelapseRuleStarted = async (props: {
-        rule: TimelapseRule,
-        logger: Console,
-        device: ScryptedDeviceBase,
-    }) => {
-        const { device, rule, logger } = props;
-        try {
-            logger.log(`Clearing frames for rule ${rule.name}.`);
-            this.clearTimelapseFrames({
-                device,
-                logger,
-                rule,
-            }).catch(logger.error);
-        } catch (e) {
-            logger.error(`Error starting timelapse rule ${rule.name}`, e);
-        }
-    }
-
     public clearTimelapseFrames = async (props: {
         rule: TimelapseRule,
         device: ScryptedDeviceBase,
         logger: Console
     }) => {
         const { rule, logger } = props;
-        const { framesPath } = this.getTimelapseFolder({ ruleName: rule.name });
+        logger.log(`Clearing frames for rule ${rule.name}.`);
+        try {
+            const { framesPath } = this.getTimelapseFolder({ ruleName: rule.name });
 
-        await fs.promises.rm(framesPath, { recursive: true, force: true, maxRetries: 10 });
-        logger.log(`Folder ${framesPath} removed`);
+            await fs.promises.rm(framesPath, { recursive: true, force: true, maxRetries: 10 });
+            logger.log(`Folder ${framesPath} removed`);
+        } catch (e) {
+            logger.error(`Error starting timelapse rule ${rule.name}`, e);
+        }
     }
 
-    public timelapseRuleEnded = async (props: {
+    public generateTimelapse = async (props: {
         rule: TimelapseRule,
         device: ScryptedDeviceBase,
         logger: Console,
     }) => {
-        const { device, rule, logger } = props;
+        const { rule, logger } = props;
         const { imagesPath } = this.storageSettings.values;
 
         if (imagesPath) {
@@ -2360,11 +2383,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 });
                 await once(cp, 'exit');
 
-                await this.notifyTimelapse({
-                    cameraDevice: device as DeviceInterface,
-                    timelapseName,
-                    rule
-                });
+                return timelapseName;
             } catch (e) {
                 logger.log('Error generating timelapse', e);
             }
@@ -2429,6 +2448,68 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         await fs.promises.rm(framesPath, { recursive: true, force: true, maxRetries: 10 });
         logger.log(`Folder ${framesPath} removed`);
+    }
+
+    public generateDetectionSessionClip = async (props: {
+        rule: TimelapseRule,
+        device: ScryptedDeviceBase,
+        logger: Console,
+        triggerTime: number,
+    }) => {
+        const { device, rule, logger, triggerTime } = props;
+        const { imagesPath } = this.storageSettings.values;
+
+        const minTime = triggerTime - (5 * 1000);
+
+        if (imagesPath) {
+            try {
+                const { detectionSessionPath, framesPath, generatedPath } = this.getDetectionSessionPath({ device });
+                const listPath = path.join(detectionSessionPath, 'file_list.txt');
+
+                const fileName = `${getNowFriendlyDate()}.mp4`;
+                const outputFile = path.join(generatedPath, fileName);
+
+                const files = await fs.promises.readdir(framesPath);
+                const fileListContent = files
+                    .sort((a, b) => parseInt(a) - parseInt(b))
+                    .filter(fileName => parseInt(fileName) > minTime)
+                    .map(file => `file '${path.join(framesPath, file)}'`)
+                    .join('\n');
+
+                await fs.promises.writeFile(listPath, fileListContent);
+
+                try {
+                    await fs.promises.access(generatedPath);
+                } catch {
+                    await fs.promises.mkdir(generatedPath, { recursive: true });
+                }
+
+                const ffmpegArgs = [
+                    '-loglevel', 'error',
+                    '-f', 'concat',
+                    '-safe', '0',
+                    '-r', `${10}`,
+                    '-i', listPath,
+                    '-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2',
+                    '-c:v', 'libx264',
+                    '-pix_fmt', 'yuv420p',
+                    '-y',
+                    outputFile
+                ];
+
+                logger.log(`Generating detection clip ${rule.name} with arguments: ${ffmpegArgs}`);
+
+                const cp = child_process.spawn(await sdk.mediaManager.getFFmpegPath(), ffmpegArgs, {
+                    stdio: 'inherit',
+                });
+                await once(cp, 'exit');
+
+                return fileName;
+
+            } catch (e) {
+                logger.log('Error generating timelapse', e);
+            }
+        }
     }
 }
 
