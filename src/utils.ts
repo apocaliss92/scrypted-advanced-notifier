@@ -82,7 +82,7 @@ export enum ImageSource {
 }
 
 export type IsDelayPassedProps =
-    { type: DelayType.DecoderFrameOnStorage, eventSource: ScryptedEventSource } |
+    { type: DelayType.DecoderFrameOnStorage, eventSource: ScryptedEventSource, timestamp: number } |
     { type: DelayType.BasicDetection, classname: string, label?: string, eventSource: ScryptedEventSource } |
     { type: DelayType.FsImageUpdate, filename: string, eventSource: ScryptedEventSource } |
     { type: DelayType.OccupancyNotification, matchRule: MatchRule, eventSource: ScryptedEventSource } |
@@ -990,12 +990,12 @@ export const getRuleKeys = (props: {
     const minMqttPublishDelayKey = `${prefix}:${ruleName}:minMqttPublishDelay`;
     const startRuleTextKey = `${prefix}:${ruleName}:startRuleText`;
     const endRuleTextKey = `${prefix}:${ruleName}:endRuleText`;
+    const generateClipKey = `${prefix}:${ruleName}:generateClip`;
 
     // Specific for detection rules
     const detectionClassesKey = `${prefix}:${ruleName}:detecionClasses`;
     const nvrEventsKey = `${prefix}:${ruleName}:nvrEvents`;
     const useNvrDetectionsKey = `${prefix}:${ruleName}:useNvrDetections`;
-    const generateClipKey = `${prefix}:${ruleName}:generateClip`;
     const whitelistedZonesKey = `${prefix}:${ruleName}:whitelistedZones`;
     const blacklistedZonesKey = `${prefix}:${ruleName}:blacklistedZones`;
     const markDetectionsKey = `${prefix}:${ruleName}:markDetections`;
@@ -1051,11 +1051,11 @@ export const getRuleKeys = (props: {
             minMqttPublishDelayKey,
             startRuleTextKey,
             endRuleTextKey,
+            generateClipKey,
         },
         detection: {
             useNvrDetectionsKey,
             whitelistedZonesKey,
-            generateClipKey,
             blacklistedZonesKey,
             recordingTriggerSecondsKey,
             nvrEventsKey,
@@ -1308,17 +1308,20 @@ export const getRuleSettings = (props: {
     ruleType: RuleType,
     storage: StorageSettings<any>,
     ruleSource: RuleSource,
+    device: DeviceBase,
     getSpecificRules: GetSpecificRules,
     refreshSettings: OnRefreshSettings,
     logger: Console
 }) => {
-    const { ruleType, storage, ruleSource, getSpecificRules, refreshSettings, logger } = props;
+    const { ruleType, storage, ruleSource, getSpecificRules, refreshSettings, device } = props;
     const isPlugin = ruleSource === RuleSource.Plugin;
     const group = isPlugin ? pluginRulesGroup : mixinRulesGroup;
     const settings: StorageSetting[] = [];
     const { rulesKey, subgroupPrefix } = ruleTypeMetadataMap[ruleType];
     const isDetectionRule = ruleType === RuleType.Detection;
+    const isOccupancyRule = ruleType === RuleType.Occupancy;
     const isAudioRule = ruleType === RuleType.Audio;
+    const { isCamera } = !isPlugin && device ? isDeviceSupported(device) : {};
 
     const rules = storage.getItem(rulesKey);
     for (const ruleName of rules) {
@@ -1338,6 +1341,7 @@ export const getRuleSettings = (props: {
                 disabledSensorsKey,
                 securitySystemModesKey,
                 aiEnabledKey,
+                generateClipKey,
             }
         } = getRuleKeys({ ruleName, ruleType });
 
@@ -1375,6 +1379,20 @@ export const getRuleSettings = (props: {
                 onPut: async () => await refreshSettings(),
             },
         );
+
+        if ((isCamera || isPlugin) && (isOccupancyRule || isDetectionRule)) {
+            settings.push(
+                {
+                    key: generateClipKey,
+                    title: 'Notify with a clip',
+                    description: 'Currently supported only by HA notifiers',
+                    type: 'boolean',
+                    group,
+                    subgroup,
+                    immediate: true
+                }
+            );
+        }
 
         if (isDetectionRule) {
             settings.push(
@@ -1582,7 +1600,6 @@ export const getDetectionRulesSettings = async (props: {
             plateMaxDistanceKey,
             platesKey,
             labelScoreKey,
-            generateClipKey,
         } = detection;
 
         const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean ?? false;
@@ -1600,20 +1617,6 @@ export const getDetectionRulesSettings = async (props: {
                 immediate: true
             }
         );
-
-        if (isCamera || isPlugin) {
-            settings.push(
-                {
-                    key: generateClipKey,
-                    title: 'Notify with a clip',
-                    description: 'Currently supported only by HA notifiers',
-                    type: 'boolean',
-                    group,
-                    subgroup,
-                    immediate: true
-                }
-            );
-        }
 
         if (showCameraSettings) {
             settings.push(
@@ -1825,6 +1828,7 @@ export const getDetectionRulesSettings = async (props: {
         storage,
         refreshSettings,
         logger,
+        device,
     });
 }
 
@@ -1906,9 +1910,10 @@ export const getOccupancyRulesSettings = async (props: {
     zones?: string[],
     ruleSource: RuleSource,
     refreshSettings: OnRefreshSettings,
-    logger: Console
+    logger: Console,
+    device: DeviceBase,
 }) => {
-    const { storage, zones, ruleSource, refreshSettings, logger } = props;
+    const { storage, zones, ruleSource, refreshSettings, logger, device } = props;
 
     const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup, showMore }) => {
         const settings: StorageSetting[] = [];
@@ -2044,7 +2049,8 @@ export const getOccupancyRulesSettings = async (props: {
         ruleType: RuleType.Occupancy,
         storage,
         refreshSettings,
-        logger
+        logger,
+        device,
     });
 }
 
@@ -2054,9 +2060,10 @@ export const getTimelapseRulesSettings = async (props: {
     onGenerateTimelapse: (ruleName: string) => Promise<void>,
     onCleanDataTimelapse: (ruleName: string) => Promise<void>,
     refreshSettings: OnRefreshSettings,
-    logger: Console
+    logger: Console,
+    device: DeviceBase,
 }) => {
-    const { storage, ruleSource, onCleanDataTimelapse, onGenerateTimelapse, refreshSettings, logger } = props;
+    const { storage, ruleSource, onCleanDataTimelapse, onGenerateTimelapse, refreshSettings, logger, device } = props;
 
     const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup, showMore }) => {
         const settings: StorageSetting[] = [];
@@ -2175,7 +2182,8 @@ export const getTimelapseRulesSettings = async (props: {
         ruleType: RuleType.Timelapse,
         storage,
         refreshSettings,
-        logger
+        logger,
+        device,
     });
 }
 
@@ -2183,9 +2191,10 @@ export const getAudioRulesSettings = async (props: {
     storage: StorageSettings<any>,
     ruleSource: RuleSource,
     refreshSettings: OnRefreshSettings,
-    logger: Console
+    logger: Console,
+    device: DeviceBase,
 }) => {
-    const { storage, ruleSource, refreshSettings, logger } = props;
+    const { storage, ruleSource, refreshSettings, logger, device } = props;
 
     const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup }) => {
         const settings: StorageSetting[] = [];
@@ -2243,7 +2252,8 @@ export const getAudioRulesSettings = async (props: {
         ruleType: RuleType.Audio,
         storage,
         refreshSettings,
-        logger
+        logger,
+        device,
     });
 }
 
@@ -2276,6 +2286,7 @@ export interface BaseRule {
     devices?: string[];
     startRuleText?: string;
     endRuleText?: string;
+    generateClip: boolean;
     notifierData: Record<string, {
         actions: NotificationAction[],
         priority: NotificationPriority,
@@ -2297,7 +2308,6 @@ export interface DetectionRule extends BaseRule {
     plates?: string[];
     plateMaxDistance?: number;
     disableNvrRecordingSeconds?: number;
-    generateClip: boolean;
 }
 
 export const getMinutes = (date: Moment) => date.minutes() + (date.hours() * 60);
@@ -2349,7 +2359,8 @@ const initBasicRule = (props: {
         enabledKey,
         notifiersKey,
         textKey,
-        aiEnabledKey
+        aiEnabledKey,
+        generateClipKey,
     } } = getRuleKeys({
         ruleType,
         ruleName,
@@ -2362,6 +2373,7 @@ const initBasicRule = (props: {
     const activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
     const securitySystemModes = storage.getItem(securitySystemModesKey) as SecuritySystemMode[] ?? [];
     const notifiers = storage.getItem(notifiersKey) as string[];
+    const generateClip = storage.getItem(generateClipKey) as boolean;
 
     const rule: BaseRule = {
         isEnabled,
@@ -2374,6 +2386,7 @@ const initBasicRule = (props: {
         activationType,
         source: ruleSource,
         securitySystemModes,
+        generateClip,
         notifierData: {},
     };
 
@@ -2527,14 +2540,12 @@ export const getDetectionRules = (props: {
                     plateMaxDistanceKey,
                     platesKey,
                     labelScoreKey,
-                    generateClipKey,
                 } } = getRuleKeys({
                     ruleType: RuleType.Detection,
                     ruleName: detectionRuleName,
                 });
 
             const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean;
-            const generateClip = storage.getItem(generateClipKey) as boolean;
             const markDetections = storage.getItem(markDetectionsKey) as boolean ?? false;
             const activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
             const customText = storage.getItem(textKey) as string || undefined;
@@ -2571,7 +2582,6 @@ export const getDetectionRules = (props: {
                 minDelay,
                 minMqttPublishDelay,
                 isNvr: useNvrDetections,
-                generateClip,
             };
 
             if (!isPlugin) {

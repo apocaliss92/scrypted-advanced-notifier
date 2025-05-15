@@ -740,8 +740,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 this.lastFrame = await sdk.mediaManager.createMediaObject(jpeg, 'image/jpeg');
                 this.lastFrameAcquired = now;
 
-                if (this.recordDetectionSessionFrames && this.isDelayPassed({ type: DelayType.DecoderFrameOnStorage, eventSource: ScryptedEventSource.Decoder })) {
-                    this.plugin.storeDetectionFrame({ device: this.cameraDevice, imageMo: frame.image, timestamp: now }).catch(logger.info);
+                if (this.recordDetectionSessionFrames && this.isDelayPassed({
+                    type: DelayType.DecoderFrameOnStorage,
+                    eventSource: ScryptedEventSource.Decoder,
+                    timestamp: frame.timestamp
+                })) {
+                    this.plugin.storeDetectionFrame({ device: this.cameraDevice, imageMo: this.lastFrame, timestamp: frame.timestamp }).catch(logger.info);
                 }
             }
         } else {
@@ -898,6 +902,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             ruleSource: RuleSource.Device,
             logger,
             refreshSettings: this.refreshSettings.bind(this),
+            device: this,
         });
         dynamicSettings.push(...occupancyRulesSettings);
 
@@ -905,6 +910,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             storage: this.storageSettings,
             ruleSource: RuleSource.Device,
             logger,
+            device: this,
             refreshSettings: this.refreshSettings.bind(this),
             onCleanDataTimelapse: async (ruleName) => {
                 const rule = this.availableTimelapseRules?.find(rule => rule.name === ruleName);
@@ -938,6 +944,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             storage: this.storageSettings,
             ruleSource: RuleSource.Device,
             logger,
+            device: this,
             refreshSettings: this.refreshSettings.bind(this),
         });
         dynamicSettings.push(...audioRulesSettings);
@@ -2152,7 +2159,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     for (const det of classnamesData) {
                         this.sessionDetectedClasses.add(detectionClassesDefaultMap[det.className]);
                     }
-                    this.plugin.storeDetectionFrame({ device: this.cameraDevice, imageMo: image, timestamp: triggerTime }).catch(logger.info);
+
+                    if (this.storageSettings.values.decoderUse === DecoderType.Off) {
+                        this.plugin.storeDetectionFrame({ device: this.cameraDevice, imageMo: image, timestamp: triggerTime }).catch(logger.info);
+                    }
                 }
 
                 logger.info(`Updating rules ${rulesToUpdate.map(rule => rule.rule.name).join(', ')} with image source ${imageSource}`);
@@ -2303,7 +2313,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             return timePassed;
         } else if (type === DelayType.DecoderFrameOnStorage) {
-            const timePassed = !this.lastDecoderFrameOnFs || (now - this.lastDecoderFrameOnFs) >= 500;
+            const { timestamp } = props;
+            const timePassed = !this.lastDecoderFrameOnFs || (timestamp - this.lastDecoderFrameOnFs) >= 500;
 
             if (timePassed) {
                 this.lastDecoderFrameOnFs = now;

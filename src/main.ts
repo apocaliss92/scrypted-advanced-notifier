@@ -1296,6 +1296,46 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         return undefined;
     }
 
+    async checkIfClipRequired(props: {
+        cb: (videoUrl?: string) => void,
+        rule: BaseRule
+        device: ScryptedDeviceBase,
+        logger: Console,
+        triggerTime: number,
+    }) {
+        const { cb, rule, device, logger, triggerTime } = props;
+
+        const prepareClip = async () => {
+            const clipName = await this.generateShortClip({
+                device,
+                logger,
+                rule,
+                triggerTime
+            });
+            const { detectionClipDownloadUrl } = await getWebHookUrls({
+                console: logger,
+                device,
+                clipName,
+                rule,
+            });
+
+            cb(detectionClipDownloadUrl);
+        }
+
+        if (rule.generateClip) {
+            const cameraMixin = this.currentCameraMixinsMap[device.id];
+            logger.log(`Starting clip recording for rule ${rule.name}`);
+            cameraMixin.sessionDetectionListeners[rule.name] = {
+                triggerTime,
+                notifyInterval: setTimeout(async () => {
+                    await prepareClip();
+                }, 1000 * 1.5)
+            }
+        } else {
+            cb();
+        }
+    }
+
     async notifyOccupancyEvent(props: {
         cameraDevice: DeviceInterface,
         triggerTime: number,
@@ -1304,6 +1344,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         occupancyData: OccupancyRuleData
     }) {
         const { cameraDevice, rule, triggerTime, image, occupancyData } = props;
+        const logger = this.getLogger(cameraDevice);
+        const cameraMixin = this.currentCameraMixinsMap[cameraDevice.id];
 
         let message = occupancyData.occupies ?
             rule.zoneOccupiedText :
@@ -1311,20 +1353,34 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         message = message.toString()
             .replace('${detectedObjects}', String(occupancyData.objectsDetected) ?? '')
-            .replace('${maxObjects}', String(rule.maxObjects) ?? '')
+            .replace('${maxObjects}', String(rule.maxObjects) ?? '');
 
-        for (const notifierId of rule.notifiers) {
-            const notifier = systemManager.getDeviceById<DeviceInterface>(notifierId);
+        const executeNotify = (videoUrl?: string) => {
+            logger.log(`${rule.notifiers.length} notifiers will be notified: ${JSON.stringify({ rule })} `);
 
-            await this.sendNotificationInternal({
-                notifier,
-                image,
-                message,
-                triggerTime,
-                device: cameraDevice,
-                rule,
-            });
+            for (const notifierId of rule.notifiers) {
+                const notifier = systemManager.getDeviceById<DeviceInterface>(notifierId);
+
+                this.sendNotificationInternal({
+                    notifier,
+                    image,
+                    message,
+                    triggerTime,
+                    device: cameraDevice,
+                    rule,
+                    videoUrl,
+                }).catch(logger.error);
+            }
         }
+
+        this.checkIfClipRequired({
+            cb: executeNotify,
+            device: cameraDevice,
+            logger,
+            rule,
+            triggerTime
+        });
+
     }
 
     async notifyAudioEvent(props: {
@@ -1499,9 +1555,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.alarmSystem.onEventTrigger({ triggerDevice }).catch(logger.log);
         }
 
-        let videoUrl: string;
-
-        const executeNotify = () => {
+        const executeNotify = (videoUrl?: string) => {
             logger.log(`${rule.notifiers.length} notifiers will be notified: ${JSON.stringify({ match, rule })} `);
 
             for (const notifierId of rule.notifiers) {
@@ -1527,47 +1581,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
         }
 
-        const prepareClip = async () => {
-            const clipName = await this.generateDetectionSessionClip({
-                device: cameraDevice,
-                logger,
-                rule,
-                triggerTime
-            });
-            const { detectionClipDownloadUrl } = await getWebHookUrls({
-                console: logger,
-                device: cameraDevice,
-                clipName,
-                rule,
-            });
-            videoUrl = detectionClipDownloadUrl
-
-            executeNotify();
-        }
-
-        if (rule.generateClip) {
-            const ruleData = cameraMixin.sessionDetectionListeners[rule.name];
-            const now = Date.now();
-            if (!ruleData) {
-                logger.log(`Starting clip recording for rule ${rule.name}`);
-                cameraMixin.sessionDetectionListeners[rule.name] = {
-                    triggerTime,
-                    notifyInterval: setTimeout(async () => {
-                        await prepareClip();
-                    }, 1000 * 3)
-                }
-            } else {
-                if (now - ruleData.triggerTime < 6 * 1000) {
-                    logger.log(`Prolonging clip recording for rule ${rule.name}`);
-                    clearTimeout(ruleData.notifyInterval);
-                    ruleData.notifyInterval = setTimeout(async () => {
-                        await prepareClip();
-                    }, 1000 * 3);
-                }
-            }
-        } else {
-            executeNotify();
-        }
+        this.checkIfClipRequired({
+            cb: executeNotify,
+            device: cameraDevice,
+            logger,
+            rule,
+            triggerTime
+        });
     };
 
     async getMixin(mixinDevice: any, mixinDeviceInterfaces: ScryptedInterface[], mixinDeviceState: WritableDeviceState): Promise<any> {
@@ -1784,7 +1804,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if (notifier.pluginId === PUSHOVER_PLUGIN_ID) {
             payload.data.pushover = {
                 timestamp: triggerTime,
-                url: !videoUrl ? externalUrl : videoUrl,
+                url: externalUrl,
                 html: 1,
                 sound
             };
@@ -1795,6 +1815,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     additionalMessageText += `<a href="${url}">${title}</a>\n`;
                 }
             }
+            if (videoUrl) {
+                additionalMessageText += `<a href="${videoUrl}">Clip</a>\n`;
+            }
 
             const priorityToUse = priority === NotificationPriority.High ? 1 :
                 priority === NotificationPriority.Normal ? 0 :
@@ -1804,8 +1827,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             payload.data.pushover.priority = priorityToUse;
         } else if (notifier.pluginId === HOMEASSISTANT_PLUGIN_ID) {
             payload.data.ha = {
-                url: videoUrl ?? haUrl,
-                clickAction: videoUrl ?? haUrl,
+                url: haUrl,
+                clickAction: haUrl,
                 video: videoUrl,
                 push: {
                     sound: {
@@ -1815,6 +1838,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             };
 
             const haActions: any[] = [];
+            if (videoUrl) {
+                haActions.push({
+                    action: `URI`,
+                    icon: 'sfsymbols:video.circle',
+                    title: 'Clip',
+                    uri: videoUrl,
+                });
+            }
             for (const { action, url, icon, title } of actionsToUse) {
                 const isUriAction = action === 'URI';
                 const urlToUse = isUriAction ? url : undefined;
@@ -2487,11 +2518,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         for (const filename of frames) {
             const filepath = path.join(framesPath, filename);
-            const fileStats = await fs.promises.stat(filepath);
-            const createdAt = fileStats.birthtime.getTime();
-            // const fileTimestamp = parseInt(filename);
+            // const fileStats = await fs.promises.stat(filepath);
+            // const createdAt = fileStats.birthtime.getTime();
+            const fileTimestamp = parseInt(filename);
 
-            if (createdAt < threshold) {
+            if (fileTimestamp < threshold) {
                 try {
                     await fs.promises.unlink(filepath);
                     removedFrames += 1;
@@ -2523,7 +2554,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         // logger.log(`${removedClips} old clips removed`);
     }
 
-    public generateDetectionSessionClip = async (props: {
+    public generateShortClip = async (props: {
         rule: TimelapseRule,
         device: ScryptedDeviceBase,
         logger: Console,
@@ -2532,7 +2563,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { device, rule, logger, triggerTime } = props;
         const { imagesPath } = this.storageSettings.values;
 
-        const minTime = triggerTime - (3 * 1000);
+        const minTime = triggerTime - (2 * 1000);
 
         if (imagesPath) {
             try {
@@ -2547,17 +2578,20 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 const files = await fs.promises.readdir(framesPath);
                 const filteredFiles = files
                     .sort((a, b) => parseInt(a) - parseInt(b))
-                    .filter(async (frameName) => {
-                        const filepath = path.join(framesPath, frameName);
-                        const fileStats = await fs.promises.stat(filepath);
-                        const createdAt = fileStats.birthtime.getTime();
+                    .filter(frameName => {
+                        const fileTimestamp = parseInt(frameName);
 
-                        if (createdAt < triggerTime) {
-                            preTriggerFrames++;
-                        } else {
-                            postTriggerFrames++;
+                        if (fileTimestamp > minTime) {
+                            if (fileTimestamp < triggerTime) {
+                                preTriggerFrames++;
+                            } else {
+                                postTriggerFrames++;
+                            }
+
+                            return true;
                         }
-                        return createdAt > minTime;
+
+                        return false;
                     })
                     .map(file => `file '${path.join(framesPath, file)}'`)
 
@@ -2584,7 +2618,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     outputFile
                 ];
 
-                logger.log(`Generating detection clip ${rule.name} with ${filteredFiles.length} total frames (${preTriggerFrames} pre and ${postTriggerFrames} post) and arguments: ${ffmpegArgs}`);
+                logger.log(`Generating detection clip ${rule.name} ${minTime} with ${filteredFiles.length} total frames (${preTriggerFrames} pre and ${postTriggerFrames} post) and arguments: ${ffmpegArgs}`);
 
                 const cp = child_process.spawn(await sdk.mediaManager.getFFmpegPath(), ffmpegArgs, {
                     stdio: 'inherit',
