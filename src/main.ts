@@ -2255,7 +2255,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     public getImagePath = (props: { imageIdentifier: string, device: ScryptedDeviceBase }) => {
         const { device, imageIdentifier } = props;
-        const { imagesPath } = this.storageSettings.values;
+        const imagesPath = this.getStoragePath();
         const savePath = path.join(imagesPath, device.name);
         const filePath = path.join(savePath, `${imageIdentifier}.jpg`);
 
@@ -2272,7 +2272,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         eventSource: ScryptedEventSource
     }) => {
         const { device, name, timestamp, b64Image, classname, label, eventSource } = props;
-        const { imagesPath, imagesRegex } = this.storageSettings.values;
+        const imagesPath = this.getStoragePath();
+        const { imagesRegex } = this.storageSettings.values;
         const logger = this.getLogger(device);
         const mixin = this.currentCameraMixinsMap[device.id];
 
@@ -2333,10 +2334,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     public getTimelapseFolder = (props: {
         ruleName: string,
     }) => {
-        let { imagesPath } = this.storageSettings.values;
-        if (!imagesPath) {
-            imagesPath = process.env.SCRYPTED_PLUGIN_VOLUME;
-        }
+        const imagesPath = this.getStoragePath();
 
         const { ruleName } = props;
         const mainPath = path.join(imagesPath, 'timelapses');
@@ -2358,8 +2356,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         device: ScryptedDeviceBase,
         imageMo: MediaObject
     }) => {
-        const { rule, timestamp, imageMo: imageMoParent, device } = props;
-        const { imagesPath } = this.storageSettings.values;
+        const { rule, timestamp, imageMo: imageMoParent } = props;
+        const imagesPath = this.getStoragePath();
 
         let imageMo = imageMoParent;
 
@@ -2404,7 +2402,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         logger: Console,
     }) => {
         const { rule, logger } = props;
-        const { imagesPath } = this.storageSettings.values;
+        const imagesPath = this.getStoragePath();
 
         if (imagesPath) {
             try {
@@ -2455,13 +2453,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
     }
 
+    public getStoragePath() {
+        const { imagesPath } = this.storageSettings.values;
+
+        return imagesPath || process.env.SCRYPTED_PLUGIN_VOLUME;
+    }
+
     public getDetectionSessionPath = (props: {
         device: ScryptedDeviceBase,
     }) => {
-        let { imagesPath } = this.storageSettings.values;
-        if (!imagesPath) {
-            imagesPath = process.env.SCRYPTED_PLUGIN_VOLUME;
-        }
+        const imagesPath = this.getStoragePath();
 
         const { device } = props;
         const mainPath = path.join(imagesPath, 'detectionSessions');
@@ -2482,7 +2483,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         imageMo: MediaObject
     }) => {
         const { timestamp, imageMo: imageMoParent, device } = props;
-        const { imagesPath } = this.storageSettings.values;
+        const imagesPath = this.getStoragePath();
 
         let imageMo = imageMoParent;
 
@@ -2561,7 +2562,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         triggerTime: number,
     }) => {
         const { device, rule, logger, triggerTime } = props;
-        const { imagesPath } = this.storageSettings.values;
+        const imagesPath = this.getStoragePath();
 
         const minTime = triggerTime - (2 * 1000);
 

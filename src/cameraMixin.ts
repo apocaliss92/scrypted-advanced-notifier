@@ -28,6 +28,7 @@ interface CurrentOccupancyState {
     b64Image: string;
     confirmedFrames: number;
     rejectedFrames: number;
+    referenceZone: ObserveZoneData;
 }
 
 const initOccupancyState: CurrentOccupancyState = {
@@ -39,6 +40,7 @@ const initOccupancyState: CurrentOccupancyState = {
     lastCheck: undefined,
     score: undefined,
     b64Image: undefined,
+    referenceZone: undefined,
 }
 
 export type OccupancyRuleData = {
@@ -1638,6 +1640,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 let objectsDetected = 0;
                 let maxScore = 0;
 
+                const zone = zonesData.find(zoneData => zoneData.name === observeZone);
                 for (const detection of detectedResult.detections) {
                     const className = detectionClassesDefaultMap[detection.className];
                     if (detection.score >= scoreThreshold && detectionClass === className) {
@@ -1645,7 +1648,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             maxScore = detection.score;
                         }
                         const boundingBoxInCoords = normalizeBox(detection.boundingBox, detectedResult.inputDimensions);
-                        const zone = zonesData.find(zoneData => zoneData.name === observeZone);
                         if (zone) {
                             let zoneMatches = false;
 
@@ -1666,7 +1668,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 const updatedState: CurrentOccupancyState = {
                     ...this.occupancyState[name] ?? {} as CurrentOccupancyState,
-                    score: maxScore
+                    score: maxScore,
+                    referenceZone: zone
                 };
 
                 this.occupancyState[name] = updatedState;

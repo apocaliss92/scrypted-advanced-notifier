@@ -68,7 +68,7 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
     }
 
     async getVideoClips(options?: VideoClipOptions): Promise<VideoClip[]> {
-        let { imagesPath } = this.plugin.storageSettings.values;
+        const imagesPath = this.plugin.getStoragePath();
         const timelapsesPath = path.join(imagesPath, 'timelapses');
 
         const videoClips: VideoClip[] = [];
