@@ -31,6 +31,7 @@ export const MAX_PENDING_RESULT_PER_CAMERA = 5;
 export const MAX_RPC_OBJECTS_PER_CAMERA = 50;
 
 export enum ScryptedEventSource {
+    Decoder = 'Decoder',
     RawDetection = 'RawDetection',
     NVR = 'NVR',
     Frigate = 'Frigate'
@@ -50,6 +51,7 @@ export enum DecoderType {
 }
 
 export enum DelayType {
+    DecoderFrameOnStorage = 'DecoderFrameOnStorage',
     BasicDetection = 'BasicDetection',
     RuleImageUpdate = 'RuleImageUpdate',
     RuleNotification = 'RuleNotification',
@@ -80,6 +82,7 @@ export enum ImageSource {
 }
 
 export type IsDelayPassedProps =
+    { type: DelayType.DecoderFrameOnStorage, eventSource: ScryptedEventSource } |
     { type: DelayType.BasicDetection, classname: string, label?: string, eventSource: ScryptedEventSource } |
     { type: DelayType.FsImageUpdate, filename: string, eventSource: ScryptedEventSource } |
     { type: DelayType.OccupancyNotification, matchRule: MatchRule, eventSource: ScryptedEventSource } |

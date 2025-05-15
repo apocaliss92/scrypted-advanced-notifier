@@ -2539,15 +2539,29 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 const { detectionSessionPath, framesPath, generatedPath } = this.getDetectionSessionPath({ device });
                 const listPath = path.join(detectionSessionPath, 'file_list.txt');
 
-                const fileName = `${getNowFriendlyDate()}.mp4`;
-                const outputFile = path.join(generatedPath, fileName);
+                const filename = `${getNowFriendlyDate()}.mp4`;
+                const outputFile = path.join(generatedPath, filename);
 
+                let preTriggerFrames = 0;
+                let postTriggerFrames = 0;
                 const files = await fs.promises.readdir(framesPath);
-                const fileListContent = files
+                const filteredFiles = files
                     .sort((a, b) => parseInt(a) - parseInt(b))
-                    .filter(fileName => parseInt(fileName) > minTime)
+                    .filter(async (frameName) => {
+                        const filepath = path.join(framesPath, frameName);
+                        const fileStats = await fs.promises.stat(filepath);
+                        const createdAt = fileStats.birthtime.getTime();
+
+                        if (createdAt < triggerTime) {
+                            preTriggerFrames++;
+                        } else {
+                            postTriggerFrames++;
+                        }
+                        return createdAt > minTime;
+                    })
                     .map(file => `file '${path.join(framesPath, file)}'`)
-                    .join('\n');
+
+                const fileListContent = filteredFiles.join('\n');
 
                 await fs.promises.writeFile(listPath, fileListContent);
 
@@ -2570,14 +2584,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     outputFile
                 ];
 
-                logger.log(`Generating detection clip ${rule.name} with arguments: ${ffmpegArgs}`);
+                logger.log(`Generating detection clip ${rule.name} with ${filteredFiles.length} total frames (${preTriggerFrames} pre and ${postTriggerFrames} post) and arguments: ${ffmpegArgs}`);
 
                 const cp = child_process.spawn(await sdk.mediaManager.getFFmpegPath(), ffmpegArgs, {
                     stdio: 'inherit',
                 });
                 await once(cp, 'exit');
 
-                return fileName;
+                return filename;
 
             } catch (e) {
                 logger.log('Error generating timelapse', e);

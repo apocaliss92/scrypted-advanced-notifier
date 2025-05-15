@@ -253,6 +253,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     lastRuleNotifiedMap: Record<string, number> = {};
     lastRulePublishedMap: Record<string, number> = {};
     lastImageUpdateOnFs: Record<string, number> = {};
+    lastDecoderFrameOnFs: number;;
     logger: Console;
     killed: boolean;
     framesGeneratorSignal = new Deferred<void>().resolve();
@@ -738,6 +739,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 });
                 this.lastFrame = await sdk.mediaManager.createMediaObject(jpeg, 'image/jpeg');
                 this.lastFrameAcquired = now;
+
+                if (this.recordDetectionSessionFrames && this.isDelayPassed({ type: DelayType.DecoderFrameOnStorage, eventSource: ScryptedEventSource.Decoder })) {
+                    this.plugin.storeDetectionFrame({ device: this.cameraDevice, imageMo: frame.image, timestamp: now }).catch(logger.info);
+                }
             }
         } else {
             logger.info('Streams generator not yet released');
@@ -2294,6 +2299,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             if (timePassed) {
                 this.lastImageUpdateOnFs[filename] = now;
+            }
+
+            return timePassed;
+        } else if (type === DelayType.DecoderFrameOnStorage) {
+            const timePassed = !this.lastDecoderFrameOnFs || (now - this.lastDecoderFrameOnFs) >= 500;
+
+            if (timePassed) {
+                this.lastDecoderFrameOnFs = now;
             }
 
             return timePassed;
