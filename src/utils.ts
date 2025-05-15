@@ -795,7 +795,8 @@ export const getActiveRules = async (
         allowedRules: allowedDetectionRules,
         availableRules: availableDetectionRules,
         anyAllowedNvrRule: anyAllowedNvrDetectionRule,
-        shouldListenDoorbell
+        shouldListenDoorbell,
+        recordDetectionSessionFrames,
     } = getDetectionRules({
         device,
         console,
@@ -870,6 +871,7 @@ export const getActiveRules = async (
         isActiveForMqttReporting,
         anyAllowedNvrDetectionRule,
         shouldListenDoorbell,
+        recordDetectionSessionFrames,
     }
 }
 
@@ -2487,6 +2489,7 @@ export const getDetectionRules = (props: {
     const allowedRules: DetectionRule[] = [];
     let anyAllowedNvrRule = false;
     let shouldListenDoorbell = false;
+    let recordDetectionSessionFrames = false;
 
     const deviceId = device?.id;
     const allDevices = getElegibleDevices().map(device => device.id);
@@ -2626,6 +2629,7 @@ export const getDetectionRules = (props: {
                 allowedRules.push(cloneDeep(detectionRule));
                 !anyAllowedNvrRule && (anyAllowedNvrRule = rule.isNvr);
                 !shouldListenDoorbell && (shouldListenDoorbell = detectionClasses.includes(DetectionClass.Doorbell));
+                !recordDetectionSessionFrames && (recordDetectionSessionFrames = detectionRule.generateClip);
             }
 
         }
@@ -2637,7 +2641,7 @@ export const getDetectionRules = (props: {
         processDetectionRules(deviceStorage, RuleSource.Device);
     }
 
-    return { availableRules, allowedRules, anyAllowedNvrRule, shouldListenDoorbell };
+    return { availableRules, allowedRules, anyAllowedNvrRule, shouldListenDoorbell, recordDetectionSessionFrames };
 }
 
 export interface OccupancyRule extends BaseRule {
