@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.6.15
+
+- Short GIF recording on detection/occupancy rules. Activate the `Notify with a clip` check to try it out. It will work very well with homeassistant notifiers
+
 ### 3.6.14
 
 - Add notification sound customization for Pushover
