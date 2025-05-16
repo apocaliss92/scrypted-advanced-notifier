@@ -1280,7 +1280,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
 
         const findFromDecoder = () => async () => {
-            const isRecent = forceDecoder || !this.lastFrameAcquired || (msPassedFromDecoder) <= 1000;
+            const isRecent = forceDecoder || !this.lastFrameAcquired || (msPassedFromDecoder) <= 500;
 
             if (decoderRunning && this.lastFrame && isRecent) {
                 image = this.lastFrame;
@@ -1323,9 +1323,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     ];
                 } else if (preferLatest) {
                     runners = [
+                        checkDecoder,
                         checkVeryRecent,
                         checkLatest,
-                        checkDecoder,
                         checkSnapshot,
                     ];
                 } else if (tryDetector) {
@@ -1366,12 +1366,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 imageSource,
                 imageFound: !!image
             };
-            if (reason !== GetImageReason.MotionUpdate) {
-                logger.info(`Image found from ${imageSource} for reason ${reason} msPassed ${imageSource === ImageSource.Decoder ? msPassedFromDecoder :
-                    imageSource === ImageSource.Snapshot ? msPassedFromSnapshot : 'NOT_DEFINED'
-                    }`);
-            }
-            logger.info(logPayload);
+            logger.info(`Image found from ${imageSource} for reason ${reason} lastSnapshotMs ${msPassedFromSnapshot} lastDecoderMs ${msPassedFromDecoder}`);
+            logger.debug(logPayload);
             if (!imageParent && image && b64Image) {
                 this.lastImage = image;
                 this.lastB64Image = b64Image;
