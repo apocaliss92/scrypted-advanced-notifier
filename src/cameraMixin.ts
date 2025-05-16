@@ -93,7 +93,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             description: 'If checked, the detections reported by the camera will be ignored. Make sure to have an object detector mixin enabled',
             type: 'boolean',
             immediate: true,
-            group: 'Advanced',
+            subgroup: 'Advanced',
         },
         notificationsEnabled: {
             title: 'Notifications enabled',
@@ -143,20 +143,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             description: 'Minimum amount of seconds to wait until a new snapshot is taken from the camera',
             type: 'number',
             defaultValue: 5,
-            group: 'Advanced',
+            subgroup: 'Advanced',
         },
         minMqttPublishDelay: {
             title: 'Minimum MQTT publish delay',
             description: 'Minimum amount of seconds to wait a new image is published to MQTT for the basic detections',
             type: 'number',
             defaultValue: 5,
-            group: 'Advanced',
+            subgroup: 'Advanced',
         },
         motionDuration: {
             title: 'Off motion duration',
             type: 'number',
             defaultValue: 10,
-            group: 'Advanced',
+            subgroup: 'Advanced',
         },
         checkOccupancy: {
             title: 'Check objects occupancy regularly',
@@ -197,7 +197,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             combobox: true,
             choices: [],
             defaultValue: 'Default',
-            group: 'Advanced',
+            subgroup: 'Advanced',
         },
         // WEBHOOKS
         lastSnapshotWebhook: {
