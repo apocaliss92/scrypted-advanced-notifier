@@ -2520,7 +2520,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         const frames = await fs.promises.readdir(framesPath);
         let removedFrames = 0;
-        logger.log(`${frames.length} frames found`);
 
         for (const filename of frames) {
             const filepath = path.join(framesPath, filename);
@@ -2537,7 +2536,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 }
             }
         }
-        logger.log(`${removedFrames} old frames removed`);
+        
+        logger.log(`Frames found ${frames.length}, removed ${removedFrames}`);
 
         // const clips = await fs.promises.readdir(generatedPath);
         // let removedClips = 0;
