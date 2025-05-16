@@ -726,7 +726,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             for await (const frame of
                 await sdk.connectRPCObject(
-                    await this.createFrameGenerator())) {
+                    await this.createFrameGenerator({}))) {
                 if (this.framesGeneratorSignal.finished) {
                     break;
                 }
@@ -1641,14 +1641,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 let maxScore = 0;
 
                 const zone = zonesData.find(zoneData => zoneData.name === observeZone);
-                for (const detection of detectedResult.detections) {
-                    const className = detectionClassesDefaultMap[detection.className];
-                    if (detection.score >= scoreThreshold && detectionClass === className) {
-                        if (!maxScore || detection.score > maxScore) {
-                            maxScore = detection.score;
-                        }
-                        const boundingBoxInCoords = normalizeBox(detection.boundingBox, detectedResult.inputDimensions);
-                        if (zone) {
+
+                if (zone) {
+                    for (const detection of detectedResult.detections) {
+                        const className = detectionClassesDefaultMap[detection.className];
+                        if (detection.score >= scoreThreshold && detectionClass === className) {
+                            if (!maxScore || detection.score > maxScore) {
+                                maxScore = detection.score;
+                            }
+                            const boundingBoxInCoords = normalizeBox(detection.boundingBox, detectedResult.inputDimensions);
                             let zoneMatches = false;
 
                             if (zoneType === ZoneMatchType.Intersect) {
@@ -1662,30 +1663,32 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             }
                         }
                     }
-                }
 
-                const occupies = ((maxObjects || 1) - objectsDetected) <= 0;
+                    const occupies = ((maxObjects || 1) - objectsDetected) <= 0;
 
-                const updatedState: CurrentOccupancyState = {
-                    ...this.occupancyState[name] ?? {} as CurrentOccupancyState,
-                    score: maxScore,
-                    referenceZone: zone
-                };
+                    const updatedState: CurrentOccupancyState = {
+                        ...this.occupancyState[name] ?? {} as CurrentOccupancyState,
+                        score: maxScore,
+                        referenceZone: zone
+                    };
 
-                this.occupancyState[name] = updatedState;
+                    this.occupancyState[name] = updatedState;
 
-                const existingRule = occupancyRulesDataTmpMap[name];
-                if (!existingRule) {
-                    occupancyRulesDataTmpMap[name] = {
-                        rule: occupancyRule,
-                        occupies,
-                        triggerTime: now,
-                        objectsDetected: objectsDetected,
-                        image,
-                        objectsDetectedResult: [detectedResult]
+                    const existingRule = occupancyRulesDataTmpMap[name];
+                    if (!existingRule) {
+                        occupancyRulesDataTmpMap[name] = {
+                            rule: occupancyRule,
+                            occupies,
+                            triggerTime: now,
+                            objectsDetected: objectsDetected,
+                            image,
+                            objectsDetectedResult: [detectedResult]
+                        }
+                    } else if (!existingRule.occupies && occupies) {
+                        existingRule.occupies = true;
                     }
-                } else if (!existingRule.occupies && occupies) {
-                    existingRule.occupies = true;
+                } else {
+                    logger.log(`Zone ${zone} for rule ${name} not found, skipping checks`);
                 }
             }
 
@@ -2839,10 +2842,19 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const libav = sdk.systemManager.getDeviceById('@scrypted/python-codecs', 'libav') || undefined;
         const ffmpeg = sdk.systemManager.getDeviceById(VIDEO_ANALYSIS_PLUGIN_ID, 'ffmpeg') || undefined;
         const use = pipelines.find(p => p.name === frameGenerator) || webassembly || gstreamer || libav || ffmpeg;
-        return use.id;
+
+        return {
+            pipelines: pipelines.map(item => item.name),
+            webassembly: webassembly?.name,
+            gstreamer: gstreamer?.name,
+            libav: libav?.name,
+            ffmpeg: ffmpeg?.name,
+            use,
+        };
     }
 
-    async createFrameGenerator(options?: VideoFrameGeneratorOptions): Promise<AsyncGenerator<VideoFrame, any, unknown>> {
+    async createFrameGenerator(options: VideoFrameGeneratorOptions): Promise<AsyncGenerator<VideoFrame, any, unknown>> {
+        const logger = this.getLogger();
         const destination: MediaStreamDestination = 'remote-recorder';
         // const destination: MediaStreamDestination = 'local-recorder';
         const model = await this.getDetectionModel();
@@ -2852,12 +2864,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             destination,
         });
 
+        const frameGeneratorData = await this.getFrameGenerator();
+
+        logger.info(`Camera decoder check: ${JSON.stringify({
+            model,
+            streamFound: !!stream,
+            destination,
+            frameGeneratorData,
+        })}`);
+
         if (model.decoder) {
             return stream as unknown as AsyncGenerator<VideoFrame, any, unknown>
         }
 
-        const frameGenerator = await this.getFrameGenerator();
-        const videoFrameGenerator = systemManager.getDeviceById<VideoFrameGenerator>(frameGenerator);
+        const videoFrameGenerator = systemManager.getDeviceById<VideoFrameGenerator>(frameGeneratorData.use?.id);
 
         // const videoFrameGenerator = sdk.systemManager.getDeviceById<VideoFrameGenerator>(VIDEO_ANALYSIS_PLUGIN_ID, 'ffmpeg');
 
