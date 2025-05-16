@@ -1306,20 +1306,25 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { cb, rule, device, logger, triggerTime } = props;
 
         const prepareClip = async () => {
-            const clipName = await this.generateShortClip({
+            const { filename: clipName, filteredFiles } = await this.generateShortClip({
                 device,
                 logger,
                 rule,
                 triggerTime
             });
-            const { detectionClipDownloadUrl } = await getWebHookUrls({
-                console: logger,
-                device,
-                clipName,
-                rule,
-            });
 
-            cb(detectionClipDownloadUrl);
+            if (filteredFiles.length) {
+                const { detectionClipDownloadUrl } = await getWebHookUrls({
+                    console: logger,
+                    device,
+                    clipName,
+                    rule,
+                });
+
+                cb(detectionClipDownloadUrl);
+            } else {
+                cb();
+            }
         }
 
         if (rule.generateClip) {
@@ -2596,37 +2601,41 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     })
                     .map(file => `file '${path.join(framesPath, file)}'`)
 
-                const fileListContent = filteredFiles.join('\n');
+                if (filteredFiles.length) {
+                    const fileListContent = filteredFiles.join('\n');
 
-                await fs.promises.writeFile(listPath, fileListContent);
+                    await fs.promises.writeFile(listPath, fileListContent);
 
-                try {
-                    await fs.promises.access(generatedPath);
-                } catch {
-                    await fs.promises.mkdir(generatedPath, { recursive: true });
+                    try {
+                        await fs.promises.access(generatedPath);
+                    } catch {
+                        await fs.promises.mkdir(generatedPath, { recursive: true });
+                    }
+
+                    const ffmpegArgs = [
+                        '-loglevel', 'error',
+                        '-f', 'concat',
+                        '-safe', '0',
+                        '-r', `${10}`,
+                        '-i', listPath,
+                        '-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2',
+                        '-c:v', 'libx264',
+                        '-pix_fmt', 'yuv420p',
+                        '-y',
+                        outputFile
+                    ];
+                    logger.log(`Generating detection clip ${rule.name} ${minTime} with ${filteredFiles.length} total frames (${preTriggerFrames} pre and ${postTriggerFrames} post) and arguments: ${ffmpegArgs}`);
+
+                    const cp = child_process.spawn(await sdk.mediaManager.getFFmpegPath(), ffmpegArgs, {
+                        stdio: 'inherit',
+                    });
+                    await once(cp, 'exit');
+                } else {
+                    logger.log(`Skipping ${rule.name} ${minTime} clip generation, no frames available`);
+
                 }
 
-                const ffmpegArgs = [
-                    '-loglevel', 'error',
-                    '-f', 'concat',
-                    '-safe', '0',
-                    '-r', `${10}`,
-                    '-i', listPath,
-                    '-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2',
-                    '-c:v', 'libx264',
-                    '-pix_fmt', 'yuv420p',
-                    '-y',
-                    outputFile
-                ];
-
-                logger.log(`Generating detection clip ${rule.name} ${minTime} with ${filteredFiles.length} total frames (${preTriggerFrames} pre and ${postTriggerFrames} post) and arguments: ${ffmpegArgs}`);
-
-                const cp = child_process.spawn(await sdk.mediaManager.getFFmpegPath(), ffmpegArgs, {
-                    stdio: 'inherit',
-                });
-                await once(cp, 'exit');
-
-                return filename;
+                return { filename, preTriggerFrames, postTriggerFrames, filteredFiles };
 
             } catch (e) {
                 logger.log('Error generating timelapse', e);

@@ -799,7 +799,6 @@ export const getActiveRules = async (
         availableRules: availableDetectionRules,
         anyAllowedNvrRule: anyAllowedNvrDetectionRule,
         shouldListenDoorbell,
-        recordDetectionSessionFrames,
     } = getDetectionRules({
         device,
         console,
@@ -853,6 +852,8 @@ export const getActiveRules = async (
         ...allowedTimelapseRules,
         ...allowedAudioRules,
     ];
+
+    const recordDetectionSessionFrames = allAllowedRules.some(rule => rule.generateClip);
 
     const shouldListenAudio = !!allowedAudioRules.length;
     const isActiveForMqttReporting = isPluginEnabled && isMqttActive && isDeviceEnabledToMqtt;
@@ -2505,7 +2506,7 @@ export const getDetectionRules = (props: {
     const allowedRules: DetectionRule[] = [];
     let anyAllowedNvrRule = false;
     let shouldListenDoorbell = false;
-    let recordDetectionSessionFrames = false;
+    let recordFrames = false;
 
     const deviceId = device?.id;
     const allDevices = getElegibleDevices().map(device => device.id);
@@ -2642,7 +2643,6 @@ export const getDetectionRules = (props: {
                 allowedRules.push(cloneDeep(detectionRule));
                 !anyAllowedNvrRule && (anyAllowedNvrRule = rule.isNvr);
                 !shouldListenDoorbell && (shouldListenDoorbell = detectionClasses.includes(DetectionClass.Doorbell));
-                !recordDetectionSessionFrames && (recordDetectionSessionFrames = detectionRule.generateClip);
             }
 
         }
@@ -2654,7 +2654,7 @@ export const getDetectionRules = (props: {
         processDetectionRules(deviceStorage, RuleSource.Device);
     }
 
-    return { availableRules, allowedRules, anyAllowedNvrRule, shouldListenDoorbell, recordDetectionSessionFrames };
+    return { availableRules, allowedRules, anyAllowedNvrRule, shouldListenDoorbell };
 }
 
 export interface OccupancyRule extends BaseRule {
@@ -2682,6 +2682,7 @@ export const getDeviceOccupancyRules = (
     const { deviceStorage, pluginStorage, device } = props;
     const availableRules: OccupancyRule[] = [];
     const allowedRules: OccupancyRule[] = [];
+    let recordFrames = false;
 
     const { securitySystem } = pluginStorage.values;
     const { rulesKey } = ruleTypeMetadataMap[RuleType.Occupancy];

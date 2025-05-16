@@ -2320,7 +2320,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             return timePassed;
         } else if (type === DelayType.DecoderFrameOnStorage) {
             const { timestamp } = props;
-            const timePassed = !this.lastDecoderFrameOnFs || (timestamp - this.lastDecoderFrameOnFs) >= 500;
+            const timePassed = !this.lastDecoderFrameOnFs || (timestamp - this.lastDecoderFrameOnFs) >= 200;
 
             if (timePassed) {
                 this.lastDecoderFrameOnFs = now;
