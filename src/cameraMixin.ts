@@ -662,14 +662,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
                 this.recordDetectionSessionFrames = recordDetectionSessionFrames;
 
-                const shouldActivateDecoder = decoderUse === DecoderType.Always;
-                if (shouldActivateDecoder && this.framesGeneratorSignal.finished) {
+                const shouldActivatePermanentDecoder = decoderUse === DecoderType.Always;
+                const shouldDeactivateDecoder = !shouldActivatePermanentDecoder && decoderUse !== DecoderType.OnMotion;
+                if (shouldActivatePermanentDecoder && this.framesGeneratorSignal.finished) {
                     await this.startDecoder();
-                } else if (!shouldActivateDecoder && !this.framesGeneratorSignal.finished) {
+                } else if (shouldDeactivateDecoder && !this.framesGeneratorSignal.finished) {
                     this.stopDecoder();
                 }
                 // Restart decoder every 30 seconds
-                if (shouldActivateDecoder && this.frameGenerationStartTime && (now - this.frameGenerationStartTime) >= 1000 * 30) {
+                if (shouldActivatePermanentDecoder && this.frameGenerationStartTime && (now - this.frameGenerationStartTime) >= 1000 * 30) {
                     logger.log(`Restarting decoder`);
                     this.stopDecoder();
                 }
