@@ -1730,7 +1730,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger,
             snoozeId: snoozeIdParent,
             forceAi,
-            videoSize,
+            videoSize = 0,
         } = props;
         const { notifierData } = rule ?? {};
         const notifierId = notifier.id;
