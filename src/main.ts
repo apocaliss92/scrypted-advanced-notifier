@@ -1434,8 +1434,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         const fileStats = await fs.promises.stat(timelapsePath);
         const sizeInBytes = fileStats.size;
-        const fileSizeInMegabytes = sizeInBytes / (1024 * 1024);
-        const isVideoValid = fileSizeInMegabytes < 50;
 
         for (const notifierId of (rule.notifiers ?? [])) {
             const notifier = systemManager.getDeviceById<DeviceInterface>(notifierId);
@@ -1444,7 +1442,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 notifier,
                 device: cameraDevice,
                 rule,
-                videoUrl: isVideoValid ? timelapseDownloadUrl : undefined,
+                videoUrl: timelapseDownloadUrl,
+                clickUrl: timelapseDownloadUrl,
+                videoSize: sizeInBytes,
             });
         }
     }
@@ -1705,6 +1705,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         triggerTime?: number,
         message?: string,
         videoUrl?: string,
+        clickUrl?: string,
         detection?: ObjectDetectionResult,
         device?: DeviceInterface,
         eventType?: DetectionEvent,
@@ -1712,6 +1713,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         logger: Console,
         snoozeId?: string,
         forceAi?: boolean,
+        videoSize?: number,
+        isVideoclip?: boolean,
     }) {
         const {
             notifier,
@@ -1719,6 +1722,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             triggerTime,
             device,
             videoUrl,
+            clickUrl,
             detection,
             eventType,
             message: messageParent,
@@ -1726,6 +1730,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger,
             snoozeId: snoozeIdParent,
             forceAi,
+            videoSize,
         } = props;
         const { notifierData } = rule ?? {};
         const notifierId = notifier.id;
@@ -1831,10 +1836,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             payload.data.pushover.priority = priorityToUse;
         } else if (notifier.pluginId === HOMEASSISTANT_PLUGIN_ID) {
+            const fileSizeInMegabytes = videoSize / (1024 * 1024);
+            const isVideoValid = fileSizeInMegabytes < 50;
+
             payload.data.ha = {
-                url: haUrl,
-                clickAction: haUrl,
-                video: videoUrl,
+                url: clickUrl ?? haUrl,
+                clickAction: clickUrl ?? haUrl,
+                video: isVideoValid ? videoUrl : undefined,
                 push: {
                     sound: {
                         name: withSound && sound ? sound : 'default'
@@ -1863,12 +1871,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
             if (addSnozeActions) {
                 for (const { data, title, } of snoozeActions) {
-                    // haActions.push({
-                    //     action: url ? 'URI' : action,
-                    //     uri: url,
-                    //     icon: 'sfsymbols:bell',
-                    //     title,
-                    // });
                     haActions.push({
                         action: `scrypted_an_snooze_${cameraId}_${notifierId}_${data}_${snoozeId}`,
                         icon: 'sfsymbols:bell',
@@ -1886,13 +1888,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     volume: 1.0
                 };
             }
-
-            // if (withSound) {
-            //     payload.data.ha.push.sound = {
-            //         ...payload.data.ha.push.sound,
-            //         sound,
-            //     };
-            // }
         } else if (notifier.pluginId === NTFY_PLUGIN_ID) {
             const ntfyActions: any[] = [{
                 action: 'view',
@@ -2119,6 +2114,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         triggerTime?: number,
         message?: string,
         videoUrl?: string,
+        clickUrl?: string,
+        videoSize?: number,
         detection?: ObjectDetectionResult,
         device?: DeviceInterface,
         eventType?: DetectionEvent,
@@ -2137,11 +2134,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             snoozeId,
             triggerTime,
             videoUrl,
+            clickUrl,
             message: messageParent,
             detection,
             eventType,
             forceAi,
-            logger: loggerParent
+            logger: loggerParent,
+            videoSize,
         } = props;
         const cameraMixin = this.currentCameraMixinsMap[device.id];
         const logger = loggerParent ?? cameraMixin.getLogger();
@@ -2164,6 +2163,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             message: messageParent,
             snoozeId,
             forceAi,
+            videoSize,
+            clickUrl,
         });
 
         const notifierOptions: NotifierOptions = {
@@ -2536,7 +2537,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 }
             }
         }
-        
+
         logger.log(`Frames found ${frames.length}, removed ${removedFrames}`);
 
         // const clips = await fs.promises.readdir(generatedPath);

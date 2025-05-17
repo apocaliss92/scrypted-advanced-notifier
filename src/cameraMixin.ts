@@ -936,11 +936,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 if (rule) {
                     const device = systemManager.getDeviceById<DeviceInterface>(this.id);
-                    this.plugin.generateTimelapse({
+                    const timelapseName = await this.plugin.generateTimelapse({
                         rule,
                         device,
                         logger,
-                    }).catch(logger.log);
+                    });
+                    await this.plugin.notifyTimelapse({
+                        cameraDevice: this.cameraDevice,
+                        timelapseName,
+                        rule
+                    });
                 }
             },
         });
@@ -2330,10 +2335,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const isFromFrigate = eventSource === ScryptedEventSource.Frigate;
         const isRawDetection = eventSource === ScryptedEventSource.RawDetection;
         const logger = this.getLogger();
-        const { timestamp: triggerTime, detections, detectionId } = detect;
-        const { eventId } = eventDetails ?? {};
+        const { timestamp: triggerTime, detections } = detect;
         const { useNvrDetectionsForMqtt } = this.plugin.storageSettings.values;
         const canUpdateMqttImage = (isFromNvr && useNvrDetectionsForMqtt) || isFromFrigate;
+
+        if (isFromFrigate) {
+            logger.log(`Frigate event received: ${JSON.stringify({ detect, eventDetails })}`);
+        }
 
         if (!detections?.length) {
             return;
