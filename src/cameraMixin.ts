@@ -485,7 +485,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 await this.storageSettings.putSetting(lastGeneratedKey, now);
                                 this.timelapseLastGenerated[rule.name] = now;
 
-                                const timelapseName = await this.plugin.generateTimelapse({
+                                const { fileName } = await this.plugin.generateTimelapse({
                                     rule,
                                     device: this.cameraDevice,
                                     logger,
@@ -493,7 +493,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                                 await this.plugin.notifyTimelapse({
                                     cameraDevice: this.cameraDevice,
-                                    timelapseName,
+                                    timelapseName: fileName,
                                     rule
                                 });
                             }
@@ -936,14 +936,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 if (rule) {
                     const device = systemManager.getDeviceById<DeviceInterface>(this.id);
-                    const timelapseName = await this.plugin.generateTimelapse({
+                    const { fileName } = await this.plugin.generateTimelapse({
                         rule,
                         device,
                         logger,
                     });
                     await this.plugin.notifyTimelapse({
                         cameraDevice: this.cameraDevice,
-                        timelapseName,
+                        timelapseName: fileName,
                         rule
                     });
                 }

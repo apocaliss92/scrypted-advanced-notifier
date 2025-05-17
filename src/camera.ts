@@ -1,33 +1,18 @@
 
-import sdk, { Camera, MediaObject, PictureOptions, RequestPictureOptions, ResponsePictureOptions, VideoCamera, VideoClip, VideoClipOptions, VideoClips, VideoClipThumbnailOptions } from '@scrypted/sdk';
+import sdk, { Camera, MediaObject, PictureOptions, RequestPictureOptions, ResponsePictureOptions, ScryptedDeviceBase, VideoCamera, VideoClip, VideoClipOptions, VideoClips, VideoClipThumbnailOptions } from '@scrypted/sdk';
 import fs from 'fs';
 import path from 'path';
-import url from 'url';
 import { CameraBase } from '../../scrypted/plugins/ffmpeg-camera/src/common';
 import { UrlMediaStreamOptions } from '../../scrypted/plugins/rtsp/src/rtsp';
 import { ffmpegFilterImage, ffmpegFilterImageBuffer } from '../../scrypted/plugins/snapshot/src/ffmpeg-image-filter';
 import AdvancedNotifierPlugin from './main';
-import { getWebooks } from './utils';
+import { BaseRule, getWebHookUrls } from './utils';
 
 export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> implements Camera, VideoCamera, VideoClips {
     picture: Promise<MediaObject>;
 
     constructor(nativeId: string, private plugin: AdvancedNotifierPlugin) {
         super(nativeId, null);
-    }
-
-    async getVideoclipWebhookUrls(filename: string) {
-        const cloudEndpoint = await sdk.endpointManager.getCloudEndpoint(undefined, { public: true });
-        const [endpoint, parameters] = cloudEndpoint.split('?') ?? '';
-        const params = {
-            filename,
-        };
-        const { timelapseStream, timelapseThumbnail } = await getWebooks();
-
-        const videoclipUrl = `${endpoint}${timelapseStream}?params=${JSON.stringify(params)}&${parameters}`;
-        const thumbnailUrl = `${endpoint}${timelapseThumbnail}?params=${JSON.stringify(params)}&${parameters}`;
-
-        return { videoclipUrl, thumbnailUrl };
     }
 
     getfont() {
@@ -39,22 +24,37 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
     }
 
     async takeSmartCameraPicture(options?: PictureOptions): Promise<MediaObject> {
-        const fontFile = this.getfont();
+        const logger = this.plugin.getLogger();
+        try {
+            if (!this.picture) {
+                const mo = await sdk.mediaManager.createMediaObjectFromUrl('https://nvr.scrypted.app/img/scrypted/240x135-000000ff.png');
+                const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
+                const buf = await ffmpegFilterImageBuffer(jpeg, {
+                    ffmpegPath: await sdk.mediaManager.getFFmpegPath(),
+                    blur: true,
+                    brightness: -.2,
+                    text: {
+                        fontFile: undefined,
+                        text: 'Advanced notifier clips',
+                    },
+                    timeout: 10000,
+                });
+                // const buf = await ffmpegFilterImage([
+                //     '-f', 'lavfi',
+                //     '-i', 'color=black:size=1920x1080',
+                // ], {
+                //     ffmpegPath: await sdk.mediaManager.getFFmpegPath(),
+                //     text: {
+                //         fontFile: undefined,
+                //         text: 'Advanced notifier clips',
+                //     },
+                //     timeout: 10000,
+                // });
 
-        if (!this.picture) {
-            const buf = await ffmpegFilterImage([
-                '-f', 'lavfi',
-                '-i', 'color=black:size=1920x1080',
-            ], {
-                ffmpegPath: await sdk.mediaManager.getFFmpegPath(),
-                text: {
-                    fontFile,
-                    text: 'Advanced notifier clips',
-                },
-                timeout: 10000,
-            });
-
-            this.picture = this.createMediaObject(buf, 'image/jpeg');
+                this.picture = this.createMediaObject(buf, 'image/jpeg');
+            }
+        } catch (e) {
+            logger.log('Error in takeSmartCameraPicture', e);
         }
 
         return this.picture;
@@ -68,153 +68,109 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
     }
 
     async getVideoClips(options?: VideoClipOptions): Promise<VideoClip[]> {
-        const imagesPath = this.plugin.getStoragePath();
-        const timelapsesPath = path.join(imagesPath, 'timelapses');
-
         const videoClips: VideoClip[] = [];
-        const ruleFolders = await fs.promises.readdir(timelapsesPath);
 
-        for (const ruleFolder of ruleFolders) {
-            const ruleDir = path.join(timelapsesPath, ruleFolder)
-            const stats = await fs.promises.stat(ruleDir);
-            if (stats.isDirectory() && ruleFolder !== 'snapshots') {
-                const generateddDir = path.join(ruleDir, 'generated');
-                const clips = await fs.promises.readdir(generateddDir);
+        const imagesPath = this.plugin.getStoragePath();
+        const cameraFolders = await fs.promises.readdir(imagesPath);
 
-                for (const clipName of clips) {
-                    const [filename, extension] = clipName.split('.');
-                    if (extension === 'mp4') {
-                        const [_, timestampString] = filename.split('_');
-                        const timestamp = Number(timestampString);
+        const logger = this.plugin.getLogger();
+        for (const cameraFolder of cameraFolders) {
+            const cameraDevice = sdk.systemManager.getDeviceByName<ScryptedDeviceBase>(cameraFolder);
+            const { rulesPath } = this.plugin.getRulePaths({ cameraName: cameraFolder });
 
-                        if (timestamp > options.startTime && timestamp < options.endTime) {
-                            const filePath = path.join(generateddDir, clipName);
-                            const { thumbnailUrl, videoclipUrl } = await this.getVideoclipWebhookUrls(filePath);
+            try {
+                await fs.promises.access(rulesPath);
+                const rulesFolder = await fs.promises.readdir(rulesPath);
 
-                            videoClips.push({
-                                id: filename,
-                                startTime: timestamp,
-                                duration: 30,
-                                event: 'timelapse',
-                                thumbnailId: filePath,
-                                videoId: filePath,
-                                resources: {
-                                    thumbnail: {
-                                        href: thumbnailUrl
-                                    },
-                                    video: {
-                                        href: videoclipUrl
+                for (const ruleFolder of rulesFolder) {
+                    const { generatedPath } = this.plugin.getRulePaths({
+                        cameraName: cameraFolder,
+                        ruleName: ruleFolder
+                    });
+
+                    const files = await fs.promises.readdir(generatedPath);
+
+                    for (const file of files) {
+                        const [fileName, extension] = file.split('.');
+                        if (extension === 'mp4') {
+                            const timestamp = Number(fileName);
+
+                            if (timestamp > options.startTime && timestamp < options.endTime) {
+                                const { fileId } = this.plugin.getRulePaths({
+                                    cameraName: cameraFolder,
+                                    fileName,
+                                    ruleName: ruleFolder
+                                });
+                                const { timelapseStreamUrl, timelapseThumbnailUrl } = await getWebHookUrls({
+                                    device: cameraDevice,
+                                    rule: { name: ruleFolder } as BaseRule,
+                                    clipName: fileName
+                                });
+
+                                videoClips.push({
+                                    id: fileName,
+                                    startTime: timestamp,
+                                    duration: 30,
+                                    event: 'timelapse',
+                                    thumbnailId: fileId,
+                                    videoId: fileId,
+                                    resources: {
+                                        thumbnail: {
+                                            href: timelapseThumbnailUrl
+                                        },
+                                        video: {
+                                            href: timelapseStreamUrl
+                                        }
                                     }
-                                }
-                            });
+                                });
+                            }
                         }
                     }
                 }
-            }
+            } catch { }
         }
 
         return videoClips;
     }
 
-    async getVideoClip(videoId: string): Promise<MediaObject> {
+    async getVideoClip(fileId: string): Promise<MediaObject> {
         const logger = this.plugin.getLogger();
-        logger.debug('Fetching videoId ', videoId);
-        const fileURLToPath = url.pathToFileURL(videoId).toString();
+        logger.log('Fetching videoId ', fileId);
+
+        const [cameraName, ruleName, fileName] = fileId.split('_');
+        const { videoclipPath } = this.plugin.getRulePaths({
+            cameraName,
+            fileName,
+            ruleName
+        });
+
+        const fileURLToPath = `file://${videoclipPath}`
         const videoclipMo = await sdk.mediaManager.createMediaObjectFromUrl(fileURLToPath);
 
         return videoclipMo;
     }
 
-    async getThumbnailMediaObject(props: {
-        videoclipUrl: string,
-        ruleName: string,
-    }) {
+    async getVideoClipThumbnail(fileId: string, options?: VideoClipThumbnailOptions): Promise<MediaObject> {
         const logger = this.plugin.getLogger();
-        const { videoclipUrl, ruleName } = props;
-        const { mainPath } = this.plugin.getTimelapseFolder({ ruleName });
-        const thumbnailsPath = path.join(mainPath, 'snapshots');
-        let thumbnailMo: MediaObject;
 
-        const filename = `${ruleName.replaceAll(' ', '')}_${videoclipUrl.split('/').pop().replace('.mp4', '.jpg')}`;
-        const thumbnailPath = path.join(thumbnailsPath, filename);
         try {
-            try {
-                await fs.promises.access(thumbnailsPath);
-            } catch (err) {
-                await fs.promises.mkdir(thumbnailsPath, { recursive: true });
-            }
+            const [cameraName, ruleName, fileName] = fileId.split('_');
+            const { snapshotPath } = this.plugin.getRulePaths({
+                cameraName,
+                fileName,
+                ruleName
+            });
+            logger.log('Fetching thumbnailId ', fileId, cameraName, ruleName, fileName, snapshotPath);
 
-            try {
-                await fs.promises.access(thumbnailPath);
-                const stats = await fs.promises.stat(thumbnailPath);
-                if (stats.size === 0) {
-                    logger.log(`Thumbnail ${thumbnailPath} corrupted, removing.`);
-                    await fs.promises.rm(thumbnailPath, { force: true, recursive: true, maxRetries: 10 });
-                }
-            } catch {
-                logger.log(`Thumbnail not found in ${thumbnailPath}, generating.`);
+            const fileURLToPath = `file://${snapshotPath}`;
+            const thumbnailMo = await sdk.mediaManager.createMediaObjectFromUrl(fileURLToPath);
+            const buf = await sdk.mediaManager.convertMediaObjectToBuffer(thumbnailMo, 'image/jpeg');
+            const mo = await sdk.mediaManager.createMediaObject(buf, 'image/jpeg')
 
-                const mo = await sdk.mediaManager.createFFmpegMediaObject({
-                    inputArguments: [
-                        '-ss', '00:00:05',
-                        '-i', videoclipUrl,
-                    ],
-                });
-                const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
-                const fontFile = this.getfont();
-                const buf = await ffmpegFilterImageBuffer(jpeg, {
-                    ffmpegPath: await sdk.mediaManager.getFFmpegPath(),
-                    blur: true,
-                    brightness: -.2,
-                    text: {
-                        fontFile,
-                        text: ruleName,
-                    },
-                    timeout: 10000,
-                });
-
-
-                if (jpeg.length) {
-                    logger.log(`Saving thumbnail in ${thumbnailPath}`);
-                    await fs.promises.writeFile(thumbnailPath, buf);
-                } else {
-                    logger.log('Not saving, image is corrupted');
-                }
-            }
-
-            try {
-                await fs.promises.access(thumbnailPath);
-                const fileURLToPath = url.pathToFileURL(thumbnailPath).toString();
-                thumbnailMo = await sdk.mediaManager.createMediaObjectFromUrl(fileURLToPath);
-            } catch { }
-
-            return { thumbnailMo };
+            return mo;
         } catch (e) {
-            logger.error(`Error retrieving thumbnail of videoclip ${videoclipUrl}`, e);
-            try {
-                await fs.promises.access(thumbnailPath);
-                await fs.promises.rm(thumbnailPath, { force: true, recursive: true, maxRetries: 10 });
-            } catch { }
-
-            return {};
+            logger.log('Error in getVideoClipThumbnail', fileId, e);
         }
-    }
-
-    async getVideoClipThumbnail(thumbnailId: string, options?: VideoClipThumbnailOptions): Promise<MediaObject> {
-        const logger = this.plugin.getLogger();
-        logger.debug('Fetching thumbnailId ', thumbnailId);
-
-
-        const reg = new RegExp('(.*)\/(.*)\/generated\/(.*)');
-        const result = reg.exec(thumbnailId);
-        const ruleName = result[2];
-
-        const { thumbnailMo } = await this.getThumbnailMediaObject({
-            videoclipUrl: thumbnailId,
-            ruleName,
-        });
-
-        return thumbnailMo;
     }
 
     removeVideoClips(...videoClipIds: string[]): Promise<void> {

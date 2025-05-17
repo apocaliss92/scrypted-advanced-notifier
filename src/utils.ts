@@ -148,7 +148,7 @@ export const isDetectionRule = (rule: BaseRule) => [
 
 export const getWebHookUrls = async (props: {
     cameraIdOrAction?: string,
-    console: Console,
+    console?: Console,
     device?: ScryptedDeviceBase,
     rule?: TimelapseRule,
     clipName?: string,
@@ -211,7 +211,7 @@ export const getWebHookUrls = async (props: {
 
             timelapseStreamUrl = `${cloudEndpoint}${timelapseStream}/${encodedId}/${encodedRuleName}/${clipName}${paramString}`;
             timelapseDownloadUrl = `${cloudEndpoint}${timelapseDownload}/${encodedId}/${encodedRuleName}/${clipName}${paramString}`;
-            timelapseThumbnailUrl = `${cloudEndpoint}${timelapseThumbnail}/${encodedId}/${clipName}${paramString}`;
+            timelapseThumbnailUrl = `${cloudEndpoint}${timelapseThumbnail}/${encodedId}/${encodedRuleName}/${clipName}${paramString}`;
 
             detectionClipDownloadUrl = `${cloudEndpoint}${detectionClipDownload}/${encodedId}/${encodedRuleName}/${clipName}${paramString}`;
         }
@@ -229,7 +229,7 @@ export const getWebHookUrls = async (props: {
             }
         }
     } catch (e) {
-        console.log('Error fetching webhookUrls. Probably Cloud plugin is not setup correctly', e.message);
+        console?.log('Error fetching webhookUrls. Probably Cloud plugin is not setup correctly', e.message);
     }
 
     return {
@@ -3079,11 +3079,6 @@ export const addBoundingBoxesToImage = async (props: {
 //         return null;
 //     }
 // }
-
-export const getNowFriendlyDate = () => {
-    const now = new Date();
-    return `${now.getDate()}-${now.getMonth()}-${now.getFullYear()}_${now.getTime()}`;
-}
 
 export const getAllDevices = () => {
     return Object.keys(sdk.systemManager.getSystemState()).map(id => sdk.systemManager.getDeviceById(id));
