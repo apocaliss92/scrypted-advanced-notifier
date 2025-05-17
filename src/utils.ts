@@ -2465,7 +2465,7 @@ const initBasicRule = (props: {
     if (isAdvancedSecuritySystem) {
         securitySystemDevice = sdk.systemManager.getDeviceById<SecuritySystem>(
             ADVANCED_NOTIFIER_INTERFACE,
-            ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE
+            ALARM_SYSTEM_NATIVE_ID
         );
     } else if (securitySystemDeviceId) {
         securitySystemDevice = sdk.systemManager.getDeviceById<SecuritySystem>(securitySystemDeviceId);
