@@ -1826,7 +1826,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 }
             }
             if (videoUrl) {
-                additionalMessageText += `<a href="${videoUrl}">Clip</a>\n`;
+                additionalMessageText += '\n' + `<a href="${videoUrl}">Clip</a>\n`;
             }
 
             const priorityToUse = priority === NotificationPriority.High ? 1 :
