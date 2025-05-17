@@ -598,6 +598,10 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                 notifiersToUse = Array.from(notifiersSet);
             }
 
+            if (!notifiersToUse.length) {
+              notifiersToUse = notifiers;
+            }
+
             let additionalMessageText = '';
 
             for (const notifierId of notifiersToUse) {
