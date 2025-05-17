@@ -734,20 +734,19 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             } else if (webhook === detectionClipDownload) {
                 const device = systemManager.getDeviceById<ScryptedDeviceBase>(deviceIdOrAction);
 
-                const { generatedPath } = this.getShortClipPaths({
+                const { videoclipPath } = this.getShortClipPaths({
                     device,
+                    fileName: decodedTimelapseNameOrSnoozeTime
                 });
 
-                const clipPath = path.join(generatedPath, decodedRuleNameOrSnoozeIdOrSnapshotId);
                 logger.debug(`Requesting detection clip ${decodedRuleNameOrSnoozeIdOrSnapshotId} for download: ${JSON.stringify({
-                    generatedPath,
+                    videoclipPath,
                     timelapseName: timelapseNameOrSnoozeTime,
                     decodedRuleNameOrSnoozeIdOrSnapshotId,
                     ruleName: ruleNameOrSnoozeIdOrSnapshotId,
-                    clipPath,
                 })}`);
 
-                response.sendFile(clipPath);
+                response.sendFile(videoclipPath);
                 return;
             }
         } catch (e) {
