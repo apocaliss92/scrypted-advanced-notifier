@@ -486,6 +486,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             deviceIdOrAction,
             ruleNameOrSnoozeIdOrSnapshotId,
             timelapseNameOrSnoozeTime,
+            filename,
+            params,
         })}`);
 
         let nvrSnoozeId: string;
