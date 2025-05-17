@@ -588,7 +588,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
             let notifiersToUse = notifiers;
             if (useRuleNotifiers) {
                 const notifiersSet = new Set<string>();
-                for (const rule of this.activeRules) {
+                for (const rule of (this.activeRules ?? [])) {
                     for (const notifierId of rule.notifiers) {
                         notifiersSet.add(notifierId);
                         notifierPriority[notifierId] = rule.notifierData[notifierId]?.priority;
