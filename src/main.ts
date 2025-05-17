@@ -1814,7 +1814,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if (notifier.pluginId === PUSHOVER_PLUGIN_ID) {
             payload.data.pushover = {
                 timestamp: triggerTime,
-                url: externalUrl,
+                url: clickUrl ?? externalUrl,
                 html: 1,
                 sound
             };
