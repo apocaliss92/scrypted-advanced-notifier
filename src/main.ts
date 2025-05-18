@@ -14,13 +14,12 @@ import { AdvancedNotifierAlarmSystem } from "./alarmSystem";
 import { haAlarmAutomation, haAlarmAutomationId } from "./alarmUtils";
 import { AdvancedNotifierCamera } from "./camera";
 import { AdvancedNotifierCameraMixin, OccupancyRuleData } from "./cameraMixin";
-import { DetectionClass } from "./detectionClasses";
+import { DetectionClass, isFaceClassname, isLabelDetection } from "./detectionClasses";
 import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_NAME, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getEventTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImageSource, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TextSettingKey, TimelapseRule } from "./utils";
-import url from 'url';
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_NAME, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImageSource, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TextSettingKey, TimelapseRule } from "./utils";
 import { ffmpegFilterImageBuffer } from "../../scrypted/plugins/snapshot/src/ffmpeg-image-filter";
 
 const { systemManager, mediaManager } = sdk;
@@ -57,9 +56,6 @@ export type PluginSettingKey =
     | 'aiPlatform'
     | 'imagesPath'
     | 'imagesRegex'
-    | 'cleanup340'
-    | 'texts3412'
-    | 'eventsChanged350'
     | BaseSettingsKey
     | TextSettingKey;
 
@@ -169,6 +165,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             group: pluginRulesGroup,
             type: 'string',
             multiple: true,
+            immediate: true,
             combobox: true,
             choices: [],
             defaultValue: [],
@@ -304,18 +301,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             defaultValue: '${name}',
             placeholder: '${name}',
         },
-        cleanup340: {
-            type: 'boolean',
-            hide: true,
-        },
-        texts3412: {
-            type: 'boolean',
-            hide: true,
-        },
-        eventsChanged350: {
-            type: 'boolean',
-            hide: true,
-        },
     };
     storageSettings = new StorageSettings(this, this.initStorage);
 
@@ -339,6 +324,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     knownPeople: string[] = [];
     restartRequested = false;
     public aiMessageResponseMap: Record<string, string> = {};
+    frigateLabels: string[];
+    lastFrigateDataFetched: number;
 
     constructor(nativeId: string) {
         super(nativeId, {
@@ -365,32 +352,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const serverUrl = settings.find(setting => setting.key === 'serverUrl')?.value as string;
             logger.log(`Frigate API found ${serverUrl}`);
             this.frigateApi = serverUrl;
+            const { frigateLabels } = await this.getFrigateData();
+            logger.log(`Frigate labels found ${frigateLabels}`);
         }
 
         const [major, minor, patch] = version.split('.').map(num => parseInt(num, 10));
-
-        if (major === 3 && minor >= 4 && !this.storageSettings.values.cleanup340) {
-            const basePath = process.env.SCRYPTED_PLUGIN_VOLUME;
-            const snapshotsFolder = path.join(basePath, 'snapshots');
-
-            try {
-                await fs.promises.rm(snapshotsFolder, { force: true, recursive: true });
-                logger.log('Old snapshots folder cleaned up');
-                this.storageSettings.values.cleanup340 = true;
-            } catch (e) {
-                logger.error(e);
-            }
-        }
-
-        if (major === 3 && minor === 4 && patch >= 12 && !this.storageSettings.values.texts3412) {
-            logger.log('Texts building has been reworked. Check Texts section to fill any missing');
-            this.storageSettings.values.texts3412 = true;
-        }
-
-        if (major === 3 && minor === 5 && patch >= 0 && !this.storageSettings.values.eventsChanged350) {
-            logger.log('Sensors have been reworked, check rules where they were enabled, they need to be selected again');
-            this.storageSettings.values.eventsChanged350 = true;
-        }
 
         await sdk.deviceManager.onDeviceDiscovered(
             {
@@ -477,8 +443,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     async start() {
         try {
-            await this.refreshSettings();
             await this.init();
+            await this.refreshSettings();
             await this.mainFlow();
 
             this.mainFlowInterval = setInterval(async () => {
@@ -807,6 +773,34 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         } catch (e) {
             this.getLogger().log('Error in getKnownPeople', e.message);
             return [];
+        }
+    }
+
+    async getFrigateData() {
+        try {
+            const now = new Date().getTime();
+
+            if (!this.frigateApi) {
+                return {};
+            }
+
+            let labels: string[];
+            const isUpdated = this.lastFrigateDataFetched && (now - this.lastFrigateDataFetched) <= (1000 * 60);
+
+            if (this.frigateLabels && isUpdated) {
+                labels = this.frigateLabels;
+            } else {
+                const response = await axios.get<any>(`${this.frigateApi}/labels`);
+                labels = (response.data ?? []).filter(label => label !== 'person');
+                this.frigateLabels = labels;
+            }
+
+            this.lastFrigateDataFetched = now;
+
+            return { frigateLabels: labels };
+        } catch (e) {
+            this.getLogger().log('Error in getObserveZones', e.message);
+            return {};
         }
     }
 
@@ -1250,11 +1244,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const logger = this.getLogger();
         const dynamicSettings: StorageSetting[] = [];
         const people = (await this.getKnownPeople());
+        const { frigateLabels } = await this.getFrigateData();
 
         const detectionRulesSettings = await getDetectionRulesSettings({
             storage: this.storageSettings,
             ruleSource: RuleSource.Plugin,
             logger,
+            frigateLabels,
             people,
             refreshSettings: async () => await this.refreshSettings(),
         });
@@ -1264,6 +1260,18 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger,
             onRefresh: async () => await this.refreshSettings(),
         }));
+
+        frigateLabels.forEach(label => {
+            dynamicSettings.push({
+                key: getFrigateTextKey(label),
+                group: 'Texts',
+                subgroup: 'Frigate labels',
+                title: `${label} text`,
+                type: 'string',
+                defaultValue: label,
+                placeholder: label,
+            });
+        });
 
         dynamicSettings.push(...detectionRulesSettings);
 
@@ -1730,11 +1738,17 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
     ) {
         const { detection, detectionTime, notifierId, device, externalUrl, rule, eventType } = props;
-        const { label } = detection ?? {};
+        const { label: labelRaw } = detection ?? {};
+
+        let label = labelRaw;
+        if (!isLabelDetection(detection.className)) {
+            const labelAttemptKey = getFrigateTextKey(labelRaw);
+            label = this.getTextKey({ notifierId, textKey: labelAttemptKey }) ?? label;
+        }
 
         const roomName = device?.room;
 
-        const { key, subKey } = getEventTextKey({ eventType });
+        const { key, subKey } = getEventTextKey({ eventType, hasLabel: !!label });
 
         const textToUse = rule?.customText || this.getTextKey({ notifierId, textKey: key });
         const subkeyText = subKey ? this.getTextKey({ notifierId, textKey: subKey }) : undefined;
@@ -2558,7 +2572,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 '-safe', '0',
                 '-r', `${rule.timelapseFramerate}`,
                 '-i', listPath,
-                '-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2',
+                // '-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2',
+                '-vf', "scale='min(1280,iw)':-2,pad=ceil(iw/2)*2:ceil(ih/2)*2",
                 '-c:v', 'libx264',
                 '-pix_fmt', 'yuv420p',
                 '-y',

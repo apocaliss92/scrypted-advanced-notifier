@@ -337,6 +337,11 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
                 const { device } = await this.plugin.getLinkedCamera(this.id);
 
+                if (!device) {
+                    logger.log(`There is no camera linked to this device`);
+                    return;
+                }
+
                 const mixinDevice = this.plugin.currentCameraMixinsMap[device.id];
 
                 if (!this.runningDetectionRules.length || !mixinDevice) {

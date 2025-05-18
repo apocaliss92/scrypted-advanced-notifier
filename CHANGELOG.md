@@ -1,6 +1,15 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.7.0
+- Add full support to Frigate detections, in combination with `Scrypted Frigate Bridge` will be possible to import frigate events into scrypted and use this plugin fully with them. Particularly interesting audio classifications and bird classification (untested, will need some test data). Snapshots are as well imported from Frigate, videoclips for accelerated GIFs will be coming soon
+- Motion reporting to MQTT reduced drastically to 5 seconds
+- Audio detection rules deprecated, will be integrated soon in the detection rules
+- Restructure of FS folders, old timelapses will be lost due to technical reasons
+- Decoder usage changed, if any rule requires a videoclip will be permanent. If enabled on the camera for snapshots will be run only when motion is triggered
+- Fix annoying MQTT bug where switch/buttons were persisted on the broker and would change state of entities randomly. Plugin will remove automatically those messages
+- Add setting to alarm system for critical notifications on trigger
+
 ### 3.6.15
 
 - Short GIF recording on detection/occupancy rules. Activate the `Notify with a clip` check to try it out. It will work very well with homeassistant notifiers

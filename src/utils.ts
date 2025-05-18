@@ -51,7 +51,8 @@ export enum DecoderType {
 
 export enum DelayType {
     DecoderFrameOnStorage = 'DecoderFrameOnStorage',
-    BasicDetection = 'BasicDetection',
+    BasicDetectionImage = 'BasicDetectionImage',
+    BasicDetectionTrigger = 'BasicDetectionTrigger',
     RuleImageUpdate = 'RuleImageUpdate',
     RuleNotification = 'RuleNotification',
     OccupancyNotification = 'OccupancyNotification',
@@ -84,7 +85,8 @@ export enum ImageSource {
 
 export type IsDelayPassedProps =
     { type: DelayType.DecoderFrameOnStorage, eventSource: ScryptedEventSource, timestamp: number } |
-    { type: DelayType.BasicDetection, classname: string, label?: string, eventSource: ScryptedEventSource } |
+    { type: DelayType.BasicDetectionImage, classname: string, label?: string, eventSource: ScryptedEventSource } |
+    { type: DelayType.BasicDetectionTrigger, classname: string, label?: string, eventSource: ScryptedEventSource  } |
     { type: DelayType.FsImageUpdate, filename: string, eventSource: ScryptedEventSource } |
     { type: DelayType.OccupancyNotification, matchRule: MatchRule, eventSource: ScryptedEventSource } |
     { type: DelayType.PostWebhookImage, classname: string, eventSource: ScryptedEventSource } |
@@ -287,7 +289,7 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
             if (subtitle.includes('Maybe: Vehicle')) {
                 eventType = DetectionClass.Plate;
                 detection = allDetections.find(det => det.className === 'plate');
-                label = detection.label;
+                label = detection?.label;
             } else if (subtitle.includes('Person')) {
                 eventType = DetectionClass.Person;
                 detection = allDetections.find(det => det.className === 'person');
@@ -300,7 +302,7 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
             } else if (subtitle.includes('Maybe: ')) {
                 eventType = DetectionClass.Face;
                 detection = allDetections.find(det => det.className === 'face');
-                label = detection.label;
+                label = detection?.label;
             } else if (subtitle.includes('Motion')) {
                 eventType = DetectionClass.Motion;
                 detection = allDetections.find(det => det.className === 'motion');
@@ -431,7 +433,9 @@ export type TextSettingKey =
     | 'motionText'
     | 'personText'
     | 'vehicleText'
+    | 'vehicleWithLabelText'
     | 'animalText'
+    | 'animalWithLabelText'
     | 'onlineText'
     | 'doorlockText'
     | 'floodingText'
@@ -568,6 +572,15 @@ export const getTextSettings = (props: { forMixin: boolean, isNvrNotifier?: bool
             placeholder: !forMixin ? 'Animal' : undefined,
             hide: forMixin
         },
+        animalWithLabelText: {
+            group: 'Texts',
+            subgroup: 'Detection classes',
+            title: 'Labeled animal text (Frigate)',
+            type: 'string',
+            defaultValue: !forMixin ? 'Animal (${label})' : undefined,
+            placeholder: !forMixin ? 'Animal (${label})' : undefined,
+            hide: forMixin
+        },
         vehicleText: {
             group: 'Texts',
             subgroup: 'Detection classes',
@@ -575,6 +588,15 @@ export const getTextSettings = (props: { forMixin: boolean, isNvrNotifier?: bool
             type: 'string',
             defaultValue: !forMixin ? 'Vehicle' : undefined,
             placeholder: !forMixin ? 'Vehicle' : undefined,
+            hide: forMixin
+        },
+        vehicleWithLabelText: {
+            group: 'Texts',
+            subgroup: 'Detection classes',
+            title: 'Labeled vehicle text (Frigate)',
+            type: 'string',
+            defaultValue: !forMixin ? 'Vehicle (${label})' : undefined,
+            placeholder: !forMixin ? 'Vehicle (${label})' : undefined,
             hide: forMixin
         },
         packageText: {
@@ -713,10 +735,11 @@ export const getMixinBaseSettings = (props: {
                 group: mixinRulesGroup,
                 type: 'string',
                 multiple: true,
+                immediate: true,
                 combobox: true,
                 defaultValue: [],
                 choices: [],
-                onPut: async () => await refreshSettings()
+                onPut: async () => await refreshSettings(),
             };
         }
 
@@ -727,6 +750,7 @@ export const getMixinBaseSettings = (props: {
                 type: 'string',
                 multiple: true,
                 combobox: true,
+                immediate: true,
                 defaultValue: [],
                 choices: [],
                 onPut: async () => await refreshSettings()
@@ -737,16 +761,19 @@ export const getMixinBaseSettings = (props: {
                 type: 'string',
                 multiple: true,
                 combobox: true,
+                immediate: true,
                 defaultValue: [],
                 choices: [],
                 onPut: async () => await refreshSettings()
             };
             settings[ruleTypeMetadataMap[RuleType.Audio].rulesKey] = {
-                title: 'Audio rules',
+                title: 'Audio rules [DEPRECATED]',
+                description: 'Will be removed and bound to the detection rules',
                 group: mixinRulesGroup,
                 type: 'string',
                 multiple: true,
                 combobox: true,
+                immediate: true,
                 defaultValue: [],
                 choices: [],
                 onPut: async () => await refreshSettings()
@@ -881,8 +908,8 @@ export const getActiveRules = async (
     }
 }
 
-export const getEventTextKey = (props: { eventType: DetectionEvent }) => {
-    const { eventType } = props;
+export const getEventTextKey = (props: { eventType: DetectionEvent, hasLabel: boolean }) => {
+    const { eventType, hasLabel } = props;
 
     let key: TextSettingKey;
     let subKey: TextSettingKey;
@@ -911,7 +938,7 @@ export const getEventTextKey = (props: { eventType: DetectionEvent }) => {
             break;
         case DetectionClass.Animal:
             key = 'objectDetectionText';
-            subKey = 'animalText';
+            subKey = hasLabel ? 'animalWithLabelText' : 'animalText';
             break;
         case DetectionClass.Person:
             key = 'objectDetectionText';
@@ -919,7 +946,7 @@ export const getEventTextKey = (props: { eventType: DetectionEvent }) => {
             break;
         case DetectionClass.Vehicle:
             key = 'objectDetectionText';
-            subKey = 'vehicleText';
+            subKey = hasLabel ? 'vehicleWithLabelText' : 'vehicleText';
             break;
         case DetectionClass.Motion:
             key = 'objectDetectionText';
@@ -998,6 +1025,7 @@ export const getRuleKeys = (props: {
     // Specific for detection rules
     const detectionClassesKey = `${prefix}:${ruleName}:detecionClasses`;
     const nvrEventsKey = `${prefix}:${ruleName}:nvrEvents`;
+    const frigateLabelsKey = `${prefix}:${ruleName}:frigateLabels`;
     const useNvrDetectionsKey = `${prefix}:${ruleName}:useNvrDetections`;
     const detectionSourceKey = `${prefix}:${ruleName}:detectionSource`;
     const whitelistedZonesKey = `${prefix}:${ruleName}:whitelistedZones`;
@@ -1064,6 +1092,7 @@ export const getRuleKeys = (props: {
             blacklistedZonesKey,
             recordingTriggerSecondsKey,
             nvrEventsKey,
+            frigateLabelsKey,
             devicesKey,
             detectionClassesKey,
             markDetectionsKey,
@@ -1576,6 +1605,7 @@ export const getRuleSettings = (props: {
 export const getDetectionRulesSettings = async (props: {
     storage: StorageSettings<any>,
     zones?: string[],
+    frigateZones?: string[],
     people?: string[],
     frigateLabels?: string[],
     ruleSource: RuleSource,
@@ -1583,7 +1613,7 @@ export const getDetectionRulesSettings = async (props: {
     refreshSettings: OnRefreshSettings,
     logger: Console
 }) => {
-    const { storage, zones, device, ruleSource, frigateLabels, refreshSettings, logger, people } = props;
+    const { storage, zones, frigateZones, device, ruleSource, frigateLabels, refreshSettings, logger, people } = props;
     const isPlugin = ruleSource === RuleSource.Plugin;
     const { isCamera } = !isPlugin ? isDeviceSupported(device) : {};
 
@@ -1596,6 +1626,7 @@ export const getDetectionRulesSettings = async (props: {
         const {
             blacklistedZonesKey,
             nvrEventsKey,
+            frigateLabelsKey,
             recordingTriggerSecondsKey,
             useNvrDetectionsKey,
             detectionSourceKey,
@@ -1615,7 +1646,6 @@ export const getDetectionRulesSettings = async (props: {
         const detectionSource = storage.getItem(detectionSourceKey) as ScryptedEventSource ||
             (useNvrDetections ? ScryptedEventSource.NVR : ScryptedEventSource.RawDetection);
         const showCameraSettings = isPlugin || isCamera;
-        const isFrigate = detectionSource === ScryptedEventSource.Frigate;
 
         settings.push(
             {
@@ -1628,6 +1658,9 @@ export const getDetectionRulesSettings = async (props: {
                 subgroup,
                 immediate: true,
                 combobox: true,
+                onPut: async () => {
+                    await refreshSettings()
+                },
                 choices: frigateLabels ? [
                     ScryptedEventSource.RawDetection,
                     ScryptedEventSource.NVR,
@@ -1639,9 +1672,9 @@ export const getDetectionRulesSettings = async (props: {
             }
         );
 
-        if (showCameraSettings) {
-            const hasFrigateEvents = detectionSource === ScryptedEventSource.Frigate;
+        const isFrigate = detectionSource === ScryptedEventSource.Frigate;
 
+        if (showCameraSettings) {
             settings.push(
                 {
                     key: detectionClassesKey,
@@ -1650,7 +1683,7 @@ export const getDetectionRulesSettings = async (props: {
                     subgroup,
                     multiple: true,
                     combobox: true,
-                    choices: hasFrigateEvents ? frigateLabels : [
+                    choices: [
                         ...defaultDetectionClasses,
                         ...Object.values(SupportedSensorType),
                     ],
@@ -1660,6 +1693,46 @@ export const getDetectionRulesSettings = async (props: {
                         await refreshSettings()
                     },
                 },
+            );
+
+            if (isFrigate) {
+                const frigateLabelsChoices = frigateLabels?.filter(label => {
+                    const det = detectionClassesDefaultMap[label];
+
+                    return det && detectionClasses.includes(det);
+                });
+                settings.push(
+                    {
+                        key: frigateLabelsKey,
+                        title: 'Frigate labels',
+                        group,
+                        subgroup,
+                        multiple: true,
+                        combobox: true,
+                        immediate: true,
+                        choices: frigateLabelsChoices,
+                        defaultValue: []
+                    }
+                );
+            }
+
+            if (detectionSource === ScryptedEventSource.NVR && isPlugin) {
+                settings.push(
+                    {
+                        key: nvrEventsKey,
+                        title: 'NVR events',
+                        group,
+                        subgroup,
+                        multiple: true,
+                        combobox: true,
+                        immediate: true,
+                        choices: Object.values(NvrEvent),
+                        defaultValue: []
+                    }
+                );
+            }
+
+            settings.push(
                 {
                     key: scoreThresholdKey,
                     title: 'Score threshold',
@@ -1727,21 +1800,6 @@ export const getDetectionRulesSettings = async (props: {
             }
         }
 
-        if (detectionSource === ScryptedEventSource.NVR && isPlugin) {
-            settings.push(
-                {
-                    key: nvrEventsKey,
-                    title: 'NVR events',
-                    group,
-                    subgroup,
-                    multiple: true,
-                    combobox: true,
-                    choices: Object.values(NvrEvent),
-                    defaultValue: []
-                }
-            );
-        }
-
         if (isPlugin && activationType !== DetectionRuleActivation.OnActive) {
             settings.push({
                 key: devicesKey,
@@ -1751,30 +1809,35 @@ export const getDetectionRulesSettings = async (props: {
                 subgroup,
                 type: 'device',
                 multiple: true,
+                immediate: true,
                 combobox: true,
                 deviceFilter,
                 defaultValue: []
             });
         }
 
-        if (isCamera && zones && !isFrigate) {
+        const zonesToUse = isFrigate ?
+            frigateZones : zones;
+        const zonesDescription = isFrigate ? 'Zones defined on the Frigate interface' :
+            'Zones defined in the `Object detection` section of type `Observe`';
+        if (isCamera && zonesToUse) {
             settings.push(
                 {
                     key: whitelistedZonesKey,
                     title: 'Whitelisted zones',
-                    description: 'Zones defined in the `Object detection` section of type `Observe`',
+                    description: zonesDescription,
                     group,
                     subgroup,
                     multiple: true,
                     combobox: true,
-                    choices: zones,
-                    readonly: !zones.length,
+                    choices: zonesToUse,
+                    readonly: !zonesToUse.length,
                     defaultValue: []
                 },
                 {
                     key: blacklistedZonesKey,
                     title: 'Blacklisted zones',
-                    description: 'Zones defined in the `Object detection` section of type `Observe`',
+                    description: zonesDescription,
                     group,
                     subgroup,
                     multiple: true,
@@ -2308,6 +2371,7 @@ export interface DetectionRule extends BaseRule {
     markDetections: boolean;
     detectionClasses?: RuleDetectionClass[];
     nvrEvents?: NvrEvent[];
+    frigateLabels?: string[];
     scoreThreshold?: number;
     labelScoreThreshold?: number;
     whitelistedZones?: string[];
@@ -2546,6 +2610,7 @@ export const getDetectionRules = (props: {
                     blacklistedZonesKey,
                     devicesKey,
                     nvrEventsKey,
+                    frigateLabelsKey,
                     recordingTriggerSecondsKey,
                     peopleKey,
                     plateMaxDistanceKey,
@@ -2569,6 +2634,7 @@ export const getDetectionRules = (props: {
 
             const detectionClasses = storage.getItem(detectionClassesKey) as RuleDetectionClass[] ?? [];
             const nvrEvents = storage.getItem(nvrEventsKey) as NvrEvent[] ?? [];
+            const frigateLabels = storage.getItem(frigateLabelsKey) as string[] ?? [];
             const scoreThreshold = storage.getItem(scoreThresholdKey) as number || 0.7;
             const minDelay = storage.getItem(minDelayKey) as number;
             const minMqttPublishDelay = storage.getItem(minMqttPublishDelayKey) as number || 15;
@@ -2595,6 +2661,7 @@ export const getDetectionRules = (props: {
                 minDelay,
                 minMqttPublishDelay,
                 detectionSource,
+                frigateLabels,
             };
 
             if (!isPlugin) {
@@ -2694,7 +2761,6 @@ export const getDeviceOccupancyRules = (
     const { deviceStorage, pluginStorage, device } = props;
     const availableRules: OccupancyRule[] = [];
     const allowedRules: OccupancyRule[] = [];
-    let recordFrames = false;
 
     const { securitySystem } = pluginStorage.values;
     const { rulesKey } = ruleTypeMetadataMap[RuleType.Occupancy];
@@ -3351,3 +3417,5 @@ export const b64ToMo = async (b64: string) => {
     const buffer = Buffer.from(b64, 'base64');
     return await sdk.mediaManager.createMediaObject(buffer, 'image/jpeg');
 }
+
+export const getFrigateTextKey = (label: string) => `frigate${label}Text` as TextSettingKey;

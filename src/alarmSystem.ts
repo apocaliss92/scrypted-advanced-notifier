@@ -32,6 +32,7 @@ type StorageKeys = 'notifiers' |
     'modeHomeText' |
     'modeNightText' |
     'modeAwayText' |
+    'triggerCriticalNotifications' |
     'setModeMessage' |
     'noneText';
 
@@ -40,6 +41,12 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
         useRuleNotifiers: {
             title: 'Use rule notifiers',
             description: 'If checked, the notifiers will be automatically picked from the active rules, with same settings',
+            type: 'boolean',
+            defaultValue: false,
+            immediate: true,
+        },
+        triggerCriticalNotifications: {
+            title: 'Send critical notifications on triggers',
             type: 'boolean',
             defaultValue: false,
             immediate: true,
@@ -536,6 +543,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                 noneText,
                 setModeMessage,
                 deactivateMessage,
+                triggerCriticalNotifications,
             } = this.storageSettings.values;
 
             if (mode === SecuritySystemMode.Disarmed) {
@@ -599,7 +607,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
             }
 
             if (!notifiersToUse.length) {
-              notifiersToUse = notifiers;
+                notifiersToUse = notifiers;
             }
 
             let additionalMessageText = '';
@@ -613,7 +621,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
 
                 const supPriority = notifierPriority[notifierId];
                 const isSupPriorityLow = supPriority && [NotificationPriority.Low, NotificationPriority.SuperLow].includes(supPriority);
-                const isCritical = event === 'Trigger';
+                const isCritical = triggerCriticalNotifications && event === 'Trigger'
                 if (notifier.pluginId === PUSHOVER_PLUGIN_ID) {
                     const priority = isSupPriorityLow ?
                         (supPriority === NotificationPriority.Low ? -1 : -2)

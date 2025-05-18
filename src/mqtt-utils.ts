@@ -19,6 +19,10 @@ export enum MqttEntityIdentifier {
     Object = 'Object',
 }
 
+const PAYLOAD_PRESS = 'PRESS';
+const PAYLOAD_ON = 'true';
+const PAYLOAD_OFF = 'false';
+
 interface MqttEntity {
     entity: 'triggered' | 'lastImage' | 'lastClassname' | 'lastZones' | 'lastLabel' | string;
     domain: 'sensor' | 'binary_sensor' | 'image' | 'switch' | 'button' | 'select' | 'alarm_control_panel';
@@ -63,6 +67,7 @@ interface AutodiscoveryConfig {
     json_attributes_topic?: string;
     suggested_display_precision?: number;
     url_topic?: string;
+    payload_press?: string;
     command_topic?: string;
     state_class?: string;
     image_topic?: string;
@@ -93,7 +98,7 @@ const getBasicMqttEntities = () => {
         entity: 'triggered',
         name: 'Notification triggered',
         domain: 'binary_sensor',
-        valueToDispatch: 'false',
+        valueToDispatch: PAYLOAD_OFF,
         identifier: MqttEntityIdentifier.Triggered,
         deviceClass: 'motion'
     };
@@ -288,8 +293,8 @@ const getBasicMqttAutodiscoveryConfiguration = (props: {
     }
 
     if (domain === 'binary_sensor') {
-        config.payload_on = 'true';
-        config.payload_off = 'false';
+        config.payload_on = PAYLOAD_ON;
+        config.payload_off = PAYLOAD_OFF;
         config.state_topic = stateTopic;
     } else if (domain === 'image') {
         config.image_topic = stateTopic;
@@ -300,10 +305,11 @@ const getBasicMqttAutodiscoveryConfiguration = (props: {
     } else if (domain === 'switch') {
         config.state_topic = stateTopic;
         config.command_topic = commandTopic;
-        config.payload_on = 'true';
-        config.payload_off = 'false';
+        config.payload_on = PAYLOAD_ON;
+        config.payload_off = PAYLOAD_OFF;
     } else if (domain === 'button') {
         config.command_topic = commandTopic;
+        config.payload_press = PAYLOAD_PRESS;
     } else if (domain === 'select') {
         config.command_topic = commandTopic;
         config.state_topic = stateTopic;
@@ -358,7 +364,7 @@ const deviceClassMqttEntities: MqttEntity[] = defaultDetectionClasses.flatMap(cl
             name: `${parsedClassName} detected`,
             domain: 'binary_sensor',
             className,
-            valueToDispatch: 'false',
+            valueToDispatch: PAYLOAD_OFF,
             deviceClass: 'motion',
             identifier: MqttEntityIdentifier.Detected
         },
@@ -570,9 +576,10 @@ const publishMqttEntitiesDiscovery = async (props: { mqttClient?: MqttClient, mq
         return;
     }
     const autodiscoveryTopics: string[] = [];
+    const entitiesEnsuredReset: string[] = [];
 
     for (const mqttEntity of mqttEntities) {
-        const { discoveryTopic, config, stateTopic, } = await getMqttAutodiscoveryConfiguration({ mqttEntity, device });
+        const { discoveryTopic, config, stateTopic, commandTopic } = await getMqttAutodiscoveryConfiguration({ mqttEntity, device });
 
         console.debug(`Discovering ${JSON.stringify({ mqttEntity, discoveryTopic, config })}`);
 
@@ -582,9 +589,15 @@ const publishMqttEntitiesDiscovery = async (props: { mqttClient?: MqttClient, mq
         }
         console.info(`Entity ${mqttEntity.entity} published`);
 
+        if (['switch', 'button'].includes(mqttEntity.domain)) {
+            entitiesEnsuredReset.push(commandTopic);
+            await mqttClient.publish(commandTopic, '', true);
+        }
+
         autodiscoveryTopics.push(discoveryTopic);
     }
 
+    console.info(`Entities ensured to not be retained: ${entitiesEnsuredReset}`);
     return autodiscoveryTopics;
 }
 
@@ -707,7 +720,11 @@ export const subscribeToPluginMqttTopics = async (
         const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: notificationsEnabledEntity, device: pluginId });
         await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
             if (messageTopic === commandTopic) {
-                switchNotificationsEnabledCb(message === 'true');
+                if (message === PAYLOAD_ON) {
+                    switchNotificationsEnabledCb(true);
+                } else if (message === PAYLOAD_OFF) {
+                    switchNotificationsEnabledCb(false);
+                }
 
                 await mqttClient.publish(stateTopic, message, notificationsEnabledEntity.retain);
             }
@@ -720,10 +737,17 @@ export const subscribeToPluginMqttTopics = async (
             const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: ruleActiveEntity, device: pluginId });
             await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
                 if (messageTopic === commandTopic) {
-                    activationRuleCb({
-                        active: message === 'true',
-                        ruleName: rule.name,
-                    });
+                    if (message === PAYLOAD_ON) {
+                        activationRuleCb({
+                            active: true,
+                            ruleName: rule.name,
+                        });
+                    } else if (message === PAYLOAD_OFF) {
+                        activationRuleCb({
+                            active: false,
+                            ruleName: rule.name,
+                        });
+                    }
 
                     await mqttClient.publish(stateTopic, message, ruleActiveEntity.retain);
                 }
@@ -830,11 +854,19 @@ export const subscribeToCameraMqttTopics = async (
 
             await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
                 if (messageTopic === commandTopic) {
-                    activationRuleCb({
-                        active: message === 'true',
-                        ruleName: rule.name,
-                        ruleType: rule.ruleType
-                    });
+                    if (message === PAYLOAD_ON) {
+                        activationRuleCb({
+                            active: true,
+                            ruleName: rule.name,
+                            ruleType: rule.ruleType
+                        });
+                    } else if (message === PAYLOAD_OFF) {
+                        activationRuleCb({
+                            active: false,
+                            ruleName: rule.name,
+                            ruleType: rule.ruleType
+                        });
+                    }
 
                     await mqttClient.publish(stateTopic, message, mqttEntity.retain);
                 }
@@ -861,7 +893,11 @@ export const subscribeToCameraMqttTopics = async (
         const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: recordingEntity, device });
         await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
             if (messageTopic === commandTopic) {
-                switchRecordingCb(message === 'true');
+                if (message === PAYLOAD_ON) {
+                    switchRecordingCb(true);
+                } else if (message === PAYLOAD_OFF) {
+                    switchRecordingCb(false);
+                }
 
                 await mqttClient.publish(stateTopic, message, recordingEntity.retain);
             }
@@ -872,7 +908,11 @@ export const subscribeToCameraMqttTopics = async (
         const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: notificationsEnabledEntity, device });
         await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
             if (messageTopic === commandTopic) {
-                switchNotificationsEnabledCb(message === 'true');
+                if (message === PAYLOAD_ON) {
+                    switchNotificationsEnabledCb(true);
+                } else if (message === PAYLOAD_OFF) {
+                    switchNotificationsEnabledCb(false);
+                }
 
                 await mqttClient.publish(stateTopic, message, notificationsEnabledEntity.retain);
             }
@@ -883,9 +923,11 @@ export const subscribeToCameraMqttTopics = async (
         const { commandTopic } = getMqttTopics({ mqttEntity: rebootEntity, device });
         await mqttClient.subscribe([commandTopic], async (messageTopic) => {
             if (messageTopic === commandTopic) {
-                rebootCb();
+                if (messageTopic === PAYLOAD_PRESS) {
+                    rebootCb();
 
-                await mqttClient.publish(commandTopic, '', true);
+                    await mqttClient.publish(commandTopic, '', true);
+                }
             }
         });
     }
@@ -903,7 +945,7 @@ export const subscribeToCameraMqttTopics = async (
                         ptzCommandCb({ preset: message });
 
                         await mqttClient.publish(stateTopic, 'None');
-                    } else {
+                    } else if (message === PAYLOAD_PRESS) {
                         if (commandEntity.entity === ptzZoomInEntity.entity) {
                             ptzCommandCb({ zoom: 0.1 });
                         } else if (commandEntity.entity === ptzZoomOutEntity.entity) {
@@ -929,7 +971,11 @@ export const subscribeToCameraMqttTopics = async (
         const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: audioDetectionEnabledEntity, device });
         await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
             if (messageTopic === commandTopic) {
-                switchAudioDetectionCb(message === 'true');
+                if (message === PAYLOAD_ON) {
+                    switchAudioDetectionCb(true);
+                } else if (message === PAYLOAD_OFF) {
+                    switchAudioDetectionCb(false);
+                }
 
                 await mqttClient.publish(stateTopic, message, audioDetectionEnabledEntity.retain);
             }
@@ -940,7 +986,11 @@ export const subscribeToCameraMqttTopics = async (
         const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: occupancyCheckEnabledEntity, device });
         await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
             if (messageTopic === commandTopic) {
-                switchOccupancyCheckCb(message === 'true');
+                if (message === PAYLOAD_ON) {
+                    switchOccupancyCheckCb(true);
+                } else if (message === PAYLOAD_OFF) {
+                    switchOccupancyCheckCb(false);
+                }
 
                 await mqttClient.publish(stateTopic, message, occupancyCheckEnabledEntity.retain);
             }
@@ -977,7 +1027,11 @@ export const subscribeToNotifierMqttTopics = async (
         const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: notificationsEnabledEntity, device });
         await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
             if (messageTopic === commandTopic) {
-                switchNotificationsEnabledCb(message === 'true');
+                if (message === PAYLOAD_ON) {
+                    switchNotificationsEnabledCb(true);
+                } else if (message === PAYLOAD_OFF) {
+                    switchNotificationsEnabledCb(false);
+                }
 
                 await mqttClient.publish(stateTopic, message, notificationsEnabledEntity.retain);
             }
@@ -1020,7 +1074,7 @@ export const subscribeToSensorMqttTopics = async (
     //     const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: notificationsEnabledEntity, device });
     //     await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
     //         if (messageTopic === commandTopic) {
-    //             switchNotificationsEnabledCb(message === 'true');
+    //             switchNotificationsEnabledCb(message === PAYLOAD_ON);
 
     //             await mqttClient.publish(stateTopic, message, notificationsEnabledEntity.retain);
     //         }
@@ -1514,17 +1568,17 @@ export const publishCameraValues = async (props: {
         }
         if (device.interfaces.includes(ScryptedInterface.VideoRecorder)) {
             const { stateTopic } = getMqttTopics({ mqttEntity: recordingEntity, device });
-            await mqttClient.publish(stateTopic, isRecording ? 'true' : 'false', recordingEntity.retain);
+            await mqttClient.publish(stateTopic, isRecording ? PAYLOAD_ON : PAYLOAD_OFF, recordingEntity.retain);
         }
 
         const { stateTopic: notificationsEnabledStateTopic } = getMqttTopics({ mqttEntity: notificationsEnabledEntity, device });
-        await mqttClient.publish(notificationsEnabledStateTopic, notificationsEnabled ? 'true' : 'false', notificationsEnabledEntity.retain);
+        await mqttClient.publish(notificationsEnabledStateTopic, notificationsEnabled ? PAYLOAD_ON : PAYLOAD_OFF, notificationsEnabledEntity.retain);
 
         const { stateTopic: checkSoundPressureStateTopic } = getMqttTopics({ mqttEntity: audioDetectionEnabledEntity, device });
-        await mqttClient.publish(checkSoundPressureStateTopic, checkSoundPressure ? 'true' : 'false', audioDetectionEnabledEntity.retain);
+        await mqttClient.publish(checkSoundPressureStateTopic, checkSoundPressure ? PAYLOAD_ON : PAYLOAD_OFF, audioDetectionEnabledEntity.retain);
 
         const { stateTopic: occupancyCheckEnabledEntityTopic } = getMqttTopics({ mqttEntity: occupancyCheckEnabledEntity, device });
-        await mqttClient.publish(occupancyCheckEnabledEntityTopic, checkOccupancy ? 'true' : 'false', occupancyCheckEnabledEntity.retain);
+        await mqttClient.publish(occupancyCheckEnabledEntityTopic, checkOccupancy ? PAYLOAD_ON : PAYLOAD_OFF, occupancyCheckEnabledEntity.retain);
     }
 
     for (const rule of rulesToEnable) {
@@ -1570,7 +1624,7 @@ export const publishPluginValues = async (props: {
     } = getBasicMqttEntities();
 
     const { stateTopic: notificationsEnabledStateTopic } = getMqttTopics({ mqttEntity: notificationsEnabledEntity, device: pluginId });
-    await mqttClient.publish(notificationsEnabledStateTopic, notificationsEnabled ? 'true' : 'false', notificationsEnabledEntity.retain);
+    await mqttClient.publish(notificationsEnabledStateTopic, notificationsEnabled ? PAYLOAD_ON : PAYLOAD_OFF, notificationsEnabledEntity.retain);
 
     for (const rule of rulesToEnable) {
         await publishRuleCurrentlyActive({
@@ -1633,7 +1687,7 @@ export const reportNotifierValues = async (props: {
 
     if (device) {
         const { stateTopic } = getMqttTopics({ mqttEntity: notificationsEnabledEntity, device });
-        await mqttClient.publish(stateTopic, notificationsEnabled ? 'true' : 'false', notificationsEnabledEntity.retain);
+        await mqttClient.publish(stateTopic, notificationsEnabled ? PAYLOAD_ON : PAYLOAD_OFF, notificationsEnabledEntity.retain);
     }
 }
 
@@ -1650,7 +1704,7 @@ export const reportSensorValues = async (props: {
 
     if (device) {
         // const { stateTopic } = getMqttTopics({ mqttEntity: notificationsEnabledEntity, device });
-        // await mqttClient.publish(stateTopic, notificationsEnabled ? 'true' : 'false', notificationsEnabledEntity.retain);
+        // await mqttClient.publish(stateTopic, notificationsEnabled ? PAYLOAD_ON : PAYLOAD_OFF, notificationsEnabledEntity.retain);
     }
 }
 
