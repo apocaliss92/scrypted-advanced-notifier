@@ -2226,10 +2226,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     isDelayPassed(props: IsDelayPassedProps) {
         const { type, eventSource } = props;
 
-        const { useNvrDetectionsForMqtt } = this.plugin.storageSettings.values;
+        const { detectionSourceForMqtt } = this.plugin.storageSettings.values;
         const { minDelayTime } = this.storageSettings.values;
 
-        if (useNvrDetectionsForMqtt) {
+        if (detectionSourceForMqtt !== ScryptedEventSource.RawDetection) {
             return true;
         }
         const now = Date.now();
@@ -2335,8 +2335,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const isRawDetection = eventSource === ScryptedEventSource.RawDetection;
         const logger = this.getLogger();
         const { timestamp: triggerTime, detections } = detect;
-        const { useNvrDetectionsForMqtt } = this.plugin.storageSettings.values;
-        const canUpdateMqttImage = (isFromNvr && useNvrDetectionsForMqtt) || isFromFrigate;
+        const { detectionSourceForMqtt } = this.plugin.storageSettings.values;
+        const canUpdateMqttImage = !isRawDetection && detectionSourceForMqtt === eventSource;
 
         if (!detections?.length) {
             return;
@@ -2369,7 +2369,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             // The MQTT image should be updated only if:
             // - the image comes already from NVR and the user wants MQTT detections to be used
 
-            if ((isFromNvr && parentImage) || isFromFrigate) {
+            if (!isRawDetection) {
                 const classnames = uniq(detections.map(d => d.label ? `${d.className}-${d.label}` : d.className));
                 const { b64Image: b64ImageNew, image: imageNew, imageSource } = await this.getImage({
                     image: parentImage,
@@ -2391,7 +2391,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     let detectionsToUpdate = candidates;
 
                     // In case a non-NVR detection came in and user wants NVR detections to be used, just update the motion
-                    if (useNvrDetectionsForMqtt && isRawDetection) {
+                    if (detectionSourceForMqtt !== ScryptedEventSource.RawDetection && isRawDetection) {
                         logger.info(`Only updating motion, non-NVR detection incoming and using NVR detections for MQTT`);
                         detectionsToUpdate = [{ className: DetectionClass.Motion, score: 1 }];
                     }

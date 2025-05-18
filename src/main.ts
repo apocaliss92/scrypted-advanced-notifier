@@ -39,6 +39,7 @@ export type PluginSettingKey =
     | 'enableCameraDevice'
     | 'mqttActiveEntitiesTopic'
     | 'useNvrDetectionsForMqtt'
+    | 'detectionSourceForMqtt'
     | 'onActiveDevices'
     | 'objectDetectionDevice'
     | 'securitySystem'
@@ -152,6 +153,19 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             description: 'Use NVR detection to publish MQTT state messages for basic detections.',
             type: 'boolean',
             immediate: true
+        },
+        detectionSourceForMqtt: {
+            title: 'Detections source',
+            description: 'Select which detections should be used. The snapshots will come from the same source',
+            type: 'string',
+            subgroup: 'MQTT',
+            immediate: true,
+            combobox: true,
+            choices: [
+                ScryptedEventSource.RawDetection,
+                ScryptedEventSource.NVR,
+                ScryptedEventSource.Frigate,
+            ]
         },
         ...getTextSettings({ forMixin: false }),
         [ruleTypeMetadataMap[RuleType.Detection].rulesKey]: {
@@ -1257,10 +1271,22 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     async getSettings() {
         try {
-            const { mqttEnabled, testDevice, testNotifier } = this.storageSettings.values;
+            const {
+                mqttEnabled,
+                testDevice,
+                testNotifier,
+                useNvrDetectionsForMqtt,
+            } = this.storageSettings.values;
 
             this.storageSettings.settings.mqttActiveEntitiesTopic.hide = !mqttEnabled;
-            this.storageSettings.settings.useNvrDetectionsForMqtt.hide = !mqttEnabled;
+            this.storageSettings.settings.detectionSourceForMqtt.hide = !mqttEnabled;
+
+            if (mqttEnabled) {
+                this.storageSettings.settings.detectionSourceForMqtt.defaultValue =
+                    useNvrDetectionsForMqtt ? ScryptedEventSource.NVR : ScryptedEventSource.RawDetection
+            }
+            this.storageSettings.settings.useNvrDetectionsForMqtt.hide = true;
+
 
             const { isCamera } = testDevice ? isDeviceSupported(testDevice) : {};
             this.storageSettings.settings.testEventType.hide = !isCamera;
