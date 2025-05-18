@@ -320,9 +320,8 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         const { minDelayTime } = this.storageSettings.values;
         const { triggerTime, triggered, image: imageParent, eventSource } = props;
         const logger = this.getLogger();
-        const isFromNvr = eventSource === ScryptedEventSource.NVR;
 
-        logger.log(`Event received triggered ${triggered} isFromNvr ${!!isFromNvr}`);
+        logger.log(`${eventSource} event received triggered ${triggered}`);
 
         try {
             logger.log(`Sensor triggered: ${JSON.stringify({ triggered })}`);
@@ -349,7 +348,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                     reason: GetImageReason.Sensor,
                 }))?.image;
 
-                const rules = cloneDeep(this.runningDetectionRules.filter(rule => isFromNvr ? rule.isNvr : !rule.isNvr)) ?? [];
+                const rules = cloneDeep(this.runningDetectionRules.filter(rule => rule.detectionSource === eventSource)) ?? [];
                 for (const rule of rules) {
                     logger.log(`Event ${this.supportedSensorType} will be proxied to the device ${device.name}`);
                     logger.info(JSON.stringify({

@@ -1434,21 +1434,19 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { cameraDevice, rule, timelapseName } = props;
         const logger = this.getLogger(cameraDevice);
 
-        const { timelapseDownloadUrl } = await getWebHookUrls({
+        const { timelapseDownloadUrl, timelapseThumbnailUrl } = await getWebHookUrls({
             console: logger,
             device: cameraDevice,
             clipName: timelapseName,
             rule,
         });
 
-        const { videoclipPath, snapshotPath } = this.getRulePaths({
+        const { videoclipPath } = this.getRulePaths({
             ruleName: rule.name,
             cameraName: cameraDevice.name,
             fileName: timelapseName,
         });
-        const image = await sdk.mediaManager.createMediaObjectFromUrl(
-            `file:${snapshotPath}`
-        );
+        const image = await sdk.mediaManager.createMediaObjectFromUrl(timelapseThumbnailUrl);
 
         const fileStats = await fs.promises.stat(videoclipPath);
         const sizeInBytes = fileStats.size;
@@ -1471,7 +1469,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     async notifyNvrEvent(props: ParseNotificationMessageResult & { cameraDevice: DeviceInterface, triggerTime: number }) {
         const { eventType, detection, triggerDevice, cameraDevice, triggerTime } = props;
         const rules = this.runningDetectionRules.filter(rule =>
-            rule.isNvr &&
+            rule.detectionSource === ScryptedEventSource.NVR &&
             rule.nvrEvents.includes(eventType as NvrEvent)
         );
 
@@ -2360,19 +2358,18 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         eventSource: ScryptedEventSource
     }) => {
         const { device, name, timestamp, b64Image, classname, label, eventSource } = props;
-        const imagesPath = this.getStoragePath();
         const { imagesRegex } = this.storageSettings.values;
         const logger = this.getLogger(device);
         const mixin = this.currentCameraMixinsMap[device.id];
 
         if (b64Image) {
-            if (imagesPath && mixin.isDelayPassed({ type: DelayType.FsImageUpdate, filename: name, eventSource })) {
-                const { filePath } = this.getDetectionImagePaths({ device, imageIdentifier: name });
+            if (mixin.isDelayPassed({ type: DelayType.FsImageUpdate, filename: name, eventSource })) {
+                const { cameraPath } = this.getFsPaths({ cameraName: device.name });
 
                 try {
-                    await fs.promises.access(filePath);
+                    await fs.promises.access(cameraPath);
                 } catch {
-                    await fs.promises.mkdir(filePath, { recursive: true });
+                    await fs.promises.mkdir(cameraPath, { recursive: true });
                 }
 
                 const filename = imagesRegex

@@ -390,7 +390,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    async enableRecording(device: Settings, enabled: boolean) {
+    async toggleRecording(device: Settings, enabled: boolean) {
         await device.putSetting(`recording:privacyMode`, !enabled)
     }
 
@@ -571,7 +571,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 switchRecordingCb: this.cameraDevice.interfaces.includes(ScryptedInterface.VideoRecorder) ?
                                     async (active) => {
                                         logger.log(`Setting NVR privacy mode to ${!active}`);
-                                        await this.enableRecording(this.cameraDevice, active);
+                                        await this.toggleRecording(this.cameraDevice, active);
                                     } :
                                     undefined,
                                 rebootCb: this.cameraDevice.interfaces.includes(ScryptedInterface.Reboot) ?
@@ -724,7 +724,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 if (this.decoderType === DecoderType.Always && this.isDelayPassed({
                     type: DelayType.DecoderFrameOnStorage,
-                    eventSource: ScryptedEventSource.Decoder,
+                    eventSource: ScryptedEventSource.RawDetection,
                     timestamp: frame.timestamp
                 })) {
                     this.plugin.storeDetectionFrame({ device: this.cameraDevice, imageMo: this.lastFrame, timestamp: frame.timestamp }).catch(logger.info);
@@ -1143,8 +1143,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 if (disableNvrRecordingSeconds !== undefined) {
                     const seconds = Number(disableNvrRecordingSeconds);
 
-                    logger.log(`Enabling NVR recordings for ${seconds} seconds`);
-                    await this.enableRecording(device, true);
+                    logger.log(`Enabling NVR recordings for ${seconds} seconds from rule ${rule.name}`);
+                    await this.toggleRecording(device, true);
 
                     if (!this.detectionRuleListeners[name]) {
                         this.detectionRuleListeners[name] = {};
@@ -1158,8 +1158,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
 
                     this.detectionRuleListeners[name].disableNvrRecordingTimeout = setTimeout(async () => {
-                        logger.log(`Disabling NVR recordings`);
-                        await this.enableRecording(device, false);
+                        logger.log(`Disabling NVR recordings from rule ${rule.name}`);
+                        await this.toggleRecording(device, false);
                     }, seconds * 1000);
                 }
 
@@ -1313,7 +1313,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         };
 
         try {
-            if (!image) {
+            if (reason === GetImageReason.FromFrigate) {
+                logger.info(`Should fetch Frigate image for event ${eventId} and camera ${detectionId}`);
+            } else if (!image) {
                 let runners = [];
                 const checkLatest = findFromLatest(reason === GetImageReason.MotionUpdate ? 3000 : 2000);
                 const checkVeryRecent = findFromLatest(200);
@@ -2322,7 +2324,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     public async processDetections(props: {
-        detect: ObjectsDetected,
+        detect: FrigateObjectDetection | ObjectsDetected,
         eventDetails?: EventDetails,
         image?: MediaObject,
         eventSource?: ScryptedEventSource
@@ -2335,10 +2337,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { timestamp: triggerTime, detections } = detect;
         const { useNvrDetectionsForMqtt } = this.plugin.storageSettings.values;
         const canUpdateMqttImage = (isFromNvr && useNvrDetectionsForMqtt) || isFromFrigate;
-
-        if (isFromFrigate) {
-            logger.log(`Frigate event received: ${JSON.stringify({ detect, eventDetails })}`);
-        }
 
         if (!detections?.length) {
             return;
@@ -2372,15 +2370,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             // - the image comes already from NVR and the user wants MQTT detections to be used
 
             if ((isFromNvr && parentImage) || isFromFrigate) {
-                const classnames = uniq(detections.map(d => d.className));
+                const classnames = uniq(detections.map(d => d.label ? `${d.className}-${d.label}` : d.className));
                 const { b64Image: b64ImageNew, image: imageNew, imageSource } = await this.getImage({
                     image: parentImage,
-                    reason: GetImageReason.FromNvr,
+                    reason: isFromNvr ? GetImageReason.FromNvr : isFromFrigate ?
+                        GetImageReason.FromFrigate : undefined,
+                    eventId: isFromFrigate ? (detect as FrigateObjectDetection).frigateEvent?.after?.id : undefined,
+                    detectionId: isFromFrigate ? (detect as FrigateObjectDetection).frigateEvent?.after?.camera : undefined
                 });
                 image = imageNew;
                 b64Image = b64ImageNew;
 
-                logger.log(`NVR detections received, classnames ${classnames.join(', ')}. b64Image ${getB64ImageLog(b64Image)} from ${imageSource}`);
+                logger.log(`${eventSource} detections received, classnames ${classnames.join(', ')}. b64Image ${getB64ImageLog(b64Image)} from ${imageSource}`);
             }
 
             if (this.isActiveForMqttReporting) {
@@ -2464,7 +2465,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             // const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
             // let shouldMarkBoundaries = false;
 
-            const rules = cloneDeep(this.runningDetectionRules.filter(rule => !!rule.isNvr === !!isFromNvr)) ?? [];
+            const rules = cloneDeep(this.runningDetectionRules.filter(rule => rule.detectionSource === eventSource)) ?? [];
             logger.debug(`Detections incoming ${JSON.stringify({
                 candidates,
                 detect,
@@ -2575,7 +2576,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 if (match) {
                     const matchRule = { match, rule, dataToReport };
                     matchRules.push(matchRule);
-                    !rule.isNvr && this.accumulatedRules.push(matchRule);
+                    rule.detectionSource === ScryptedEventSource.RawDetection &&
+                        this.accumulatedRules.push(matchRule);
                     // if (rule.markDetections) {
                     //     shouldMarkBoundaries = true;
                     // }
@@ -2615,7 +2617,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 for (const matchRule of matchRules) {
                     try {
                         const { match, rule } = matchRule;
-                        const canUpdateMqttImage = isFromNvr && rule.isNvr && this.isDelayPassed({ type: DelayType.RuleImageUpdate, matchRule, eventSource });
+                        const isRawDetectionRule = (rule as DetectionRule).detectionSource === ScryptedEventSource.RawDetection;
+                        const isNonRawDetection = !isRawDetection && !isRawDetectionRule;
+                        const canUpdateMqttImage = isNonRawDetection && this.isDelayPassed({ type: DelayType.RuleImageUpdate, matchRule, eventSource });
 
                         if (this.isActiveForMqttReporting) {
                             logger.info(`Publishing detection rule ${matchRule.rule.name} data, b64Image ${getB64ImageLog(b64Image)} skipMqttImage ${!canUpdateMqttImage}`);
@@ -2630,7 +2634,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             }).catch(logger.log);
                         }
 
-                        if (isFromNvr && rule.isNvr && this.isDelayPassed({ type: DelayType.RuleNotification, matchRule, eventSource })) {
+                        if (isNonRawDetection && this.isDelayPassed({ type: DelayType.RuleNotification, matchRule, eventSource })) {
                             logger.log(`Starting notifiers for detection rule ${rule.name}, b64Image ${getB64ImageLog(b64Image)}`);
 
                             this.plugin.notifyDetectionEvent({
@@ -2710,12 +2714,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const frigateEvent = (detect as FrigateObjectDetection)?.frigateEvent;
 
                 if (frigateEvent) {
-                    logger.log('Frigate event received', JSON.stringify(detect));
-
-                    if (frigateEvent.type !== 'end' || !frigateEvent.after.has_snapshot) {
-                        logger.log('Discarding frigate event');
-                        return;
-                    }
                     eventSource = ScryptedEventSource.Frigate;
                 }
 

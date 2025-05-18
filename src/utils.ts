@@ -31,7 +31,6 @@ export const MAX_PENDING_RESULT_PER_CAMERA = 5;
 export const MAX_RPC_OBJECTS_PER_CAMERA = 50;
 
 export enum ScryptedEventSource {
-    Decoder = 'Decoder',
     RawDetection = 'RawDetection',
     NVR = 'NVR',
     Frigate = 'Frigate'
@@ -67,6 +66,7 @@ export enum GetImageReason {
     MotionUpdate = 'MotionUpdate',
     ObjectUpdate = 'ObjectUpdate',
     FromNvr = 'FromNvr',
+    FromFrigate = 'FromFrigate',
     Notification = 'Notification',
     AccumulatedDetections = 'AccumulatedDetections',
     Test = 'Test',
@@ -650,6 +650,7 @@ export type MixinBaseSettingKey =
     | 'debug'
     | 'enabledToMqtt'
     | 'useNvrDetections'
+    | 'detectionSource'
     | 'minDelayTime'
     | 'detectionRules'
     | 'occupancyRules'
@@ -997,11 +998,13 @@ export const getRuleKeys = (props: {
     const detectionClassesKey = `${prefix}:${ruleName}:detecionClasses`;
     const nvrEventsKey = `${prefix}:${ruleName}:nvrEvents`;
     const useNvrDetectionsKey = `${prefix}:${ruleName}:useNvrDetections`;
+    const detectionSourceKey = `${prefix}:${ruleName}:detectionSource`;
     const whitelistedZonesKey = `${prefix}:${ruleName}:whitelistedZones`;
     const blacklistedZonesKey = `${prefix}:${ruleName}:blacklistedZones`;
     const markDetectionsKey = `${prefix}:${ruleName}:markDetections`;
     const recordingTriggerSecondsKey = `${prefix}:${ruleName}:recordingTriggerSeconds`;
     const peopleKey = `${prefix}:${ruleName}:people`;
+    const frigateLabelsKey = `${prefix}:${ruleName}:frigateLabels`;
     const platesKey = `${prefix}:${ruleName}:plates`;
     const plateMaxDistanceKey = `${prefix}:${ruleName}:plateMaxDistance`;
     const labelScoreKey = `${prefix}:${ruleName}:labelScore`;
@@ -1056,6 +1059,7 @@ export const getRuleKeys = (props: {
         },
         detection: {
             useNvrDetectionsKey,
+            detectionSourceKey,
             whitelistedZonesKey,
             blacklistedZonesKey,
             recordingTriggerSecondsKey,
@@ -1064,6 +1068,7 @@ export const getRuleKeys = (props: {
             detectionClassesKey,
             markDetectionsKey,
             peopleKey,
+            frigateLabelsKey,
             platesKey,
             plateMaxDistanceKey,
             labelScoreKey,
@@ -1573,12 +1578,13 @@ export const getDetectionRulesSettings = async (props: {
     storage: StorageSettings<any>,
     zones?: string[],
     people?: string[],
+    frigateLabels?: string[],
     ruleSource: RuleSource,
     device?: DeviceBase,
     refreshSettings: OnRefreshSettings,
     logger: Console
 }) => {
-    const { storage, zones, device, ruleSource, refreshSettings, logger, people } = props;
+    const { storage, zones, device, ruleSource, frigateLabels, refreshSettings, logger, people } = props;
     const isPlugin = ruleSource === RuleSource.Plugin;
     const { isCamera } = !isPlugin ? isDeviceSupported(device) : {};
 
@@ -1593,6 +1599,7 @@ export const getDetectionRulesSettings = async (props: {
             nvrEventsKey,
             recordingTriggerSecondsKey,
             useNvrDetectionsKey,
+            detectionSourceKey,
             // markDetectionsKey,
             whitelistedZonesKey,
             devicesKey,
@@ -1601,21 +1608,32 @@ export const getDetectionRulesSettings = async (props: {
             plateMaxDistanceKey,
             platesKey,
             labelScoreKey,
+            frigateLabelsKey,
         } = detection;
 
         const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean ?? false;
         const detectionClasses = safeParseJson<DetectionClass[]>(storage.getItem(detectionClassesKey), []);
         const activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
+        const detectionSource = storage.getItem(detectionSourceKey) as ScryptedEventSource ||
+            (useNvrDetections ? ScryptedEventSource.NVR : ScryptedEventSource.RawDetection);
         const showCameraSettings = isPlugin || isCamera;
 
         settings.push(
             {
-                key: useNvrDetectionsKey,
-                title: 'Use NVR detections',
-                type: 'boolean',
+                key: detectionSourceKey,
+                title: 'Detections source',
+                description: 'Select which detections should be used. The snapshots will come from the same source',
+                type: 'string',
+                defaultValue: detectionSource,
                 group,
                 subgroup,
-                immediate: true
+                immediate: true,
+                combobox: true,
+                choices: [
+                    ScryptedEventSource.RawDetection,
+                    ScryptedEventSource.NVR,
+                    ScryptedEventSource.Frigate,
+                ]
             }
         );
 
@@ -1650,6 +1668,7 @@ export const getDetectionRulesSettings = async (props: {
                 },
             );
 
+            const hasFrigateEvents = detectionSource === ScryptedEventSource.Frigate;
             const hasFace = detectionClasses.includes(DetectionClass.Face);
             const hasPlate = detectionClasses.includes(DetectionClass.Plate);
 
@@ -1660,6 +1679,20 @@ export const getDetectionRulesSettings = async (props: {
                     description: 'Leave blank to match any score',
                     group,
                     subgroup,
+                });
+            }
+
+            if (hasFrigateEvents) {
+                settings.push({
+                    key: frigateLabelsKey,
+                    title: 'Whitelisted frigate labels',
+                    group,
+                    subgroup,
+                    multiple: true,
+                    combobox: true,
+                    choices: frigateLabels,
+                    defaultValue: [],
+                    immediate: true,
                 });
             }
 
@@ -1705,7 +1738,7 @@ export const getDetectionRulesSettings = async (props: {
             }
         }
 
-        if (useNvrDetections && isPlugin) {
+        if (detectionSource === ScryptedEventSource.NVR && isPlugin) {
             settings.push(
                 {
                     key: nvrEventsKey,
@@ -1719,20 +1752,6 @@ export const getDetectionRulesSettings = async (props: {
                 }
             );
         }
-
-        // if (!useNvrDetections) {
-        //     settings.push(
-        //         {
-        //             key: markDetectionsKey,
-        //             title: 'Mark detections',
-        //             description: 'Add a coloured box around the detections',
-        //             group,
-        //             subgroup,
-        //             type: 'boolean',
-        //             immediate: true
-        //         }
-        //     );
-        // }
 
         if (isPlugin && activationType !== DetectionRuleActivation.OnActive) {
             settings.push({
@@ -2275,7 +2294,6 @@ export interface BaseRule {
     isEnabled: boolean;
     currentlyActive?: boolean;
     useAi: boolean;
-    isNvr?: boolean;
     ruleType: RuleType;
     name: string;
     deviceId?: string;
@@ -2309,6 +2327,8 @@ export interface DetectionRule extends BaseRule {
     plates?: string[];
     plateMaxDistance?: number;
     disableNvrRecordingSeconds?: number;
+    detectionSource?: ScryptedEventSource;
+    imageSource?: ScryptedEventSource;
 }
 
 export const getMinutes = (date: Moment) => date.minutes() + (date.hours() * 60);
@@ -2530,6 +2550,7 @@ export const getDetectionRules = (props: {
                 },
                 detection: {
                     useNvrDetectionsKey,
+                    detectionSourceKey,
                     markDetectionsKey,
                     detectionClassesKey,
                     whitelistedZonesKey,
@@ -2547,6 +2568,8 @@ export const getDetectionRules = (props: {
                 });
 
             const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean;
+            const detectionSource = storage.getItem(detectionSourceKey) as ScryptedEventSource ||
+                (useNvrDetections ? ScryptedEventSource.NVR : ScryptedEventSource.RawDetection);
             const markDetections = storage.getItem(markDetectionsKey) as boolean ?? false;
             const activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
             const customText = storage.getItem(textKey) as string || undefined;
@@ -2582,7 +2605,7 @@ export const getDetectionRules = (props: {
                 disableNvrRecordingSeconds,
                 minDelay,
                 minMqttPublishDelay,
-                isNvr: useNvrDetections,
+                detectionSource,
             };
 
             if (!isPlugin) {
@@ -2641,7 +2664,7 @@ export const getDetectionRules = (props: {
 
             if (ruleAllowed) {
                 allowedRules.push(cloneDeep(detectionRule));
-                !anyAllowedNvrRule && (anyAllowedNvrRule = rule.isNvr);
+                !anyAllowedNvrRule && (anyAllowedNvrRule = detectionRule.detectionSource === ScryptedEventSource.NVR);
                 !shouldListenDoorbell && (shouldListenDoorbell = detectionClasses.includes(DetectionClass.Doorbell));
             }
 
