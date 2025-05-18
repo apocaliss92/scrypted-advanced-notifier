@@ -6,7 +6,6 @@ import moment, { Moment } from "moment";
 import sharp from 'sharp';
 import { name, scrypted } from '../package.json';
 import { AiPlatform, defaultModel } from "./aiUtils";
-import { supportedAlarmModes } from "./alarmUtils";
 import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detectionClasses";
 import AdvancedNotifierPlugin, { PluginSettingKey } from "./main";
 const { endpointManager } = sdk;
@@ -29,6 +28,7 @@ export const CAMERA_NATIVE_ID = 'advancedNotifierCamera';
 export const ALARM_SYSTEM_NATIVE_ID = 'advancedNotifierAlarmSystem';
 export const MAX_PENDING_RESULT_PER_CAMERA = 5;
 export const MAX_RPC_OBJECTS_PER_CAMERA = 50;
+export const FRIGATE_BRIDGE_PLUGIN_NAME = 'Frigate bridge';
 
 export enum ScryptedEventSource {
     RawDetection = 'RawDetection',
@@ -79,6 +79,7 @@ export enum ImageSource {
     Latest = 'Latest',
     Detector = 'Detector',
     Decoder = 'Decoder',
+    Frigate = 'Frigate',
 }
 
 export type IsDelayPassedProps =
@@ -1004,7 +1005,6 @@ export const getRuleKeys = (props: {
     const markDetectionsKey = `${prefix}:${ruleName}:markDetections`;
     const recordingTriggerSecondsKey = `${prefix}:${ruleName}:recordingTriggerSeconds`;
     const peopleKey = `${prefix}:${ruleName}:people`;
-    const frigateLabelsKey = `${prefix}:${ruleName}:frigateLabels`;
     const platesKey = `${prefix}:${ruleName}:plates`;
     const plateMaxDistanceKey = `${prefix}:${ruleName}:plateMaxDistance`;
     const labelScoreKey = `${prefix}:${ruleName}:labelScore`;
@@ -1068,7 +1068,6 @@ export const getRuleKeys = (props: {
             detectionClassesKey,
             markDetectionsKey,
             peopleKey,
-            frigateLabelsKey,
             platesKey,
             plateMaxDistanceKey,
             labelScoreKey,
@@ -1608,7 +1607,6 @@ export const getDetectionRulesSettings = async (props: {
             plateMaxDistanceKey,
             platesKey,
             labelScoreKey,
-            frigateLabelsKey,
         } = detection;
 
         const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean ?? false;
@@ -1617,6 +1615,7 @@ export const getDetectionRulesSettings = async (props: {
         const detectionSource = storage.getItem(detectionSourceKey) as ScryptedEventSource ||
             (useNvrDetections ? ScryptedEventSource.NVR : ScryptedEventSource.RawDetection);
         const showCameraSettings = isPlugin || isCamera;
+        const isFrigate = detectionSource === ScryptedEventSource.Frigate;
 
         settings.push(
             {
@@ -1629,15 +1628,20 @@ export const getDetectionRulesSettings = async (props: {
                 subgroup,
                 immediate: true,
                 combobox: true,
-                choices: [
+                choices: frigateLabels ? [
                     ScryptedEventSource.RawDetection,
                     ScryptedEventSource.NVR,
                     ScryptedEventSource.Frigate,
+                ] : [
+                    ScryptedEventSource.RawDetection,
+                    ScryptedEventSource.NVR,
                 ]
             }
         );
 
         if (showCameraSettings) {
+            const hasFrigateEvents = detectionSource === ScryptedEventSource.Frigate;
+
             settings.push(
                 {
                     key: detectionClassesKey,
@@ -1646,7 +1650,7 @@ export const getDetectionRulesSettings = async (props: {
                     subgroup,
                     multiple: true,
                     combobox: true,
-                    choices: [
+                    choices: hasFrigateEvents ? frigateLabels : [
                         ...defaultDetectionClasses,
                         ...Object.values(SupportedSensorType),
                     ],
@@ -1668,7 +1672,6 @@ export const getDetectionRulesSettings = async (props: {
                 },
             );
 
-            const hasFrigateEvents = detectionSource === ScryptedEventSource.Frigate;
             const hasFace = detectionClasses.includes(DetectionClass.Face);
             const hasPlate = detectionClasses.includes(DetectionClass.Plate);
 
@@ -1679,20 +1682,6 @@ export const getDetectionRulesSettings = async (props: {
                     description: 'Leave blank to match any score',
                     group,
                     subgroup,
-                });
-            }
-
-            if (hasFrigateEvents) {
-                settings.push({
-                    key: frigateLabelsKey,
-                    title: 'Whitelisted frigate labels',
-                    group,
-                    subgroup,
-                    multiple: true,
-                    combobox: true,
-                    choices: frigateLabels,
-                    defaultValue: [],
-                    immediate: true,
                 });
             }
 
@@ -1768,7 +1757,7 @@ export const getDetectionRulesSettings = async (props: {
             });
         }
 
-        if (isCamera && zones) {
+        if (isCamera && zones && !isFrigate) {
             settings.push(
                 {
                     key: whitelistedZonesKey,

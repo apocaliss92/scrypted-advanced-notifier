@@ -16,6 +16,7 @@ import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { AudioRule, BaseRule, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDecibelsFromRtp_PCMU8, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebHookUrls, moToB64, safeParseJson, splitRules } from "./utils";
+import { objectDetectorNativeId } from '../../scrypted-frigate-bridge/src/main';
 
 const { systemManager } = sdk;
 
@@ -54,7 +55,7 @@ export type OccupancyRuleData = {
     objectsDetectedResult: ObjectsDetected[];
 };
 
-interface AccumulatedDetection { detect: ObjectsDetected, eventId: string };
+interface AccumulatedDetection { detect: ObjectsDetected, eventId: string, eventSource: ScryptedEventSource };
 
 type CameraSettingKey =
     | 'ignoreCameraDetections'
@@ -269,6 +270,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     lastBasicDetectionsPublishedMap: Partial<Record<DetectionClass, number>> = {};
     lastObserveZonesFetched: number;
     observeZoneData: ObserveZoneData[];
+    lastFrigateLabelsFetched: number;
+    frigateLabels: string[];
     occupancyState: Record<string, CurrentOccupancyState> = {};
     timelapseLastCheck: Record<string, number> = {};
     timelapseLastGenerated: Record<string, number> = {};
@@ -324,6 +327,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
         const nvrObjectDetector = systemManager.getDeviceById('@scrypted/nvr', 'detection')?.id;
         const basicObjectDetector = systemManager.getDeviceById('@apocaliss92/scrypted-basic-object-detector')?.id;
+        const frigateObjectDetector = systemManager.getDeviceById('@apocaliss92/scrypted-frigate-bridge', objectDetectorNativeId)?.id;
         const nvrId = systemManager.getDeviceById('@scrypted/nvr')?.id;
         const advancedNotifierId = systemManager.getDeviceById(pluginName)?.id;
         let shouldBeMoved = false;
@@ -333,6 +337,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             shouldBeMoved = true
         }
         if (basicObjectDetector && this.mixins.indexOf(basicObjectDetector) > thisMixinOrder) {
+            shouldBeMoved = true
+        }
+        if (frigateObjectDetector && this.mixins.indexOf(frigateObjectDetector) > thisMixinOrder) {
             shouldBeMoved = true
         }
         if (nvrId && this.mixins.indexOf(nvrId) > thisMixinOrder) {
@@ -890,6 +897,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const dynamicSettings: StorageSetting[] = [];
         const zones = (await this.getObserveZones()).map(item => item.name);
         const people = (await this.plugin.getKnownPeople());
+        const frigateLabels = (await this.getFrigateLabels());
 
         const detectionRulesSettings = await getDetectionRulesSettings({
             storage: this.storageSettings,
@@ -897,6 +905,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             people,
             device: this,
             logger,
+            frigateLabels,
             ruleSource: RuleSource.Device,
             refreshSettings: this.refreshSettings.bind(this),
         });
@@ -1031,6 +1040,30 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             this.observeZoneData = res;
             this.lastObserveZonesFetched = now;
             return this.observeZoneData;
+        } catch (e) {
+            this.getLogger().log('Error in getObserveZones', e.message);
+            return [];
+        }
+    }
+
+    async getFrigateLabels() {
+        try {
+            const now = new Date().getTime();
+            const frigateObjectDetector = systemManager.getDeviceById('@apocaliss92/scrypted-frigate-bridge', objectDetectorNativeId)?.id;
+
+            if (!this.cameraDevice.mixins.includes(frigateObjectDetector)) {
+                return undefined;
+            }
+
+            const isUpdated = this.lastFrigateLabelsFetched && (now - this.lastFrigateLabelsFetched) <= (1000 * 60);
+            if (this.frigateLabels && isUpdated) {
+                return this.frigateLabels;
+            }
+
+            const settings = await this.mixinDevice.getSettings();
+            const labels = settings.find((setting: { key: string; }) => setting.key === 'frigateObjectDetector:labels')?.value ?? [];
+            this.frigateLabels = labels;
+            this.lastFrigateLabelsFetched = now;
         } catch (e) {
             this.getLogger().log('Error in getObserveZones', e.message);
             return [];
@@ -1314,7 +1347,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         try {
             if (reason === GetImageReason.FromFrigate) {
-                logger.info(`Should fetch Frigate image for event ${eventId} and camera ${detectionId}`);
+                if (!this.plugin.frigateApi || !detectionId) {
+                    logger.log('Frigate API not set on The Frigate Bridge plugin');
+                } else {
+                    try {
+                        const endpoint = `${this.plugin.frigateApi}/events/${detectionId}/snapshot.jpg`;
+                        logger.info(`Fetching Frigate image for event ${detectionId} from ${endpoint}`);
+                        image = await sdk.mediaManager.createMediaObjectFromUrl(endpoint);
+                        imageSource = ImageSource.Frigate;
+                    } catch (e) {
+                        logger.log(`Error trying to fetch frigate image ${eventId}`, e);
+                    }
+                }
             } else if (!image) {
                 let runners = [];
                 const checkLatest = findFromLatest(reason === GetImageReason.MotionUpdate ? 3000 : 2000);
@@ -2055,7 +2099,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             triggerTime: det.detect.timestamp,
             detectionId: det.detect.detectionId,
             eventId: det.eventId,
-            detections: det.detect.detections
+            detections: det.detect.detections,
+            eventSource: det.eventSource
         }));
         const rulesToUpdate = cloneDeep(this.accumulatedRules);
 
@@ -2074,12 +2119,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let b64Image: string;
         let imageSource: ImageSource;
         for (const data of dataToAnalyze) {
-            const { detectionId, eventId } = data;
-            if (detectionId && eventId) {
+            const { detectionId, eventId, eventSource } = data;
+            if (detectionId && eventId && eventSource !== ScryptedEventSource.Frigate) {
                 const imageData = await this.getImage({
                     detectionId,
                     eventId,
-                    reason: GetImageReason.AccumulatedDetections
+                    reason: GetImageReason.AccumulatedDetections,
                 });
 
                 if (imageData.imageSource === ImageSource.Detector) {
@@ -2359,7 +2404,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 ...detect,
                 detections: candidates
             },
-            eventId: eventDetails.eventId
+            eventId: eventDetails.eventId,
+            eventSource,
         });
 
         let image: MediaObject;
@@ -2375,8 +2421,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     image: parentImage,
                     reason: isFromNvr ? GetImageReason.FromNvr : isFromFrigate ?
                         GetImageReason.FromFrigate : undefined,
-                    eventId: isFromFrigate ? (detect as FrigateObjectDetection).frigateEvent?.after?.id : undefined,
-                    detectionId: isFromFrigate ? (detect as FrigateObjectDetection).frigateEvent?.after?.camera : undefined
+                    detectionId: isFromFrigate ? (detect as FrigateObjectDetection).frigateEvent?.after?.id : undefined
                 });
                 image = imageNew;
                 b64Image = b64ImageNew;

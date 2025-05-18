@@ -19,7 +19,7 @@ import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodisco
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getEventTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImageSource, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TextSettingKey, TimelapseRule } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_NAME, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getEventTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImageSource, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TextSettingKey, TimelapseRule } from "./utils";
 import url from 'url';
 import { ffmpegFilterImageBuffer } from "../../scrypted/plugins/snapshot/src/ffmpeg-image-filter";
 
@@ -161,11 +161,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             subgroup: 'MQTT',
             immediate: true,
             combobox: true,
-            choices: [
-                ScryptedEventSource.RawDetection,
-                ScryptedEventSource.NVR,
-                ScryptedEventSource.Frigate,
-            ]
+            choices: []
         },
         ...getTextSettings({ forMixin: false }),
         [ruleTypeMetadataMap[RuleType.Detection].rulesKey]: {
@@ -339,6 +335,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     lastConfigurationsCheck: number;
     lastKnownPeopleFetched: number;
     hasCloudPlugin: boolean;
+    frigateApi: string;
     knownPeople: string[] = [];
     restartRequested = false;
     public aiMessageResponseMap: Record<string, string> = {};
@@ -360,6 +357,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         } else {
             logger.log('Cloud plugin not found');
             this.hasCloudPlugin = false;
+        }
+
+        const frigatePlugin = systemManager.getDeviceByName<Settings>(FRIGATE_BRIDGE_PLUGIN_NAME);
+        if (frigatePlugin) {
+            const settings = await frigatePlugin.getSettings();
+            const serverUrl = settings.find(setting => setting.key === 'serverUrl')?.value as string;
+            logger.log(`Frigate API found ${serverUrl}`);
+            this.frigateApi = serverUrl;
         }
 
         const [major, minor, patch] = version.split('.').map(num => parseInt(num, 10));
@@ -1283,7 +1288,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             if (mqttEnabled) {
                 this.storageSettings.settings.detectionSourceForMqtt.defaultValue =
-                    useNvrDetectionsForMqtt ? ScryptedEventSource.NVR : ScryptedEventSource.RawDetection
+                    useNvrDetectionsForMqtt ? ScryptedEventSource.NVR : ScryptedEventSource.RawDetection;
+                const enabledDetectionSources = this.frigateApi ? [
+                    ScryptedEventSource.RawDetection,
+                    ScryptedEventSource.NVR,
+                    ScryptedEventSource.Frigate,
+                ] : [
+                    ScryptedEventSource.RawDetection,
+                    ScryptedEventSource.NVR,
+                ];
+                this.storageSettings.settings.detectionSourceForMqtt.choices = enabledDetectionSources;
             }
             this.storageSettings.settings.useNvrDetectionsForMqtt.hide = true;
 

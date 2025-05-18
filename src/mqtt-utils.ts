@@ -1204,8 +1204,6 @@ export const setupCameraAutodiscovery = async (props: {
         }
     }
 
-    // console.info(`Mqtt entities to discover: ${mqttEntities.map(item => item.name).join(', ')}`);
-
     return await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, device, console });
 }
 
