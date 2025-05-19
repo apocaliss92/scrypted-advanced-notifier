@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.7.3
+- Add configurations for videoclip speed, default to 2x (Fast)
+
 ### 3.7.0
 - Add full support to Frigate detections, in combination with `Scrypted Frigate Bridge` will be possible to import frigate events into scrypted and use this plugin fully with them. Particularly interesting audio classifications and bird classification (untested, will need some test data). Snapshots are as well imported from Frigate, videoclips for accelerated GIFs will be coming soon
 - Motion reporting to MQTT reduced drastically to 5 seconds

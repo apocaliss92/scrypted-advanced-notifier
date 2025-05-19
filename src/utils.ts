@@ -84,6 +84,22 @@ export enum ImageSource {
     Frigate = 'Frigate',
 }
 
+export enum VideoclipSpeed {
+    SuperSlow = 'SuperSlow',
+    Slow = 'Slow',
+    Realtime = 'Realtime',
+    Fast = 'Fast',
+    SuperFast = 'SuperFast',
+}
+
+export const videoclipSpeedMultiplier: Record<VideoclipSpeed, number> = {
+    [VideoclipSpeed.SuperSlow]: 0.25,
+    [VideoclipSpeed.Slow]: 0.5,
+    [VideoclipSpeed.Realtime]: 1,
+    [VideoclipSpeed.Fast]: 2,
+    [VideoclipSpeed.SuperFast]: 4
+}
+
 export type IsDelayPassedProps =
     { type: DelayType.DecoderFrameOnStorage, eventSource: ScryptedEventSource, timestamp: number } |
     { type: DelayType.BasicDetectionImage, classname: string, label?: string, eventSource: ScryptedEventSource } |
@@ -1022,6 +1038,7 @@ export const getRuleKeys = (props: {
     const startRuleTextKey = `${prefix}:${ruleName}:startRuleText`;
     const endRuleTextKey = `${prefix}:${ruleName}:endRuleText`;
     const generateClipKey = `${prefix}:${ruleName}:generateClip`;
+    const generateClipSpeedKey = `${prefix}:${ruleName}:generateClipSpeed`;
 
     // Specific for detection rules
     const detectionClassesKey = `${prefix}:${ruleName}:detecionClasses`;
@@ -1085,6 +1102,7 @@ export const getRuleKeys = (props: {
             startRuleTextKey,
             endRuleTextKey,
             generateClipKey,
+            generateClipSpeedKey,
         },
         detection: {
             useNvrDetectionsKey,
@@ -1377,11 +1395,13 @@ export const getRuleSettings = (props: {
                 securitySystemModesKey,
                 aiEnabledKey,
                 generateClipKey,
+                generateClipSpeedKey,
             }
         } = getRuleKeys({ ruleName, ruleType });
 
         const currentActivation = storage.getItem(activationKey as any) as DetectionRuleActivation || DetectionRuleActivation.Always;
         const showMoreConfigurations = safeParseJson<boolean>(storage.getItem(showMoreConfigurationsKey), false);
+        const generateClip = safeParseJson<boolean>(storage.getItem(generateClipKey), false);
         const notifiers = safeParseJson<string[]>(storage.getItem(notifiersKey), []);
         const advancedSecurityEnabled = ruleType === RuleType.Detection && isPlugin;
         const isAdvancedSecuritySystem = advancedSecurityEnabled && currentActivation === DetectionRuleActivation.AdvancedSecuritySystem;
@@ -1424,9 +1444,31 @@ export const getRuleSettings = (props: {
                     type: 'boolean',
                     group,
                     subgroup,
-                    immediate: true
+                    immediate: true,
+                    onPut: async () => await refreshSettings(),
                 }
             );
+
+            if (generateClip) {
+                settings.push(
+                    {
+                        key: generateClipSpeedKey,
+                        title: 'Clip speed',
+                        description: 'Define the speed of the clip',
+                        group,
+                        subgroup,
+                        choices: [
+                            VideoclipSpeed.SuperSlow,
+                            VideoclipSpeed.Slow,
+                            VideoclipSpeed.Realtime,
+                            VideoclipSpeed.Fast,
+                            VideoclipSpeed.SuperFast,
+                        ],
+                        type: 'string',
+                        defaultValue: VideoclipSpeed.Fast,
+                    }
+                );
+            }
         }
 
         if (isDetectionRule) {
@@ -2359,6 +2401,7 @@ export interface BaseRule {
     startRuleText?: string;
     endRuleText?: string;
     generateClip: boolean;
+    generateClipSpeed: VideoclipSpeed;
     notifierData: Record<string, {
         actions: NotificationAction[],
         priority: NotificationPriority,
@@ -2436,6 +2479,7 @@ const initBasicRule = (props: {
         textKey,
         aiEnabledKey,
         generateClipKey,
+        generateClipSpeedKey,
     } } = getRuleKeys({
         ruleType,
         ruleName,
@@ -2446,6 +2490,7 @@ const initBasicRule = (props: {
     const useAi = storage.getItem(aiEnabledKey);
     const customText = storage.getItem(textKey);
     const activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
+    const generateClipSpeed = storage.getItem(generateClipSpeedKey) as VideoclipSpeed || VideoclipSpeed.Fast;
     const securitySystemModes = storage.getItem(securitySystemModesKey) as SecuritySystemMode[] ?? [];
     const notifiers = storage.getItem(notifiersKey) as string[];
     const generateClip = storage.getItem(generateClipKey) as boolean;
@@ -2462,6 +2507,7 @@ const initBasicRule = (props: {
         source: ruleSource,
         securitySystemModes,
         generateClip,
+        generateClipSpeed,
         notifierData: {},
     };
 

@@ -714,7 +714,40 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }, 1000 * 2);
     }
 
+    async initDecoderStream() {
+        if (this.decoderStream) {
+            return;
+        }
+
+        const logger = this.getLogger();
+
+        const streams = await this.cameraDevice.getVideoStreamOptions();
+        let closestStream: ResponseMediaStreamOptions;
+        for (const stream of streams) {
+            logger.info(`Stream ${stream.name} ${JSON.stringify(stream.video)} ${stream.destinations}`);
+            const streamWidth = stream.video?.width;
+
+            if (streamWidth) {
+                const diff = SNAPSHOT_WIDTH - streamWidth;
+                if (!closestStream || diff < Math.abs((SNAPSHOT_WIDTH - closestStream.video.width))) {
+                    closestStream = stream;
+                }
+            }
+        }
+
+        if (closestStream) {
+            this.decoderStream = closestStream.destinations[0];
+            this.decoderResize = ((closestStream.video.width ?? 0) - SNAPSHOT_WIDTH) > 200;
+            logger.log(`Stream found ${JSON.stringify(closestStream)}, requires resize ${this.decoderResize}`);
+        } else {
+            logger.log(`Stream not found, falling back to remote-recorder`);
+            this.decoderStream = 'remote-recorder';
+            this.decoderResize = false;
+        }
+    }
+
     async startDecoder(reason: 'Permanent' | 'StartMotion') {
+        await this.initDecoderStream();
         const logger = this.getLogger();
 
         if (!this.framesGeneratorSignal || this.framesGeneratorSignal.finished) {
@@ -853,30 +886,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 await this.storageSettings.putSetting('lastSnapshotWebhookCloudUrl', lastSnapshotCloudUrl);
                 await this.storageSettings.putSetting('lastSnapshotWebhookLocalUrl', lastSnapshotLocalUrl);
-            }
-
-            const streams = await this.cameraDevice.getVideoStreamOptions();
-            let closestStream: ResponseMediaStreamOptions;
-            for (const stream of streams) {
-                logger.info(`Stream ${stream.name} ${JSON.stringify(stream.video)} ${stream.destinations}`);
-                const streamWidth = stream.video?.width;
-
-                if (streamWidth) {
-                    const diff = SNAPSHOT_WIDTH - streamWidth;
-                    if (!closestStream || diff < Math.abs((SNAPSHOT_WIDTH - closestStream.video.width))) {
-                        closestStream = stream;
-                    }
-                }
-            }
-
-            if (closestStream) {
-                this.decoderStream = closestStream.destinations[0];
-                this.decoderResize = ((closestStream.video.width ?? 0) - SNAPSHOT_WIDTH) > 200;
-                logger.log(`Stream found ${JSON.stringify(closestStream)}, requires resize ${this.decoderResize}`);
-            } else {
-                logger.log(`Stream not found, falling back to remote-recorder`);
-                this.decoderStream = 'remote-recorder';
-                this.decoderResize = false;
             }
         } catch { };
 
