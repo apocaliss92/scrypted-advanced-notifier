@@ -46,6 +46,8 @@ export type PluginSettingKey =
     | 'testNotifier'
     | 'testEventType'
     | 'testPriority'
+    | 'testGenerateClip'
+    | 'testGenerateClipSpeed'
     | 'testUseAi'
     | 'testSound'
     | 'testBypassSnooze'
@@ -228,6 +230,27 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             immediate: true,
             choices: Object.keys(NotificationPriority),
             defaultValue: NotificationPriority.Normal
+        },
+        testGenerateClip: {
+            group: 'Test',
+            title: 'Generate clip',
+            type: 'boolean',
+            immediate: true,
+            defaultValue: false
+        },
+        testGenerateClipSpeed: {
+            group: 'Test',
+            title: 'Clip speed',
+            choices: [
+                VideoclipSpeed.SuperSlow,
+                VideoclipSpeed.Slow,
+                VideoclipSpeed.Realtime,
+                VideoclipSpeed.Fast,
+                VideoclipSpeed.SuperFast,
+            ],
+            type: 'string',
+            immediate: true,
+            defaultValue: VideoclipSpeed.Fast,
         },
         testUseAi: {
             group: 'Test',
@@ -1291,6 +1314,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 testDevice,
                 testNotifier,
                 useNvrDetectionsForMqtt,
+                testGenerateClip,
             } = this.storageSettings.values;
 
             this.storageSettings.settings.mqttActiveEntitiesTopic.hide = !mqttEnabled;
@@ -1311,14 +1335,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
             this.storageSettings.settings.useNvrDetectionsForMqtt.hide = true;
 
-
             const { isCamera } = testDevice ? isDeviceSupported(testDevice) : {};
             this.storageSettings.settings.testEventType.hide = !isCamera;
+            this.storageSettings.settings.testGenerateClipSpeed.hide = !testGenerateClip;
 
             if (testNotifier) {
                 const { priorityChoices } = getNotifierData({ notifierId: testNotifier.id, ruleType: RuleType.Detection });
                 this.storageSettings.settings.testPriority.choices = priorityChoices;
             }
+
+            this.storageSettings.settings.testPriority.hide = testDevice && testDevice !== 'None';
 
             return super.getSettings();
         } catch (e) {
@@ -1555,6 +1581,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             eventType,
             triggerDevice,
         } = result;
+        const { isCamera } = isDeviceSupported(triggerDevice);
 
         const foundDevice = this.currentCameraMixinsMap[triggerDevice.id] || this.currentSensorMixinsMap[triggerDevice.id];
 
@@ -1563,34 +1590,43 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             return;
         }
 
-        logger.info(JSON.stringify({ allDetections, cameraName, options }));
-
-        if (isDetectionClass(eventType)) {
-            await (foundDevice as AdvancedNotifierCameraMixin)?.processDetections({
-                detect: { timestamp: triggerTime, detections: allDetections },
-                image,
-                eventSource: ScryptedEventSource.NVR,
-            });
-        } else {
-            if (eventType) {
-                await this.notifyNvrEvent(
-                    {
-                        ...result,
-                        cameraDevice,
-                        triggerTime
-                    }
-                );
+        if (isCamera) {
+            logger.info(JSON.stringify({ allDetections, cameraName, options }));
+            if (isDetectionClass(eventType)) {
+                await (foundDevice as AdvancedNotifierCameraMixin)?.processDetections({
+                    detect: { timestamp: triggerTime, detections: allDetections },
+                    image,
+                    eventSource: ScryptedEventSource.NVR,
+                });
             } else {
-                logger.error(`Notification coming from NVR not mapped yet: ${JSON.stringify({
-                    cameraName,
-                    options,
-                    allDetections,
-                    eventType,
-                    triggerDevice: triggerDevice.name,
-                })
-                    } `);
+                if (eventType) {
+                    await this.notifyNvrEvent(
+                        {
+                            ...result,
+                            cameraDevice,
+                            triggerTime
+                        }
+                    );
+                } else {
+                    logger.error(`Notification coming from NVR not mapped yet: ${JSON.stringify({
+                        cameraName,
+                        options,
+                        allDetections,
+                        eventType,
+                        triggerDevice: triggerDevice.name,
+                    })
+                        } `);
+                }
             }
         }
+        // else {
+        //     await (foundDevice as AdvancedNotifierSensorMixin)?.processEvent({
+        //         image,
+        //         triggerTime,
+        //         triggered: true,
+        //         eventSource: ScryptedEventSource.NVR
+        //     });
+        // }
     }
 
     public getLinkedCamera = async (deviceId: string) => {
@@ -1610,11 +1646,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         rule: DetectionRule,
         eventType: DetectionEvent,
         triggerDeviceId: string,
+        snoozeId?: string,
         triggerTime: number,
+        source?: NotificationSource,
     }) => {
         const {
             eventType,
             triggerDeviceId,
+            snoozeId,
             triggerTime,
             match,
             image,
@@ -1645,6 +1684,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     source: NotificationSource.DETECTION,
                     eventType,
                     logger,
+                    snoozeId,
                     rule: rule as DetectionRule,
                     videoUrl,
                 }).catch(e => logger.log(`Error on notifier ${notifier.name} `, e));
@@ -1743,10 +1783,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
     ) {
         const { detection, detectionTime, notifierId, device, externalUrl, rule, eventType } = props;
-        const { label: labelRaw } = detection ?? {};
+        const { label: labelRaw, className } = detection ?? {};
 
         let label = labelRaw;
-        if (!isLabelDetection(detection.className)) {
+        if (!isLabelDetection(className)) {
             const labelAttemptKey = getFrigateTextKey(labelRaw);
             label = this.getTextKey({ notifierId, textKey: labelAttemptKey }) ?? label;
         }
@@ -2263,15 +2303,19 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
 
     async executeNotificationTest() {
-        const testDevice = this.storageSettings.getItem('testDevice') as DeviceInterface;
-        const testNotifier = this.storageSettings.getItem('testNotifier') as DeviceInterface;
-        const testEventType = this.storageSettings.getItem('testEventType') as DetectionEvent;
-        const testPriority = this.storageSettings.getItem('testPriority') as NotificationPriority;
-        const testUseAi = this.storageSettings.getItem('testUseAi') as boolean;
-        const testBypassSnooze = this.storageSettings.getItem('testBypassSnooze') as boolean;
-        const testAddActions = this.storageSettings.getItem('testAddActions') as boolean;
-        const testAddSnoozing = this.storageSettings.getItem('testAddSnoozing') as boolean;
-        const testSound = this.storageSettings.getItem('testSound') as string;
+        const {
+            testAddActions,
+            testAddSnoozing,
+            testBypassSnooze,
+            testDevice,
+            testEventType,
+            testGenerateClip,
+            testGenerateClipSpeed,
+            testNotifier,
+            testPriority,
+            testSound,
+            testUseAi,
+        } = this.storageSettings.values;
 
         const logger = this.getLogger();
 
@@ -2283,19 +2327,28 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 const eventType = sensorType ?? testEventType;
                 const isDetection = isDetectionClass(testEventType);
 
-                logger.log(`Sending ${eventType} test notification to ${testNotifier.name} - ${testDevice.name} - ${testEventType} ${sensorType} ${testSound}`);
+                logger.log(`Sending ${eventType} test notification to ${testNotifier.name}: ${JSON.stringify({
+                    deviceName: testDevice.name,
+                    testAddActions,
+                    testAddSnoozing,
+                    testBypassSnooze,
+                    testEventType,
+                    testGenerateClip,
+                    testGenerateClipSpeed,
+                    testNotifier,
+                    testPriority,
+                    testSound,
+                    testUseAi,
+                })}`);
 
                 const snoozeId = testBypassSnooze ? Math.random().toString(36).substring(2, 12) : undefined;
-                this.notifyDetection({
-                    triggerDevice: testDevice,
-                    notifierId: testNotifierId,
-                    time: currentTime,
-                    eventType,
-                    detection: isDetection ? { label: 'TestLabelFound', className: testEventType, score: 1 } : undefined,
+                await this.notifyDetectionEvent({
                     source: NotificationSource.TEST,
-                    logger,
+                    eventType,
+                    triggerDeviceId: testDevice.id,
+                    triggerTime: currentTime - 2000,
                     snoozeId,
-                    forceAi: testUseAi,
+                    match: isDetection ? { label: 'TestLabelFound', className: testEventType, score: 1 } : undefined,
                     rule: {
                         notifierData: {
                             [testNotifierId]: {
@@ -2306,18 +2359,50 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                                 sound: testSound
                             }
                         },
-                        generateClipSpeed: VideoclipSpeed.SuperFast,
-                        generateClip: false,
+                        generateClipSpeed: testGenerateClipSpeed,
+                        generateClip: testGenerateClip,
                         useAi: testUseAi,
                         ruleType: RuleType.Detection,
                         markDetections: false,
                         activationType: DetectionRuleActivation.Always,
                         source: RuleSource.Plugin,
                         isEnabled: true,
-                        name: "",
-                        notifiers: []
+                        name: 'Test rule',
+                        notifiers: [testNotifier?.id]
                     }
-                });
+                })
+                // this.notifyDetection({
+                //     triggerDevice: testDevice,
+                //     notifierId: testNotifierId,
+                //     time: currentTime,
+                //     eventType,
+                //     detection: isDetection ? { label: 'TestLabelFound', className: testEventType, score: 1 } : undefined,
+                //     source: NotificationSource.TEST,
+                //     logger,
+                //     snoozeId,
+                //     forceAi: testUseAi,
+                //     rule: {
+                //         notifierData: {
+                //             [testNotifierId]: {
+                //                 priority: testPriority,
+                //                 actions: [],
+                //                 addSnooze: testAddSnoozing,
+                //                 addCameraActions: testAddActions,
+                //                 sound: testSound
+                //             }
+                //         },
+                //         generateClipSpeed: testGenerateClipSpeed,
+                //         generateClip: testGenerateClip,
+                //         useAi: testUseAi,
+                //         ruleType: RuleType.Detection,
+                //         markDetections: false,
+                //         activationType: DetectionRuleActivation.Always,
+                //         source: RuleSource.Plugin,
+                //         isEnabled: true,
+                //         name: "",
+                //         notifiers: []
+                //     }
+                // });
             }
         } catch (e) {
             logger.log('Error in executeNotificationTest', e);

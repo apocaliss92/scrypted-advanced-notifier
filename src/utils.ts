@@ -1195,6 +1195,10 @@ export const getNotifierData = (props: {
 }) => {
     const { notifierId, ruleType } = props;
     const notifier = sdk.systemManager.getDeviceById(notifierId);
+    if (!notifier) {
+        return {};
+    }
+
     const pluginId = notifier.pluginId;
     const priorityChoices: NotificationPriority[] = [];
     const isDetectionRule = ruleType === RuleType.Detection;
@@ -1435,7 +1439,8 @@ export const getRuleSettings = (props: {
             },
         );
 
-        if ((isCamera || isPlugin) && (isOccupancyRule || isDetectionRule)) {
+        if ((isOccupancyRule || isDetectionRule)) {
+            // if ((isCamera || isPlugin) && (isOccupancyRule || isDetectionRule)) {
             settings.push(
                 {
                     key: generateClipKey,
@@ -1691,30 +1696,32 @@ export const getDetectionRulesSettings = async (props: {
             (useNvrDetections ? ScryptedEventSource.NVR : ScryptedEventSource.RawDetection);
         const showCameraSettings = isPlugin || isCamera;
 
-        settings.push(
-            {
-                key: detectionSourceKey,
-                title: 'Detections source',
-                description: 'Select which detections should be used. The snapshots will come from the same source',
-                type: 'string',
-                defaultValue: detectionSource,
-                group,
-                subgroup,
-                immediate: true,
-                combobox: true,
-                onPut: async () => {
-                    await refreshSettings()
-                },
-                choices: frigateLabels ? [
-                    ScryptedEventSource.RawDetection,
-                    ScryptedEventSource.NVR,
-                    ScryptedEventSource.Frigate,
-                ] : [
-                    ScryptedEventSource.RawDetection,
-                    ScryptedEventSource.NVR,
-                ]
-            }
-        );
+        if (isCamera || isPlugin) {
+            settings.push(
+                {
+                    key: detectionSourceKey,
+                    title: 'Detections source',
+                    description: 'Select which detections should be used. The snapshots will come from the same source',
+                    type: 'string',
+                    defaultValue: detectionSource,
+                    group,
+                    subgroup,
+                    immediate: true,
+                    combobox: true,
+                    onPut: async () => {
+                        await refreshSettings()
+                    },
+                    choices: frigateLabels ? [
+                        ScryptedEventSource.RawDetection,
+                        ScryptedEventSource.NVR,
+                        ScryptedEventSource.Frigate,
+                    ] : [
+                        ScryptedEventSource.RawDetection,
+                        ScryptedEventSource.NVR,
+                    ]
+                }
+            );
+        }
 
         const isFrigate = detectionSource === ScryptedEventSource.Frigate;
 

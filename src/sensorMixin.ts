@@ -33,7 +33,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
     detectionListener: EventListenerRegister;
     mainLoopListener: NodeJS.Timeout;
     isActiveForNotifications: boolean;
-    isActiveForNvrNotifications: boolean;
     logger: Console;
     killed: boolean;
     runningDetectionRules: DetectionRule[] = [];
@@ -113,7 +112,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             const {
                 allowedDetectionRules,
                 availableDetectionRules,
-                anyAllowedNvrDetectionRule,
                 shouldListenDetections,
             } = await getActiveRules({
                 device: this,
@@ -125,7 +123,8 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             const [rulesToEnable, rulesToDisable] = splitRules({
                 allRules: availableDetectionRules,
                 currentlyRunningRules: this.runningDetectionRules,
-                rulesToActivate: allowedDetectionRules
+                rulesToActivate: allowedDetectionRules,
+                device: this.sensorDevice
             });
 
             for (const rule of rulesToEnable) {
@@ -158,12 +157,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 await this.startListeners();
             }
 
-            if (anyAllowedNvrDetectionRule && !this.isActiveForNvrNotifications) {
-                logger.log(`Starting NVR events listeners`);
-            } else if (!anyAllowedNvrDetectionRule && this.isActiveForNvrNotifications) {
-                logger.log(`Stopping NVR events listeners`);
-            }
-            this.isActiveForNvrNotifications = anyAllowedNvrDetectionRule;
 
             if (enabledToMqtt) {
                 const now = Date.now();
@@ -284,19 +277,15 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         this.resetListeners();
     }
 
-    public getLogger(forceNew?: boolean) {
-        if (!this.logger || forceNew) {
+    public getLogger() {
+        if (!this.logger) {
             const newLogger = getBaseLogger({
                 deviceConsole: this.console,
                 storage: this.storageSettings,
                 friendlyName: `scrypted_an_${this.id}`
             });
 
-            if (forceNew) {
-                return newLogger;
-            } else {
-                this.logger = newLogger;
-            }
+            this.logger = newLogger;
         }
 
         return this.logger;
@@ -320,8 +309,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         const { minDelayTime } = this.storageSettings.values;
         const { triggerTime, triggered, image: imageParent, eventSource } = props;
         const logger = this.getLogger();
-
-        logger.log(`${eventSource} event received triggered ${triggered}`);
 
         try {
             logger.log(`Sensor triggered: ${JSON.stringify({ triggered })}`);
@@ -353,7 +340,8 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                     reason: GetImageReason.Sensor,
                 }))?.image;
 
-                const rules = cloneDeep(this.runningDetectionRules.filter(rule => rule.detectionSource === eventSource)) ?? [];
+                const rules = cloneDeep(this.runningDetectionRules);
+                // const rules = cloneDeep(this.runningDetectionRules.filter(rule => rule.detectionSource === eventSource)) ?? [];
                 for (const rule of rules) {
                     logger.log(`Event ${this.supportedSensorType} will be proxied to the device ${device.name}`);
                     logger.info(JSON.stringify({
