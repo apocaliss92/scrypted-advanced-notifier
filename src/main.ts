@@ -2729,27 +2729,30 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     public storeDetectionFrame = async (props: {
         timestamp: number,
         device: ScryptedDeviceBase,
-        imageMo: MediaObject
+        imageMo?: MediaObject
+        imageBuffer?: Buffer
     }) => {
-        const { timestamp, imageMo: imageMoParent, device } = props;
+        const { timestamp, imageMo: imageMoParent, imageBuffer, device } = props;
 
         let imageMo = imageMoParent;
 
-        if (!imageMo) {
+        if (!imageMo && !imageBuffer) {
             return;
         }
 
+        const { framesPath } = this.getShortClipPaths({ device });
+
+        try {
+            await fs.promises.access(framesPath);
+        } catch {
+            await fs.promises.mkdir(framesPath, { recursive: true });
+        }
+
         if (imageMo) {
-            const { framesPath } = this.getShortClipPaths({ device });
-
-            try {
-                await fs.promises.access(framesPath);
-            } catch {
-                await fs.promises.mkdir(framesPath, { recursive: true });
-            }
-
             const jpeg = await mediaManager.convertMediaObjectToBuffer(imageMo, 'image/jpeg');
             await fs.promises.writeFile(path.join(framesPath, `${timestamp}.jpg`), jpeg);
+        } else {
+            await fs.promises.writeFile(path.join(framesPath, `${timestamp}.jpg`), imageBuffer);
         }
     }
 

@@ -232,7 +232,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             title: 'Minimum posting delay',
             type: 'number',
             defaultValue: 15,
-        }
+        },
     };
     storageSettings = new StorageSettings(this, this.initStorage);
 
@@ -297,6 +297,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     lastOccupancyRuleNotified: Record<string, number> = {};
     lastWebhookImagePosted: Partial<Record<DetectionClass, number>> = {};
     decoderType: DecoderType;
+    rtspUrl: string;
     decoderStream: MediaStreamDestination;
     decoderResize: boolean;
 
@@ -668,11 +669,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 } else if (decoderType === DecoderType.Off && !this.framesGeneratorSignal.finished) {
                     this.stopDecoder('EndClipRules');
                 }
-                // Restart decoder every 30 seconds
+                // Restart decoder every 60 seconds
                 if (
                     decoderType === DecoderType.Always &&
                     this.frameGenerationStartTime &&
-                    (now - this.frameGenerationStartTime) >= 1000 * 30
+                    (now - this.frameGenerationStartTime) >= 1000 * 60
                 ) {
                     logger.log(`Restarting decoder`);
                     this.stopDecoder('Restart');
@@ -744,7 +745,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         if (closestStream) {
             this.decoderStream = closestStream.destinations[0];
             this.decoderResize = ((closestStream.video.width ?? 0) - SNAPSHOT_WIDTH) > 200;
-            logger.log(`Stream found ${JSON.stringify(closestStream)}, requires resize ${this.decoderResize}`);
+            const streamName = closestStream?.name;
+            const deviceSettings = await this.cameraDevice.getSettings();
+            const rebroadcastConfig = deviceSettings.find(setting => setting.subgroup === `Stream: ${streamName}` && setting.title === 'RTSP Rebroadcast Url');
+            this.rtspUrl = rebroadcastConfig?.value as string;
+            logger.log(`Stream found ${this.decoderStream} (${this.rtspUrl}), requires resize ${this.decoderResize}`);
+            logger.info(`${JSON.stringify(closestStream)}`);
         } else {
             logger.log(`Stream not found, falling back to remote-recorder`);
             this.decoderStream = 'remote-recorder';
@@ -754,6 +760,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async startDecoder(reason: 'Permanent' | 'StartMotion') {
         await this.initDecoderStream();
+
         const logger = this.getLogger();
 
         if (!this.framesGeneratorSignal || this.framesGeneratorSignal.finished) {
@@ -779,35 +786,35 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
             }
 
+            // try {
+            //     for await (const frame of
+            //         await sdk.connectRPCObject(
+            //             await this.createFrameGenerator())) {
+            //         if (this.framesGeneratorSignal.finished) {
+            //             break;
+            //         }
+            //         await exec(frame);
+            //     }
+            // } catch (e) {
             try {
                 for await (const frame of
                     await sdk.connectRPCObject(
-                        await this.createFrameGenerator())) {
+                        await this.createFrameGenerator(true))) {
                     if (this.framesGeneratorSignal.finished) {
                         break;
                     }
                     await exec(frame);
                 }
             } catch (e) {
-                try {
-                    for await (const frame of
-                        await sdk.connectRPCObject(
-                            await this.createFrameGenerator(true))) {
-                        if (this.framesGeneratorSignal.finished) {
-                            break;
-                        }
-                        await exec(frame);
-                    }
-                } catch (e) {
-                    logger.log('Decoder starting failed', e);
-                }
+                logger.log('Decoder starting failed', e);
             }
+            // }
         } else {
             logger.info('Streams generator not yet released');
         }
     }
 
-    stopDecoder(reason: 'Restart' | 'EndMotion' | 'EndClipRules') {
+    stopDecoder(reason: 'Restart' | 'EndMotion' | 'EndClipRules' | 'Release') {
         const logger = this.getLogger();
         logger.log(`Stopping decoder (${reason})`);
         this.frameGenerationStartTime = undefined;
@@ -1166,6 +1173,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         this.mqttClient && this.mqttClient.disconnect();
         this.resetListeners();
+        this.stopDecoder('Release');
     }
 
     public getLogger(forceNew?: boolean) {
@@ -2891,7 +2899,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             this.motionListener = systemManager.listenDevice(this.id, {
                 event: ScryptedInterface.MotionSensor,
             }, async (_, __, data) => {
-                const { useDecoder } = this.storageSettings.values;
                 const now = Date.now();
                 const shouldUseDecoder = this.decoderType === DecoderType.OnMotion;
 
@@ -2996,10 +3003,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const pipelines = getAllDevices().filter(d => d.interfaces.includes(ScryptedInterface.VideoFrameGenerator));
         const webassembly = sdk.systemManager.getDeviceById(NVR_PLUGIN_ID, 'decoder') || undefined;
-        const gstreamer = sdk.systemManager.getDeviceById('@scrypted/python-codecs', 'gstreamer') || undefined;
-        const libav = sdk.systemManager.getDeviceById('@scrypted/python-codecs', 'libav') || undefined;
         const ffmpeg = sdk.systemManager.getDeviceById(VIDEO_ANALYSIS_PLUGIN_ID, 'ffmpeg') || undefined;
-        const use = (pipelines.find(p => p.name === frameGenerator) || webassembly || gstreamer || libav || ffmpeg)
+        const use = (pipelines.find(p => p.name === frameGenerator) || webassembly || ffmpeg)
 
         return {
             pipelines,
