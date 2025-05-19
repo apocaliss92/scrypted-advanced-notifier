@@ -212,6 +212,8 @@ export const objectClasses = [
 ]
 
 export const audioClasses = [
+    DetectionClass.Audio,
+
     "speech", "babbling", "yell", "bellow", "whoop", "whispering", "laughter", "snicker",
     "crying", "sigh", "singing", "choir", "sodeling", "chant", "mantra", "child_singing",
     "synthetic_singing", "rapping", "humming", "groan", "grunt", "whistling", "breathing",
@@ -277,18 +279,8 @@ export const audioClasses = [
     "sound_effect", "pulse", "inside", "outside", "reverberation", "echo", "noise",
     "environmental_noise", "static", "mains_hum", "distortion", "sidetone", "cacophony",
     "white_noise", "pink_noise", "throbbing", "vibration", "television", "radio", "field_recording"
-  ];
-// export const audioClasses = [
-//     DetectionClass.Audio,
+];
 
-//     'bark',
-//     'fire_alarm',
-//     'scream',
-//     'speech',
-//     'yell',
-//     'crying',
-//     'siren',
-// ];
 export const doorbellClasses = [
     DetectionClass.Doorbell,
 
