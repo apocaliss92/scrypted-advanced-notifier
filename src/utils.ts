@@ -1465,6 +1465,7 @@ export const getRuleSettings = (props: {
                             VideoclipSpeed.SuperFast,
                         ],
                         type: 'string',
+                        immediate: true,
                         defaultValue: VideoclipSpeed.Fast,
                     }
                 );
