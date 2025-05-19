@@ -19,7 +19,7 @@ import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodisco
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_NAME, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImageSource, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TextSettingKey, TimelapseRule } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DECODER_FRAME_MIN_TIME, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_NAME, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImageSource, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TextSettingKey, TimelapseRule } from "./utils";
 import { ffmpegFilterImageBuffer } from "../../scrypted/plugins/snapshot/src/ffmpeg-image-filter";
 
 const { systemManager, mediaManager } = sdk;
@@ -1261,17 +1261,19 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             onRefresh: async () => await this.refreshSettings(),
         }));
 
-        frigateLabels.forEach(label => {
-            dynamicSettings.push({
-                key: getFrigateTextKey(label),
-                group: 'Texts',
-                subgroup: 'Frigate labels',
-                title: `${label} text`,
-                type: 'string',
-                defaultValue: label,
-                placeholder: label,
-            });
-        });
+        if (frigateLabels) {
+            for (const label of frigateLabels) {
+                dynamicSettings.push({
+                    key: getFrigateTextKey(label),
+                    group: 'Texts',
+                    subgroup: 'Frigate labels',
+                    title: `${label} text`,
+                    type: 'string',
+                    defaultValue: label,
+                    placeholder: label,
+                });
+            }
+        }
 
         dynamicSettings.push(...detectionRulesSettings);
 
@@ -1373,7 +1375,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 device,
                 logger,
                 rule,
-                triggerTime
+                triggerTime,
             });
 
             if (filteredFiles.length) {
@@ -1413,7 +1415,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }) {
         const { cameraDevice, rule, triggerTime, image, occupancyData } = props;
         const logger = this.getLogger(cameraDevice);
-        const cameraMixin = this.currentCameraMixinsMap[cameraDevice.id];
 
         let message = occupancyData.occupies ?
             rule.zoneOccupiedText :
@@ -1446,7 +1447,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             device: cameraDevice,
             logger,
             rule,
-            triggerTime
+            triggerTime,
         });
 
     }
@@ -1656,7 +1657,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             device: cameraDevice,
             logger,
             rule,
-            triggerTime
+            triggerTime: triggerTime - 2500,
         });
     };
 
@@ -2719,8 +2720,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         triggerTime: number,
     }) => {
         const { device, rule, logger, triggerTime } = props;
+        const now = Date.now();
 
-        const minTime = triggerTime - (2 * 1000);
+        const durationInSeconds = (now - triggerTime) / 1000;
 
         try {
             const fileName = String(triggerTime);
@@ -2740,7 +2742,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 .filter(frameName => {
                     const fileTimestamp = parseInt(frameName);
 
-                    if (fileTimestamp > minTime) {
+                    if (fileTimestamp > triggerTime) {
                         if (fileTimestamp < triggerTime) {
                             preTriggerFrames++;
                         } else {
@@ -2752,9 +2754,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                     return false;
                 })
-                .map(file => `file '${path.join(framesPath, file)}'`)
+                .map(file => `file '${path.join(framesPath, file)}'`);
+            const framesAmount = filteredFiles.length;
 
-            if (filteredFiles.length) {
+            if (framesAmount) {
+                const inputFps = DECODER_FRAME_MIN_TIME * 1000;
+                // const fps = Math.ceil(framesAmount / 2);
+                const fps = inputFps * 4;
                 const fileListContent = filteredFiles.join('\n');
 
                 await fs.promises.writeFile(listPath, fileListContent);
@@ -2769,7 +2775,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     '-loglevel', 'error',
                     '-f', 'concat',
                     '-safe', '0',
-                    '-r', `${10}`,
+                    '-r', `${fps}`,
                     '-i', listPath,
                     '-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2',
                     '-c:v', 'libx264',
@@ -2777,14 +2783,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     '-y',
                     videoclipPath
                 ];
-                logger.log(`Generating detection clip ${rule.name} ${minTime} with ${filteredFiles.length} total frames (${preTriggerFrames} pre and ${postTriggerFrames} post) and arguments: ${ffmpegArgs}`);
+                logger.log(`Generating detection clip ${rule.name} ${triggerTime} with ${framesAmount} (${inputFps} fps) total frames (${preTriggerFrames} pre and ${postTriggerFrames} post) and arguments: ${ffmpegArgs}`);
 
                 const cp = child_process.spawn(await sdk.mediaManager.getFFmpegPath(), ffmpegArgs, {
                     stdio: 'inherit',
                 });
                 await once(cp, 'exit');
             } else {
-                logger.log(`Skipping ${rule.name} ${minTime} clip generation, no frames available`);
+                logger.log(`Skipping ${rule.name} ${triggerTime} clip generation, no frames available`);
 
             }
 

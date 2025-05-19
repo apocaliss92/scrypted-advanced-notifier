@@ -284,27 +284,28 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                 const { mqttEnabled } = this.storageSettings.values;
                 if (mqttEnabled) {
                     const mqttClient = await this.getMqttClient();
-                    const logger = this.getLogger();
-                    if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
-                        this.lastAutoDiscovery = now;
+                    if (mqttClient) {
+                        if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
+                            this.lastAutoDiscovery = now;
 
-                        logger.log('Starting MQTT autodiscovery');
-                        setupAlarmSystemAutodiscovery({
-                            mqttClient,
-                            console: logger,
-                        }).then(async (activeTopics) => {
-                            await this.mqttClient.cleanupAutodiscoveryTopics(activeTopics);
-                        }).catch(logger.error);
+                            logger.log('Starting MQTT autodiscovery');
+                            setupAlarmSystemAutodiscovery({
+                                mqttClient,
+                                console: logger,
+                            }).then(async (activeTopics) => {
+                                await mqttClient.cleanupAutodiscoveryTopics(activeTopics);
+                            }).catch(logger.error);
 
-                        logger.log(`Subscribing to mqtt topics`);
-                        await subscribeToAlarmSystemMqttTopics({
-                            mqttClient,
-                            console: logger,
-                            modeSwitchCb: async (mode) => {
-                                logger.log(`Setting mode to ${mode}`);
-                                this.armSecuritySystem(mode);
-                            },
-                        });
+                            logger.log(`Subscribing to mqtt topics`);
+                            await subscribeToAlarmSystemMqttTopics({
+                                mqttClient,
+                                console: logger,
+                                modeSwitchCb: async (mode) => {
+                                    logger.log(`Setting mode to ${mode}`);
+                                    this.armSecuritySystem(mode);
+                                },
+                            });
+                        }
                     }
                 }
             } catch (e) {

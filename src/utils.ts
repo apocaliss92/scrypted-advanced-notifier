@@ -29,6 +29,7 @@ export const ALARM_SYSTEM_NATIVE_ID = 'advancedNotifierAlarmSystem';
 export const MAX_PENDING_RESULT_PER_CAMERA = 5;
 export const MAX_RPC_OBJECTS_PER_CAMERA = 50;
 export const FRIGATE_BRIDGE_PLUGIN_NAME = 'Frigate bridge';
+export const DECODER_FRAME_MIN_TIME = 200;
 
 export enum ScryptedEventSource {
     RawDetection = 'RawDetection',
@@ -86,7 +87,7 @@ export enum ImageSource {
 export type IsDelayPassedProps =
     { type: DelayType.DecoderFrameOnStorage, eventSource: ScryptedEventSource, timestamp: number } |
     { type: DelayType.BasicDetectionImage, classname: string, label?: string, eventSource: ScryptedEventSource } |
-    { type: DelayType.BasicDetectionTrigger, classname: string, label?: string, eventSource: ScryptedEventSource  } |
+    { type: DelayType.BasicDetectionTrigger, classname: string, label?: string, eventSource: ScryptedEventSource } |
     { type: DelayType.FsImageUpdate, filename: string, eventSource: ScryptedEventSource } |
     { type: DelayType.OccupancyNotification, matchRule: MatchRule, eventSource: ScryptedEventSource } |
     { type: DelayType.PostWebhookImage, classname: string, eventSource: ScryptedEventSource } |

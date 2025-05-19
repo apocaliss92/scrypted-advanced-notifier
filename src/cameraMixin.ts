@@ -15,7 +15,7 @@ import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, is
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { AudioRule, BaseRule, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDecibelsFromRtp_PCMU8, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebHookUrls, moToB64, safeParseJson, splitRules } from "./utils";
+import { AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDecibelsFromRtp_PCMU8, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebHookUrls, moToB64, safeParseJson, splitRules } from "./utils";
 import { objectDetectorNativeId } from '../../scrypted-frigate-bridge/src/main';
 import axios from "axios";
 
@@ -2438,7 +2438,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             return timePassed;
         } else if (type === DelayType.DecoderFrameOnStorage) {
             const { timestamp } = props;
-            const timePassed = !this.lastDecoderFrameOnFs || (timestamp - this.lastDecoderFrameOnFs) >= 200;
+            const timePassed = !this.lastDecoderFrameOnFs || (timestamp - this.lastDecoderFrameOnFs) >= DECODER_FRAME_MIN_TIME;
 
             if (timePassed) {
                 this.lastDecoderFrameOnFs = now;
