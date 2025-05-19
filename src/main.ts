@@ -2286,7 +2286,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const notifierOptions: NotifierOptions = {
             body: message,
             ...payload,
-        }
+        };
 
         logger.log(`Sending rule ${rule.name} (${rule.ruleType}) notification ${triggerTime} to ${notifier.name}`);
         logger.info(JSON.stringify({
@@ -2873,12 +2873,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     '-y',
                     videoclipPath
                 ];
-                logger.log(`Generating detection clip ${rule.name} ${triggerTime} ${inputFps} fps with ${framesAmount} total frames (${preTriggerFrames} pre and ${postTriggerFrames} post) and arguments: ${ffmpegArgs}`);
+                logger.log(`Start detection clip generation ${rule.name} ${triggerTime} ${inputFps} fps with ${framesAmount} total frames (${preTriggerFrames} pre and ${postTriggerFrames} post) and arguments: ${ffmpegArgs}`);
 
                 const cp = child_process.spawn(await sdk.mediaManager.getFFmpegPath(), ffmpegArgs, {
                     stdio: 'inherit',
                 });
                 await once(cp, 'exit');
+                logger.log(`Detection clip ${videoclipPath} generated`);
             } else {
                 logger.log(`Skipping ${rule.name} ${triggerTime} clip generation, no frames available`);
 

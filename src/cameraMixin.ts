@@ -31,18 +31,24 @@ interface CurrentOccupancyState {
     confirmedFrames: number;
     rejectedFrames: number;
     referenceZone: ObserveZoneData;
+    occupies: boolean;
+    objectsDetected: number;
 }
 
-const initOccupancyState: CurrentOccupancyState = {
-    lastChange: undefined,
-    confirmationStart: undefined,
-    occupancyToConfirm: undefined,
-    confirmedFrames: 0,
-    rejectedFrames: 0,
-    lastCheck: undefined,
-    score: undefined,
-    b64Image: undefined,
-    referenceZone: undefined,
+const getInitOccupancyState = (rule: OccupancyRule): CurrentOccupancyState => {
+    return {
+        lastChange: undefined,
+        confirmationStart: undefined,
+        occupancyToConfirm: undefined,
+        confirmedFrames: 0,
+        rejectedFrames: 0,
+        lastCheck: undefined,
+        score: undefined,
+        b64Image: undefined,
+        referenceZone: undefined,
+        occupies: rule.occupies,
+        objectsDetected: rule.detectedObjects,
+    }
 }
 
 export type OccupancyRuleData = {
@@ -1579,8 +1585,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 (currentState.occupancyToConfirm != undefined && !!currentState.confirmationStart);
 
             if (!this.occupancyState[name]) {
-                logger.log(`Initializing occupancy data for rule ${name} to ${JSON.stringify(initOccupancyState)}`);
-                this.occupancyState[name] = cloneDeep(initOccupancyState);
+                const initState: CurrentOccupancyState = getInitOccupancyState(rule);
+                logger.log(`Initializing occupancy data for rule ${name} to ${JSON.stringify(initState)}`);
+                this.occupancyState[name] = initState;
             }
 
             logger.info(`Should force occupancy data update: ${JSON.stringify({
@@ -1827,14 +1834,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const lastChangeElpasedMs = now - (currentState?.lastChange ?? 0);
                 const tooOld = !currentState || lastChangeElpasedMs >= (1000 * 60 * 10); // Force an update every 10 minutes
                 const toConfirm = currentState.occupancyToConfirm != undefined && !!currentState.confirmationStart;
-                const isChanged = occupancyRuleTmpData.occupies !== occupancyRuleTmpData.rule.occupies;
+                const isChanged = occupancyRuleTmpData.occupies !== currentState.occupies;
+                // const isChanged = occupancyRuleTmpData.occupies !== occupancyRuleTmpData.rule.occupies;
 
                 logger.info(JSON.stringify({
                     rule: name,
                     occupancyToConfirm: currentState.occupancyToConfirm,
                     confirmationStart: currentState.confirmationStart,
                     occupies: occupancyRuleTmpData.occupies,
-                    currentOccupies: occupancyRuleTmpData.rule.occupies,
+                    currentOccupies: currentState.occupies,
                     tooOld,
                     toConfirm,
                     isChanged,
@@ -1851,12 +1859,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     ruleName: name,
                 });
 
-                if (occupancyRuleTmpData.rule.detectedObjects !== occupancyRuleTmpData.objectsDetected) {
+                if (currentState.objectsDetected !== occupancyRuleTmpData.objectsDetected) {
                     await this.storageSettings.putSetting(detectedObjectsKey, occupancyRuleTmpData.objectsDetected);
                 }
 
                 const occupancyDataToUpdate: CurrentOccupancyState = {
-                    ...(currentState ?? initOccupancyState),
+                    ...(currentState ?? getInitOccupancyState(rule)),
                     lastCheck: now,
                 };
 
@@ -1879,7 +1887,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             logger.log(`Confirmation failed for rule ${name}: toConfirm ${currentState.occupancyToConfirm} after ${elpasedTimeMs / 1000} seconds`);
 
                             this.occupancyState[name] = {
-                                ...initOccupancyState,
+                                ...getInitOccupancyState(rule),
                                 lastCheck: now,
                             };
                         }
@@ -1887,8 +1895,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         if (isStateConfirmed) {
                             // Time is passed and value didn't change, update the state
                             this.occupancyState[name] = {
-                                ...initOccupancyState,
+                                ...getInitOccupancyState(rule),
                                 lastChange: now,
+                                occupies: occupancyRuleTmpData.occupies,
+                                objectsDetected: occupancyRuleTmpData.objectsDetected
                             };
 
                             logger.log(`Confirming occupancy rule ${name}: ${occupancyRuleTmpData.occupies} ${occupancyRuleTmpData.objectsDetected}`);
@@ -1905,7 +1915,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 ...occupancyRuleTmpData,
                                 triggerTime: currentState.confirmationStart,
                                 changed: true,
-                                b64Image: currentState.b64Image
+                                b64Image: currentState.b64Image,
                             });
 
                             await this.storageSettings.putSetting(occupiesKey, occupancyRuleTmpData.occupies);
@@ -1924,7 +1934,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 } else if (isChanged) {
                     const b64Image = await moToB64(image);
                     logger.log(`Marking the rule to confirm ${occupancyRuleTmpData.occupies} for next iteration ${name}: ${occupancyRuleTmpData.objectsDetected} objects, score ${currentState.score}, image ${getB64ImageLog(b64Image)}`);
-
+                    logger.log(JSON.stringify({
+                        isChanged,
+                        currentOccupies: currentState.occupies,
+                    }))
                     this.occupancyState[name] = {
                         ...occupancyDataToUpdate,
                         confirmationStart: now,
