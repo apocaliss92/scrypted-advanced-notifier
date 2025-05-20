@@ -9,6 +9,7 @@ import { AiPlatform, defaultModel } from "./aiUtils";
 import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detectionClasses";
 import AdvancedNotifierPlugin, { PluginSettingKey } from "./main";
 const { endpointManager } = sdk;
+import { FRIGATE_OBJECT_DETECTOR_INTERFACE } from '../../scrypted-frigate-bridge/src/utils';
 
 export type DeviceInterface = Camera & ScryptedDeviceBase & Notifier & Settings & ObjectDetector & VideoCamera & EntrySensor & Lock & BinarySensor & Reboot & PanTiltZoom & OnOff;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
@@ -110,12 +111,17 @@ export type IsDelayPassedProps =
     { type: DelayType.RuleImageUpdate, matchRule: MatchRule, eventSource: ScryptedEventSource } |
     { type: DelayType.DetectionNotification, matchRule: MatchRule, eventSource: ScryptedEventSource };
 
-export const getElegibleDevices = () => {
+export const getElegibleDevices = (isFrigate?: boolean) => {
     const allDevices = Object.keys(sdk.systemManager.getSystemState()).map(deviceId => sdk.systemManager.getDeviceById<DeviceInterface>(deviceId));
 
     return allDevices.filter(device => {
         const { isSupported, isNotifier } = isDeviceSupported(device);
-        return isSupported && !isNotifier && device.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE);
+        const mainSupported = isSupported && !isNotifier && device.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE);
+        if (isFrigate) {
+            return mainSupported && device.interfaces.includes(FRIGATE_OBJECT_DETECTOR_INTERFACE);
+        } else {
+            return mainSupported;
+        }
     })
 }
 
@@ -1185,6 +1191,7 @@ export const deviceFilter: StorageSetting['deviceFilter'] = `interfaces.includes
 export const notifierFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && interfaces.some(int => ${getInterfacesString(notifierInterfaces)}.includes(int))`;
 export const sensorsFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && type !== '${ScryptedDeviceType.Doorbell}' && interfaces.some(int => ${getInterfacesString(sensorInterfaces)}.includes(int))`;
 export const cameraFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && interfaces.some(int => ${getInterfacesString(cameraInterfaces)}.includes(int))`;
+export const frigateCamerasFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && interfaces.includes('${FRIGATE_OBJECT_DETECTOR_INTERFACE}')`;
 
 type GetSpecificRules = (props: { group: string, subgroup: string, ruleName: string, showMore: boolean }) => StorageSetting[];
 type OnRefreshSettings = () => Promise<void>
@@ -1862,7 +1869,7 @@ export const getDetectionRulesSettings = async (props: {
                 multiple: true,
                 immediate: true,
                 combobox: true,
-                deviceFilter,
+                deviceFilter: isFrigate ? frigateCamerasFilter : deviceFilter,
                 defaultValue: []
             });
         }
@@ -2634,10 +2641,8 @@ export const getDetectionRules = (props: {
     const allowedRules: DetectionRule[] = [];
     let anyAllowedNvrRule = false;
     let shouldListenDoorbell = false;
-    let recordFrames = false;
 
     const deviceId = device?.id;
-    const allDevices = getElegibleDevices().map(device => device.id);
 
     const { onActiveDevices, securitySystem } = pluginStorage.values;
 
@@ -2683,6 +2688,7 @@ export const getDetectionRules = (props: {
             const activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
             const customText = storage.getItem(textKey) as string || undefined;
             const mainDevices = storage.getItem(devicesKey) as string[] ?? [];
+            const allDevices = getElegibleDevices(detectionSource === ScryptedEventSource.Frigate).map(device => device.id);
 
             const devices = !isPlugin ? [deviceId] : mainDevices.length ? mainDevices : allDevices;
             const devicesToUse = activationType === DetectionRuleActivation.OnActive ? onActiveDevices : devices;

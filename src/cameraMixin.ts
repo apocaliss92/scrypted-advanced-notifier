@@ -1329,7 +1329,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const snapshotTimeout = reason === GetImageReason.RulesRefresh ? undefined : this.currentSnapshotTimeout;
         const decoderRunning = !this.framesGeneratorSignal.finished;
         const minSnapshotDelay = reason === GetImageReason.MotionUpdate ? 10 : minSnapshotDelayParent;
-        const forceDecoder = this.decoderType === DecoderType.Always;
 
         let logPayload: any = {
             decoderRunning,
@@ -1390,7 +1389,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
 
         const findFromDecoder = () => async () => {
-            const isRecent = forceDecoder || !this.lastFrameAcquired || (msPassedFromDecoder) <= 500;
+            const isRecent = !this.lastFrameAcquired || (msPassedFromDecoder) <= 500;
 
             if (decoderRunning && this.lastFrame && isRecent) {
                 if (this.decoderResize) {
@@ -1430,18 +1429,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         try {
             if (reason === GetImageReason.FromFrigate) {
                 if (!this.plugin.frigateApi || !detectionId) {
-                    logger.log('Frigate API not set on The Frigate Bridge plugin');
+                    logger.log(`Frigate API not set on The Frigate Bridge plugin ${detectionId}`);
                 } else {
                     try {
                         const endpoint = `${this.plugin.frigateApi}/events/${detectionId}/snapshot.jpg`;
                         logger.info(`Fetching Frigate image for event ${detectionId} from ${endpoint}`);
                         const mo = await sdk.mediaManager.createMediaObjectFromUrl(endpoint);
                         const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(mo, ScryptedMimeTypes.Image);
-                        image = await convertedImage.toImage({
-                            resize: {
-                                width: SNAPSHOT_WIDTH,
-                            },
-                        });
+                        image = await convertedImage.toImage();
                         imageSource = ImageSource.Frigate;
                     } catch (e) {
                         logger.log(`Error trying to fetch frigate image ${eventId}`, e);
