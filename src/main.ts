@@ -1388,7 +1388,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     async checkIfClipRequired(props: {
-        cb: (videoUrl?: string) => void,
+        cb: (videoUrl?: string) => Promise<void>,
         rule: BaseRule
         device: ScryptedDeviceBase,
         logger: Console,
@@ -1414,9 +1414,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     rule,
                 });
 
-                cb(detectionClipDownloadUrl);
+                await cb(detectionClipDownloadUrl);
             } else {
-                cb();
+                await cb();
             }
         }
 
@@ -1450,7 +1450,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             .replace('${detectedObjects}', String(occupancyData.objectsDetected) ?? '')
             .replace('${maxObjects}', String(rule.maxObjects) ?? '');
 
-        const executeNotify = (videoUrl?: string) => {
+        const executeNotify = async (videoUrl?: string) => {
             logger.log(`${rule.notifiers.length} notifiers will be notified: ${JSON.stringify({ rule })} `);
 
             for (const notifierId of rule.notifiers) {
@@ -1666,7 +1666,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.alarmSystem.onEventTrigger({ triggerDevice }).catch(logger.log);
         }
 
-        const executeNotify = (videoUrl?: string) => {
+        const executeNotify = async (videoUrl?: string) => {
             logger.log(`${rule.notifiers.length} notifiers will be notified: ${JSON.stringify({ match, rule })} `);
 
             for (const notifierId of rule.notifiers) {

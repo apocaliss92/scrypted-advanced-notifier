@@ -2198,7 +2198,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             detections: det.detect.detections,
             eventSource: det.eventSource
         }));
-        const rulesToUpdate = cloneDeep(this.accumulatedRules);
+        const rulesToUpdate = uniqBy(cloneDeep(this.accumulatedRules), this.getDetectionKey);
 
         // Clearing the buckets right away to not lose too many detections
         this.accumulatedDetections = [];
@@ -2209,7 +2209,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const isOnlyMotion = !rulesToUpdate.length && classnamesData.length === 1 && detectionClassesDefaultMap[classnamesData[0]?.className] === DetectionClass.Motion;
 
-        logger.debug(`Accumulated data to analyze: ${JSON.stringify({ triggerTime, classnamesData, rules: rulesToUpdate.map(rule => rule.rule.name) })}`);
+        logger.debug(`Accumulated data to analyze: ${JSON.stringify({ triggerTime, classnamesData, rules: rulesToUpdate.map(this.getDetectionKey) })}`);
 
         let image: MediaObject;
         let b64Image: string;
@@ -2305,38 +2305,40 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     eventSource: ScryptedEventSource.RawDetection,
                 }).catch(logger.info);
 
-                logger.info(`Updating rules ${rulesToUpdate.map(rule => rule.rule.name).join(', ')} with image source ${imageSource}`);
-                for (const matchRule of rulesToUpdate) {
-                    const { rule, match } = matchRule;
+                if (rulesToUpdate.length) {
+                    logger.info(`Updating accumulated rules ${rulesToUpdate.map(this.getDetectionKey).join(', ')} with image source ${imageSource}`);
+                    for (const matchRule of rulesToUpdate) {
+                        const { rule, match } = matchRule;
 
-                    logger.info(`Publishing accumulated detection rule ${rule.name} data, b64Image ${getB64ImageLog(b64Image)} from ${imageSource}. Has image ${!!image}`);
+                        logger.info(`Publishing accumulated detection rule ${this.getDetectionKey(matchRule)} data, b64Image ${getB64ImageLog(b64Image)} from ${imageSource}. Has image ${!!image}`);
 
-                    this.triggerRule({
-                        matchRule,
-                        skipTrigger: true,
-                        b64Image,
-                        device: this.cameraDevice,
-                        triggerTime,
-                        eventSource: ScryptedEventSource.RawDetection
-                    }).catch(logger.log);
-
-                    const timePassedForNotification = this.isDelayPassed({
-                        type: DelayType.DetectionNotification,
-                        matchRule,
-                        eventSource: ScryptedEventSource.RawDetection
-                    });
-
-                    if (timePassedForNotification) {
-                        logger.log(`Starting notifiers for detection rule ${rule.name}, b64Image ${getB64ImageLog(b64Image)} from ${imageSource} (accumnulated detections)`);
-
-                        this.plugin.notifyDetectionEvent({
-                            triggerDeviceId: this.id,
-                            match,
-                            rule: rule as DetectionRule,
-                            image,
-                            eventType: detectionClassesDefaultMap[match.className],
+                        this.triggerRule({
+                            matchRule,
+                            skipTrigger: true,
+                            b64Image,
+                            device: this.cameraDevice,
                             triggerTime,
+                            eventSource: ScryptedEventSource.RawDetection
+                        }).catch(logger.log);
+
+                        const timePassedForNotification = this.isDelayPassed({
+                            type: DelayType.DetectionNotification,
+                            matchRule,
+                            eventSource: ScryptedEventSource.RawDetection
                         });
+
+                        if (timePassedForNotification) {
+                            logger.log(`Starting notifiers for detection rule ${this.getDetectionKey(matchRule)}, b64Image ${getB64ImageLog(b64Image)} from ${imageSource} (accumnulated detections)`);
+
+                            await this.plugin.notifyDetectionEvent({
+                                triggerDeviceId: this.id,
+                                match,
+                                rule: rule as DetectionRule,
+                                image,
+                                eventType: detectionClassesDefaultMap[match.className],
+                                triggerTime,
+                            });
+                        }
                     }
                 }
 
