@@ -19,7 +19,7 @@ import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodisco
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DECODER_FRAME_MIN_TIME, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_NAME, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImageSource, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_NAME, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImageSource, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier } from "./utils";
 import { ffmpegFilterImageBuffer } from "../../scrypted/plugins/snapshot/src/ffmpeg-image-filter";
 
 const { systemManager, mediaManager } = sdk;
@@ -1422,13 +1422,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         if (rule.generateClip) {
             const cameraMixin = this.currentCameraMixinsMap[device.id];
-            logger.log(`Starting clip recording for rule ${rule.name}`);
-            cameraMixin.sessionDetectionListeners[rule.name] = {
-                triggerTime,
-                notifyInterval: setTimeout(async () => {
-                    await prepareClip();
-                }, 1000 * 1.5)
-            }
+            const delay = cameraMixin.decoderType === DecoderType.OnMotion ? 3 : 1.5;
+            logger.log(`Starting clip recording for rule ${rule.name} in ${delay} seconds (${cameraMixin.decoderType})`);
+            cameraMixin.clipGenerationTimeout[rule.name] = setTimeout(async () => {
+                await prepareClip();
+            }, 1000 * delay)
         } else {
             cb();
         }
@@ -1690,7 +1688,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 }).catch(e => logger.log(`Error on notifier ${notifier.name} `, e));
 
                 if (rule.generateClip) {
-                    cameraMixin.sessionDetectionListeners[rule.name] = undefined;
+                    cameraMixin.clipGenerationTimeout[rule.name] = undefined;
                 }
             }
         }
@@ -2763,6 +2761,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }) => {
         const { device, logger, threshold } = props;
         const { framesPath } = this.getShortClipPaths({ device });
+        logger.log(`Cleaning up old frames ${threshold}`);
 
         try {
             const frames = await fs.promises.readdir(framesPath);

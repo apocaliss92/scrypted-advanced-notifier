@@ -29,7 +29,7 @@ export const ALARM_SYSTEM_NATIVE_ID = 'advancedNotifierAlarmSystem';
 export const MAX_PENDING_RESULT_PER_CAMERA = 5;
 export const MAX_RPC_OBJECTS_PER_CAMERA = 50;
 export const FRIGATE_BRIDGE_PLUGIN_NAME = 'Frigate bridge';
-export const DECODER_FRAME_MIN_TIME = 200;
+export const DECODER_FRAME_MIN_TIME = 100;
 
 export enum ScryptedEventSource {
     RawDetection = 'RawDetection',
@@ -55,7 +55,7 @@ export enum DelayType {
     BasicDetectionImage = 'BasicDetectionImage',
     BasicDetectionTrigger = 'BasicDetectionTrigger',
     RuleImageUpdate = 'RuleImageUpdate',
-    RuleNotification = 'RuleNotification',
+    DetectionNotification = 'RuleNotification',
     OccupancyNotification = 'OccupancyNotification',
     FsImageUpdate = 'FsImageUpdate',
     PostWebhookImage = 'PostWebhookImage',
@@ -108,7 +108,7 @@ export type IsDelayPassedProps =
     { type: DelayType.OccupancyNotification, matchRule: MatchRule, eventSource: ScryptedEventSource } |
     { type: DelayType.PostWebhookImage, classname: string, eventSource: ScryptedEventSource } |
     { type: DelayType.RuleImageUpdate, matchRule: MatchRule, eventSource: ScryptedEventSource } |
-    { type: DelayType.RuleNotification, matchRule: MatchRule, eventSource: ScryptedEventSource };
+    { type: DelayType.DetectionNotification, matchRule: MatchRule, eventSource: ScryptedEventSource };
 
 export const getElegibleDevices = () => {
     const allDevices = Object.keys(sdk.systemManager.getSystemState()).map(deviceId => sdk.systemManager.getDeviceById<DeviceInterface>(deviceId));
