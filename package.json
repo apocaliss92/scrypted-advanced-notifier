@@ -5,7 +5,7 @@
     "type": "git",
     "url": "https://github.com/apocaliss92/scrypted-advanced-notifier"
   },
-  "version": "3.7.8",
+  "version": "3.7.9",
   "scripts": {
     "scrypted-setup-project": "scrypted-setup-project",
     "prescrypted-setup-project": "scrypted-package-json",
@@ -31,6 +31,7 @@
     "timelapses",
     "securitySystem",
     "alarm",
+    "frigate",
     "track"
   ],
   "scrypted": {

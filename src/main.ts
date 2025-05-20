@@ -1400,6 +1400,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         pastMs: number,
     }) {
         const { cb, rule, device, logger, triggerTime, pastMs } = props;
+        const deviceMixin = this.currentCameraMixinsMap[device.id];
 
         const prepareClip = async () => {
             const { fileName: clipName, filteredFiles } = await this.generateShortClip({
@@ -1424,7 +1425,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
         }
 
-        if (rule.generateClip) {
+        if (rule.generateClip && deviceMixin.decoderType !== DecoderType.Off) {
             const cameraMixin = this.currentCameraMixinsMap[device.id];
             const delay = cameraMixin.decoderType === DecoderType.OnMotion ? 3 : 1.5;
             logger.log(`Starting clip recording for rule ${rule.name} in ${delay} seconds (${cameraMixin.decoderType})`);
@@ -1691,7 +1692,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     videoUrl,
                 }).catch(e => logger.log(`Error on notifier ${notifier.name} `, e));
 
-                if (rule.generateClip) {
+                if (rule.generateClip && cameraMixin.decoderType !== DecoderType.Off) {
                     cameraMixin.clipGenerationTimeout[rule.name] = undefined;
                 }
             }

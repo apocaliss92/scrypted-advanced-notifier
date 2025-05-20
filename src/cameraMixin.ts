@@ -1306,7 +1306,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { reason, detectionId, eventId, image: imageParent } = props ?? {};
         const logger = this.getLogger();
         const now = Date.now();
-        const { minSnapshotDelay: minSnapshotDelayParent } = this.storageSettings.values;
+        const { minSnapshotDelay } = this.storageSettings.values;
 
         let image: MediaObject = imageParent;
         let b64Image: string;
@@ -1316,10 +1316,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const msPassedFromSnapshot = this.lastPictureTaken !== undefined ? now - this.lastPictureTaken : 0;
         const msPassedFromDecoder = this.lastFrameAcquired !== undefined ? now - this.lastFrameAcquired : 0;
 
+        const forceLatest = [
+            GetImageReason.MotionUpdate,
+        ].includes(reason);
         const preferLatest = [
             GetImageReason.RulesRefresh,
             GetImageReason.AudioTrigger,
-            GetImageReason.MotionUpdate,
         ].includes(reason);
         const forceSnapshot = [
             GetImageReason.Sensor,
@@ -1328,7 +1330,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const tryDetector = !!detectionId && !!eventId;
         const snapshotTimeout = reason === GetImageReason.RulesRefresh ? undefined : this.currentSnapshotTimeout;
         const decoderRunning = !this.framesGeneratorSignal.finished;
-        const minSnapshotDelay = reason === GetImageReason.MotionUpdate ? 10 : minSnapshotDelayParent;
 
         let logPayload: any = {
             decoderRunning,
@@ -1336,6 +1337,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             msPassedFromSnapshot,
             reason,
             preferLatest,
+            forceLatest,
             forceSnapshot,
             tryDetector,
             snapshotTimeout
@@ -1444,7 +1446,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
             } else if (!image) {
                 let runners = [];
-                const checkLatest = findFromLatest(reason === GetImageReason.MotionUpdate ? 3000 : 2000);
+                const checkLatest = findFromLatest(reason === GetImageReason.MotionUpdate ? 5000 : 2000);
                 const checkVeryRecent = findFromLatest(200);
                 const checkSnapshot = findFromSnapshot(forceSnapshot, snapshotTimeout);
                 const checkDetector = findFromDetector();
@@ -1454,6 +1456,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     runners = [
                         checkDecoder,
                         checkDetector
+                    ];
+                } else if (forceLatest) {
+                    runners = [
+                        checkDecoder,
+                        checkVeryRecent,
+                        checkLatest,
                     ];
                 } else if (preferLatest) {
                     runners = [
