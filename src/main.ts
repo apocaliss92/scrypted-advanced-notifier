@@ -14,7 +14,7 @@ import { AdvancedNotifierAlarmSystem } from "./alarmSystem";
 import { haAlarmAutomation, haAlarmAutomationId } from "./alarmUtils";
 import { AdvancedNotifierCamera } from "./camera";
 import { AdvancedNotifierCameraMixin, OccupancyRuleData } from "./cameraMixin";
-import { DetectionClass, isFaceClassname, isLabelDetection } from "./detectionClasses";
+import { DetectionClass, isLabelDetection } from "./detectionClasses";
 import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
@@ -348,6 +348,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     restartRequested = false;
     public aiMessageResponseMap: Record<string, string> = {};
     frigateLabels: string[];
+    frigateCameras: string[];
     lastFrigateDataFetched: number;
 
     constructor(nativeId: string) {
@@ -375,8 +376,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const serverUrl = settings.find(setting => setting.key === 'serverUrl')?.value as string;
             logger.log(`Frigate API found ${serverUrl}`);
             this.frigateApi = serverUrl;
-            const { frigateLabels } = await this.getFrigateData();
+            const { frigateLabels, frigateCameras } = await this.getFrigateData();
             logger.log(`Frigate labels found ${frigateLabels}`);
+            logger.log(`Frigate cameras found ${frigateCameras}`);
         }
 
         const [major, minor, patch] = version.split('.').map(num => parseInt(num, 10));
@@ -807,20 +809,22 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 return {};
             }
 
-            let labels: string[];
             const isUpdated = this.lastFrigateDataFetched && (now - this.lastFrigateDataFetched) <= (1000 * 60);
 
-            if (this.frigateLabels && isUpdated) {
-                labels = this.frigateLabels;
-            } else {
-                const response = await axios.get<any>(`${this.frigateApi}/labels`);
-                labels = (response.data ?? []).filter(label => label !== 'person');
-                this.frigateLabels = labels;
+            if (!isUpdated) {
+                const frigatePlugin = systemManager.getDeviceByName<Settings>(FRIGATE_BRIDGE_PLUGIN_NAME);
+                const settings = await frigatePlugin.getSettings();
+                const labels = settings.find(setting => setting.key === 'labels')?.value as string[];
+                const cameras = settings.find(setting => setting.key === 'cameras')?.value as string[];
+
+                this.frigateLabels = labels.filter(label => label !== 'person');
+                this.frigateCameras = cameras;
             }
 
-            this.lastFrigateDataFetched = now;
-
-            return { frigateLabels: labels };
+            return {
+                frigateLabels: this.frigateLabels,
+                frigateCameras: this.frigateCameras,
+            }
         } catch (e) {
             this.getLogger().log('Error in getObserveZones', e.message);
             return {};

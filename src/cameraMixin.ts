@@ -783,29 +783,29 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
             }
 
+            // try {
+            //     for await (const frame of
+            //         await sdk.connectRPCObject(
+            //             await this.createFrameGenerator())) {
+            //         if (this.framesGeneratorSignal.finished) {
+            //             break;
+            //         }
+            //         await exec(frame);
+            //     }
+            // } catch (e) {
             try {
                 for await (const frame of
                     await sdk.connectRPCObject(
-                        await this.createFrameGenerator())) {
+                        await this.createFrameGenerator(true))) {
                     if (this.framesGeneratorSignal.finished) {
                         break;
                     }
                     await exec(frame);
                 }
             } catch (e) {
-                try {
-                    for await (const frame of
-                        await sdk.connectRPCObject(
-                            await this.createFrameGenerator(true))) {
-                        if (this.framesGeneratorSignal.finished) {
-                            break;
-                        }
-                        await exec(frame);
-                    }
-                } catch (e) {
-                    logger.log('Decoder starting failed', e);
-                }
+                logger.log('Decoder starting failed', e);
             }
+            // }
         } else {
             logger.info('Streams generator not yet released');
         }
