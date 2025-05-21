@@ -1,4 +1,4 @@
-import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, NotificationAction, Notifier, NotifierOptions, ObjectDetectionResult, PushHandler, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SecuritySystem, SecuritySystemMode, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, NotificationAction, Notifier, NotifierOptions, ObjectDetectionResult, PushHandler, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
 import child_process from 'child_process';
@@ -8,6 +8,7 @@ import { cloneDeep, isEqual, sortBy } from 'lodash';
 import path from 'path';
 import { BasePlugin, BaseSettingsKey, getBaseSettings, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { getRpcData } from '../../scrypted-monitor/src/utils';
+import { ffmpegFilterImageBuffer } from "../../scrypted/plugins/snapshot/src/ffmpeg-image-filter";
 import { name as pluginName, version } from '../package.json';
 import { AiPlatform, getAiMessage } from "./aiUtils";
 import { AdvancedNotifierAlarmSystem } from "./alarmSystem";
@@ -20,7 +21,6 @@ import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_NAME, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImageSource, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier } from "./utils";
-import { ffmpegFilterImageBuffer } from "../../scrypted/plugins/snapshot/src/ffmpeg-image-filter";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -954,11 +954,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     private async initPluginSettings() {
         const logger = this.getLogger();
         if (this.hasCloudPlugin) {
-            const cloudPlugin = systemManager.getDeviceByName<Settings>('Scrypted Cloud');
-            const oauthUrl = await (cloudPlugin as any).getOauthUrl();
-            const url = new URL(oauthUrl);
-            const serverId = url.searchParams.get('server_id');
+            // const cloudPlugin = systemManager.getDeviceByName<Settings>('Scrypted Cloud');
+            // const oauthUrl = await (cloudPlugin as any).getOauthUrl();
+            // const url = new URL(oauthUrl);
+            // const serverId = url.searchParams.get('server_id');
             const localAddresses = await sdk.endpointManager.getLocalAddresses();
+            const mo = await mediaManager.createMediaObject('', 'text/plain')
+            const serverId: string = await mediaManager.convertMediaObject(mo, ScryptedMimeTypes.ServerId);
 
             logger.log(`Server id found: ${serverId}`);
             await this.putSetting('serverId', serverId);

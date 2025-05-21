@@ -1321,7 +1321,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             GetImageReason.Notification,
         ].includes(reason);
         const tryDetector = !!detectionId && !!eventId;
-        const snapshotTimeout = reason === GetImageReason.RulesRefresh ? undefined : this.currentSnapshotTimeout;
+        const snapshotTimeout = reason === GetImageReason.RulesRefresh ? 10000 : this.currentSnapshotTimeout;
         const decoderRunning = !this.framesGeneratorSignal.finished;
 
         let logPayload: any = {
@@ -1584,6 +1584,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 (now - (currentState?.lastCheck ?? 0)) >= (1000 * forceUpdate) ||
                 (currentState.occupancyToConfirm != undefined && !!currentState.confirmationStart);
 
+            const isMotionOk = this.cameraDevice.motionDetected ||
+                !this.lastMotionEnd ||
+                (now - this.lastMotionEnd) > 1000 * 10;
+
             if (!this.occupancyState[name]) {
                 const initState: CurrentOccupancyState = getInitOccupancyState(rule);
                 logger.log(`Initializing occupancy data for rule ${name} to ${JSON.stringify(initState)}`);
@@ -1592,13 +1596,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             logger.info(`Should force occupancy data update: ${JSON.stringify({
                 shouldForceFrame,
+                isMotionOk,
                 lastCheck: currentState?.lastCheck,
                 forceUpdate,
                 now,
                 name
             })}`);
 
-            return shouldForceFrame;
+            return shouldForceFrame && isMotionOk;
         }) || this.storageSettings.values.checkOccupancy;
 
         const timelapsesToRefresh = (this.runningTimelapseRules || []).filter(rule => {
@@ -1657,15 +1662,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             return;
         }
         const now = Date.now();
-
-        // // Don't check if there is no motion or it's over since a while
-        // const isMotionOk = this.cameraDevice.motionDetected ||
-        //     !this.lastMotionEnd ||
-        //     (now - this.lastMotionEnd) > 1000 * 10;
-
-        // if (!isMotionOk) {
-        //     return;
-        // }
 
         const logger = this.getLogger();
 
@@ -2313,14 +2309,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             eventSource: ScryptedEventSource.RawDetection
                         }).catch(logger.log);
 
-                        const { timePassed, lastSetInSeconds } = this.isDelayPassed({
+                        const { timePassed, lastSetInSeconds, minDelayInSeconds } = this.isDelayPassed({
                             type: DelayType.DetectionNotification,
                             matchRule,
                             eventSource: ScryptedEventSource.RawDetection
                         });
 
                         if (timePassed) {
-                            logger.log(`Starting notifiers for detection rule ${this.getDetectionKey(matchRule)}, b64Image ${getB64ImageLog(b64Image)} from ${imageSource}, ${lastSetInSeconds}s (accumnulated detections)`);
+                            logger.log(`Starting notifiers for detection rule ${this.getDetectionKey(matchRule)}, b64Image ${getB64ImageLog(b64Image)} from ${imageSource}, last check ${lastSetInSeconds}s ago with delay ${minDelayInSeconds}s (accumnulated detections)`);
 
                             await this.plugin.notifyDetectionEvent({
                                 triggerDeviceId: this.id,
@@ -2417,13 +2413,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const { timestamp } = props;
 
             referenceTime = timestamp;
-            minDelayInSeconds = DECODER_FRAME_MIN_TIME;
+            minDelayInSeconds = DECODER_FRAME_MIN_TIME / 1000;
         } else if (type === DelayType.OccupancyRegularCheck) {
             minDelayInSeconds = !!this.runningOccupancyRules.length || this.storageSettings.values.checkOccupancy ? 0.3 : 0;
         }
 
         const lastSetTime = this.lastDelaySet[delayKey];
-        const timePassed = !lastSetTime || minDelayInSeconds ? true : (referenceTime - lastSetTime) >= (minDelayInSeconds * 1000);
+        const timePassed = !lastSetTime || !minDelayInSeconds ? true : (referenceTime - lastSetTime) >= (minDelayInSeconds * 1000);
         const lastSetInSeconds = lastSetTime ? (referenceTime - lastSetTime) / 1000 : undefined;
 
         this.getLogger().info(`Is delay passed for ${delayKey}: ${timePassed}, last set ${lastSetInSeconds}. ${JSON.stringify(props)}`);
@@ -2434,6 +2430,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         return {
             timePassed,
             lastSetInSeconds,
+            minDelayInSeconds,
         }
     }
 
