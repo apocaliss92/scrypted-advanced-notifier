@@ -58,6 +58,7 @@ export type PluginSettingKey =
     | 'aiPlatform'
     | 'imagesPath'
     | 'imagesRegex'
+    | 'enableDecoder'
     | BaseSettingsKey
     | TextSettingKey;
 
@@ -196,6 +197,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             description: 'Select the security system device that will be used to enable rules.',
             type: 'device',
             deviceFilter: `type === '${ScryptedDeviceType.SecuritySystem}' && !interfaces.includes('${ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE}')`,
+            immediate: true,
+        },
+        enableDecoder: {
+            title: 'Enable decoder',
+            group: pluginRulesGroup,
+            description: 'Master controller to allow decoder usage.',
+            type: 'boolean',
+            defaultValue: true,
             immediate: true,
         },
         testDevice: {
@@ -1851,6 +1860,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             forceAi,
             videoSize = 0,
         } = props;
+        if (!notifier) {
+            return {};
+        }
         const { notifierData } = rule ?? {};
         const notifierId = notifier.id;
         const cameraId = device?.id;

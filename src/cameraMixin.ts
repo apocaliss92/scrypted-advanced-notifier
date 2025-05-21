@@ -657,7 +657,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     logger.log(`Stopping NVR events listener`);
                 }
                 this.isActiveForNvrNotifications = anyAllowedNvrDetectionRule;
-                const decoderType = (recordDetectionSessionFrames || useDecoder ? DecoderType.OnMotion : DecoderType.Off) as DecoderType;
+                const decoderType = (this.plugin.storageSettings.values.enableDecoder && (recordDetectionSessionFrames || useDecoder) ? DecoderType.OnMotion : DecoderType.Off) as DecoderType;
+                // const decoderType = (recordDetectionSessionFrames || useDecoder ? DecoderType.OnMotion : DecoderType.Off) as DecoderType;
                 // const decoderType = recordDetectionSessionFrames ? DecoderType.Always :
                 //     useDecoder ? DecoderType.OnMotion : DecoderType.Off;
 
@@ -1089,7 +1090,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             this.lastObserveZonesFetched = now;
             return this.observeZoneData;
         } catch (e) {
-            this.getLogger().log('Error in getObserveZones', e.message);
+            this.getLogger().log('Error in getObserveZones', e);
             return [];
         }
     }
