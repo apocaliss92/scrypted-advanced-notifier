@@ -1,4 +1,4 @@
-import sdk, { BinarySensor, Camera, DeviceBase, EntrySensor, LockState, MediaObject, Notifier, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, OnOff, PanTiltZoom, Point, Reboot, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, VideoCamera } from "@scrypted/sdk";
+import sdk, { BinarySensor, Camera, DeviceBase, EntrySensor, LockState, MediaObject, Notifier, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, OnOff, PanTiltZoom, Point, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, VideoCamera } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDevice, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep, sortBy, uniq, uniqBy } from "lodash";
@@ -11,7 +11,7 @@ import AdvancedNotifierPlugin, { PluginSettingKey } from "./main";
 const { endpointManager } = sdk;
 import { FRIGATE_OBJECT_DETECTOR_INTERFACE } from '../../scrypted-frigate-bridge/src/utils';
 
-export type DeviceInterface = Camera & ScryptedDeviceBase & Notifier & Settings & ObjectDetector & VideoCamera & EntrySensor & Lock & BinarySensor & Reboot & PanTiltZoom & OnOff;
+export type DeviceInterface = ScryptedDevice & Camera & ScryptedDeviceBase & Notifier & Settings & ObjectDetector & VideoCamera & EntrySensor & Lock & BinarySensor & Reboot & PanTiltZoom & OnOff;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
 export const ADVANCED_NOTIFIER_CAMERA_INTERFACE = `${ADVANCED_NOTIFIER_INTERFACE}:Camera`;
 export const ADVANCED_NOTIFIER_NOTIFIER_INTERFACE = `${ADVANCED_NOTIFIER_INTERFACE}:Notifier`;
@@ -60,6 +60,7 @@ export enum DelayType {
     OccupancyNotification = 'OccupancyNotification',
     FsImageUpdate = 'FsImageUpdate',
     PostWebhookImage = 'PostWebhookImage',
+    OccupancyRegularCheck = 'OccupancyRegularCheck',
 }
 
 export enum GetImageReason {
@@ -102,6 +103,7 @@ export const videoclipSpeedMultiplier: Record<VideoclipSpeed, number> = {
 }
 
 export type IsDelayPassedProps =
+    { type: DelayType.OccupancyRegularCheck } |
     { type: DelayType.DecoderFrameOnStorage, eventSource: ScryptedEventSource, timestamp: number } |
     { type: DelayType.BasicDetectionImage, classname: string, label?: string, eventSource: ScryptedEventSource } |
     { type: DelayType.BasicDetectionTrigger, classname: string, label?: string, eventSource: ScryptedEventSource } |

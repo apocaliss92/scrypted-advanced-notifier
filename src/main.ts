@@ -2523,7 +2523,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const mixin = this.currentCameraMixinsMap[device.id];
 
         if (b64Image) {
-            if (mixin.isDelayPassed({ type: DelayType.FsImageUpdate, filename: name, eventSource })) {
+            if (mixin.isDelayPassed({ type: DelayType.FsImageUpdate, filename: name, eventSource })?.timePassed) {
                 const { cameraPath } = this.getFsPaths({ cameraName: device.name });
 
                 try {
@@ -2558,7 +2558,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     type: DelayType.PostWebhookImage,
                     classname,
                     eventSource,
-                })
+                }).timePassed
             ) {
                 for (const url of postDetectionImageUrls) {
                     logger.log(`Posting ${classname} image to ${url}, ${timestamp} ${label}`);
