@@ -561,11 +561,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     const { filePath: imagePath } = this.getDetectionImagePaths({ device: realDevice, imageIdentifier });
 
                     try {
-                        const mo = await sdk.mediaManager.createFFmpegMediaObject({
-                            inputArguments: [
-                                '-i', imagePath,
-                            ]
-                        });
+                        const mo = await sdk.mediaManager.createMediaObjectFromUrl(
+                            `file:${imagePath}`
+                        );
                         const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
                         response.send(jpeg, {
                             headers: {
@@ -574,7 +572,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         });
                         return;
                     } catch (e) {
-                        const message = `Error getting snapshot ${ruleNameOrSnoozeIdOrSnapshotId} for device ${device.name}`;
+                        const message = `Error getting snapshot ${ruleNameOrSnoozeIdOrSnapshotId} for device ${device.name}: ${e.message}`;
                         logger.log(message)
                         response.send(message, {
                             code: 404,
