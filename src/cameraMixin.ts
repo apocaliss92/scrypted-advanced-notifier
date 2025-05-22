@@ -1484,7 +1484,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const checkDetector = findFromDetector();
                 const checkDecoder = findFromDecoder();
 
-                if (reason === GetImageReason.AccumulatedDetections) {
+                if (this.cameraDevice.sleeping) {
+                    runners = [
+                        checkVeryRecent,
+                        checkLatest
+                    ];
+                } else if (reason === GetImageReason.AccumulatedDetections) {
                     runners = [
                         checkDecoder,
                         checkDetector,
