@@ -56,7 +56,7 @@ export enum DelayType {
     BasicDetectionImage = 'BasicDetectionImage',
     BasicDetectionTrigger = 'BasicDetectionTrigger',
     RuleImageUpdate = 'RuleImageUpdate',
-    DetectionNotification = 'RuleNotification',
+    RuleNotification = 'RuleNotification',
     OccupancyNotification = 'OccupancyNotification',
     FsImageUpdate = 'FsImageUpdate',
     PostWebhookImage = 'PostWebhookImage',
@@ -111,7 +111,7 @@ export type IsDelayPassedProps =
     { type: DelayType.OccupancyNotification, matchRule: MatchRule, eventSource: ScryptedEventSource } |
     { type: DelayType.PostWebhookImage, classname: string, eventSource: ScryptedEventSource } |
     { type: DelayType.RuleImageUpdate, matchRule: MatchRule, eventSource: ScryptedEventSource } |
-    { type: DelayType.DetectionNotification, matchRule: MatchRule, eventSource: ScryptedEventSource };
+    { type: DelayType.RuleNotification, matchRule: MatchRule, eventSource: ScryptedEventSource };
 
 export const getElegibleDevices = (isFrigate?: boolean) => {
     const allDevices = Object.keys(sdk.systemManager.getSystemState()).map(deviceId => sdk.systemManager.getDeviceById<DeviceInterface>(deviceId));
@@ -907,7 +907,7 @@ export const getActiveRules = async (
         ...allowedAudioRules,
     ];
 
-    const recordDetectionSessionFrames = allAllowedRules.some(rule => rule.generateClip);
+    const hasClips = allAllowedRules.some(rule => rule.generateClip);
 
     const shouldListenAudio = !!allowedAudioRules.length;
     const isActiveForMqttReporting = isPluginEnabled && isMqttActive && isDeviceEnabledToMqtt;
@@ -929,7 +929,7 @@ export const getActiveRules = async (
         isActiveForMqttReporting,
         anyAllowedNvrDetectionRule,
         shouldListenDoorbell,
-        recordDetectionSessionFrames,
+        hasClips,
     }
 }
 

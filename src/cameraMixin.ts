@@ -78,6 +78,7 @@ type CameraSettingKey =
     | 'checkOccupancy'
     | 'checkSoundPressure'
     | 'useDecoder'
+    | 'decoderType'
     | 'lastSnapshotWebhook'
     | 'lastSnapshotWebhookCloudUrl'
     | 'lastSnapshotWebhookLocalUrl'
@@ -181,6 +182,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             description: '[ATTENTION] Performance intensive and high cpu prone, ONLY use if you see many timeout errors on snapshot for cameras with frequent motion',
             type: 'boolean',
             immediate: true,
+            hide: true,
+        },
+        decoderType: {
+            title: 'Snapshot from Decoder',
+            description: 'Define when to run a decoder to get more frequent snapshots. It will be enabled only if there is any running timelapse rule, occupancy rule or detection rule with videoclips',
+            type: 'string',
+            immediate: true,
+            choices: [
+                DecoderType.Off,
+                DecoderType.OnMotion,
+                DecoderType.Always,
+            ]
         },
         // WEBHOOKS
         lastSnapshotWebhook: {
@@ -263,7 +276,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     audioListeners: Record<string, {
         inProgress: boolean;
         lastDetection?: number;
-        lastNotification?: number;
         resetInterval?: NodeJS.Timeout;
     }> = {};
     detectionRuleListeners: Record<string, {
@@ -284,12 +296,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     lastAudioConnection: number;
     lastImage?: MediaObject;
     lastFrame?: Buffer;
-    // lastFrame?: MediaObject;
     lastFrameAcquired?: number;
     lastB64Image?: string;
     lastPictureTaken?: number;
     processingOccupanceData?: boolean;
-    decoderType: DecoderType;
     rtspUrl: string;
     decoderStream: MediaStreamDestination;
     decoderResize: boolean;
@@ -304,7 +314,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     consumedDetectionIdsSet: Set<string> = new Set();
 
     lastMotionEnd: number;
-    currentSnapshotTimeout = 2000;
+    currentSnapshotTimeout = 4000;
 
     clipGenerationTimeout: Record<string, NodeJS.Timeout> = {};
 
@@ -402,6 +412,29 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         await device.putSetting(`recording:privacyMode`, !enabled)
     }
 
+    get decoderType() {
+        const { enableDecoder } = this.plugin.storageSettings.values;
+        const { decoderType } = this.storageSettings.values;
+
+        if (!enableDecoder) {
+            return DecoderType.Off;
+        }
+
+        const hasRunningTimelapseRules = !!this.runningTimelapseRules.length;
+        const hasRunningOccupancyRules = !!this.runningOccupancyRules.length;
+        const hasVideoclipRules = this.runningDetectionRules.some(rule => rule.generateClip);
+
+        if (decoderType === DecoderType.Always) {
+            if (hasRunningOccupancyRules || hasRunningTimelapseRules || hasVideoclipRules) {
+                return DecoderType.Always
+            } else {
+                return DecoderType.OnMotion;
+            }
+        }
+
+        return decoderType;
+    }
+
     async startCheckInterval() {
         const logger = this.getLogger();
 
@@ -422,7 +455,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     isActiveForMqttReporting,
                     anyAllowedNvrDetectionRule,
                     shouldListenDoorbell,
-                    recordDetectionSessionFrames,
                 } = await getActiveRules({
                     device: this.cameraDevice,
                     console: logger,
@@ -523,9 +555,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 const isDetectionListenerRunning = !!this.detectionListener || !!this.motionListener;
 
-                const { checkOccupancy, checkSoundPressure, notificationsEnabled, useDecoder } = this.storageSettings.values;
+                const { checkOccupancy, checkSoundPressure, notificationsEnabled } = this.storageSettings.values;
+                const decoderType = this.decoderType;
 
-                if (this.decoderType !== DecoderType.Off) {
+                if (decoderType !== DecoderType.Off) {
                     const threshold = now - (1000 * 60 * 1);
                     if (!this.lastFramesCleanup || this.lastFramesCleanup < threshold) {
                         this.lastFramesCleanup = now;
@@ -649,10 +682,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     logger.log(`Stopping NVR events listener`);
                 }
                 this.isActiveForNvrNotifications = anyAllowedNvrDetectionRule;
-                const decoderType = (this.plugin.storageSettings.values.enableDecoder && (recordDetectionSessionFrames || useDecoder) ? DecoderType.OnMotion : DecoderType.Off) as DecoderType;
-                // const decoderType = (recordDetectionSessionFrames || useDecoder ? DecoderType.OnMotion : DecoderType.Off) as DecoderType;
-                // const decoderType = recordDetectionSessionFrames ? DecoderType.Always :
+                // const decoderType = (this.plugin.storageSettings.values.enableDecoder && (recordDetectionSessionFrames || useDecoder) ? DecoderType.OnMotion : DecoderType.Off) as DecoderType;
+                // const currentDecoderType = recordDetectionSessionFrames ? DecoderType.Always :
                 //     useDecoder ? DecoderType.OnMotion : DecoderType.Off;
+                // const currentDecoder = hasClips || !!this.runningOccupancyRules.length || !this.runningTimelapseRules
 
                 if (decoderType === DecoderType.Always && this.framesGeneratorSignal.finished) {
                     await this.startDecoder('Permanent');
@@ -668,7 +701,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     logger.log(`Restarting decoder`);
                     this.stopDecoder('Restart');
                 }
-                this.decoderType = decoderType;
 
                 const shouldCheckAudio = shouldListenAudio || checkSoundPressure;
                 if (shouldCheckAudio && !this.isActiveForAudioDetections) {
@@ -773,12 +805,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 // })
                 this.lastFrameAcquired = now;
 
-                if (this.decoderType !== DecoderType.Off && this.isDelayPassed({
+                const decoderType = this.decoderType;
+                if (decoderType !== DecoderType.Off && this.isDelayPassed({
                     type: DelayType.DecoderFrameOnStorage,
                     eventSource: ScryptedEventSource.RawDetection,
                     timestamp: frame.timestamp
                 })?.timePassed) {
-                    this.plugin.storeDetectionFrame({ device: this.cameraDevice, imageBuffer: this.lastFrame, timestamp: frame.timestamp }).catch(logger.log);
+                    this.plugin.storeDetectionFrame({
+                        device: this.cameraDevice,
+                        imageBuffer: this.lastFrame,
+                        timestamp: frame.timestamp
+                    }).catch(logger.log);
                 }
             }
 
@@ -839,10 +876,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }, 500);
     }
 
-    resetAudioRule(ruleName: string, lastNotification?: number) {
+    resetAudioRule(ruleName: string) {
         const resetInterval = this.audioListeners[ruleName]?.resetInterval;
         resetInterval && clearInterval(resetInterval);
-        this.audioListeners[ruleName] = { inProgress: false, resetInterval: undefined, lastDetection: undefined, lastNotification };
+        this.audioListeners[ruleName] = { inProgress: false, resetInterval: undefined, lastDetection: undefined };
     }
 
     stopAccumulatedDetectionsInterval() {
@@ -1055,6 +1092,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         if (this.storageSettings.settings.endTime) {
             this.storageSettings.settings.endTime.hide = !schedulerEnabled;
         }
+
+        if (this.storageSettings.settings.decoderType) {
+            const useDecoder = safeParseJson(this.storageSettings.getItem('useDecoder'));
+            this.storageSettings.settings.decoderType.defaultValue = useDecoder ? DecoderType.OnMotion : DecoderType.Off;
+        }
     }
 
     async getObserveZones() {
@@ -1133,7 +1175,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             return { frigateLabels: labels, frigateZones: zones };
         } catch (e) {
-            this.getLogger().log('Error in getObserveZones', e.message);
+            this.getLogger().log('Error in getFrigateData', e.message);
             return {};
         }
     }
@@ -1276,18 +1318,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     getDetectionKey(matchRule: MatchRule) {
         const { match, rule } = matchRule;
         let key = `rule-${rule.name}`;
-        if (rule.ruleType === RuleType.Timelapse) {
-            return key;
-        } else {
+        if (rule.ruleType === RuleType.Detection && match) {
             const { label, className } = match;
             const classname = detectionClassesDefaultMap[className];
             key = `${key}-${classname}`;
             if (label) {
                 key += `-${label}`;
             }
-
-            return key;
         }
+
+        return key;
     }
 
     public async getImage(props?: {
@@ -1365,7 +1405,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     });
                     this.lastPictureTaken = now;
                     imageSource = ImageSource.Snapshot;
-                    this.currentSnapshotTimeout = 2000;
+                    this.currentSnapshotTimeout = 4000;
                 } catch (e) {
                     logger.log(`Error taking a snapshot for reason ${reason} (timeout ${snapshotTimeout} ms): (${e.message})`);
                     this.lastPictureTaken = undefined;
@@ -1382,7 +1422,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
 
         const findFromDecoder = () => async () => {
-            const isRecent = !this.lastFrameAcquired || (msPassedFromDecoder) <= 500;
+            const isRecent = this.lastFrameAcquired && (msPassedFromDecoder) <= 500;
 
             if (decoderRunning && this.lastFrame && isRecent) {
                 const mo = await sdk.mediaManager.createMediaObject(this.lastFrame, 'image/jpeg');
@@ -1447,7 +1487,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 if (reason === GetImageReason.AccumulatedDetections) {
                     runners = [
                         checkDecoder,
-                        checkDetector
+                        checkDetector,
+                        checkSnapshot
                     ];
                 } else if (forceLatest) {
                     runners = [
@@ -2025,12 +2066,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let b64Image: string;
         for (const rule of (this.runningAudioRules ?? [])) {
             const { name, audioDuration, decibelThreshold, customText, minDelay } = rule;
-            const { lastDetection, inProgress, lastNotification } = this.audioListeners[name] ?? {};
+            const { lastDetection, inProgress } = this.audioListeners[name] ?? {};
             const isThresholdMet = decibels >= decibelThreshold;
             const isTimePassed = !lastDetection || (now - lastDetection) > audioDuration;
-            const isTimeForNotificationPassed = !minDelay || !lastNotification || (now - lastNotification) > (minDelay * 1000);
+            const { timePassed: notificationTimePassed } = this.isDelayPassed({
+                type: DelayType.RuleNotification,
+                matchRule: { rule } as MatchRule,
+                eventSource: ScryptedEventSource.RawDetection
+            })
 
-            if (isTimeForNotificationPassed && !image) {
+            if (notificationTimePassed && !image) {
                 const { image: imageNew, b64Image: b64ImageNew } = await this.getImage({ reason: GetImageReason.AudioTrigger });
                 image = imageNew;
                 b64Image = b64ImageNew;
@@ -2064,7 +2109,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 this.audioListeners[name] = {
                     ...this.audioListeners[name],
-                    lastNotification: now
                 };
 
                 this.triggerRule({
@@ -2075,11 +2119,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     eventSource: ScryptedEventSource.RawDetection
                 }).catch(logger.log);
 
-                this.resetAudioRule(name, now);
+                this.resetAudioRule(name);
             }
 
             if (!audioDuration) {
-                if (isTimeForNotificationPassed) {
+                if (notificationTimePassed) {
                     await trigger();
                 } else {
                     logger.info(`Minimum amount of ${minDelay} seconds not passed yet`);
@@ -2087,7 +2131,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             } else {
                 if (inProgress) {
                     if (isThresholdMet) {
-                        if (!isTimeForNotificationPassed) {
+                        if (!notificationTimePassed) {
                             logger.info(`Minimum amount of ${minDelay} seconds not passed yet`);
                             // Do nothing and wait for next detection
                         } else if (!isTimePassed) {
@@ -2310,7 +2354,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         }).catch(logger.log);
 
                         const { timePassed, lastSetInSeconds, minDelayInSeconds } = this.isDelayPassed({
-                            type: DelayType.DetectionNotification,
+                            type: DelayType.RuleNotification,
                             matchRule,
                             eventSource: ScryptedEventSource.RawDetection
                         });
@@ -2386,7 +2430,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             delayKey += `-${lastDetectionkey}`;
             minDelayInSeconds = matchRule.rule.minMqttPublishDelay;
-        } else if (type === DelayType.DetectionNotification) {
+        } else if (type === DelayType.RuleNotification) {
             const { matchRule } = props;
             const { minDelayTime } = this.storageSettings.values;
             const lastDetectionkey = this.getDetectionKey(matchRule);
@@ -2766,7 +2810,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             }).catch(logger.log);
                         }
 
-                        if (isNonRawDetection && this.isDelayPassed({ type: DelayType.DetectionNotification, matchRule, eventSource })?.timePassed) {
+                        if (isNonRawDetection && this.isDelayPassed({ type: DelayType.RuleNotification, matchRule, eventSource })?.timePassed) {
                             logger.log(`Starting notifiers for detection rule ${this.getDetectionKey(matchRule)}, b64Image ${getB64ImageLog(b64Image)} from ${imageSource} (Decoder)`);
 
                             this.plugin.notifyDetectionEvent({
@@ -2856,7 +2900,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 event: ScryptedInterface.MotionSensor,
             }, async (_, __, data) => {
                 const now = Date.now();
-                const shouldUseDecoder = this.decoderType === DecoderType.OnMotion;
+                const decoderType = this.decoderType;
+                const shouldUseDecoder = decoderType === DecoderType.OnMotion;
 
                 if (data) {
                     this.consumedDetectionIdsSet = new Set();
@@ -2951,16 +2996,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async getFrameGenerator() {
-        // TODO: restore this to pick the defaultDecoder from object Detection mixin
-        // let frameGenerator = this.storageSettings.values.newPipeline as string;
-        // if (frameGenerator === 'Default')
-        //     frameGenerator = this.plugin.storageSettings.values.defaultDecoder || 'Default';
-        const frameGenerator = 'Default';
-
         const pipelines = getAllDevices().filter(d => d.interfaces.includes(ScryptedInterface.VideoFrameGenerator));
         const webassembly = sdk.systemManager.getDeviceById(NVR_PLUGIN_ID, 'decoder') || undefined;
         const ffmpeg = sdk.systemManager.getDeviceById(VIDEO_ANALYSIS_PLUGIN_ID, 'ffmpeg') || undefined;
-        const use = (pipelines.find(p => p.name === frameGenerator) || webassembly || ffmpeg)
+        const use = (pipelines.find(p => p.name === 'Default') || webassembly || ffmpeg)
 
         return {
             pipelines,
