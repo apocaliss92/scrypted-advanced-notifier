@@ -875,14 +875,22 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         return this.mqttClient;
     }
+
     getLogger(device?: ScryptedDeviceBase) {
-        let logger = super.getLogger();
         if (device) {
-            logger = this.currentCameraMixinsMap[device.id]?.getLogger() ??
-                this.currentSensorMixinsMap[device.id]?.getLogger() ?? logger;
+            const mixin = this.currentCameraMixinsMap[device.id] ||
+                this.currentNotifierMixinsMap[device.id] ||
+                this.currentSensorMixinsMap[device.id];
+
+            return super.getLoggerInternal({
+                console: mixin.console,
+                storage: mixin.storageSettings,
+                friendlyName: mixin.clientId,
+            });
+        } else {
+            return super.getLoggerInternal({});
         }
 
-        return logger;
     }
 
     private async setupMqttEntities() {

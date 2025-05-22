@@ -1234,8 +1234,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     public getLogger(forceNew?: boolean) {
         if (!this.logger || forceNew) {
-            const newLogger = getBaseLogger({
-                deviceConsole: this.console,
+            const newLogger = this.plugin.getLoggerInternal({
+                console: this.console,
                 storage: this.storageSettings,
                 friendlyName: this.clientId
             });

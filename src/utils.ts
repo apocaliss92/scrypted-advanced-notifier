@@ -10,6 +10,7 @@ import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, Detectio
 import AdvancedNotifierPlugin, { PluginSettingKey } from "./main";
 const { endpointManager } = sdk;
 import { FRIGATE_OBJECT_DETECTOR_INTERFACE } from '../../scrypted-frigate-bridge/src/utils';
+import { logLevelSetting } from "../../scrypted-apocaliss-base/src/basePlugin";
 
 export type DeviceInterface = ScryptedDevice & Camera & ScryptedDeviceBase & Notifier & Settings & ObjectDetector & VideoCamera & EntrySensor & Lock & BinarySensor & Reboot & PanTiltZoom & OnOff;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
@@ -694,8 +695,7 @@ export const mixinRulesGroup = 'Advanced notifier rules';
 export const pluginRulesGroup = 'Rules';
 
 export type MixinBaseSettingKey =
-    | 'info'
-    | 'debug'
+    | 'logLevel'
     | 'enabledToMqtt'
     | 'useNvrDetections'
     | 'detectionSource'
@@ -732,17 +732,8 @@ export const getMixinBaseSettings = (props: {
         const { isCamera, isSensor, isNotifier } = isDeviceSupported(device);
 
         const settings: StorageSettingsDict<MixinBaseSettingKey> = {
-            debug: {
-                title: 'Log debug messages',
-                type: 'boolean',
-                defaultValue: false,
-                immediate: true,
-            },
-            info: {
-                title: 'Log info messages',
-                type: 'boolean',
-                defaultValue: false,
-                immediate: true,
+            logLevel: {
+                ...logLevelSetting,
             },
         } as StorageSettingsDict<MixinBaseSettingKey>;
 

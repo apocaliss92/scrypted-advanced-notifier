@@ -277,15 +277,19 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         this.resetListeners();
     }
 
-    public getLogger() {
-        if (!this.logger) {
-            const newLogger = getBaseLogger({
-                deviceConsole: this.console,
+    public getLogger(forceNew?: boolean) {
+        if (!this.logger || forceNew) {
+            const newLogger = this.plugin.getLoggerInternal({
+                console: this.console,
                 storage: this.storageSettings,
-                friendlyName: `scrypted_an_${this.id}`
+                friendlyName: this.clientId
             });
 
-            this.logger = newLogger;
+            if (forceNew) {
+                return newLogger;
+            } else {
+                this.logger = newLogger;
+            }
         }
 
         return this.logger;

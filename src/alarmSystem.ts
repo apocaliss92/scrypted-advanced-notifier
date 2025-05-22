@@ -239,6 +239,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
     initializingMqtt: boolean;
     lastAutoDiscovery: number;
     activeRules: BaseRule[];
+    logger: Console;
 
     constructor(nativeId: string, private plugin: AdvancedNotifierPlugin) {
         super(nativeId);
@@ -423,16 +424,22 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
         await this.refreshSettings();
     }
 
-    getLogger(): Console {
-        if (!this.mainLogger) {
-            this.mainLogger = getBaseLogger({
-                deviceConsole: this.console,
+    public getLogger(forceNew?: boolean) {
+        if (!this.logger || forceNew) {
+            const newLogger = this.plugin.getLoggerInternal({
+                console: this.console,
                 storage: this.storageSettings,
-                friendlyName: `Advanced security system`
+                friendlyName: this.clientId
             });
+
+            if (forceNew) {
+                return newLogger;
+            } else {
+                this.logger = newLogger;
+            }
         }
 
-        return this.mainLogger
+        return this.logger;
     }
 
     async getMqttClient() {
