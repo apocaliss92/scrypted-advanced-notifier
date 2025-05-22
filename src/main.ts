@@ -155,12 +155,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         },
         detectionSourceForMqtt: {
             title: 'Detections source',
-            description: 'Select which detections should be used. The snapshots will come from the same source',
+            description: 'Which source should be used to update MQTT',
             type: 'string',
             subgroup: 'MQTT',
             immediate: true,
             combobox: true,
-            choices: []
+            choices: [],
         },
         ...getTextSettings({ forMixin: false }),
         [ruleTypeMetadataMap[RuleType.Detection].rulesKey]: {
@@ -1320,6 +1320,17 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         });
     }
 
+    get enabledDetectionSources() {
+        return this.frigateApi ? [
+            ScryptedEventSource.RawDetection,
+            ScryptedEventSource.NVR,
+            ScryptedEventSource.Frigate,
+        ] : [
+            ScryptedEventSource.RawDetection,
+            ScryptedEventSource.NVR,
+        ];
+    }
+
     async getSettings() {
         try {
             const {
@@ -1336,15 +1347,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             if (mqttEnabled) {
                 this.storageSettings.settings.detectionSourceForMqtt.defaultValue =
                     useNvrDetectionsForMqtt ? ScryptedEventSource.NVR : ScryptedEventSource.RawDetection;
-                const enabledDetectionSources = this.frigateApi ? [
-                    ScryptedEventSource.RawDetection,
-                    ScryptedEventSource.NVR,
-                    ScryptedEventSource.Frigate,
-                ] : [
-                    ScryptedEventSource.RawDetection,
-                    ScryptedEventSource.NVR,
-                ];
-                this.storageSettings.settings.detectionSourceForMqtt.choices = enabledDetectionSources;
+
+                this.storageSettings.settings.detectionSourceForMqtt.choices = this.enabledDetectionSources;
             }
             this.storageSettings.settings.useNvrDetectionsForMqtt.hide = true;
 

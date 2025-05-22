@@ -74,6 +74,7 @@ type CameraSettingKey =
     | 'notifierActions'
     | 'minSnapshotDelay'
     | 'minMqttPublishDelay'
+    | 'detectionSourceForMqtt'
     | 'motionDuration'
     | 'checkOccupancy'
     | 'checkSoundPressure'
@@ -159,6 +160,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             defaultValue: 5,
             subgroup: 'Advanced',
         },
+        detectionSourceForMqtt: {
+            title: 'Detections source',
+            description: 'Which source should be used to update MQTT. Default will use the plugin setting',
+            type: 'string',
+            immediate: true,
+            combobox: true,
+            defaultValue: 'Default',
+            choices: [],
+        },
         motionDuration: {
             title: 'Off motion duration',
             type: 'number',
@@ -166,7 +176,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             subgroup: 'Advanced',
         },
         checkOccupancy: {
-            title: 'Check objects occupancy regularly',
+            title: 'Check objects occupancy',
             description: 'Regularly check objects presence and report it to MQTT, performance intensive',
             type: 'boolean',
             immediate: true,
@@ -182,7 +192,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             description: '[ATTENTION] Performance intensive and high cpu prone, ONLY use if you see many timeout errors on snapshot for cameras with frequent motion',
             type: 'boolean',
             immediate: true,
-            hide: true,
         },
         decoderType: {
             title: 'Snapshot from Decoder',
@@ -682,10 +691,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     logger.log(`Stopping NVR events listener`);
                 }
                 this.isActiveForNvrNotifications = anyAllowedNvrDetectionRule;
-                // const decoderType = (this.plugin.storageSettings.values.enableDecoder && (recordDetectionSessionFrames || useDecoder) ? DecoderType.OnMotion : DecoderType.Off) as DecoderType;
-                // const currentDecoderType = recordDetectionSessionFrames ? DecoderType.Always :
-                //     useDecoder ? DecoderType.OnMotion : DecoderType.Off;
-                // const currentDecoder = hasClips || !!this.runningOccupancyRules.length || !this.runningTimelapseRules
 
                 if (decoderType === DecoderType.Always && this.framesGeneratorSignal.finished) {
                     await this.startDecoder('Permanent');
@@ -1057,7 +1062,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             initStorage: this.initStorage
         });
 
-        const { lastSnapshotWebhook, postDetectionImageWebhook, enabledToMqtt, schedulerEnabled } = this.storageSettings.values;
+        const {
+            lastSnapshotWebhook,
+            postDetectionImageWebhook,
+            enabledToMqtt,
+            schedulerEnabled,
+            useDecoder,
+        } = this.storageSettings.values;
 
         if (this.storageSettings.settings.lastSnapshotWebhookCloudUrl) {
             this.storageSettings.settings.lastSnapshotWebhookCloudUrl.hide = !lastSnapshotWebhook;
@@ -1094,8 +1105,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
 
         if (this.storageSettings.settings.decoderType) {
-            const useDecoder = safeParseJson(this.storageSettings.getItem('useDecoder'));
             this.storageSettings.settings.decoderType.defaultValue = useDecoder ? DecoderType.OnMotion : DecoderType.Off;
+        }
+        this.storageSettings.settings.useDecoder.hide = true;
+
+        if (this.storageSettings.settings.detectionSourceForMqtt) {
+            this.storageSettings.settings.detectionSourceForMqtt.choices = [
+                'Default',
+                ...this.plugin.enabledDetectionSources,
+            ]
         }
     }
 
@@ -1340,6 +1358,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
         const now = Date.now();
         const { minSnapshotDelay } = this.storageSettings.values;
+        logger.info(`Getting image for reason ${reason}, ${detectionId} ${eventId}`);
 
         let image: MediaObject = imageParent;
         let b64Image: string;
@@ -1485,6 +1504,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const checkDecoder = findFromDecoder();
 
                 if (this.cameraDevice.sleeping) {
+                    logger.log(`Not waking up the camera for a snapshot`);
                     runners = [
                         checkVeryRecent,
                         checkLatest
@@ -2403,10 +2423,21 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
+    get detectionSourceForMqtt() {
+        const { detectionSourceForMqtt } = this.storageSettings.values;
+        const { detectionSourceForMqtt: detectionSourceForMqttPlugin } = this.plugin.storageSettings.values;
+
+        if (detectionSourceForMqtt !== 'Default') {
+            return detectionSourceForMqtt
+        } else {
+            return detectionSourceForMqttPlugin;
+        }
+    }
+
     isDelayPassed(props: IsDelayPassedProps) {
         const { type } = props;
 
-        const { detectionSourceForMqtt } = this.plugin.storageSettings.values;
+        const detectionSourceForMqtt = this.detectionSourceForMqtt;
 
         let delayKey = `${type}`;
         let referenceTime = Date.now();
@@ -2495,7 +2526,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const isRawDetection = eventSource === ScryptedEventSource.RawDetection;
         const logger = this.getLogger();
         const { timestamp: triggerTime, detections } = detect;
-        const { detectionSourceForMqtt } = this.plugin.storageSettings.values;
+        const detectionSourceForMqtt = this.detectionSourceForMqtt;
         const canUpdateMqttImage = !isRawDetection && detectionSourceForMqtt === eventSource;
 
         if (!detections?.length) {
@@ -2546,25 +2577,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 logger.log(`${eventSource} detections received, classnames ${classnames.join(', ')}. b64Image ${getB64ImageLog(b64Image)} from ${imageSource}`);
             }
 
-            if (this.isActiveForMqttReporting) {
+            if (this.isActiveForMqttReporting && eventSource === detectionSourceForMqtt) {
                 const mqttClient = await this.getMqttClient();
 
                 if (mqttClient) {
-                    let detectionsToUpdate = candidates;
-
-                    // In case a non-NVR detection came in and user wants NVR detections to be used, just update the motion
-                    if (detectionSourceForMqtt !== ScryptedEventSource.RawDetection && isRawDetection) {
-                        logger.info(`Only updating motion, non-NVR detection incoming and using NVR detections for MQTT`);
-                        detectionsToUpdate = [{ className: DetectionClass.Motion, score: 1 }];
-                    }
-
                     if (candidates.some(elem => isObjectClassname(elem.className))) {
-                        detectionsToUpdate.push(
+                        candidates.push(
                             { className: DetectionClass.AnyObject, score: 1 }
                         );
                     }
 
-                    const spamBlockedDetections = detectionsToUpdate.filter(det =>
+                    const spamBlockedDetections = candidates.filter(det =>
                         this.isDelayPassed({
                             type: DelayType.BasicDetectionTrigger,
                             classname: det.className,

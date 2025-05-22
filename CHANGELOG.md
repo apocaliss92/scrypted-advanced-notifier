@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.7.15
+- Add MQTT data source setting per camera
+- Do not wake up sleeping cameras for a snapshot
+
 ### 3.7.3
 - Add configurations for videoclip speed, default to 2x (Fast)
 
