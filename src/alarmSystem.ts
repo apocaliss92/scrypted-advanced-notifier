@@ -28,6 +28,7 @@ type StorageKeys = 'notifiers' |
     'triggerMessage' |
     'disarmingMessage' |
     'defuseMessage' |
+    'defuseMessageAutomatic' |
     'deactivateMessage' |
     'modeHomeText' |
     'modeNightText' |
@@ -187,6 +188,13 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
             type: 'string',
             group: 'Texts',
             defaultValue: 'Alarm defused',
+        },
+        defuseMessageAutomatic: {
+            title: 'Automatic Defuse message',
+            description: 'Message sent when the alarm is automatically disarmed while triggered',
+            type: 'string',
+            group: 'Texts',
+            defaultValue: 'Alarm defused automatically after ${seconds} seconds',
         },
         deactivateMessage: {
             title: 'Text for notifications to disable the alarm',
@@ -359,6 +367,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                 event: automatically ? 'DefuseAuto' : 'DefuseManual',
             });
         }
+        await this.disarmSecuritySystemInternal(true);
     }
 
     async onEventTrigger(props: {
@@ -383,7 +392,6 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                 this.resetDisarmListener();
                 this.disarmListener = setTimeout(async () => {
                     await this.defuse(true);
-                    await this.disarmSecuritySystem();
                 }, 1000 * autoDisarmTime);
             }
         }
@@ -516,6 +524,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
         mode: SecuritySystemMode,
         event: 'Preactivation' | 'Activate' | 'Blocked' | 'Trigger' | 'DefuseAuto' | 'DefuseManual',
         preactivationSeconds?: number,
+        autoDefuseSeconds?: number,
         bypassedDevices?: string[],
         activeDevices?: string[],
         blockingDevices?: string[],
@@ -532,6 +541,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                 bypassedDevices = [],
                 mode,
                 preactivationSeconds,
+                autoDefuseSeconds,
                 triggerDevices = []
             } = props;
             let message: string;
@@ -539,6 +549,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
             const {
                 preActivationStartMessage,
                 defuseMessage,
+                defuseMessageAutomatic,
                 disarmingMessage,
                 armingErrorMessage,
                 armingMessage,
@@ -555,7 +566,9 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
             } = this.storageSettings.values;
 
             if (mode === SecuritySystemMode.Disarmed) {
-                message = triggered ? defuseMessage : disarmingMessage;
+                message = triggered ?
+                    (event === 'DefuseManual' ? defuseMessage : defuseMessageAutomatic) :
+                    disarmingMessage;
             } else {
                 switch (event) {
                     case 'Preactivation':
@@ -571,6 +584,8 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                         message = triggerMessage;
                         break;
                     case 'DefuseAuto':
+                        message = defuseMessageAutomatic;
+                        break;
                     case 'DefuseManual':
                         message = defuseMessage;
                         break;
@@ -586,7 +601,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
 
             const text = (message || '')
                 .replaceAll('${mode}', modeText)
-                .replaceAll('${seconds}', String(preactivationSeconds ?? ''))
+                .replaceAll('${seconds}', String(preactivationSeconds ?? autoDefuseSeconds ?? ''))
                 .replaceAll('${bypassedDevices}', renderList(bypassedDevices))
                 .replaceAll('${blockingDevices}', renderList(blockingDevices))
                 .replaceAll('${triggerDevices}', renderList(triggerDevices))
@@ -877,9 +892,13 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
     }
 
     async disarmSecuritySystem(): Promise<void> {
+        await this.disarmSecuritySystemInternal();
+    }
+
+    async disarmSecuritySystemInternal(suppressLog?: boolean): Promise<void> {
         this.resetActivationListener();
         const logger = this.getLogger();
-        logger.log(`Disarmed`);
+        !suppressLog && logger.log(`Disarmed`);
         await this.sendNotification({
             mode: SecuritySystemMode.Disarmed,
             event: 'Activate',
