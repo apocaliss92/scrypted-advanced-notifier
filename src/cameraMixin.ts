@@ -1479,10 +1479,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }
         };
 
+        const enableFrigateSnapshots = false;
         try {
-            if (reason === GetImageReason.FromFrigate) {
+            if (reason === GetImageReason.FromFrigate && enableFrigateSnapshots) {
                 if (!this.plugin.frigateApi || !detectionId) {
-                    logger.log(`Frigate API not set on The Frigate Bridge plugin ${detectionId}`);
+                    logger.info(`Frigate API or detection id not available: ${detectionId}`);
                 } else {
                     try {
                         const endpoint = `${this.plugin.frigateApi}/events/${detectionId}/snapshot.jpg`;

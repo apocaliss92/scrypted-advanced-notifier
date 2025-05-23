@@ -1,12 +1,22 @@
 import sdk, { NotificationAction, SecuritySystemMode } from "@scrypted/sdk";
 import { StorageSetting, StorageSettings } from "@scrypted/sdk/storage-settings";
-import { deviceFilter, getWebooks, sensorsFilter } from "./utils";
+import { getWebooks, sensorsFilter } from "./utils";
 
 export const supportedAlarmModes = [
     SecuritySystemMode.AwayArmed,
     SecuritySystemMode.NightArmed,
     SecuritySystemMode.HomeArmed,
 ];
+
+export enum AlarmEvent {
+    Preactivation = 'Preactivation',
+    Activate = 'Activate',
+    Blocked = 'Blocked',
+    Trigger = 'Trigger',
+    DefuseAuto = 'DefuseAuto',
+    DefuseManual = 'DefuseManual',
+    RiarmAuto = 'RiarmAuto',
+}
 
 export const getAlarmKeys = (props: {
     mode: SecuritySystemMode,
@@ -16,11 +26,13 @@ export const getAlarmKeys = (props: {
     const bypassableDevicesKey = `${mode}:bypassableDevices`;
     const preActivationTimeKey = `${mode}:preActivationTime`;
     const autoDisarmTimeKey = `${mode}:autoDisarmTime`;
+    const autoRiarmTimeKey = `${mode}:autoRiarmTime`;
 
     return {
         bypassableDevicesKey,
         preActivationTimeKey,
         autoDisarmTimeKey,
+        autoRiarmTimeKey,
     };
 };
 
@@ -29,21 +41,22 @@ export const getAlarmDefaults = (props: { mode: SecuritySystemMode }) => {
 
     let preactivationTime: number;
     let autoDisarmTime: number;
+    let autoRiarmTime: number;
 
     switch (mode) {
         case (SecuritySystemMode.AwayArmed): {
             preactivationTime = 30;
-            autoDisarmTime = 60;
+            autoRiarmTime = 60;
             break;
         }
         case (SecuritySystemMode.HomeArmed): {
             preactivationTime = 0;
-            autoDisarmTime = 30;
+            autoRiarmTime = 30;
             break;
         }
         case (SecuritySystemMode.NightArmed): {
             preactivationTime = 0;
-            autoDisarmTime = 30;
+            autoRiarmTime = 30;
             break;
         }
     }
@@ -51,6 +64,7 @@ export const getAlarmDefaults = (props: { mode: SecuritySystemMode }) => {
     return {
         preactivationTime,
         autoDisarmTime,
+        autoRiarmTime,
     };
 }
 
@@ -62,8 +76,9 @@ export const getAlarmSettings = (props: {
         bypassableDevicesKey,
         preActivationTimeKey,
         autoDisarmTimeKey,
+        autoRiarmTimeKey,
     } = getAlarmKeys({ mode });
-    const { autoDisarmTime, preactivationTime } = getAlarmDefaults({ mode });
+    const { autoDisarmTime, preactivationTime, autoRiarmTime } = getAlarmDefaults({ mode });
     const group = `Mode: ${mode}`;
 
     const bypassableDevicesSetting: StorageSetting = {
@@ -92,11 +107,20 @@ export const getAlarmSettings = (props: {
         type: 'number',
         defaultValue: autoDisarmTime,
     };
+    const autoRiarmTimeSetting: StorageSetting = {
+        key: autoRiarmTimeKey,
+        title: `Auto riarm time (seconds)`,
+        description: 'Automatically riarm the alarm on trigger. Set 0 to keep the alarm active until manual action',
+        group,
+        type: 'number',
+        defaultValue: autoRiarmTime,
+    };
 
     return [
         bypassableDevicesSetting,
         preActivationTimeSetting,
         autoDisarmTimeSetting,
+        autoRiarmTimeSetting,
     ];
 };
 
@@ -105,6 +129,7 @@ export interface ModeData {
     bypassableDevices: string[];
     preActivationTime: number;
     autoDisarmTime: number;
+    autoRiarmTime: number;
 };
 
 export const getModeEntity = (props: {
@@ -116,14 +141,17 @@ export const getModeEntity = (props: {
         bypassableDevicesKey,
         preActivationTimeKey,
         autoDisarmTimeKey,
+        autoRiarmTimeKey,
     } = getAlarmKeys({ mode });
     const {
         autoDisarmTime: autoDisarmTimeDefault,
+        autoRiarmTime: autoRiarmTimeDefault,
         preactivationTime: preactivationTimeDefault } = getAlarmDefaults({ mode });
 
     const bypassableDevices = storage.getItem(bypassableDevicesKey) as string[] ?? [];
     const preActivationTime = storage.getItem(preActivationTimeKey) as number ?? preactivationTimeDefault;
     const autoDisarmTime = storage.getItem(autoDisarmTimeKey) as number ?? autoDisarmTimeDefault;
+    const autoRiarmTime = storage.getItem(autoRiarmTimeKey) as number ?? autoRiarmTimeDefault;
     const currentMode = storage.getItem('activeMode') as SecuritySystemMode;
 
     const data: ModeData = {
@@ -131,6 +159,7 @@ export const getModeEntity = (props: {
         bypassableDevices,
         currentlyActive: currentMode === mode,
         preActivationTime,
+        autoRiarmTime,
     };
 
     return data;
