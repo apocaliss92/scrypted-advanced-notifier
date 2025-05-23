@@ -570,8 +570,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const decoderType = this.decoderType;
 
                 if (decoderType !== DecoderType.Off) {
+                    const { videoclipsRetention } = this.plugin.storageSettings.values;
                     const framesThreshold = now - (1000 * 60 * 5);
-                    const videoclipsThreshold = now - (1000 * 60 * 60 * 24);
+                    const videoclipsThreshold = now - (1000 * 60 * 60 * 24 * videoclipsRetention);
                     if (!this.lastFramesCleanup || this.lastFramesCleanup < framesThreshold) {
                         this.lastFramesCleanup = now;
                         this.plugin.clearVideoclipsData({

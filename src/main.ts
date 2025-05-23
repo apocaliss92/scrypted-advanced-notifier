@@ -56,6 +56,7 @@ export type PluginSettingKey =
     | 'checkConfigurations'
     | 'aiPlatform'
     | 'imagesPath'
+    | 'videoclipsRetention'
     | 'imagesRegex'
     | 'enableDecoder'
     | BaseSettingsKey
@@ -315,7 +316,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         imagesPath: {
             title: 'Storage path',
             group: 'Storage',
-            description: 'Disk path where to save images. Leave blank if you do not want any image to be stored',
+            description: 'Disk path where to save images and clips. Default will be the plugin folder',
             type: 'string',
         },
         imagesRegex: {
@@ -325,6 +326,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             type: 'string',
             defaultValue: '${name}',
             placeholder: '${name}',
+        },
+        videoclipsRetention: {
+            title: 'Videoclip retention days',
+            group: 'Storage',
+            description: 'How many days to keep the generated clips',
+            type: 'number',
+            defaultValue: 7,
         },
     };
     storageSettings = new StorageSettings(this, this.initStorage);
