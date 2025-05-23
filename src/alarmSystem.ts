@@ -1,7 +1,7 @@
 
 import sdk, { Lock, Notifier, NotifierOptions, ScryptedDeviceBase, ScryptedDeviceType, SecuritySystem, SecuritySystemMode, SecuritySystemObstruction, Setting, Settings, SettingValue } from '@scrypted/sdk';
 import { StorageSetting, StorageSettings, StorageSettingsDict } from '@scrypted/sdk/storage-settings';
-import { getBaseLogger, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { getBaseLogger, getMqttBasicClient, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 import { scryptedToHaStateMap } from '../../scrypted-homeassistant/src/types/securitySystem';
 import { getAlarmSettings, getAlarmWebhookUrls, getModeEntity, supportedAlarmModes } from './alarmUtils';
@@ -11,8 +11,7 @@ import { BaseRule, binarySensorMetadataMap, convertSettingsToStorageSettings, De
 
 type StorageKeys = 'notifiers' |
     'autoCloseLocks' |
-    'debug' |
-    'info' |
+    'logeLevel' |
     'mqttEnabled' |
     'activeMode' |
     'arming' |
@@ -77,18 +76,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
             defaultValue: true,
             immediate: true,
         },
-        debug: {
-            title: 'Log debug messages',
-            type: 'boolean',
-            defaultValue: false,
-            immediate: true,
-        },
-        info: {
-            title: 'Log info messages',
-            type: 'boolean',
-            defaultValue: false,
-            immediate: true,
-        },
+        logeLevel: logLevelSetting,
         mqttEnabled: {
             title: 'MQTT enabled',
             type: 'boolean',

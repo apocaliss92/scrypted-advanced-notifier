@@ -28,7 +28,6 @@ export type PluginSettingKey =
     | 'pluginEnabled'
     | 'mqttEnabled'
     | 'notificationsEnabled'
-    | 'debug'
     | 'sendDevNotifications'
     | 'serverId'
     | 'localAddresses'
@@ -88,12 +87,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             title: 'Notifications enabled',
             type: 'boolean',
             defaultValue: true,
-            immediate: true,
-        },
-        debug: {
-            title: 'Log debug messages',
-            type: 'boolean',
-            defaultValue: false,
             immediate: true,
         },
         sendDevNotifications: {
