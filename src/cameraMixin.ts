@@ -568,7 +568,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const decoderType = this.decoderType;
 
                 if (decoderType !== DecoderType.Off) {
-                    const threshold = now - (1000 * 60 * 1);
+                    const threshold = now - (1000 * 60 * 5);
                     if (!this.lastFramesCleanup || this.lastFramesCleanup < threshold) {
                         this.lastFramesCleanup = now;
                         this.plugin.clearDetectionSessionFrames({ device: this.cameraDevice, logger, threshold }).catch(logger.log);
@@ -2493,9 +2493,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             delayKey += `-${filename}`;
             minDelayInSeconds = 5;
         } else if (type === DelayType.DecoderFrameOnStorage) {
-            const { timestamp } = props;
-
-            referenceTime = timestamp;
             minDelayInSeconds = DECODER_FRAME_MIN_TIME / 1000;
         } else if (type === DelayType.OccupancyRegularCheck) {
             minDelayInSeconds = !!this.runningOccupancyRules.length || this.storageSettings.values.checkOccupancy ? 0.3 : 0;
