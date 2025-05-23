@@ -1481,19 +1481,21 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const enableFrigateSnapshots = false;
         try {
-            if (reason === GetImageReason.FromFrigate && enableFrigateSnapshots) {
-                if (!this.plugin.frigateApi || !detectionId) {
-                    logger.info(`Frigate API or detection id not available: ${detectionId}`);
-                } else {
-                    try {
-                        const endpoint = `${this.plugin.frigateApi}/events/${detectionId}/snapshot.jpg`;
-                        logger.info(`Fetching Frigate image for event ${detectionId} from ${endpoint}`);
-                        const mo = await sdk.mediaManager.createMediaObjectFromUrl(endpoint);
-                        const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(mo, ScryptedMimeTypes.Image);
-                        image = await convertedImage.toImage();
-                        imageSource = ImageSource.Frigate;
-                    } catch (e) {
-                        logger.log(`Error trying to fetch frigate image ${eventId}`, e);
+            if (reason === GetImageReason.FromFrigate) {
+                if (enableFrigateSnapshots) {
+                    if (!this.plugin.frigateApi || !detectionId) {
+                        logger.info(`Frigate API or detection id not available: ${detectionId}`);
+                    } else {
+                        try {
+                            const endpoint = `${this.plugin.frigateApi}/events/${detectionId}/snapshot.jpg`;
+                            logger.info(`Fetching Frigate image for event ${detectionId} from ${endpoint}`);
+                            const mo = await sdk.mediaManager.createMediaObjectFromUrl(endpoint);
+                            const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(mo, ScryptedMimeTypes.Image);
+                            image = await convertedImage.toImage();
+                            imageSource = ImageSource.Frigate;
+                        } catch (e) {
+                            logger.log(`Error trying to fetch frigate image ${eventId}`, e);
+                        }
                     }
                 }
             } else if (!image) {
