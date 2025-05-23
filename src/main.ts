@@ -1449,7 +1449,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const decoderType = deviceMixin.decoderType;
         if (rule.generateClip && decoderType !== DecoderType.Off) {
             const cameraMixin = this.currentCameraMixinsMap[device.id];
-            const delay = decoderType === DecoderType.OnMotion ? 3 : 1.5;
+            const delay = rule.generateClipPostSeconds ?? 3;
             logger.log(`Starting clip recording for rule ${rule.name} in ${delay} seconds (${decoderType})`);
             cameraMixin.clipGenerationTimeout[rule.name] = setTimeout(async () => {
                 await prepareClip();
@@ -2390,6 +2390,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         },
                         generateClipSpeed: testGenerateClipSpeed,
                         generateClip: testGenerateClip,
+                        generateClipPostSeconds: 3,
                         useAi: testUseAi,
                         ruleType: RuleType.Detection,
                         markDetections: false,

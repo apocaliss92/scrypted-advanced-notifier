@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.7.16
+- Add setting to set the post event duration for videoclips
+
 ### 3.7.15
 - Add MQTT data source setting per camera
 - Do not wake up sleeping cameras for a snapshot

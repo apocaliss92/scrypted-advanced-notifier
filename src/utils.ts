@@ -1038,6 +1038,7 @@ export const getRuleKeys = (props: {
     const endRuleTextKey = `${prefix}:${ruleName}:endRuleText`;
     const generateClipKey = `${prefix}:${ruleName}:generateClip`;
     const generateClipSpeedKey = `${prefix}:${ruleName}:generateClipSpeed`;
+    const generateClipPostSecondsKey = `${prefix}:${ruleName}:generateClipPostSeconds`;
 
     // Specific for detection rules
     const detectionClassesKey = `${prefix}:${ruleName}:detecionClasses`;
@@ -1102,6 +1103,7 @@ export const getRuleKeys = (props: {
             endRuleTextKey,
             generateClipKey,
             generateClipSpeedKey,
+            generateClipPostSecondsKey,
         },
         detection: {
             useNvrDetectionsKey,
@@ -1400,6 +1402,7 @@ export const getRuleSettings = (props: {
                 aiEnabledKey,
                 generateClipKey,
                 generateClipSpeedKey,
+                generateClipPostSecondsKey,
             }
         } = getRuleKeys({ ruleName, ruleType });
 
@@ -1472,7 +1475,16 @@ export const getRuleSettings = (props: {
                         type: 'string',
                         immediate: true,
                         defaultValue: VideoclipSpeed.Fast,
-                    }
+                    },
+                    {
+                        key: generateClipPostSecondsKey,
+                        title: 'Clip post duration',
+                        description: 'How many seconds to record post event',
+                        group,
+                        subgroup,
+                        type: 'number',
+                        defaultValue: 3,
+                    },
                 );
             }
         }
@@ -2410,6 +2422,7 @@ export interface BaseRule {
     endRuleText?: string;
     generateClip: boolean;
     generateClipSpeed: VideoclipSpeed;
+    generateClipPostSeconds: number;
     notifierData: Record<string, {
         actions: NotificationAction[],
         priority: NotificationPriority,
@@ -2488,6 +2501,7 @@ const initBasicRule = (props: {
         aiEnabledKey,
         generateClipKey,
         generateClipSpeedKey,
+        generateClipPostSecondsKey,
     } } = getRuleKeys({
         ruleType,
         ruleName,
@@ -2502,6 +2516,7 @@ const initBasicRule = (props: {
     const securitySystemModes = storage.getItem(securitySystemModesKey) as SecuritySystemMode[] ?? [];
     const notifiers = storage.getItem(notifiersKey) as string[];
     const generateClip = storage.getItem(generateClipKey) as boolean;
+    const generateClipPostSeconds = safeParseJson<number>(storage.getItem(generateClipPostSecondsKey)) ?? 3;
 
     const rule: BaseRule = {
         isEnabled,
@@ -2516,6 +2531,7 @@ const initBasicRule = (props: {
         securitySystemModes,
         generateClip,
         generateClipSpeed,
+        generateClipPostSeconds,
         notifierData: {},
     };
 
