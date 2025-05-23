@@ -439,6 +439,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             } else {
                 return DecoderType.OnMotion;
             }
+        } else if (hasVideoclipRules) {
+            return DecoderType.OnMotion;
         }
 
         return decoderType;
@@ -568,10 +570,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const decoderType = this.decoderType;
 
                 if (decoderType !== DecoderType.Off) {
-                    const threshold = now - (1000 * 60 * 5);
-                    if (!this.lastFramesCleanup || this.lastFramesCleanup < threshold) {
+                    const framesThreshold = now - (1000 * 60 * 5);
+                    const videoclipsThreshold = now - (1000 * 60 * 60 * 24);
+                    if (!this.lastFramesCleanup || this.lastFramesCleanup < framesThreshold) {
                         this.lastFramesCleanup = now;
-                        this.plugin.clearDetectionSessionFrames({ device: this.cameraDevice, logger, threshold }).catch(logger.log);
+                        this.plugin.clearVideoclipsData({
+                            device: this.cameraDevice,
+                            logger,
+                            framesThreshold,
+                            videoclipsThreshold,
+                        }).catch(logger.log);
                     }
                 }
 
@@ -824,29 +832,29 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
             }
 
-            // try {
-            //     for await (const frame of
-            //         await sdk.connectRPCObject(
-            //             await this.createFrameGenerator())) {
-            //         if (this.framesGeneratorSignal.finished) {
-            //             break;
-            //         }
-            //         await exec(frame);
-            //     }
-            // } catch (e) {
             try {
                 for await (const frame of
                     await sdk.connectRPCObject(
-                        await this.createFrameGenerator(true))) {
+                        await this.createFrameGenerator())) {
                     if (this.framesGeneratorSignal.finished) {
                         break;
                     }
                     await exec(frame);
                 }
             } catch (e) {
-                logger.log('Decoder starting failed', e);
+                try {
+                    for await (const frame of
+                        await sdk.connectRPCObject(
+                            await this.createFrameGenerator(true))) {
+                        if (this.framesGeneratorSignal.finished) {
+                            break;
+                        }
+                        await exec(frame);
+                    }
+                } catch (e) {
+                    logger.log('Decoder starting failed', e);
+                }
             }
-            // }
         } else {
             logger.info('Streams generator not yet released');
         }

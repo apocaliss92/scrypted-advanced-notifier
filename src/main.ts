@@ -2779,14 +2779,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
     }
 
-    public clearDetectionSessionFrames = async (props: {
+    public clearVideoclipsData = async (props: {
         device: ScryptedDeviceBase,
         logger: Console,
-        threshold: number
+        framesThreshold: number,
+        videoclipsThreshold: number,
     }) => {
-        const { device, logger, threshold } = props;
-        const { framesPath } = this.getShortClipPaths({ device });
-        logger.log(`Cleaning up old frames ${threshold}`);
+        const { device, logger, framesThreshold, videoclipsThreshold } = props;
+        const { framesPath, generatedPath } = this.getShortClipPaths({ device });
+        logger.log(`Cleaning up old frames ${framesThreshold}`);
 
         try {
             const frames = await fs.promises.readdir(framesPath);
@@ -2796,7 +2797,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 const filepath = path.join(framesPath, filename);
                 const fileTimestamp = parseInt(filename);
 
-                if (fileTimestamp < threshold) {
+                if (fileTimestamp < framesThreshold) {
                     try {
                         await fs.promises.unlink(filepath);
                         removedFrames += 1;
@@ -2809,25 +2810,27 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger.log(`Frames found ${frames.length}, removed ${removedFrames}`);
         } catch { }
 
-        // const clips = await fs.promises.readdir(generatedPath);
-        // let removedClips = 0;
-        // logger.log(`${clips.length} clips found`);
+        logger.log(`Cleaning up old clips ${videoclipsThreshold}`);
+        try {
+            const clips = await fs.promises.readdir(generatedPath);
+            let removedClips = 0;
 
-        // for (const filename of clips) {
-        //     const fileTimestamp = parseInt(filename);
+            for (const filename of clips) {
+                const filepath = path.join(generatedPath, filename);
+                const fileTimestamp = parseInt(filename);
 
-        //     if (fileTimestamp < threshold) {
-        //         const filepath = path.join(generatedPath, filename);
-        //         try {
-        //             await fs.promises.unlink(filepath);
-        //             removedClips += 1;
-        //         } catch (err) {
-        //             logger.error(`Error removing clip ${filename}`, err.message);
-        //         }
-        //     }
-        // }
+                if (fileTimestamp < videoclipsThreshold) {
+                    try {
+                        await fs.promises.unlink(filepath);
+                        removedClips += 1;
+                    } catch (err) {
+                        logger.error(`Error removing frame ${filename}`, err.message);
+                    }
+                }
+            }
 
-        // logger.log(`${removedClips} old clips removed`);
+            logger.log(`Videoclips found ${clips.length}, removed ${removedClips}`);
+        } catch { }
     }
 
     public generateShortClip = async (props: {
