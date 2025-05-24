@@ -32,6 +32,8 @@ export const MAX_PENDING_RESULT_PER_CAMERA = 5;
 export const MAX_RPC_OBJECTS_PER_CAMERA = 50;
 export const FRIGATE_BRIDGE_PLUGIN_NAME = 'Frigate bridge';
 export const DECODER_FRAME_MIN_TIME = 100;
+export const TIMELAPSE_CLIP_PREFIX = 'TIMELAPSE';
+export const DETECTION_CLIP_PREFIX = 'DETECTION';
 
 export enum ScryptedEventSource {
     RawDetection = 'RawDetection',
@@ -149,13 +151,15 @@ export const safeParseJson = <T = any>(maybeStringValue: string | object, fallba
 export const getWebooks = async () => {
     const lastSnapshot = 'snapshot';
     const haAction = 'haAction';
-    const detectionClipDownload = 'detectionClipDownload';
     const timelapseDownload = 'timelapseDownload';
     const timelapseStream = 'timelapseStream';
     const timelapseThumbnail = 'timelapseThumbnail';
     const snoozeNotification = 'snoozeNotification';
     const postNotification = 'postNotification';
     const setAlarm = 'setAlarm';
+    const detectionClipDownload = 'detectionClipDownload';
+    const detectionClipStream = 'detectionClipStream';
+    const detectionClipThumbnail = 'detectionClipThumbnail';
 
     return {
         lastSnapshot,
@@ -167,7 +171,9 @@ export const getWebooks = async () => {
         postNotification,
         setAlarm,
         detectionClipDownload,
-    }
+        detectionClipStream,
+        detectionClipThumbnail,
+    };
 }
 
 export const isDetectionRule = (rule: BaseRule) => [
@@ -205,6 +211,8 @@ export const getWebHookUrls = async (props: {
     let postNotificationUrl: string;
     let endpoint: string;
     let detectionClipDownloadUrl: string;
+    let detectionClipStreamUrl: string;
+    let detectionClipThumbnailUrl: string;
 
     const snoozeActions: NotificationAction[] = [];
 
@@ -217,6 +225,8 @@ export const getWebHookUrls = async (props: {
         snoozeNotification,
         postNotification,
         detectionClipDownload,
+        detectionClipStream,
+        detectionClipThumbnail,
     } = await getWebooks();
 
     try {
@@ -235,15 +245,15 @@ export const getWebHookUrls = async (props: {
         haActionUrl = `${cloudEndpoint}${haAction}/${encodedId}${paramString}`;
         postNotificationUrl = `${cloudEndpoint}${postNotification}/${encodedId}${paramString}`;
 
-        if (rule) {
-            const encodedRuleName = encodeURIComponent(rule.name);
+        const encodedRuleName = encodeURIComponent(rule.name);
 
-            timelapseStreamUrl = `${cloudEndpoint}${timelapseStream}/${encodedId}/${encodedRuleName}/${clipName}${paramString}`;
-            timelapseDownloadUrl = `${cloudEndpoint}${timelapseDownload}/${encodedId}/${encodedRuleName}/${clipName}${paramString}`;
-            timelapseThumbnailUrl = `${cloudEndpoint}${timelapseThumbnail}/${encodedId}/${encodedRuleName}/${clipName}${paramString}`;
+        timelapseStreamUrl = `${cloudEndpoint}${timelapseStream}/${encodedId}/${encodedRuleName}/${clipName}${paramString}`;
+        timelapseDownloadUrl = `${cloudEndpoint}${timelapseDownload}/${encodedId}/${encodedRuleName}/${clipName}${paramString}`;
+        timelapseThumbnailUrl = `${cloudEndpoint}${timelapseThumbnail}/${encodedId}/${encodedRuleName}/${clipName}${paramString}`;
 
-            detectionClipDownloadUrl = `${cloudEndpoint}${detectionClipDownload}/${encodedId}/${encodedRuleName}/${clipName}${paramString}`;
-        }
+        detectionClipDownloadUrl = `${cloudEndpoint}${detectionClipDownload}/${encodedId}/detection/${clipName}${paramString}`;
+        detectionClipStreamUrl = `${cloudEndpoint}${detectionClipStream}/${encodedId}/detection/${clipName}${paramString}`;
+        detectionClipThumbnailUrl = `${cloudEndpoint}${detectionClipThumbnail}/${encodedId}/detection/${clipName}${paramString}`;
 
         if (snoozes) {
             for (const snooze of snoozes) {
@@ -272,6 +282,8 @@ export const getWebHookUrls = async (props: {
         postNotificationUrl,
         endpoint,
         detectionClipDownloadUrl,
+        detectionClipStreamUrl,
+        detectionClipThumbnailUrl,
     };
 }
 

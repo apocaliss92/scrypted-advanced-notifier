@@ -44,6 +44,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
     initializingMqtt: boolean;
     lastAutoDiscovery: number;
     sensorDevice: DeviceInterface;
+    hasVideoclipRules = false;
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -113,6 +114,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 allowedDetectionRules,
                 availableDetectionRules,
                 shouldListenDetections,
+                hasClips
             } = await getActiveRules({
                 device: this,
                 console: logger,
@@ -142,7 +144,8 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             }
 
             logger.debug(`Detected rules: ${JSON.stringify({ availableDetectionRules, allowedDetectionRules })}`);
-            this.runningDetectionRules = allowedDetectionRules || [];
+            this.runningDetectionRules = cloneDeep(allowedDetectionRules || []);
+            this.hasVideoclipRules = hasClips;
 
             const isCurrentlyRunning = !!this.detectionListener;
 
@@ -345,7 +348,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 }))?.image;
 
                 const rules = cloneDeep(this.runningDetectionRules);
-                // const rules = cloneDeep(this.runningDetectionRules.filter(rule => rule.detectionSource === eventSource)) ?? [];
                 for (const rule of rules) {
                     logger.log(`Event ${this.supportedSensorType} will be proxied to the device ${device.name}`);
                     logger.info(JSON.stringify({

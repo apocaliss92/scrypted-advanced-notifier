@@ -4,15 +4,39 @@ import fs from 'fs';
 import path from 'path';
 import { CameraBase } from '../../scrypted/plugins/ffmpeg-camera/src/common';
 import { UrlMediaStreamOptions } from '../../scrypted/plugins/rtsp/src/rtsp';
-import { ffmpegFilterImage, ffmpegFilterImageBuffer } from '../../scrypted/plugins/snapshot/src/ffmpeg-image-filter';
+import { ffmpegFilterImageBuffer } from '../../scrypted/plugins/snapshot/src/ffmpeg-image-filter';
 import AdvancedNotifierPlugin from './main';
-import { BaseRule, getWebHookUrls } from './utils';
+import { BaseRule, DETECTION_CLIP_PREFIX, getWebHookUrls, TIMELAPSE_CLIP_PREFIX } from './utils';
+import { StorageSettings, StorageSettingsDict } from '@scrypted/sdk/storage-settings';
+import { logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
+
+type StorageKeys = 'logeLevel';
 
 export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> implements Camera, VideoCamera, VideoClips {
+    initStorage: StorageSettingsDict<StorageKeys> = {
+        logeLevel: logLevelSetting,
+    };
+
+    storageSettings = new StorageSettings(this, this.initStorage);
+
     picture: Promise<MediaObject>;
+    logger: Console;
 
     constructor(nativeId: string, private plugin: AdvancedNotifierPlugin) {
         super(nativeId, null);
+    }
+
+    public getLogger() {
+        if (!this.logger) {
+            const newLogger = this.plugin.getLoggerInternal({
+                console: this.console,
+                storage: this.storageSettings,
+            });
+
+            this.logger = newLogger;
+        }
+
+        return this.logger;
     }
 
     getfont() {
@@ -24,7 +48,7 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
     }
 
     async takeSmartCameraPicture(options?: PictureOptions): Promise<MediaObject> {
-        const logger = this.plugin.getLogger();
+        const logger = this.getLogger();
         try {
             if (!this.picture) {
                 const mo = await sdk.mediaManager.createMediaObjectFromUrl('https://nvr.scrypted.app/img/scrypted/240x135-000000ff.png');
@@ -39,17 +63,6 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
                     },
                     timeout: 10000,
                 });
-                // const buf = await ffmpegFilterImage([
-                //     '-f', 'lavfi',
-                //     '-i', 'color=black:size=1920x1080',
-                // ], {
-                //     ffmpegPath: await sdk.mediaManager.getFFmpegPath(),
-                //     text: {
-                //         fontFile: undefined,
-                //         text: 'Advanced notifier clips',
-                //     },
-                //     timeout: 10000,
-                // });
 
                 this.picture = this.createMediaObject(buf, 'image/jpeg');
             }
@@ -73,13 +86,20 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
         const imagesPath = this.plugin.getStoragePath();
         const cameraFolders = await fs.promises.readdir(imagesPath);
 
-        const logger = this.plugin.getLogger();
+        const logger = this.getLogger();
         for (const cameraFolder of cameraFolders) {
             const cameraDevice = sdk.systemManager.getDeviceByName<ScryptedDeviceBase>(cameraFolder);
             const { rulesPath } = this.plugin.getRulePaths({ cameraName: cameraFolder });
 
+            let hasRules = true;
+
             try {
                 await fs.promises.access(rulesPath);
+            } catch (e) {
+                hasRules = false;
+            }
+
+            if (hasRules) {
                 const rulesFolder = await fs.promises.readdir(rulesPath);
 
                 for (const ruleFolder of rulesFolder) {
@@ -127,40 +147,109 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
                         }
                     }
                 }
-            } catch { }
+            }
+
+            let clipsPath: string;
+
+            let hasClips = true;
+            try {
+                const { generatedPath } = this.plugin.getShortClipPaths({ cameraName: cameraDevice.name });
+                await fs.promises.access(generatedPath);
+                clipsPath = generatedPath;
+            } catch (e) {
+                hasClips = false;
+            }
+
+            if (hasClips) {
+                const files = await fs.promises.readdir(clipsPath);
+                logger.log(clipsPath, files);
+
+                try {
+                    for (const file of files) {
+                        const [fileName, extension] = file.split('.');
+                        if (extension === 'mp4') {
+                            const timestamp = Number(fileName);
+
+                            if (timestamp > options.startTime && timestamp < options.endTime) {
+                                const { fileId } = this.plugin.getShortClipPaths({
+                                    cameraName: cameraDevice.name,
+                                    fileName,
+                                });
+                                const { detectionClipStreamUrl, detectionClipThumbnailUrl } = await getWebHookUrls({
+                                    device: cameraDevice,
+                                    clipName: fileName
+                                });
+
+                                videoClips.push({
+                                    id: fileName,
+                                    startTime: timestamp,
+                                    duration: 30,
+                                    event: 'detection',
+                                    thumbnailId: fileId,
+                                    videoId: fileId,
+                                    resources: {
+                                        thumbnail: {
+                                            href: detectionClipThumbnailUrl
+                                        },
+                                        video: {
+                                            href: detectionClipStreamUrl
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    }
+                } catch (e) {
+                    logger.log(`Error fetching videoclips for camera ${cameraDevice.name}`, e);
+                }
+            }
         }
 
         return videoClips;
     }
 
-    async getVideoClip(fileId: string): Promise<MediaObject> {
-        const logger = this.plugin.getLogger();
-        logger.log('Fetching videoId ', fileId);
+    getFilePath(props: { fileId: string }) {
+        const { fileId } = props;
 
-        const [cameraName, ruleName, fileName] = fileId.split('_');
-        const { videoclipPath } = this.plugin.getRulePaths({
-            cameraName,
-            fileName,
-            ruleName
-        });
-
-        const fileURLToPath = `file://${videoclipPath}`
-        const videoclipMo = await sdk.mediaManager.createMediaObjectFromUrl(fileURLToPath);
-
-        return videoclipMo;
-    }
-
-    async getVideoClipThumbnail(fileId: string, options?: VideoClipThumbnailOptions): Promise<MediaObject> {
-        const logger = this.plugin.getLogger();
-
-        try {
-            const [cameraName, ruleName, fileName] = fileId.split('_');
-            const { snapshotPath } = this.plugin.getRulePaths({
+        if (fileId.startsWith(TIMELAPSE_CLIP_PREFIX)) {
+            const [_, cameraName, ruleName, fileName] = fileId.split('_');
+            return this.plugin.getRulePaths({
                 cameraName,
                 fileName,
                 ruleName
             });
-            logger.log('Fetching thumbnailId ', fileId, cameraName, ruleName, fileName, snapshotPath);
+        } else if (fileId.startsWith(DETECTION_CLIP_PREFIX)) {
+            const [_, cameraName, fileName] = fileId.split('_');
+            return this.plugin.getShortClipPaths({
+                cameraName,
+                fileName,
+            });
+        }
+    }
+
+    async getVideoClip(fileId: string): Promise<MediaObject> {
+        const logger = this.getLogger();
+
+        try {
+            const { videoclipPath } = this.getFilePath({ fileId });
+
+            logger.log('Fetching videoclip ', fileId, videoclipPath);
+
+            const fileURLToPath = `file://${videoclipPath}`
+            const videoclipMo = await sdk.mediaManager.createMediaObjectFromUrl(fileURLToPath);
+            return videoclipMo;
+        } catch (e) {
+            logger.error(`Error fetching videoclip ${fileId}`, e.message);
+        }
+    }
+
+    async getVideoClipThumbnail(fileId: string, options?: VideoClipThumbnailOptions): Promise<MediaObject> {
+        const logger = this.getLogger();
+
+        try {
+            const { snapshotPath } = this.getFilePath({ fileId });
+
+            logger.log('Fetching thumbnail ', fileId, snapshotPath);
 
             const fileURLToPath = `file://${snapshotPath}`;
             const thumbnailMo = await sdk.mediaManager.createMediaObjectFromUrl(fileURLToPath);
@@ -169,7 +258,7 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
 
             return mo;
         } catch (e) {
-            logger.log('Error in getVideoClipThumbnail', fileId, e);
+            logger.error(`Error fetching thumbnail ${fileId}`, e.message);
         }
     }
 

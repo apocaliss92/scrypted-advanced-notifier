@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 3.7.21
+- Add detection clips to the camera clips
+
 ### 3.7.16
 - Add setting to set the post event duration for videoclips
 

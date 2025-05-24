@@ -20,7 +20,7 @@ import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodisco
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_NAME, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImageSource, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_NAME, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImageSource, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier } from "./utils";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -332,12 +332,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             group: 'Storage',
             description: 'How many days to keep the generated clips',
             type: 'number',
-            defaultValue: 7,
+            defaultValue: 30,
         },
     };
     storageSettings = new StorageSettings(this, this.initStorage);
 
-    private deviceVideocameraMap: Record<string, string> = {};
+    public deviceVideocameraMap: Record<string, string> = {};
     public videocameraDevicesMap: Record<string, string[]> = {};
     public currentCameraMixinsMap: Record<string, AdvancedNotifierCameraMixin> = {};
     public currentSensorMixinsMap: Record<string, AdvancedNotifierSensorMixin> = {};
@@ -422,6 +422,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const interfaces: string[] = [
             ScryptedInterface.Camera,
             ScryptedInterface.VideoClips,
+            ScryptedInterface.Settings,
             ADVANCED_NOTIFIER_CAMERA_INTERFACE
         ];
 
@@ -538,6 +539,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 postNotification,
                 setAlarm,
                 detectionClipDownload,
+                detectionClipStream,
+                detectionClipThumbnail,
             } = await getWebooks();
             if (webhook === haAction) {
                 const { url, accessToken } = await this.getHaApiUrl();
@@ -581,12 +584,21 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         return;
                     }
                 }
-            } else if (webhook === timelapseDownload) {
-                const { videoclipPath } = this.getRulePaths({
-                    ruleName: decodedRuleNameOrSnoozeIdOrSnapshotId,
-                    cameraName: realDevice.name,
-                    fileName: decodedTimelapseNameOrSnoozeTime,
-                });
+            } else if ([detectionClipDownload, timelapseDownload].includes(webhook)) {
+                let videoclipPath: string;
+
+                if (webhook === timelapseDownload) {
+                    videoclipPath = this.getRulePaths({
+                        ruleName: decodedRuleNameOrSnoozeIdOrSnapshotId,
+                        cameraName: realDevice.name,
+                        fileName: decodedTimelapseNameOrSnoozeTime,
+                    })?.videoclipPath;
+                } else if (webhook === detectionClipDownload) {
+                    videoclipPath = this.getShortClipPaths({
+                        cameraName: realDevice.name,
+                        fileName: decodedTimelapseNameOrSnoozeTime,
+                    })?.videoclipPath;
+                }
 
                 logger.debug(`Requesting timelapse ${decodedRuleNameOrSnoozeIdOrSnapshotId} for download: ${JSON.stringify({
                     videoclipPath,
@@ -598,12 +610,20 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                 response.sendFile(videoclipPath);
                 return;
-            } else if (webhook === timelapseStream) {
-                const { videoclipPath } = this.getRulePaths({
-                    cameraName: realDevice.name,
-                    ruleName: decodedRuleNameOrSnoozeIdOrSnapshotId,
-                    fileName: decodedTimelapseNameOrSnoozeTime,
-                });
+            } else if ([timelapseStream, detectionClipStream].includes(webhook)) {
+                let videoclipPath: string;
+                if (webhook === timelapseStream) {
+                    videoclipPath = this.getRulePaths({
+                        cameraName: realDevice.name,
+                        ruleName: decodedRuleNameOrSnoozeIdOrSnapshotId,
+                        fileName: decodedTimelapseNameOrSnoozeTime,
+                    })?.videoclipPath;
+                } else if (webhook === detectionClipStream) {
+                    videoclipPath = this.getShortClipPaths({
+                        cameraName: realDevice.name,
+                        fileName: decodedTimelapseNameOrSnoozeTime,
+                    })?.videoclipPath;
+                }
                 const stat = await fs.promises.stat(videoclipPath);
                 const fileSize = stat.size;
                 const range = request.headers.range;
@@ -664,30 +684,30 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 }
 
                 return;
-            } else if (webhook === timelapseThumbnail) {
-                const { fileId, snapshotPath } = this.getRulePaths({
-                    cameraName: realDevice.name,
-                    ruleName: decodedRuleNameOrSnoozeIdOrSnapshotId,
-                    fileName: timelapseNameOrSnoozeTime,
-                });
+            } else if ([detectionClipThumbnail, timelapseThumbnail].includes(webhook)) {
+                let snapshotPath: string;
+
+                if (webhook === timelapseThumbnail) {
+                    snapshotPath = this.getRulePaths({
+                        cameraName: realDevice.name,
+                        ruleName: decodedRuleNameOrSnoozeIdOrSnapshotId,
+                        fileName: timelapseNameOrSnoozeTime,
+                    }).snapshotPath;
+                } else if (webhook === detectionClipThumbnail) {
+                    snapshotPath = this.getShortClipPaths({
+                        cameraName: realDevice.name,
+                        fileName: timelapseNameOrSnoozeTime,
+                    }).snapshotPath;
+                }
+
                 logger.info(JSON.stringify({
                     cameraName: realDevice.name,
                     ruleName: decodedRuleNameOrSnoozeIdOrSnapshotId,
                     fileName: timelapseNameOrSnoozeTime,
-                    fileId
                 }));
-
-                const mo = await this.camera.getVideoClipThumbnail(fileId);
-                const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
 
                 response.sendFile(snapshotPath);
                 return;
-                // response.send(jpeg, {
-                //     headers: {
-                //         'Content-Type': 'image/jpeg',
-                //     }
-                // });
-                // return;
             } else if (webhook === snoozeNotification || isNvrSnooze) {
                 let device: AdvancedNotifierCameraMixin;
 
@@ -749,23 +769,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 response.send(logMessage, {
                     code: 200,
                 });
-            } else if (webhook === detectionClipDownload) {
-                const device = systemManager.getDeviceById<ScryptedDeviceBase>(deviceIdOrAction);
-
-                const { videoclipPath } = this.getShortClipPaths({
-                    device,
-                    fileName: decodedTimelapseNameOrSnoozeTime
-                });
-
-                logger.debug(`Requesting detection clip ${decodedRuleNameOrSnoozeIdOrSnapshotId} for download: ${JSON.stringify({
-                    videoclipPath,
-                    timelapseName: timelapseNameOrSnoozeTime,
-                    decodedRuleNameOrSnoozeIdOrSnapshotId,
-                    ruleName: ruleNameOrSnoozeIdOrSnapshotId,
-                })}`);
-
-                response.sendFile(videoclipPath);
-                return;
             }
         } catch (e) {
             response.send(`${JSON.stringify(e)}, ${e.message}`, {
@@ -1205,7 +1208,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const {
                 devNotifier,
                 sendDevNotifications,
-                imagesPath,
                 scryptedToken,
                 nvrUrl,
                 objectDetectionDevice,
@@ -1213,6 +1215,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 securitySystem,
             } = this.storageSettings.values;
             let storagePathError;
+
+            const imagesPath = this.getStoragePath();
 
             const imagesPathSet = imagesPath && imagesPath !== '';
 
@@ -1695,7 +1699,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
 
         const executeNotify = async (videoUrl?: string) => {
-            logger.log(`${rule.notifiers.length} notifiers will be notified: ${JSON.stringify({ match, rule })} `);
+            logger.log(`${rule.notifiers.length} notifiers will be notified with videourl ${videoUrl}: ${JSON.stringify({ match, rule })} `);
 
             for (const notifierId of rule.notifiers) {
                 const notifier = systemManager.getDeviceById<Settings & ScryptedDeviceBase>(notifierId);
@@ -2488,7 +2492,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const snapshotPath = fileName && generatedPath ? path.join(generatedPath, `${fileName}.jpg`) : undefined;
         const framePath = fileName && framesPath ? path.join(framesPath, `${fileName}.jpg`) : undefined;
 
-        const fileId = `${cameraName}_${ruleName}_${fileName}`;
+        const fileId = `${TIMELAPSE_CLIP_PREFIX}_${cameraName}_${ruleName}_${fileName}`;
 
         return {
             rulePath,
@@ -2503,24 +2507,29 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     public getShortClipPaths = (props: {
-        device: ScryptedDeviceBase,
+        cameraName: string,
         fileName?: string,
     }) => {
-        const { device, fileName } = props;
-        const { cameraPath } = this.getFsPaths({ cameraName: device.name });
+        const { cameraName, fileName } = props;
+        const { cameraPath } = this.getFsPaths({ cameraName });
 
         const shortClipsPath = path.join(cameraPath, 'shortClips');
         const framesPath = path.join(shortClipsPath, 'frames');
         const generatedPath = path.join(shortClipsPath, 'generated');
         const framePath = fileName ? path.join(framesPath, `${fileName}.jpg`) : undefined;
+        const snapshotPath = fileName && generatedPath ? path.join(generatedPath, `${fileName}.jpg`) : undefined;
         const videoclipPath = fileName ? path.join(generatedPath, `${fileName}.mp4`) : undefined;
+
+        const fileId = `${DETECTION_CLIP_PREFIX}_${cameraName}_${fileName}`;
 
         return {
             shortClipsPath,
             framesPath,
             generatedPath,
             framePath,
+            snapshotPath,
             videoclipPath,
+            fileId,
         };
     }
 
@@ -2771,7 +2780,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             return;
         }
 
-        const { framesPath } = this.getShortClipPaths({ device });
+        const { framesPath } = this.getShortClipPaths({ cameraName: device.name });
 
         try {
             await fs.promises.access(framesPath);
@@ -2794,12 +2803,21 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         videoclipsThreshold: number,
     }) => {
         const { device, logger, framesThreshold, videoclipsThreshold } = props;
-        const { framesPath, generatedPath } = this.getShortClipPaths({ device });
-        logger.log(`Cleaning up old frames ${framesThreshold}`);
+        const { framesPath, generatedPath } = this.getShortClipPaths({ cameraName: device.name });
+        logger.log(`Cleaning up generated data`);
+
+        const logData = {
+            framesFound: 0,
+            framesRemoved: 0,
+            clipsFound: 0,
+            clipsRemoved: 0,
+            timelapsesFound: 0,
+            timelapsesRemoved: 0
+        };
 
         try {
             const frames = await fs.promises.readdir(framesPath);
-            let removedFrames = 0;
+            logData.framesFound = frames.length;
 
             for (const filename of frames) {
                 const filepath = path.join(framesPath, filename);
@@ -2808,20 +2826,17 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 if (fileTimestamp < framesThreshold) {
                     try {
                         await fs.promises.unlink(filepath);
-                        removedFrames += 1;
+                        logData.framesRemoved += 1;
                     } catch (err) {
                         logger.error(`Error removing frame ${filename}`, err.message);
                     }
                 }
             }
-
-            logger.log(`Frames found ${frames.length}, removed ${removedFrames}`);
         } catch { }
 
-        logger.log(`Cleaning up old clips ${videoclipsThreshold}`);
         try {
             const clips = await fs.promises.readdir(generatedPath);
-            let removedClips = 0;
+            logData.clipsFound = clips.length;
 
             for (const filename of clips) {
                 const filepath = path.join(generatedPath, filename);
@@ -2830,15 +2845,46 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 if (fileTimestamp < videoclipsThreshold) {
                     try {
                         await fs.promises.unlink(filepath);
-                        removedClips += 1;
+                        logData.clipsRemoved += 1;
                     } catch (err) {
-                        logger.error(`Error removing frame ${filename}`, err.message);
+                        logger.error(`Error removing clip ${filename}`, err.message);
                     }
                 }
             }
-
-            logger.log(`Videoclips found ${clips.length}, removed ${removedClips}`);
         } catch { }
+
+        const { rulesPath } = this.getRulePaths({ cameraName: device.name });
+
+        try {
+            await fs.promises.access(rulesPath);
+            const rulesFolder = await fs.promises.readdir(rulesPath);
+
+            for (const ruleFolder of rulesFolder) {
+                const { generatedPath } = this.getRulePaths({
+                    cameraName: device.name,
+                    ruleName: ruleFolder
+                });
+
+                const timelapses = await fs.promises.readdir(generatedPath);
+                logData.timelapsesFound += timelapses.length;
+
+                for (const filename of timelapses) {
+                    const filepath = path.join(generatedPath, filename);
+                    const fileTimestamp = parseInt(filename);
+
+                    if (fileTimestamp < videoclipsThreshold) {
+                        try {
+                            await fs.promises.unlink(filepath);
+                            logData.timelapsesRemoved += 1;
+                        } catch (err) {
+                            logger.error(`Error removing timelapse ${filename}`, err.message);
+                        }
+                    }
+                }
+            }
+        } catch { }
+
+        logger.log(`Cleanup completed ${JSON.stringify(logData)}`);
     }
 
     public generateShortClip = async (props: {
@@ -2859,13 +2905,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 framesPath,
                 generatedPath,
                 videoclipPath,
-            } = this.getShortClipPaths({ device, fileName });
+                snapshotPath,
+            } = this.getShortClipPaths({ cameraName: device.name, fileName });
             const listPath = path.join(shortClipsPath, 'file_list.txt');
 
             let preTriggerFrames = 0;
             let postTriggerFrames = 0;
+            let eventFrameName: string;
             const files = await fs.promises.readdir(framesPath);
             const filteredFiles = files
+                .map(file => file.split('.')[0])
                 .sort((a, b) => parseInt(a) - parseInt(b))
                 .filter(frameName => {
                     const fileTimestamp = parseInt(frameName);
@@ -2874,6 +2923,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         if (fileTimestamp < triggerTime) {
                             preTriggerFrames++;
                         } else {
+                            if (postTriggerFrames === 0) {
+                                eventFrameName = frameName;
+                            }
                             postTriggerFrames++;
                         }
 
@@ -2882,7 +2934,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                     return false;
                 })
-                .map(file => `file '${path.join(framesPath, file)}'`);
+                .map(file => `file '${path.join(framesPath, file)}.jpg'`);
             const framesAmount = filteredFiles.length;
 
             if (framesAmount) {
@@ -2918,6 +2970,21 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 });
                 await once(cp, 'exit');
                 logger.log(`Detection clip ${videoclipPath} generated`);
+
+                const { framePath } = this.getShortClipPaths({
+                    cameraName: device.name,
+                    fileName: eventFrameName,
+                });
+                const mo = await sdk.mediaManager.createMediaObjectFromUrl(
+                    `file:${framePath}`
+                );
+                const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
+                if (jpeg.length) {
+                    logger.log(`Saving thumbnail in ${snapshotPath}`);
+                    await fs.promises.writeFile(snapshotPath, jpeg);
+                } else {
+                    logger.log('Not saving, image is corrupted');
+                }
             } else {
                 logger.log(`Skipping ${rule.name} ${triggerTime} clip generation, no frames available`);
 
@@ -2926,7 +2993,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             return { fileName, preTriggerFrames, postTriggerFrames, filteredFiles };
 
         } catch (e) {
-            logger.log('Error generating timelapse', e);
+            logger.log('Error generating short clip', e);
         }
     }
 }

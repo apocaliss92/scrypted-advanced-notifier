@@ -422,6 +422,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     get decoderType() {
+        const logger = this.getLogger();
         const { enableDecoder } = this.plugin.storageSettings.values;
         const { decoderType } = this.storageSettings.values;
 
@@ -431,7 +432,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const hasRunningTimelapseRules = !!this.runningTimelapseRules.length;
         const hasRunningOccupancyRules = !!this.runningOccupancyRules.length;
-        const hasVideoclipRules = this.runningDetectionRules.some(rule => rule.generateClip);
+        // const linkedSensors = uniq(Object.entries(this.plugin.deviceVideocameraMap)
+        //     .filter(([_, cameraId]) => this.cameraDevice.id === cameraId)
+        //     .map(([sensorId, _]) => sensorId));
+
+        let hasVideoclipRules = this.runningDetectionRules.some(rule => rule?.generateClip);
+
+        // if (!hasVideoclipRules) {
+        //     hasVideoclipRules = linkedSensors.some(
+        //         sensorId => this.plugin.currentSensorMixinsMap[sensorId]?.hasVideoclipRules
+        //     );
+        // }
 
         if (decoderType === DecoderType.Always) {
             if (hasRunningOccupancyRules || hasRunningTimelapseRules || hasVideoclipRules) {
