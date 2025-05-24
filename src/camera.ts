@@ -255,7 +255,7 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
 
             return mo;
         } catch (e) {
-            // TODO: Generato snapshot if not available
+            // TODO: Generate snapshot if not available
             logger.error(`Error fetching thumbnail ${fileId}`, e.message);
         }
     }
