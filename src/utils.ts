@@ -151,28 +151,22 @@ export const safeParseJson = <T = any>(maybeStringValue: string | object, fallba
 export const getWebooks = async () => {
     const lastSnapshot = 'snapshot';
     const haAction = 'haAction';
-    const timelapseDownload = 'timelapseDownload';
-    const timelapseStream = 'timelapseStream';
-    const timelapseThumbnail = 'timelapseThumbnail';
     const snoozeNotification = 'snoozeNotification';
     const postNotification = 'postNotification';
     const setAlarm = 'setAlarm';
-    const detectionClipDownload = 'detectionClipDownload';
-    const detectionClipStream = 'detectionClipStream';
-    const detectionClipThumbnail = 'detectionClipThumbnail';
+    const videoclipDownload = 'videoclipDownload';
+    const videoclipStream = 'videoclipStream';
+    const videoclipThumbnail = 'videoclipThumbnail';
 
     return {
         lastSnapshot,
         haAction,
-        timelapseDownload,
-        timelapseStream,
-        timelapseThumbnail,
         snoozeNotification,
         postNotification,
         setAlarm,
-        detectionClipDownload,
-        detectionClipStream,
-        detectionClipThumbnail,
+        videoclipDownload,
+        videoclipStream,
+        videoclipThumbnail,
     };
 }
 
@@ -190,6 +184,7 @@ export const getWebHookUrls = async (props: {
     snoozes?: number[],
     snoozeId?: string,
     snoozePlaceholder?: string,
+    videoclipId?: string
 }) => {
     const {
         cameraIdOrAction,
@@ -199,34 +194,29 @@ export const getWebHookUrls = async (props: {
         clipName,
         snoozes,
         snoozeId,
-        snoozePlaceholder
+        snoozePlaceholder,
+        videoclipId
     } = props;
 
     let lastSnapshotCloudUrl: string;
     let lastSnapshotLocalUrl: string;
     let haActionUrl: string;
-    let timelapseStreamUrl: string;
-    let timelapseDownloadUrl: string;
-    let timelapseThumbnailUrl: string;
     let postNotificationUrl: string;
     let endpoint: string;
-    let detectionClipDownloadUrl: string;
-    let detectionClipStreamUrl: string;
-    let detectionClipThumbnailUrl: string;
+    let videoclipThumbnailUrl: string;
+    let videoclipStreamUrl: string;
+    let videoclipDownloadUrl: string;
 
     const snoozeActions: NotificationAction[] = [];
 
     const {
         lastSnapshot,
         haAction,
-        timelapseDownload,
-        timelapseStream,
-        timelapseThumbnail,
         snoozeNotification,
         postNotification,
-        detectionClipDownload,
-        detectionClipStream,
-        detectionClipThumbnail,
+        videoclipDownload,
+        videoclipStream,
+        videoclipThumbnail,
     } = await getWebooks();
 
     try {
@@ -245,15 +235,9 @@ export const getWebHookUrls = async (props: {
         haActionUrl = `${cloudEndpoint}${haAction}/${encodedId}${paramString}`;
         postNotificationUrl = `${cloudEndpoint}${postNotification}/${encodedId}${paramString}`;
 
-        const encodedRuleName = encodeURIComponent(rule.name);
-
-        timelapseStreamUrl = `${cloudEndpoint}${timelapseStream}/${encodedId}/${encodedRuleName}/${clipName}${paramString}`;
-        timelapseDownloadUrl = `${cloudEndpoint}${timelapseDownload}/${encodedId}/${encodedRuleName}/${clipName}${paramString}`;
-        timelapseThumbnailUrl = `${cloudEndpoint}${timelapseThumbnail}/${encodedId}/${encodedRuleName}/${clipName}${paramString}`;
-
-        detectionClipDownloadUrl = `${cloudEndpoint}${detectionClipDownload}/${encodedId}/detection/${clipName}${paramString}`;
-        detectionClipStreamUrl = `${cloudEndpoint}${detectionClipStream}/${encodedId}/detection/${clipName}${paramString}`;
-        detectionClipThumbnailUrl = `${cloudEndpoint}${detectionClipThumbnail}/${encodedId}/detection/${clipName}${paramString}`;
+        videoclipDownloadUrl = `${cloudEndpoint}${videoclipDownload}/${videoclipId}${paramString}`;
+        videoclipStreamUrl = `${cloudEndpoint}${videoclipStream}/${videoclipId}${paramString}`;
+        videoclipThumbnailUrl = `${cloudEndpoint}${videoclipThumbnail}/${videoclipId}${paramString}`;
 
         if (snoozes) {
             for (const snooze of snoozes) {
@@ -275,15 +259,12 @@ export const getWebHookUrls = async (props: {
         lastSnapshotCloudUrl,
         lastSnapshotLocalUrl,
         haActionUrl,
-        timelapseStreamUrl,
-        timelapseDownloadUrl,
-        timelapseThumbnailUrl,
         snoozeActions,
         postNotificationUrl,
         endpoint,
-        detectionClipDownloadUrl,
-        detectionClipStreamUrl,
-        detectionClipThumbnailUrl,
+        videoclipDownloadUrl,
+        videoclipStreamUrl,
+        videoclipThumbnailUrl,
     };
 }
 

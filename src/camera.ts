@@ -9,6 +9,7 @@ import AdvancedNotifierPlugin from './main';
 import { BaseRule, DETECTION_CLIP_PREFIX, getWebHookUrls, TIMELAPSE_CLIP_PREFIX } from './utils';
 import { StorageSettings, StorageSettingsDict } from '@scrypted/sdk/storage-settings';
 import { logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { sortBy } from 'lodash';
 
 type StorageKeys = 'logeLevel';
 
@@ -121,10 +122,8 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
                                     fileName,
                                     ruleName: ruleFolder
                                 });
-                                const { timelapseStreamUrl, timelapseThumbnailUrl } = await getWebHookUrls({
-                                    device: cameraDevice,
-                                    rule: { name: ruleFolder } as BaseRule,
-                                    clipName: fileName
+                                const { videoclipStreamUrl, videoclipThumbnailUrl } = await getWebHookUrls({
+                                    videoclipId: fileId
                                 });
 
                                 videoClips.push({
@@ -136,10 +135,10 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
                                     videoId: fileId,
                                     resources: {
                                         thumbnail: {
-                                            href: timelapseThumbnailUrl
+                                            href: videoclipThumbnailUrl
                                         },
                                         video: {
-                                            href: timelapseStreamUrl
+                                            href: videoclipStreamUrl
                                         }
                                     }
                                 });
@@ -162,7 +161,6 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
 
             if (hasClips) {
                 const files = await fs.promises.readdir(clipsPath);
-                logger.log(clipsPath, files);
 
                 try {
                     for (const file of files) {
@@ -175,9 +173,8 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
                                     cameraName: cameraDevice.name,
                                     fileName,
                                 });
-                                const { detectionClipStreamUrl, detectionClipThumbnailUrl } = await getWebHookUrls({
-                                    device: cameraDevice,
-                                    clipName: fileName
+                                const { videoclipStreamUrl, videoclipThumbnailUrl } = await getWebHookUrls({
+                                    videoclipId: fileId
                                 });
 
                                 videoClips.push({
@@ -189,10 +186,10 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
                                     videoId: fileId,
                                     resources: {
                                         thumbnail: {
-                                            href: detectionClipThumbnailUrl
+                                            href: videoclipThumbnailUrl
                                         },
                                         video: {
-                                            href: detectionClipStreamUrl
+                                            href: videoclipStreamUrl
                                         }
                                     }
                                 });
@@ -205,7 +202,7 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
             }
         }
 
-        return videoClips;
+        return sortBy(videoClips, 'startTime');
     }
 
     getFilePath(props: { fileId: string }) {
@@ -258,6 +255,7 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
 
             return mo;
         } catch (e) {
+            // TODO: Generato snapshot if not available
             logger.error(`Error fetching thumbnail ${fileId}`, e.message);
         }
     }
