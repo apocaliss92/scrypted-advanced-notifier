@@ -1280,6 +1280,35 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             dynamicSettings,
             initStorage: this.initStorage
         });
+
+        const {
+            mqttEnabled,
+            useNvrDetectionsForMqtt,
+            testDevice,
+            testNotifier,
+            testGenerateClip,
+        } = this.storageSettings.values;
+
+        if (mqttEnabled) {
+            this.storageSettings.settings.detectionSourceForMqtt.defaultValue =
+                useNvrDetectionsForMqtt ? ScryptedEventSource.NVR : ScryptedEventSource.RawDetection;
+            this.storageSettings.settings.detectionSourceForMqtt.choices = this.enabledDetectionSources;
+        }
+        this.storageSettings.settings.useNvrDetectionsForMqtt.hide = true;
+
+        this.storageSettings.settings.mqttActiveEntitiesTopic.hide = !mqttEnabled;
+        this.storageSettings.settings.detectionSourceForMqtt.hide = !mqttEnabled;
+
+        const { isCamera } = testDevice ? isDeviceSupported(testDevice) : {};
+        this.storageSettings.settings.testEventType.hide = !isCamera;
+        this.storageSettings.settings.testGenerateClipSpeed.hide = !testGenerateClip;
+
+        if (testNotifier) {
+            const { priorityChoices } = getNotifierData({ notifierId: testNotifier.id, ruleType: RuleType.Detection });
+            this.storageSettings.settings.testPriority.choices = priorityChoices;
+        }
+
+        this.storageSettings.settings.testPriority.hide = testDevice && testDevice !== 'None';
     }
 
     get enabledDetectionSources() {
@@ -1295,36 +1324,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     async getSettings() {
         try {
-            const {
-                mqttEnabled,
-                testDevice,
-                testNotifier,
-                useNvrDetectionsForMqtt,
-                testGenerateClip,
-            } = this.storageSettings.values;
-
-            this.storageSettings.settings.mqttActiveEntitiesTopic.hide = !mqttEnabled;
-            this.storageSettings.settings.detectionSourceForMqtt.hide = !mqttEnabled;
-
-            if (mqttEnabled) {
-                this.storageSettings.settings.detectionSourceForMqtt.defaultValue =
-                    useNvrDetectionsForMqtt ? ScryptedEventSource.NVR : ScryptedEventSource.RawDetection;
-
-                this.storageSettings.settings.detectionSourceForMqtt.choices = this.enabledDetectionSources;
-            }
-            this.storageSettings.settings.useNvrDetectionsForMqtt.hide = true;
-
-            const { isCamera } = testDevice ? isDeviceSupported(testDevice) : {};
-            this.storageSettings.settings.testEventType.hide = !isCamera;
-            this.storageSettings.settings.testGenerateClipSpeed.hide = !testGenerateClip;
-
-            if (testNotifier) {
-                const { priorityChoices } = getNotifierData({ notifierId: testNotifier.id, ruleType: RuleType.Detection });
-                this.storageSettings.settings.testPriority.choices = priorityChoices;
-            }
-
-            this.storageSettings.settings.testPriority.hide = testDevice && testDevice !== 'None';
-
             return super.getSettings();
         } catch (e) {
             this.getLogger().log('Error in getSettings', e);

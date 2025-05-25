@@ -2450,11 +2450,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { detectionSourceForMqtt } = this.storageSettings.values;
         const { detectionSourceForMqtt: detectionSourceForMqttPlugin } = this.plugin.storageSettings.values;
 
+        let source: ScryptedEventSource;
         if (detectionSourceForMqtt !== 'Default') {
-            return detectionSourceForMqtt
+            source = detectionSourceForMqtt;
         } else {
-            return detectionSourceForMqttPlugin;
+            source = detectionSourceForMqttPlugin;
         }
+
+        return source ?? ScryptedEventSource.RawDetection;
     }
 
     isDelayPassed(props: IsDelayPassedProps) {
@@ -2616,47 +2619,50 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         })?.timePassed
                     );
 
-                    for (const detection of spamBlockedDetections) {
-                        const { className, label } = detection;
+                    if (spamBlockedDetections.length) {
+                        const triggerClassnames = uniq(spamBlockedDetections.map(det => det.label ? `${det.className}-${det.label}` : det.className));
+                        logger.log(`Triggering basic detections ${triggerClassnames.join(', ')}`);
 
-                        logger.debug(`Triggering classname ${className}`);
+                        for (const detection of spamBlockedDetections) {
+                            const { className, label } = detection;
 
-                        publishBasicDetectionData({
-                            mqttClient,
-                            console: logger,
-                            detection,
-                            device: this.cameraDevice,
-                            triggerTime,
-                            room: this.cameraDevice.room,
-                            b64Image
-                        }).catch(logger.error);
+                            publishBasicDetectionData({
+                                mqttClient,
+                                console: logger,
+                                detection,
+                                device: this.cameraDevice,
+                                triggerTime,
+                                room: this.cameraDevice.room,
+                                b64Image
+                            }).catch(logger.error);
 
-                        if (canUpdateMqttImage && b64Image) {
-                            const { timePassed } = this.isDelayPassed({
-                                classname: className,
-                                label,
-                                eventSource,
-                                type: DelayType.BasicDetectionImage,
-                            });
+                            if (canUpdateMqttImage && b64Image) {
+                                const { timePassed } = this.isDelayPassed({
+                                    classname: className,
+                                    label,
+                                    eventSource,
+                                    type: DelayType.BasicDetectionImage,
+                                });
 
-                            if (timePassed) {
-                                logger.info(`Updating image for classname ${className} source: ${eventSource ? 'NVR' : 'Decoder'}`);
+                                if (timePassed) {
+                                    logger.info(`Updating image for classname ${className} source: ${eventSource ? 'NVR' : 'Decoder'}`);
 
-                                publishClassnameImages({
-                                    mqttClient,
-                                    console: logger,
-                                    classnamesData: [detection],
-                                    device: this.cameraDevice,
-                                    b64Image,
-                                    triggerTime,
-                                }).catch(logger.error);
+                                    publishClassnameImages({
+                                        mqttClient,
+                                        console: logger,
+                                        classnamesData: [detection],
+                                        device: this.cameraDevice,
+                                        b64Image,
+                                        triggerTime,
+                                    }).catch(logger.error);
+                                }
                             }
                         }
-                    }
 
-                    this.resetDetectionEntities({
-                        resetSource: 'Timeout'
-                    }).catch(logger.log);
+                        this.resetDetectionEntities({
+                            resetSource: 'Timeout'
+                        }).catch(logger.log);
+                    }
                 }
             }
 
@@ -2989,7 +2995,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const mqttClient = await this.getMqttClient();
 
         const funct = async () => {
-            logger.log(`Reset detections signal coming from ${resetSource}`);
+            logger.log(`Resetting basic detections ${classnames ?? 'All'}, signal coming from ${resetSource}`);
 
             await publishResetDetectionsEntities({
                 mqttClient,
