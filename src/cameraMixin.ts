@@ -1,4 +1,4 @@
-import sdk, { Camera, EventDetails, EventListenerRegister, FFmpegInput, Image, MediaObject, MediaStreamDestination, MotionSensor, ObjectDetection, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoomCommand, ResponseMediaStreamOptions, ScryptedDevice, ScryptedDeviceBase, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoFrame, VideoFrameGenerator, VideoFrameGeneratorOptions } from "@scrypted/sdk";
+import sdk, { Camera, EventDetails, EventListenerRegister, FFmpegInput, Image, MediaObject, MediaStreamDestination, MotionSensor, ObjectDetection, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoomCommand, ResponseMediaStreamOptions, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoFrame, VideoFrameGenerator, VideoFrameGeneratorOptions } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep, uniq, uniqBy } from "lodash";
@@ -15,7 +15,7 @@ import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, is
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDecibelsFromRtp_PCMU8, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getTimelapseRulesSettings, getWebHookUrls, moToB64, safeParseJson, splitRules } from "./utils";
+import { AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionsLog, getDecibelsFromRtp_PCMU8, getDetectionKey, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, safeParseJson, splitRules } from "./utils";
 import { objectDetectorNativeId } from '../../scrypted-frigate-bridge/src/utils';
 import axios from "axios";
 
@@ -476,13 +476,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     shouldListenAudio,
                     isActiveForMqttReporting,
                     anyAllowedNvrDetectionRule,
-                    shouldListenDoorbell,
+                    shouldListenDoorbell: shouldListenDoorbellFromRules,
                 } = await getActiveRules({
                     device: this.cameraDevice,
                     console: logger,
                     plugin: this.plugin,
                     deviceStorage: this.storageSettings
                 });
+                const shouldListenDoorbell = shouldListenDoorbellFromRules || this.cameraDevice.type === ScryptedDeviceType.Doorbell;
 
                 const currentlyRunningRules = [
                     ...this.runningDetectionRules,
@@ -687,7 +688,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     logger.log('Stopping and cleaning Object listeners.');
                     this.resetListeners();
                 } else if (!isDetectionListenerRunning && shouldListenDetections) {
-                    logger.log(`Starting ${ScryptedInterface.ObjectDetector}/${ScryptedInterface.MotionSensor} listeners: ${JSON.stringify({
+                    logger.log(`Starting detection listeners: ${JSON.stringify({
                         Detections: shouldListenDetections,
                         MQTT: isActiveForMqttReporting,
                         Doorbell: shouldListenDoorbell,
@@ -1351,21 +1352,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         } catch (e) {
             logger.log('error in triggerRule', e);
         }
-    }
-
-    getDetectionKey(matchRule: MatchRule) {
-        const { match, rule } = matchRule;
-        let key = `rule-${rule.name}`;
-        if (rule.ruleType === RuleType.Detection && match) {
-            const { label, className } = match;
-            const classname = detectionClassesDefaultMap[className];
-            key = `${key}-${classname}`;
-            if (label) {
-                key += `-${label}`;
-            }
-        }
-
-        return key;
     }
 
     public async getImage(props?: {
@@ -2278,7 +2264,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             detections: det.detect.detections,
             eventSource: det.eventSource
         }));
-        const rulesToUpdate = uniqBy(cloneDeep(this.accumulatedRules), this.getDetectionKey);
+        const rulesToUpdate = uniqBy(cloneDeep(this.accumulatedRules), getDetectionKey);
 
         // Clearing the buckets right away to not lose too many detections
         this.accumulatedDetections = [];
@@ -2289,7 +2275,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const isOnlyMotion = !rulesToUpdate.length && classnamesData.length === 1 && detectionClassesDefaultMap[classnamesData[0]?.className] === DetectionClass.Motion;
 
-        logger.debug(`Accumulated data to analyze: ${JSON.stringify({ triggerTime, classnamesData, rules: rulesToUpdate.map(this.getDetectionKey) })}`);
+        logger.debug(`Accumulated data to analyze: ${JSON.stringify({ triggerTime, classnamesData, rules: rulesToUpdate.map(getDetectionKey) })}`);
 
         let image: MediaObject;
         let b64Image: string;
@@ -2350,7 +2336,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             // }
 
             try {
-                const classnamesString = classnamesData.map(item => `${item.className}${item.label ? '-' + item.label : ''}`).join(', ');
+                const classnamesString = getDetectionsLog(classnamesData);
 
                 if (this.isActiveForMqttReporting) {
                     const mqttClient = await this.getMqttClient();
@@ -2386,11 +2372,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }).catch(logger.log);
 
                 if (rulesToUpdate.length) {
-                    logger.info(`Updating accumulated rules ${rulesToUpdate.map(this.getDetectionKey).join(', ')} with image source ${imageSource}`);
+                    logger.info(`Updating accumulated rules ${getRulesLog(rulesToUpdate)} with image source ${imageSource}`);
                     for (const matchRule of rulesToUpdate) {
                         const { rule, match } = matchRule;
 
-                        logger.info(`Publishing accumulated detection rule ${this.getDetectionKey(matchRule)} data, b64Image ${getB64ImageLog(b64Image)} from ${imageSource}. Has image ${!!image}`);
+                        logger.info(`Publishing accumulated detection rule ${getDetectionKey(matchRule)} data, b64Image ${getB64ImageLog(b64Image)} from ${imageSource}. Has image ${!!image}`);
 
                         this.triggerRule({
                             matchRule,
@@ -2408,7 +2394,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         });
 
                         if (timePassed) {
-                            logger.log(`Starting notifiers for detection rule ${this.getDetectionKey(matchRule)}, b64Image ${getB64ImageLog(b64Image)} from ${imageSource}, last check ${lastSetInSeconds}s ago with delay ${minDelayInSeconds}s (accumnulated detections)`);
+                            logger.log(`Starting notifiers for detection rule ${getDetectionKey(matchRule)}, b64Image ${getB64ImageLog(b64Image)} from ${imageSource}, last check ${lastSetInSeconds}s ago with delay ${minDelayInSeconds}s (accumnulated detections)`);
 
                             await this.plugin.notifyDetectionEvent({
                                 triggerDeviceId: this.id,
@@ -2488,14 +2474,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             minDelayInSeconds = 5;
         } else if (type === DelayType.RuleImageUpdate) {
             const { matchRule } = props;
-            const lastDetectionkey = this.getDetectionKey(matchRule);
+            const lastDetectionkey = getDetectionKey(matchRule);
 
             delayKey += `-${lastDetectionkey}`;
             minDelayInSeconds = matchRule.rule.minMqttPublishDelay;
         } else if (type === DelayType.RuleNotification) {
             const { matchRule } = props;
             const { minDelayTime } = this.storageSettings.values;
-            const lastDetectionkey = this.getDetectionKey(matchRule);
+            const lastDetectionkey = getDetectionKey(matchRule);
 
             delayKey += `-${lastDetectionkey}`;
             minDelayInSeconds = matchRule.rule.minDelay ?? minDelayTime;
@@ -2550,7 +2536,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
         const { timestamp: triggerTime, detections } = detect;
         const detectionSourceForMqtt = this.detectionSourceForMqtt;
-        const canUpdateMqttImage = !isRawDetection && detectionSourceForMqtt === eventSource;
 
         if (!detections?.length) {
             return;
@@ -2561,12 +2546,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             ignoreCameraDetections,
         } = this.storageSettings.values;
 
-        const { candidates } = filterAndSortValidDetections({
+        const { candidates, isSensorEvent } = filterAndSortValidDetections({
             detections: detections ?? [],
             logger,
             consumedDetectionIdsSet: new Set(),
             // consumedDetectionIdsSet: this.consumedDetectionIdsSet
         });
+
+        const canPickImageRightAway = !isRawDetection || isSensorEvent;
+        const canUpdateMqttImage = canPickImageRightAway && detectionSourceForMqtt === eventSource;
 
         eventDetails && this.processDetectionsInterval && this.accumulatedDetections.push({
             detect: {
@@ -2585,8 +2573,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             // The MQTT image should be updated only if:
             // - the image comes already from NVR and the user wants MQTT detections to be used
 
-            if (!isRawDetection) {
-                const classnames = uniq(detections.map(d => d.label ? `${d.className}-${d.label}` : d.className));
+            if (canPickImageRightAway) {
+                const classnamesLog = getDetectionsLog(detections)
                 const { b64Image: b64ImageNew, image: imageNew, imageSource: imageSourceNew } = await this.getImage({
                     image: parentImage,
                     reason: isFromNvr ? GetImageReason.FromNvr : isFromFrigate ?
@@ -2597,7 +2585,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 b64Image = b64ImageNew;
                 imageSource = imageSourceNew;
 
-                logger.log(`${eventSource} detections received, classnames ${classnames.join(', ')}. b64Image ${getB64ImageLog(b64Image)} from ${imageSource}`);
+                logger.log(`${eventSource} detections received, classnames ${classnamesLog}. b64Image ${getB64ImageLog(b64Image)} from ${imageSource}`);
             }
 
             if (this.isActiveForMqttReporting && eventSource === detectionSourceForMqtt) {
@@ -2620,8 +2608,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     );
 
                     if (spamBlockedDetections.length) {
-                        const triggerClassnames = uniq(spamBlockedDetections.map(det => det.label ? `${det.className}-${det.label}` : det.className));
-                        logger.log(`Triggering basic detections ${triggerClassnames.join(', ')}`);
+                        logger.log(`Triggering basic detections ${getDetectionsLog(spamBlockedDetections)}`);
 
                         for (const detection of spamBlockedDetections) {
                             const { className, label } = detection;
@@ -2842,7 +2829,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             // }
 
             if (matchRules.length) {
-                logger.info(`Matching rules found: ${matchRules.map(({ rule }) => rule.name).join(', ')}`);
+                logger.info(`Matching rules found: ${getRulesLog(matchRules)}`);
 
                 for (const matchRule of matchRules) {
                     try {
@@ -2865,7 +2852,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         }
 
                         if (isNonRawDetection && this.isDelayPassed({ type: DelayType.RuleNotification, matchRule, eventSource })?.timePassed) {
-                            logger.log(`Starting notifiers for detection rule ${this.getDetectionKey(matchRule)}, b64Image ${getB64ImageLog(b64Image)} from ${imageSource} (Decoder)`);
+                            logger.log(`Starting notifiers for detection rule ${getDetectionKey(matchRule)}, b64Image ${getB64ImageLog(b64Image)} from ${imageSource} (Decoder)`);
 
                             this.plugin.notifyDetectionEvent({
                                 triggerDeviceId: this.id,
@@ -2908,12 +2895,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }, async (_, __, data) => {
                 const timestamp = Date.now();
 
-                const { image } = await this.getImage({ reason: GetImageReason.Sensor });
                 if (data) {
+                    const { image, imageSource } = await this.getImage({ reason: GetImageReason.Sensor });
                     const detections: ObjectDetectionResult[] = [{
                         className: DetectionClass.Doorbell,
                         score: 1,
                     }];
+                    logger.log(`Doorbell event detected, image found ${imageSource}`);
                     this.processDetections({
                         detect: { timestamp, detections },
                         eventSource: ScryptedEventSource.RawDetection,

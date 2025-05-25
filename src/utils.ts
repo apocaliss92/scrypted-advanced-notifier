@@ -409,6 +409,7 @@ export const filterAndSortValidDetections = (props: {
         (detection) => [detection?.className ? classnamePrio[detection.className] : 100,
         1 - (detection.score ?? 0)]
     );
+    let isSensorEvent = false;
     const uniqueByClassName = uniqBy(sortedByPriorityAndScore, det => det.className);
     const candidates = uniqueByClassName.filter(det => {
         const { className, label, movement, id } = det;
@@ -431,11 +432,14 @@ export const filterAndSortValidDetections = (props: {
         }
 
         detId && consumedDetectionIdsSet.add(detId);
+        if (!isSensorEvent && [DetectionClass.Doorbell].includes(className as DetectionClass)) {
+            isSensorEvent = true
+        }
 
         return true;
     });
 
-    return { candidates };
+    return { candidates, isSensorEvent };
 }
 
 export type TextSettingKey =
@@ -3424,7 +3428,23 @@ export const getSnoozeId = (props: {
     return `${cameraId}_${notifierId}_${specificIdentifier}_${priority}`;
 }
 
+export const getDetectionKey = (matchRule: MatchRule) => {
+    const { match, rule } = matchRule;
+    let key = `rule-${rule.name}`;
+    if (rule.ruleType === RuleType.Detection && match) {
+        const { label, className } = match;
+        const classname = detectionClassesDefaultMap[className];
+        key = `${key}-${classname}`;
+        if (label) {
+            key += `-${label}`;
+        }
+    }
+
+    return key;
+};
 export const getB64ImageLog = (b64Image: string) => `${b64Image ? b64Image?.substring(0, 10) + '...' : 'NO_IMAGE'}`;
+export const getDetectionsLog = (detections: ObjectDetectionResult[]) => uniq(detections.map(item => `${item.className}${item.label ? '-' + item.label : ''}`)).join(', ');
+export const getRulesLog = (rulesToUpdate: MatchRule[]) => uniq(rulesToUpdate.map(getDetectionKey)).join(', ');
 
 export const haSnoozeAutomationId = 'scrypted_advanced_notifier_snooze_action';
 export const haSnoozeAutomation = {
