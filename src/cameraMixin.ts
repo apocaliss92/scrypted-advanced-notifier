@@ -1,23 +1,22 @@
-import sdk, { Camera, EventDetails, EventListenerRegister, FFmpegInput, Image, MediaObject, MediaStreamDestination, MotionSensor, ObjectDetection, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoomCommand, ResponseMediaStreamOptions, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoFrame, VideoFrameGenerator, VideoFrameGeneratorOptions } from "@scrypted/sdk";
+import sdk, { EventDetails, EventListenerRegister, FFmpegInput, Image, MediaObject, MediaStreamDestination, ObjectDetection, ObjectDetectionResult, ObjectsDetected, PanTiltZoomCommand, ResponseMediaStreamOptions, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoFrame, VideoFrameGenerator } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
-import { cloneDeep, uniq, uniqBy } from "lodash";
+import axios from "axios";
+import { cloneDeep, uniqBy } from "lodash";
 import moment from "moment";
-import { getBaseLogger, getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
+import { getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import { filterOverlappedDetections } from '../../scrypted-basic-object-detector/src/util';
-import { FrigateObjectDetection } from '../../scrypted-frigate-bridge/src/utils';
+import { FrigateObjectDetection, objectDetectorNativeId } from '../../scrypted-frigate-bridge/src/utils';
 import { RtpPacket } from "../../scrypted/external/werift/packages/rtp/src/rtp/rtp";
 import { startRtpForwarderProcess } from '../../scrypted/plugins/webrtc/src/rtp-forwarders';
 import { Deferred } from "../../scrypted/server/src/deferred";
 import { name as pluginName } from '../package.json';
 import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, isFaceClassname, isObjectClassname, isPlateClassname, levenshteinDistance } from "./detectionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
-import { idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
+import { idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionsLog, getDecibelsFromRtp_PCMU8, getDetectionKey, getDetectionRulesSettings, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, safeParseJson, splitRules } from "./utils";
-import { objectDetectorNativeId } from '../../scrypted-frigate-bridge/src/utils';
-import axios from "axios";
+import { AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDecibelsFromRtp_PCMU8, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, splitRules } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -2546,7 +2545,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             ignoreCameraDetections,
         } = this.storageSettings.values;
 
-        const { candidates, isSensorEvent } = filterAndSortValidDetections({
+        const { candidates, isSensorEvent, facesFound } = filterAndSortValidDetections({
             detections: detections ?? [],
             logger,
             consumedDetectionIdsSet: new Set(),
@@ -2588,67 +2587,82 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 logger.log(`${eventSource} detections received, classnames ${classnamesLog}. b64Image ${getB64ImageLog(b64Image)} from ${imageSource}`);
             }
 
-            if (this.isActiveForMqttReporting && eventSource === detectionSourceForMqtt) {
+            if (this.isActiveForMqttReporting) {
                 const mqttClient = await this.getMqttClient();
 
                 if (mqttClient) {
-                    if (candidates.some(elem => isObjectClassname(elem.className))) {
-                        candidates.push(
-                            { className: DetectionClass.AnyObject, score: 1 }
-                        );
-                    }
-
-                    const spamBlockedDetections = candidates.filter(det =>
-                        this.isDelayPassed({
-                            type: DelayType.BasicDetectionTrigger,
-                            classname: det.className,
-                            label: det.label,
-                            eventSource,
-                        })?.timePassed
-                    );
-
-                    if (spamBlockedDetections.length) {
-                        logger.log(`Triggering basic detections ${getDetectionsLog(spamBlockedDetections)}`);
-
-                        for (const detection of spamBlockedDetections) {
-                            const { className, label } = detection;
-
-                            publishBasicDetectionData({
-                                mqttClient,
-                                console: logger,
-                                detection,
-                                device: this.cameraDevice,
-                                triggerTime,
-                                room: this.cameraDevice.room,
-                                b64Image
-                            }).catch(logger.error);
-
-                            if (canUpdateMqttImage && b64Image) {
-                                const { timePassed } = this.isDelayPassed({
-                                    classname: className,
-                                    label,
-                                    eventSource,
-                                    type: DelayType.BasicDetectionImage,
-                                });
-
-                                if (timePassed) {
-                                    logger.info(`Updating image for classname ${className} source: ${eventSource ? 'NVR' : 'Decoder'}`);
-
-                                    publishClassnameImages({
-                                        mqttClient,
-                                        console: logger,
-                                        classnamesData: [detection],
-                                        device: this.cameraDevice,
-                                        b64Image,
-                                        triggerTime,
-                                    }).catch(logger.error);
-                                }
-                            }
+                    if (eventSource === detectionSourceForMqtt) {
+                        if (candidates.some(elem => isObjectClassname(elem.className))) {
+                            candidates.push(
+                                { className: DetectionClass.AnyObject, score: 1 }
+                            );
                         }
 
-                        this.resetDetectionEntities({
-                            resetSource: 'Timeout'
-                        }).catch(logger.log);
+                        const spamBlockedDetections = candidates.filter(det =>
+                            this.isDelayPassed({
+                                type: DelayType.BasicDetectionTrigger,
+                                classname: det.className,
+                                label: det.label,
+                                eventSource,
+                            })?.timePassed
+                        );
+
+                        if (spamBlockedDetections.length) {
+                            logger.log(`Triggering basic detections ${getDetectionsLog(spamBlockedDetections)}`);
+
+                            for (const detection of spamBlockedDetections) {
+                                const { className, label } = detection;
+
+                                publishBasicDetectionData({
+                                    mqttClient,
+                                    console: logger,
+                                    detection,
+                                    device: this.cameraDevice,
+                                    triggerTime,
+                                }).catch(logger.error);
+
+                                if (canUpdateMqttImage && b64Image) {
+                                    const { timePassed } = this.isDelayPassed({
+                                        classname: className,
+                                        label,
+                                        eventSource,
+                                        type: DelayType.BasicDetectionImage,
+                                    });
+
+                                    if (timePassed) {
+                                        logger.info(`Updating image for classname ${className} source: ${eventSource ? 'NVR' : 'Decoder'}`);
+
+                                        publishClassnameImages({
+                                            mqttClient,
+                                            console: logger,
+                                            classnamesData: [detection],
+                                            device: this.cameraDevice,
+                                            b64Image,
+                                            triggerTime,
+                                        }).catch(logger.error);
+                                    }
+                                }
+                            }
+
+                            this.resetDetectionEntities({
+                                resetSource: 'Timeout'
+                            }).catch(logger.log);
+                        }
+                    }
+
+                    if (
+                        eventSource === ScryptedEventSource.NVR && 
+                        b64Image && 
+                        facesFound.length && 
+                        this.cameraDevice.room
+                    ) {
+                        publishPeopleData({
+                            mqttClient,
+                            console: logger,
+                            faces: facesFound,
+                            b64Image,
+                            room: this.cameraDevice.room
+                        }).catch(logger.error);
                     }
                 }
             }

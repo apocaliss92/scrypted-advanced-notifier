@@ -1382,8 +1382,6 @@ export const publishBasicDetectionData = async (props: {
     console: Console,
     detection?: ObjectDetectionResult,
     triggerTime: number,
-    b64Image?: string,
-    room?: string,
 }) => {
     const {
         mqttClient,
@@ -1391,8 +1389,6 @@ export const publishBasicDetectionData = async (props: {
         detection,
         triggerTime,
         console,
-        room,
-        b64Image,
     } = props;
 
     if (!mqttClient) {
@@ -1426,28 +1422,6 @@ export const publishBasicDetectionData = async (props: {
                     await mqttClient.publish(stateTopic, value, retain);
                 }
             }
-
-            const person = detection.label;
-            if (isFaceClassname(detection.className) && person && room) {
-                const personEntities = getPersonMqttEntities(person);
-
-                for (const entry of personEntities) {
-                    const { identifier, retain } = entry;
-                    let value: any;
-
-                    if (identifier === MqttEntityIdentifier.LastImage && b64Image) {
-                        console.log(`Person ${person} found in ${room}, image ${getB64ImageLog(b64Image)}, ${JSON.stringify(personEntities)}`);
-                        value = b64Image || null;
-                    } else if (identifier === MqttEntityIdentifier.PersonRoom && room) {
-                        value = room;
-                    }
-
-                    if (value) {
-                        const { stateTopic } = getMqttTopics({ mqttEntity: entry, device: peopleTrackerId });
-                        await mqttClient.publish(stateTopic, value, retain);
-                    }
-                }
-            }
         } else {
             console.log(`${detection.className} not found`);
         }
@@ -1455,6 +1429,54 @@ export const publishBasicDetectionData = async (props: {
         console.log(`Error publishing ${JSON.stringify({
             detection,
             triggerTime,
+        })}`, e);
+    }
+}
+
+export const publishPeopleData = async (props: {
+    mqttClient?: MqttClient,
+    console: Console,
+    faces: string[],
+    b64Image?: string,
+    room?: string,
+}) => {
+    const {
+        mqttClient,
+        console,
+        room,
+        b64Image,
+        faces,
+    } = props;
+
+    if (!mqttClient) {
+        return;
+    }
+
+    try {
+
+        for (const face of faces) {
+            const personEntities = getPersonMqttEntities(face);
+
+            for (const entry of personEntities) {
+                const { identifier, retain } = entry;
+                let value: any;
+
+                if (identifier === MqttEntityIdentifier.LastImage && b64Image) {
+                    console.log(`Person ${face} found in ${room}, image ${getB64ImageLog(b64Image)}, ${JSON.stringify(personEntities)}`);
+                    value = b64Image || null;
+                } else if (identifier === MqttEntityIdentifier.PersonRoom && room) {
+                    value = room;
+                }
+
+                if (value) {
+                    const { stateTopic } = getMqttTopics({ mqttEntity: entry, device: peopleTrackerId });
+                    await mqttClient.publish(stateTopic, value, retain);
+                }
+            }
+        }
+    } catch (e) {
+        console.log(`Error publishing faces data ${JSON.stringify({
+            faces,
         })}`, e);
     }
 }

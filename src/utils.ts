@@ -410,6 +410,7 @@ export const filterAndSortValidDetections = (props: {
         1 - (detection.score ?? 0)]
     );
     let isSensorEvent = false;
+    const faces = new Set<string>();
     const uniqueByClassName = uniqBy(sortedByPriorityAndScore, det => det.className);
     const candidates = uniqueByClassName.filter(det => {
         const { className, label, movement, id } = det;
@@ -423,9 +424,13 @@ export const filterAndSortValidDetections = (props: {
         }
 
         const isLabel = isLabelDetection(className);
-        if (isLabel && !label) {
-            logger.debug(`Label ${label} not valid`);
-            return false;
+        if (isLabel) {
+            if (!label) {
+                logger.debug(`Label ${label} not valid`);
+                return false;
+            } else {
+                faces.add(label);
+            }
         } else if (movement && !movement.moving) {
             logger.debug(`Movement data ${JSON.stringify(movement)} not valid: ${JSON.stringify(det)}`);
             return false;
@@ -439,7 +444,7 @@ export const filterAndSortValidDetections = (props: {
         return true;
     });
 
-    return { candidates, isSensorEvent };
+    return { candidates, isSensorEvent, facesFound: Array.from(faces) };
 }
 
 export type TextSettingKey =
