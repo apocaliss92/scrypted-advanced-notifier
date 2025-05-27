@@ -6,7 +6,7 @@ import moment, { Moment } from "moment";
 import sharp from 'sharp';
 import { name, scrypted } from '../package.json';
 import { AiPlatform, defaultModel } from "./aiUtils";
-import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection } from "./detectionClasses";
+import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection } from "./detectionClasses";
 import AdvancedNotifierPlugin, { PluginSettingKey } from "./main";
 const { endpointManager } = sdk;
 import { FRIGATE_OBJECT_DETECTOR_INTERFACE } from '../../scrypted-frigate-bridge/src/utils';
@@ -62,6 +62,7 @@ export enum DelayType {
     RuleNotification = 'RuleNotification',
     OccupancyNotification = 'OccupancyNotification',
     FsImageUpdate = 'FsImageUpdate',
+    EventStore = 'EventStore',
     PostWebhookImage = 'PostWebhookImage',
     OccupancyRegularCheck = 'OccupancyRegularCheck',
 }
@@ -108,6 +109,7 @@ export const videoclipSpeedMultiplier: Record<VideoclipSpeed, number> = {
 export type IsDelayPassedProps =
     { type: DelayType.OccupancyRegularCheck } |
     { type: DelayType.DecoderFrameOnStorage, eventSource: ScryptedEventSource, timestamp: number } |
+    { type: DelayType.EventStore, detection: ObjectDetectionResult } |
     { type: DelayType.BasicDetectionImage, classname: string, label?: string, eventSource: ScryptedEventSource } |
     { type: DelayType.BasicDetectionTrigger, classname: string, label?: string, eventSource: ScryptedEventSource } |
     { type: DelayType.FsImageUpdate, filename: string, eventSource: ScryptedEventSource } |
@@ -157,6 +159,7 @@ export const getWebooks = async () => {
     const videoclipDownload = 'videoclipDownload';
     const videoclipStream = 'videoclipStream';
     const videoclipThumbnail = 'videoclipThumbnail';
+    const event = 'event';
 
     return {
         lastSnapshot,
@@ -167,6 +170,7 @@ export const getWebooks = async () => {
         videoclipDownload,
         videoclipStream,
         videoclipThumbnail,
+        event,
     };
 }
 
@@ -179,23 +183,19 @@ export const getWebHookUrls = async (props: {
     cameraIdOrAction?: string,
     console?: Console,
     device?: ScryptedDeviceBase,
-    rule?: TimelapseRule,
-    clipName?: string,
     snoozes?: number[],
     snoozeId?: string,
     snoozePlaceholder?: string,
-    videoclipId?: string
+    fileId?: string
 }) => {
     const {
         cameraIdOrAction,
         console,
-        rule,
         device,
-        clipName,
         snoozes,
         snoozeId,
         snoozePlaceholder,
-        videoclipId
+        fileId
     } = props;
 
     let lastSnapshotCloudUrl: string;
@@ -206,6 +206,7 @@ export const getWebHookUrls = async (props: {
     let videoclipThumbnailUrl: string;
     let videoclipStreamUrl: string;
     let videoclipDownloadUrl: string;
+    let eventUrl: string;
 
     const snoozeActions: NotificationAction[] = [];
 
@@ -217,12 +218,12 @@ export const getWebHookUrls = async (props: {
         videoclipDownload,
         videoclipStream,
         videoclipThumbnail,
+        event,
     } = await getWebooks();
 
     try {
         const cloudEndpointRaw = await endpointManager.getCloudEndpoint(undefined, { public: true });
         const localEndpoint = await endpointManager.getPublicLocalEndpoint();
-        // const cloudPushEndpoint = await sdk.endpointManager.getCloudPushEndpoint(this.nativeId);
 
         const [cloudEndpoint, parameters] = cloudEndpointRaw.split('?') ?? '';
         const encodedId = encodeURIComponent(cameraIdOrAction ?? device?.id);
@@ -235,9 +236,11 @@ export const getWebHookUrls = async (props: {
         haActionUrl = `${cloudEndpoint}${haAction}/${encodedId}${paramString}`;
         postNotificationUrl = `${cloudEndpoint}${postNotification}/${encodedId}${paramString}`;
 
-        videoclipDownloadUrl = `${cloudEndpoint}${videoclipDownload}/${videoclipId}${paramString}`;
-        videoclipStreamUrl = `${cloudEndpoint}${videoclipStream}/${videoclipId}${paramString}`;
-        videoclipThumbnailUrl = `${cloudEndpoint}${videoclipThumbnail}/${videoclipId}${paramString}`;
+        videoclipDownloadUrl = `${cloudEndpoint}${videoclipDownload}/${fileId}${paramString}`;
+        videoclipStreamUrl = `${cloudEndpoint}${videoclipStream}/${fileId}${paramString}`;
+        videoclipThumbnailUrl = `${cloudEndpoint}${videoclipThumbnail}/${fileId}${paramString}`;
+
+        eventUrl = `/${event}/${fileId}`;
 
         if (snoozes) {
             for (const snooze of snoozes) {
@@ -265,6 +268,7 @@ export const getWebHookUrls = async (props: {
         videoclipDownloadUrl,
         videoclipStreamUrl,
         videoclipThumbnailUrl,
+        eventUrl,
     };
 }
 
@@ -429,7 +433,7 @@ export const filterAndSortValidDetections = (props: {
                 logger.debug(`Label ${label} not valid`);
                 return false;
             } else {
-                faces.add(label);
+                isFaceClassname(className) && faces.add(label);
             }
         } else if (movement && !movement.moving) {
             logger.debug(`Movement data ${JSON.stringify(movement)} not valid: ${JSON.stringify(det)}`);

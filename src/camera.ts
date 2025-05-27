@@ -123,7 +123,7 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
                                     ruleName: ruleFolder
                                 });
                                 const { videoclipStreamUrl, videoclipThumbnailUrl } = await getWebHookUrls({
-                                    videoclipId: fileId
+                                    fileId: fileId
                                 });
 
                                 videoClips.push({
@@ -174,7 +174,7 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
                                     fileName,
                                 });
                                 const { videoclipStreamUrl, videoclipThumbnailUrl } = await getWebHookUrls({
-                                    videoclipId: fileId
+                                    fileId: fileId
                                 });
 
                                 videoClips.push({
