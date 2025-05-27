@@ -159,7 +159,9 @@ export const getWebooks = async () => {
     const videoclipDownload = 'videoclipDownload';
     const videoclipStream = 'videoclipStream';
     const videoclipThumbnail = 'videoclipThumbnail';
-    const event = 'event';
+    const eventThumbnail = 'eventThumbnail';
+    const eventImage = 'eventImage';
+    const eventsApp = 'eventsApp';
 
     return {
         lastSnapshot,
@@ -170,7 +172,9 @@ export const getWebooks = async () => {
         videoclipDownload,
         videoclipStream,
         videoclipThumbnail,
-        event,
+        eventThumbnail,
+        eventImage,
+        eventsApp,
     };
 }
 
@@ -206,7 +210,8 @@ export const getWebHookUrls = async (props: {
     let videoclipThumbnailUrl: string;
     let videoclipStreamUrl: string;
     let videoclipDownloadUrl: string;
-    let eventUrl: string;
+    let eventThumbnailUrl: string;
+    let eventImageUrl: string;
 
     const snoozeActions: NotificationAction[] = [];
 
@@ -218,7 +223,8 @@ export const getWebHookUrls = async (props: {
         videoclipDownload,
         videoclipStream,
         videoclipThumbnail,
-        event,
+        eventThumbnail,
+        eventImage,
     } = await getWebooks();
 
     try {
@@ -240,7 +246,8 @@ export const getWebHookUrls = async (props: {
         videoclipStreamUrl = `${cloudEndpoint}${videoclipStream}/${fileId}${paramString}`;
         videoclipThumbnailUrl = `${cloudEndpoint}${videoclipThumbnail}/${fileId}${paramString}`;
 
-        eventUrl = `/${event}/${fileId}`;
+        eventThumbnailUrl = `/${eventThumbnail}/${device.id}/${fileId}`;
+        eventImageUrl = `/${eventImage}/${device.id}/${fileId}`;
 
         if (snoozes) {
             for (const snooze of snoozes) {
@@ -268,7 +275,8 @@ export const getWebHookUrls = async (props: {
         videoclipDownloadUrl,
         videoclipStreamUrl,
         videoclipThumbnailUrl,
-        eventUrl,
+        eventThumbnailUrl,
+        eventImageUrl,
     };
 }
 
@@ -441,7 +449,10 @@ export const filterAndSortValidDetections = (props: {
         }
 
         detId && consumedDetectionIdsSet.add(detId);
-        if (!isSensorEvent && [DetectionClass.Doorbell].includes(className as DetectionClass)) {
+        if (
+            !isSensorEvent &&
+            [DetectionClass.Doorbell, DetectionClass.Package, DetectionClass].includes(className as DetectionClass)
+        ) {
             isSensorEvent = true
         }
 
@@ -3453,6 +3464,7 @@ export const getDetectionKey = (matchRule: MatchRule) => {
 };
 export const getB64ImageLog = (b64Image: string) => `${b64Image ? b64Image?.substring(0, 10) + '...' : 'NO_IMAGE'}`;
 export const getDetectionsLog = (detections: ObjectDetectionResult[]) => uniq(detections.map(item => `${item.className}${item.label ? '-' + item.label : ''}`)).join(', ');
+export const getDetectionsLogShort = (detections: ObjectDetectionResult[]) => uniq(detections.map(item => `${(item.label ?? item.className)}`)).join('_');
 export const getRulesLog = (rulesToUpdate: MatchRule[]) => uniq(rulesToUpdate.map(getDetectionKey)).join(', ');
 
 export const haSnoozeAutomationId = 'scrypted_advanced_notifier_snooze_action';
@@ -3511,3 +3523,8 @@ export const b64ToMo = async (b64: string) => {
 }
 
 export const getFrigateTextKey = (label: string) => `frigate${label}Text` as TextSettingKey;
+
+export enum NvrAppApiMethod {
+    Login = 'Login',
+    GetEvents = 'GetEvents',
+} 

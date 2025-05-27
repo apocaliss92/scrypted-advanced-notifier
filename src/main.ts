@@ -1,5 +1,6 @@
-import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, NotificationAction, Notifier, NotifierOptions, ObjectDetectionResult, PushHandler, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { DeviceBase, Image, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, MediaObject, MixinProvider, NotificationAction, Notifier, NotifierOptions, ObjectDetectionResult, PushHandler, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
+import { loginScryptedClient } from '../../scrypted/packages/client/src/index';
 import axios from "axios";
 import child_process from 'child_process';
 import { once } from "events";
@@ -15,13 +16,13 @@ import { AdvancedNotifierAlarmSystem } from "./alarmSystem";
 import { haAlarmAutomation, haAlarmAutomationId } from "./alarmUtils";
 import { AdvancedNotifierCamera } from "./camera";
 import { AdvancedNotifierCameraMixin, OccupancyRuleData } from "./cameraMixin";
-import { addEvent, cleanupEvents, initDb } from "./db";
+import { addEvent, cleanupEvents, getEventsInRange } from "./db";
 import { DetectionClass, isLabelDetection } from "./detectionClasses";
 import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_NAME, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImageSource, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_NAME, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImageSource, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, moToB64, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrAppApiMethod, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier } from "./utils";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -393,8 +394,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     async init() {
         const logger = this.getLogger();
 
-        await initDb({ logger });
-
         const cloudPlugin = systemManager.getDeviceByName<Settings>('Scrypted Cloud');
         if (cloudPlugin) {
             this.hasCloudPlugin = true;
@@ -543,7 +542,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         let isNvrSnooze = false;
         if (request.body) {
             const body = safeParseJson(request.body);
-            logger.log('BODY', body);
             if (body.snoozeId && body.actionId) {
                 nvrSnoozeId = body.snoozeId;
                 nvrSnoozeAction = body.actionId;
@@ -562,10 +560,67 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 setAlarm,
                 videoclipDownload,
                 videoclipStream,
-                videoclipThumbnail
+                videoclipThumbnail,
+                eventsApp,
+                eventThumbnail,
+                eventImage,
             } = await getWebooks();
 
-            if (webhook === haAction) {
+            if (webhook === eventsApp) {
+                const token = request.headers?.authorization;
+                if (!token) {
+                    response.send(`Unauthorized`, {
+                        code: 401,
+                    });
+                    return;
+                }
+
+                const credendials = atob(token.split('Basic ')[1]);
+                const [username, password] = credendials.split(':');
+                const localUrl = await sdk.endpointManager.getLocalEndpoint();
+                const baseUrl = new URL(localUrl).origin;
+
+                const loginResponse = await loginScryptedClient({
+                    baseUrl,
+                    username: username,
+                    password: password,
+                    maxAge: 7 * 24 * 60 * 60 * 1000,
+                });
+
+                if (loginResponse.error) {
+                    response.send(loginResponse.error, {
+                        code: 401,
+                    });
+                    return;
+                }
+
+                const { apimethod, payload } = safeParseJson(request.body);
+                if (apimethod === NvrAppApiMethod.Login) {
+                    // Do login here, following branches check headers
+                    response.send(JSON.stringify(loginResponse), {
+                        code: 200,
+                        headers: {
+                            'Content-Type': 'application/json',
+                        }
+                    });
+                    return;
+                } else if (apimethod === NvrAppApiMethod.GetEvents) {
+                    const { fromDate, tillDate } = payload
+                    const eventsFound = await getEventsInRange({
+                        endTimestamp: tillDate,
+                        logger,
+                        startTimestamp: fromDate
+                    });
+
+                    response.send(JSON.stringify(eventsFound), {
+                        code: 200,
+                        headers: {
+                            'Content-Type': 'application/json',
+                        }
+                    });
+                    return;
+                }
+            } else if (webhook === haAction) {
                 const { url, accessToken } = await this.getHaApiUrl();
 
                 await axios.post(`${url}/api/events/mobile_app_notification_action`,
@@ -679,6 +734,32 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                 const mo = await this.camera.getVideoClipThumbnail(deviceIdOrAction);
                 const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
+
+                response.send(jpeg);
+                return;
+            } else if ([eventThumbnail].includes(webhook)) {
+                logger.info(JSON.stringify({
+                    cameraName: realDevice.name,
+                    fileName: decodedRuleNameOrSnoozeIdOrSnapshotId
+                }));
+                const { eventThumbnailPath } = this.getEventPaths({ cameraName: realDevice.name, fileName: decodedRuleNameOrSnoozeIdOrSnapshotId });
+
+                const fileURLToPath = `file://${eventThumbnailPath}`;
+                const thumbnailMo = await sdk.mediaManager.createMediaObjectFromUrl(fileURLToPath);
+                const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(thumbnailMo, 'image/jpeg');
+
+                response.send(jpeg);
+                return;
+            } else if ([eventImage].includes(webhook)) {
+                logger.info(JSON.stringify({
+                    cameraName: realDevice.name,
+                    fileName: decodedRuleNameOrSnoozeIdOrSnapshotId
+                }));
+                const { eventImagePath } = this.getEventPaths({ cameraName: realDevice.name, fileName: decodedRuleNameOrSnoozeIdOrSnapshotId });
+
+                const fileURLToPath = `file://${eventImagePath}`;
+                const thumbnailMo = await sdk.mediaManager.createMediaObjectFromUrl(fileURLToPath);
+                const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(thumbnailMo, 'image/jpeg');
 
                 response.send(jpeg);
                 return;
@@ -2540,15 +2621,19 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         const eventsPath = path.join(cameraPath, 'events');
         const dbPath = path.join(cameraPath, 'events_db.json');
-        const eventPath = fileName ? path.join(eventsPath, `${fileName}.jpg`) : undefined;
-
-        const fileId = `${cameraName}_${fileName}`;
+        const thumbnailsPath = path.join(eventsPath, 'thumbnails');
+        const imagesPath = path.join(eventsPath, 'images');
+        const eventThumbnailPath = fileName ? path.join(thumbnailsPath, `${fileName}.jpg`) : undefined;
+        const eventImagePath = fileName ? path.join(imagesPath, `${fileName}.jpg`) : undefined;
 
         return {
             eventsPath,
-            eventPath,
-            fileId,
+            eventThumbnailPath,
+            eventImagePath,
+            fileId: fileName,
             dbPath,
+            thumbnailsPath,
+            imagesPath,
         };
     }
 
@@ -3038,35 +3123,54 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         device: ScryptedDeviceBase,
         logger: Console,
         b64Image: string,
+        image: MediaObject,
         detections: ObjectDetectionResult[],
         timestamp: number,
         eventSource: ScryptedEventSource,
     }) {
-        const { device, timestamp, logger, b64Image, detections, eventSource } = props;
+        const { device, timestamp, logger, b64Image, detections, eventSource, image } = props;
         const classNames = uniq(detections.map(det => det.className));
         const label = detections.find(det => det.label)?.label;
-        const fileName = `${timestamp}_${eventSource}`;
-        const { eventPath, eventsPath, fileId } = this.getEventPaths({ fileName, cameraName: device.name });
-        const { eventUrl } = await getWebHookUrls({ fileId });
+        const fileName = `${timestamp}_${eventSource}_${getDetectionsLogShort(detections)}`;
+        const { eventImagePath, eventThumbnailPath, thumbnailsPath, imagesPath, fileId } = this.getEventPaths({ fileName, cameraName: device.name });
+        const { eventThumbnailUrl, eventImageUrl } = await getWebHookUrls({ fileId, device });
+
         try {
-            await fs.promises.access(eventsPath);
+            await fs.promises.access(thumbnailsPath);
         } catch {
-            await fs.promises.mkdir(eventsPath, { recursive: true });
+            await fs.promises.mkdir(thumbnailsPath, { recursive: true });
         }
 
-        logger.log(`Storing event ${fileId}`);
-        const base64Data = b64Image.replace(/^data:image\/png;base64,/, "");
+        try {
+            await fs.promises.access(imagesPath);
+        } catch {
+            await fs.promises.mkdir(imagesPath, { recursive: true });
+        }
 
-        await fs.promises.writeFile(eventPath, base64Data, 'base64');
+        logger.log(`Storing ${eventSource} event for classes ${getDetectionsLog(detections)} ${fileId}`);
+        const base64Data = b64Image.replace(/^data:image\/png;base64,/, "");
+        await fs.promises.writeFile(eventImagePath, base64Data, 'base64');
+
+        const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(image, ScryptedMimeTypes.Image);
+        const resizedImage = await convertedImage.toImage({
+            resize: {
+                width: 150,
+            },
+        });
+        const smallB64Image = await moToB64(resizedImage);
+        const smallBase64Data = smallB64Image.replace(/^data:image\/png;base64,/, "");
+        await fs.promises.writeFile(eventThumbnailPath, smallBase64Data, 'base64');
+
         addEvent({
             event: {
                 id: fileId,
                 classes: classNames,
                 label,
-                remoteUrl: eventUrl,
+                thumbnailUrl: eventThumbnailUrl,
+                imageUrl: eventImageUrl,
                 timestamp,
                 source: eventSource,
-                deviceId: device.id,
+                deviceName: device.name,
             },
             logger,
         });

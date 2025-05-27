@@ -1495,7 +1495,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         }
                     }
                 }
-            } else if (!image) {
+            }
+            if (!image) {
                 let runners = [];
                 const checkLatest = findFromLatest(reason === GetImageReason.MotionUpdate ? 5000 : 2000);
                 const checkVeryRecent = findFromLatest(200);
@@ -2417,6 +2418,31 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         }).catch(logger.log);
                     }
                 }
+
+                // if (this.plugin.storageSettings.values.storeEvents) {
+                //     const filteredCandidates = detections.filter(detection => {
+                //         const { id } = detection;
+                //         const isOk = id ? !this.consumedDetectionIdsSet.has(id) : this.isDelayPassed({ type: DelayType.EventStore, detection })?.timePassed;
+
+                //         if (isOk && id) {
+                //             this.consumedDetectionIdsSet.add(id);
+                //         }
+
+                //         return isOk;
+                //     });
+
+                //     if (filteredCandidates.length) {
+                //         const logger = this.getLogger();
+                //         this.plugin.storeEventImage({
+                //             b64Image,
+                //             detections: filteredCandidates,
+                //             device: this.cameraDevice,
+                //             eventSource: ScryptedEventSource.RawDetection,
+                //             logger,
+                //             timestamp: triggerTime,
+                //         }).catch(logger.error);
+                //     }
+                // }
             } catch (e) {
                 logger.log(`Error on publishing data: ${JSON.stringify(dataToAnalyze)}`, e)
             }
@@ -2499,8 +2525,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         } else if (type === DelayType.EventStore) {
             const { detection } = props;
 
-            delayKey += `-${detection.className}`;
             if (detectionClassesDefaultMap[detection.className] === DetectionClass.Motion) {
+                delayKey += `-${detection.className}`;
                 minDelayInSeconds = 30;
             } else {
                 minDelayInSeconds = 15;
@@ -2550,7 +2576,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             detections: detections ?? [],
             logger,
             consumedDetectionIdsSet: new Set(),
-            // consumedDetectionIdsSet: this.consumedDetectionIdsSet
         });
 
         const canPickImageRightAway = !isRawDetection || isSensorEvent;
@@ -2559,7 +2584,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         eventDetails && this.processDetectionsInterval && this.accumulatedDetections.push({
             detect: {
                 ...detect,
-                detections: candidates
+                detections: cloneDeep(candidates)
             },
             eventId: eventDetails.eventId,
             eventSource,
@@ -2678,9 +2703,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 eventSource
             }).catch(logger.log);
 
-            if (eventSource !== ScryptedEventSource.RawDetection && b64Image && this.plugin.storageSettings.values.storeEvents) {
+            if (
+                (eventSource !== ScryptedEventSource.RawDetection || isSensorEvent) &&
+                b64Image &&
+                this.plugin.storageSettings.values.storeEvents
+            ) {
                 // In case of NVR/Frigate events no need to delay, events are already controlled on the source
                 const logger = this.getLogger();
+                logger.info(`Starting ${eventSource} storeEventImage: ${JSON.stringify({
+                    detections,
+                    candidates,
+                })}`);
                 this.plugin.storeEventImage({
                     b64Image,
                     detections: candidates,
@@ -2688,6 +2721,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     eventSource,
                     logger,
                     timestamp: triggerTime,
+                    image,
                 }).catch(logger.error);
             }
         } catch (e) {
