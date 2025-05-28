@@ -37,6 +37,7 @@
   "scrypted": {
     "name": "Advanced notifier",
     "type": "API",
+    "realfs": true,
     "interfaces": [
       "Settings",
       "DeviceProvider",

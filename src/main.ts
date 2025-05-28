@@ -525,7 +525,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const decodedTimelapseNameOrSnoozeTime = decodeURIComponent(timelapseNameOrSnoozeTime);
         const decodedRuleNameOrSnoozeIdOrSnapshotId = decodeURIComponent(ruleNameOrSnoozeIdOrSnapshotId);
 
-        logger.log(`Webhook request: ${JSON.stringify({
+        logger.debug(`Webhook request: ${JSON.stringify({
             url: request.url,
             body: request.body,
             webhook,
@@ -565,8 +565,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 eventThumbnail,
                 eventImage,
             } = await getWebooks();
-
-            if (webhook === eventsApp) {
+            if (webhook === 'app') {
+                if (deviceIdOrActionRaw) {
+                    response.sendFile(`dist/${deviceIdOrActionRaw}`);
+                } else {
+                    response.sendFile('dist/index.html');
+                }
+                return;
+            } else if (webhook === eventsApp) {
                 const token = request.headers?.authorization;
                 if (!token) {
                     response.send(`Unauthorized`, {
@@ -731,11 +737,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 logger.info(JSON.stringify({
                     fileId: deviceIdOrAction,
                 }));
+                logger.log(deviceIdOrAction)
 
                 const mo = await this.camera.getVideoClipThumbnail(deviceIdOrAction);
                 const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
 
-                response.send(jpeg);
+                response.send(jpeg, {
+                    headers: {
+                        'Content-Type': 'image/jpeg'
+                    }
+                });
                 return;
             } else if ([eventThumbnail].includes(webhook)) {
                 logger.info(JSON.stringify({
@@ -1620,19 +1631,24 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }) {
         const { cameraDevice, rule, timelapseName } = props;
         const logger = this.getLogger(cameraDevice);
-        const { fileId } = this.getShortClipPaths({ cameraName: cameraDevice.name, fileName: timelapseName });
+        const { fileId } = this.getRulePaths({
+            cameraName: cameraDevice.name,
+            fileName: timelapseName,
+            ruleName: rule.name
+        });
 
-        const { videoclipDownloadUrl, videoclipThumbnailUrl } = await getWebHookUrls({
+        const { videoclipStreamUrl } = await getWebHookUrls({
             console: logger,
             fileId: fileId
         });
 
-        const { videoclipPath } = this.getRulePaths({
+        const { videoclipPath, snapshotPath } = this.getRulePaths({
             ruleName: rule.name,
             cameraName: cameraDevice.name,
             fileName: timelapseName,
         });
-        const image = await sdk.mediaManager.createMediaObjectFromUrl(videoclipThumbnailUrl);
+        const fileURLToPath = `file://${snapshotPath}`;
+        const image = await sdk.mediaManager.createMediaObjectFromUrl(fileURLToPath);
 
         const fileStats = await fs.promises.stat(videoclipPath);
         const sizeInBytes = fileStats.size;
@@ -1644,8 +1660,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 notifier,
                 device: cameraDevice,
                 rule,
-                videoUrl: videoclipDownloadUrl,
-                clickUrl: videoclipDownloadUrl,
+                videoUrl: videoclipStreamUrl,
+                clickUrl: videoclipStreamUrl,
                 videoSize: sizeInBytes,
                 image,
                 triggerTime: Date.now()
@@ -2411,9 +2427,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             payload
         }));
 
-        await notifier.sendNotification(title, notifierOptions, image, icon);
+        notifier.sendNotification(title, notifierOptions, image, icon).catch(logger.error);
     }
-
 
     async executeNotificationTest() {
         const {
@@ -2485,38 +2500,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         notifiers: [testNotifier?.id]
                     }
                 })
-                // this.notifyDetection({
-                //     triggerDevice: testDevice,
-                //     notifierId: testNotifierId,
-                //     time: currentTime,
-                //     eventType,
-                //     detection: isDetection ? { label: 'TestLabelFound', className: testEventType, score: 1 } : undefined,
-                //     source: NotificationSource.TEST,
-                //     logger,
-                //     snoozeId,
-                //     forceAi: testUseAi,
-                //     rule: {
-                //         notifierData: {
-                //             [testNotifierId]: {
-                //                 priority: testPriority,
-                //                 actions: [],
-                //                 addSnooze: testAddSnoozing,
-                //                 addCameraActions: testAddActions,
-                //                 sound: testSound
-                //             }
-                //         },
-                //         generateClipSpeed: testGenerateClipSpeed,
-                //         generateClip: testGenerateClip,
-                //         useAi: testUseAi,
-                //         ruleType: RuleType.Detection,
-                //         markDetections: false,
-                //         activationType: DetectionRuleActivation.Always,
-                //         source: RuleSource.Plugin,
-                //         isEnabled: true,
-                //         name: "",
-                //         notifiers: []
-                //     }
-                // });
             }
         } catch (e) {
             logger.log('Error in executeNotificationTest', e);

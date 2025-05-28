@@ -230,7 +230,7 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
         try {
             const { videoclipPath } = this.getFilePath({ fileId });
 
-            logger.log('Fetching videoclip ', fileId, videoclipPath);
+            logger.info('Fetching videoclip ', fileId, videoclipPath);
 
             const fileURLToPath = `file://${videoclipPath}`
             const videoclipMo = await sdk.mediaManager.createMediaObjectFromUrl(fileURLToPath);
@@ -246,12 +246,13 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
         try {
             const { snapshotPath } = this.getFilePath({ fileId });
 
-            logger.log('Fetching thumbnail ', fileId, snapshotPath);
+            logger.info('Fetching thumbnail ', fileId, snapshotPath);
 
             const fileURLToPath = `file://${snapshotPath}`;
-            const thumbnailMo = await sdk.mediaManager.createMediaObjectFromUrl(fileURLToPath);
-            const buf = await sdk.mediaManager.convertMediaObjectToBuffer(thumbnailMo, 'image/jpeg');
-            const mo = await sdk.mediaManager.createMediaObject(buf, 'image/jpeg')
+            const mo = await sdk.mediaManager.createMediaObjectFromUrl(fileURLToPath);
+            // const thumbnailMo = await sdk.mediaManager.createMediaObjectFromUrl(fileURLToPath);
+            // const buf = await sdk.mediaManager.convertMediaObjectToBuffer(thumbnailMo, 'image/jpeg');
+            // const mo = await sdk.mediaManager.createMediaObject(buf, 'image/jpeg')
 
             return mo;
         } catch (e) {

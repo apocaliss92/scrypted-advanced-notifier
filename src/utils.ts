@@ -246,8 +246,8 @@ export const getWebHookUrls = async (props: {
         videoclipStreamUrl = `${cloudEndpoint}${videoclipStream}/${fileId}${paramString}`;
         videoclipThumbnailUrl = `${cloudEndpoint}${videoclipThumbnail}/${fileId}${paramString}`;
 
-        eventThumbnailUrl = `/${eventThumbnail}/${device.id}/${fileId}`;
-        eventImageUrl = `/${eventImage}/${device.id}/${fileId}`;
+        eventThumbnailUrl = `/${eventThumbnail}/${device?.id}/${fileId}`;
+        eventImageUrl = `/${eventImage}/${device?.id}/${fileId}`;
 
         if (snoozes) {
             for (const snooze of snoozes) {
@@ -262,7 +262,7 @@ export const getWebHookUrls = async (props: {
             }
         }
     } catch (e) {
-        console?.log('Error fetching webhookUrls. Probably Cloud plugin is not setup correctly', e.message);
+        console?.log('Error fetching webhookUrls', e.message);
     }
 
     return {
@@ -273,7 +273,7 @@ export const getWebHookUrls = async (props: {
         postNotificationUrl,
         endpoint,
         videoclipDownloadUrl,
-        videoclipStreamUrl,
+        videoclipStreamUrl, 
         videoclipThumbnailUrl,
         eventThumbnailUrl,
         eventImageUrl,

@@ -330,34 +330,30 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
                 const cameraMixin = cameraDevice ? this.plugin.currentCameraMixinsMap[cameraDevice.id] : undefined;
 
                 if (canNotify && cameraDevice) {
-                    if (canNotify) {
-                        if (cameraDevice) {
-                            if (cameraMixin) {
-                                const notificationsEnabled = cameraMixin.storageSettings.values.notificationsEnabled;
+                    if (cameraMixin) {
+                        const notificationsEnabled = cameraMixin.storageSettings.values.notificationsEnabled;
 
-                                if (!notificationsEnabled) {
-                                    canNotify = false;
-                                    logger.log(`Skipping Notification because camera ${cameraDevice?.name} is disabled`);
-                                }
-                                const {
-                                    schedulerEnabled,
-                                    startTime,
-                                    endTime,
-                                } = cameraMixin.storageSettings.values;
+                        if (!notificationsEnabled) {
+                            canNotify = false;
+                            logger.log(`Skipping Notification because camera ${cameraDevice?.name} is disabled`);
+                        }
+                        const {
+                            schedulerEnabled,
+                            startTime,
+                            endTime,
+                        } = cameraMixin.storageSettings.values;
 
-                                if (schedulerEnabled) {
-                                    const schedulerActive = isSchedulerActive({ endTime, startTime });
+                        if (schedulerEnabled) {
+                            const schedulerActive = isSchedulerActive({ endTime, startTime });
 
-                                    if (!schedulerActive) {
-                                        canNotify = false;
-                                        logger.log(`Skipping Notification because camera scheduler is not active`);
-                                    }
-                                }
+                            if (!schedulerActive) {
+                                canNotify = false;
+                                logger.log(`Skipping Notification because camera scheduler is not active`);
                             }
                         }
                     }
 
-                    if (canNotify && schedulerEnabled) {
+                    if (schedulerEnabled) {
                         const schedulerActive = isSchedulerActive({ endTime, startTime });
 
                         if (!schedulerActive) {
@@ -366,7 +362,7 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
                         }
                     }
 
-                    if (canNotify && isNotificationFromAnPlugin) {
+                    if (isNotificationFromAnPlugin) {
                         const now = Date.now();
                         const lastSnoozed = cameraMixin.snoozeUntilDic[snoozeId];
                         const isSnoozed = lastSnoozed && now < lastSnoozed;
@@ -404,13 +400,13 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
                         logger.log(`Content translated to ${message} ${tapToViewText}`);
                     }
 
-                    return this.mixinDevice.sendNotification(titleToUse, options, media, icon);
+                    await this.mixinDevice.sendNotification(titleToUse, options, media, icon);
                 }
             } catch (e) {
                 logger.log('Error in sendNotification', e);
             }
         } else {
-            return this.mixinDevice.sendNotification(title, options, media, icon);
+            await this.mixinDevice.sendNotification(title, options, media, icon);
         }
     }
 
