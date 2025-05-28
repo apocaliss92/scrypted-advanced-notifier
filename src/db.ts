@@ -61,13 +61,17 @@ export const addEvent = async (props: {
   logger.info(`Record ${JSON.stringify(event)} pushed to events DB ${dayStr}`);
 }
 
+export const getEventDays = async () => {
+  const folders = await fs.promises.readdir(eventDbsPath);
+  return folders.map(date => moment(date, 'YYYYMMDD').toISOString());
+}
 
 export const getEventsInRange = async (props: {
   startTimestamp: number,
   endTimestamp: number,
   logger: Console
 }) => {
-  const { endTimestamp, logger, startTimestamp } = props;
+  const { endTimestamp, startTimestamp } = props;
   const start = moment(startTimestamp)
   const end = moment(endTimestamp)
 

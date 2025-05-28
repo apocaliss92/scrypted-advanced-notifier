@@ -16,13 +16,13 @@ import { AdvancedNotifierAlarmSystem } from "./alarmSystem";
 import { haAlarmAutomation, haAlarmAutomationId } from "./alarmUtils";
 import { AdvancedNotifierCamera } from "./camera";
 import { AdvancedNotifierCameraMixin, OccupancyRuleData } from "./cameraMixin";
-import { addEvent, cleanupEvents, getEventsInRange } from "./db";
+import { addEvent, cleanupEvents, getEventDays, getEventsInRange } from "./db";
 import { DetectionClass, isLabelDetection } from "./detectionClasses";
 import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, convertSettingsToStorageSettings, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_NAME, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImageSource, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, moToB64, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrAppApiMethod, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_NAME, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImageSource, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, moToB64, NotificationPriority, NotificationSource, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrAppApiMethod, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier } from "./utils";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -519,7 +519,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const logger = this.getLogger();
         const url = new URL(`http://localhost${request.url}`);
 
-        const [_, __, ___, ____, _____, webhook, ...rest] = url.pathname.split('/');
+        const [_, __, ___, ____, privateWebhook, webhook, ...rest] = url.pathname.split('/');
         const [deviceIdOrActionRaw, ruleNameOrSnoozeIdOrSnapshotId, timelapseNameOrSnoozeTime] = rest
         let deviceIdOrAction = decodeURIComponent(deviceIdOrActionRaw);
         const decodedTimelapseNameOrSnoozeTime = decodeURIComponent(timelapseNameOrSnoozeTime);
@@ -565,52 +565,26 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 eventThumbnail,
                 eventImage,
             } = await getWebooks();
-            if (webhook === 'app') {
+            if ([webhook, privateWebhook].includes('app')) {
                 if (deviceIdOrActionRaw) {
                     response.sendFile(`dist/${deviceIdOrActionRaw}`);
                 } else {
                     response.sendFile('dist/index.html');
                 }
                 return;
-            } else if (webhook === eventsApp) {
-                const token = request.headers?.authorization;
-                if (!token) {
-                    response.send(`Unauthorized`, {
-                        code: 401,
-                    });
-                    return;
-                }
-
-                const credendials = atob(token.split('Basic ')[1]);
-                const [username, password] = credendials.split(':');
-                const localUrl = await sdk.endpointManager.getLocalEndpoint();
-                const baseUrl = new URL(localUrl).origin;
-
-                const loginResponse = await loginScryptedClient({
-                    baseUrl,
-                    username: username,
-                    password: password,
-                    maxAge: 7 * 24 * 60 * 60 * 1000,
-                });
-
-                if (loginResponse.error) {
-                    response.send(loginResponse.error, {
-                        code: 401,
-                    });
-                    return;
+            } else if ([webhook, privateWebhook].includes(eventsApp)) {
+                if (webhook === eventsApp) {
+                    const userCheck = await checkUserLogin(request);
+                    if (!userCheck) {
+                        response.send('Unauthorized', {
+                            code: 401
+                        });
+                        return;
+                    }
                 }
 
                 const { apimethod, payload } = safeParseJson(request.body);
-                if (apimethod === NvrAppApiMethod.Login) {
-                    // Do login here, following branches check headers
-                    response.send(JSON.stringify(loginResponse), {
-                        code: 200,
-                        headers: {
-                            'Content-Type': 'application/json',
-                        }
-                    });
-                    return;
-                } else if (apimethod === NvrAppApiMethod.GetEvents) {
+                if (apimethod === NvrAppApiMethod.GetEvents) {
                     const { fromDate, tillDate } = payload
                     const eventsFound = await getEventsInRange({
                         endTimestamp: tillDate,
@@ -619,6 +593,26 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     });
 
                     response.send(JSON.stringify(eventsFound), {
+                        code: 200,
+                        headers: {
+                            'Content-Type': 'application/json',
+                        }
+                    });
+                    return;
+                } else if (apimethod === NvrAppApiMethod.GetConfigs) {
+                    const cameras = Object.values(this.currentCameraMixinsMap).map(device => ({
+                        id: device.id,
+                        name: device.name,
+                        interfaces: device.interfaces,
+                        type: device.type
+                    }));
+                    const eventDays = await getEventDays();
+
+                    response.send(JSON.stringify({
+                        cameras,
+                        eventDays,
+                        enabledDetectionSources: this.enabledDetectionSources.filter(source => source !== ScryptedEventSource.RawDetection),
+                    }), {
                         code: 200,
                         headers: {
                             'Content-Type': 'application/json',
@@ -3091,7 +3085,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     logger.log('Not saving, image is corrupted');
                 }
             } else {
-                logger.log(`Skipping ${rule.name} ${triggerTime} clip generation, no frames available`);
+                logger.log(`Skipping ${rule.name} ${triggerTime} clip generation, no frames available in ${framesPath}`);
 
             }
 

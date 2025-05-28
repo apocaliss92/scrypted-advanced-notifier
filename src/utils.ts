@@ -1,4 +1,4 @@
-import sdk, { BinarySensor, Camera, DeviceBase, EntrySensor, LockState, MediaObject, Notifier, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, OnOff, PanTiltZoom, Point, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, VideoCamera } from "@scrypted/sdk";
+import sdk, { BinarySensor, Camera, DeviceBase, EntrySensor, HttpRequest, LockState, MediaObject, Notifier, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, OnOff, PanTiltZoom, Point, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, VideoCamera } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDevice, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep, sortBy, uniq, uniqBy } from "lodash";
@@ -11,6 +11,7 @@ import AdvancedNotifierPlugin, { PluginSettingKey } from "./main";
 const { endpointManager } = sdk;
 import { FRIGATE_OBJECT_DETECTOR_INTERFACE } from '../../scrypted-frigate-bridge/src/utils';
 import { logLevelSetting } from "../../scrypted-apocaliss-base/src/basePlugin";
+import { loginScryptedClient } from "../../scrypted/packages/client/src";
 
 export type DeviceInterface = ScryptedDevice & Camera & ScryptedDeviceBase & Notifier & Settings & ObjectDetector & VideoCamera & EntrySensor & Lock & BinarySensor & Reboot & PanTiltZoom & OnOff;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
@@ -273,7 +274,7 @@ export const getWebHookUrls = async (props: {
         postNotificationUrl,
         endpoint,
         videoclipDownloadUrl,
-        videoclipStreamUrl, 
+        videoclipStreamUrl,
         videoclipThumbnailUrl,
         eventThumbnailUrl,
         eventImageUrl,
@@ -3525,6 +3526,31 @@ export const b64ToMo = async (b64: string) => {
 export const getFrigateTextKey = (label: string) => `frigate${label}Text` as TextSettingKey;
 
 export enum NvrAppApiMethod {
-    Login = 'Login',
     GetEvents = 'GetEvents',
-} 
+    GetConfigs = 'GetConfigs',
+}
+
+export const checkUserLogin = async (request: HttpRequest) => {
+    const token = request.headers?.authorization;
+    if (!token) {
+        return false
+    }
+
+    const credendials = atob(token.split('Basic ')[1]);
+    const [username, password] = credendials.split(':');
+    const localUrl = await sdk.endpointManager.getLocalEndpoint();
+    const baseUrl = new URL(localUrl).origin;
+
+    const loginResponse = await loginScryptedClient({
+        baseUrl,
+        username: username,
+        password: password,
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    if (loginResponse.error) {
+        return false;
+    }
+
+    return true;
+}
