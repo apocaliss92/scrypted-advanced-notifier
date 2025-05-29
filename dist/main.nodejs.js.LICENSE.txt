@@ -26,6 +26,11 @@
 
 /*! Based on fetch-blob. MIT License. Jimmy Wärting <https://jimmy.warting.se/opensource> & David Frank */
 
+/*! ReadWriteLock - v5.0.0 - 2015-01-16
+ * Author: Alberto La Rocca <a71104@gmail.com> (https://github.com/71104)
+ * Released under the MIT license
+ * Copyright (c) 2015 Alberto La Rocca */
+
 /*! node-domexception. MIT License. Jimmy Wärting <https://jimmy.warting.se/opensource> */
 
 /**
@@ -60,6 +65,19 @@
  * Copyright 2021 Mattias Buelens, Diwank Singh Tomer and other contributors.
  * This code is released under the MIT license.
  * SPDX-License-Identifier: MIT
+ */
+
+/**
+ * Wrapper for built-in http.js to emulate the browser XMLHttpRequest object.
+ *
+ * This can be used with JS designed for browsers to improve reuse of code and
+ * allow the use of existing libraries.
+ *
+ * Usage: include("XMLHttpRequest.js") and use XMLHttpRequest per W3C specs.
+ *
+ * @author Dan DeFelippi <dan@driverdan.com>
+ * @contributor David Ellis <d.f.ellis@ieee.org>
+ * @license MIT
  */
 
 //! moment.js

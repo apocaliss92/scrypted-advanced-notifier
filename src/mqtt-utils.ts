@@ -1131,7 +1131,7 @@ const getMqttDevice = async (device: MqttDeviceType) => {
     }
 }
 
-const getCameraEnabledClasses = async (device: ScryptedDeviceBase & ObjectDetector) => {
+const getCameraClassEntities = async (device: ScryptedDeviceBase & ObjectDetector) => {
     const enabledClasses: DetectionClass[] = [];
     if (device.interfaces.includes(ScryptedInterface.MotionSensor)) {
         enabledClasses.push(DetectionClass.Motion);
@@ -1149,11 +1149,7 @@ const getCameraEnabledClasses = async (device: ScryptedDeviceBase & ObjectDetect
         );
     }
 
-    return uniq(enabledClasses);
-}
-
-const getCameraClassEntities = async (device: ScryptedDeviceBase & ObjectDetector) => {
-    const classes = await getCameraEnabledClasses(device);
+    const classes = uniq(enabledClasses);
     return deviceClassMqttEntities.filter(entry => !entry.className || classes.includes(entry.className));
 }
 

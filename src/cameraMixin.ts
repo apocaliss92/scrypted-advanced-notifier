@@ -780,7 +780,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }
         }
 
-        if (closestStream) {
+        if (closestStream?.destinations?.[0]) {
             this.decoderStream = closestStream.destinations[0];
             this.decoderResize = ((closestStream.video.width ?? 0) - SNAPSHOT_WIDTH) > 200;
             const streamName = closestStream?.name;
