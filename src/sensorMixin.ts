@@ -2,11 +2,12 @@ import sdk, { EventListenerRegister, MediaObject, Setting, Settings, SettingValu
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep } from "lodash";
-import { getBaseLogger, getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
+import { getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, reportSensorValues, setupSensorAutodiscovery, subscribeToSensorMqttTopics } from "./mqtt-utils";
 import { BinarySensorMetadata, binarySensorMetadataMap, cameraFilter, convertSettingsToStorageSettings, DetectionRule, DeviceInterface, getActiveRules, getDetectionRulesSettings, GetImageReason, getMixinBaseSettings, getRuleKeys, MixinBaseSettingKey, RuleSource, RuleType, ScryptedEventSource, splitRules, SupportedSensorType } from "./utils";
+import { DetectionClass } from "./detectionClasses";
 
 const { systemManager } = sdk;
 
@@ -342,10 +343,22 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                     return;
                 }
 
-                const image = (await mixinDevice.getImage({
+                const { image, b64Image } = (await mixinDevice.getImage({
                     image: imageParent,
                     reason: GetImageReason.Sensor,
-                }))?.image;
+                }));
+
+                const { device: cameraDevice } = await this.plugin.getLinkedCamera(this.id);
+                this.plugin.storeEventImage({
+                    b64Image,
+                    detections: [{ className: DetectionClass.Sensor, score: 1 }],
+                    device: cameraDevice,
+                    triggerDevice: this.sensorDevice,
+                    eventSource: ScryptedEventSource.RawDetection,
+                    logger,
+                    timestamp: triggerTime,
+                    image,
+                }).catch(logger.error);
 
                 const rules = cloneDeep(this.runningDetectionRules);
                 for (const rule of rules) {
@@ -362,7 +375,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                         triggerTime,
                         rule,
                         image,
-                    });
+                    }).catch(logger.error);
                 }
             }
 

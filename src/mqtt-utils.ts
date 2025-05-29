@@ -3,7 +3,7 @@ import { cloneDeep, groupBy, uniq } from 'lodash';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 import { OccupancyRuleData } from './cameraMixin';
 import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection, parentDetectionClassMap } from './detectionClasses';
-import { BaseRule, getB64ImageLog, isDetectionRule, RuleSource, RuleType, safeParseJson, toKebabCase, toSnakeCase, toTitleCase } from './utils';
+import { BaseRule, getB64ImageLog, ImageSource, isDetectionRule, RuleSource, RuleType, safeParseJson, toKebabCase, toSnakeCase, toTitleCase } from './utils';
 
 export enum MqttEntityIdentifier {
     Triggered = 'Triggered',
@@ -1439,6 +1439,7 @@ export const publishPeopleData = async (props: {
     faces: string[],
     b64Image?: string,
     room?: string,
+    imageSource: ImageSource
 }) => {
     const {
         mqttClient,
@@ -1446,6 +1447,7 @@ export const publishPeopleData = async (props: {
         room,
         b64Image,
         faces,
+        imageSource,
     } = props;
 
     if (!mqttClient) {
@@ -1462,7 +1464,7 @@ export const publishPeopleData = async (props: {
                 let value: any;
 
                 if (identifier === MqttEntityIdentifier.LastImage && b64Image) {
-                    console.log(`Person ${face} found in ${room}, image ${getB64ImageLog(b64Image)}`);
+                    console.log(`Person ${face} found in ${room}, image found from ${imageSource}`);
                     value = b64Image || null;
                 } else if (identifier === MqttEntityIdentifier.PersonRoom && room) {
                     value = room;

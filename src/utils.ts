@@ -404,14 +404,6 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
     }
 }
 
-export enum NotificationSource {
-    NVR = 'NVR',
-    TEST = 'TEST',
-    POST_WEBHOOK = 'POST_WEBHOOK',
-    DETECTION = 'DETECTION',
-    TIMELAPSE = 'TIMELAPSE',
-}
-
 export const filterAndSortValidDetections = (props: {
     detections: ObjectDetectionResult[],
     logger: Console,

@@ -1,0 +1,1 @@
+if('serviceWorker' in navigator) {window.addEventListener('load', () => {navigator.serviceWorker.register('/endpoint/@apocaliss92/scrypted-advanced-notifier/public/app/sw.js', { scope: '/endpoint/@apocaliss92/scrypted-advanced-notifier/public/app/' })})}

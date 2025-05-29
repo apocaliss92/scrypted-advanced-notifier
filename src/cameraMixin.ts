@@ -1368,6 +1368,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const forceLatest = [
             GetImageReason.MotionUpdate,
+            GetImageReason.FromFrigate,
         ].includes(reason);
         const preferLatest = [
             GetImageReason.RulesRefresh,
@@ -1378,7 +1379,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             GetImageReason.Notification,
         ].includes(reason);
         const tryDetector = !!detectionId && !!eventId;
-        const snapshotTimeout = reason === GetImageReason.RulesRefresh ? 10000 : this.currentSnapshotTimeout;
+        const snapshotTimeout =
+            reason === GetImageReason.RulesRefresh ? 10000 : this.currentSnapshotTimeout;
         const decoderRunning = !this.framesGeneratorSignal.finished;
 
         let logPayload: any = {
@@ -1477,28 +1479,26 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }
         };
 
-        const enableFrigateSnapshots = true;
         try {
             if (reason === GetImageReason.FromFrigate) {
-                if (enableFrigateSnapshots) {
-                    if (!this.plugin.frigateApi || !detectionId) {
-                        logger.info(`Frigate API or detection id not available: ${detectionId}`);
-                    } else {
-                        try {
-                            const endpoint = `${this.plugin.frigateApi}/events/${detectionId}/snapshot.jpg`;
-                            logger.info(`Fetching Frigate image for event ${detectionId} from ${endpoint}`);
-                            const imageBuf = await axios.get(endpoint, { responseType: 'arraybuffer' });
-                            image = await sdk.mediaManager.createMediaObject(imageBuf.data, 'image/jpeg');
-                            imageSource = ImageSource.Frigate;
-                        } catch (e) {
-                            logger.log(`Error trying to fetch frigate image ${detectionId}`, e.message);
-                        }
+                if (!this.plugin.frigateApi || !detectionId) {
+                    logger.info(`Frigate API or detection id not available: ${detectionId}`);
+                } else {
+                    try {
+                        const endpoint = `${this.plugin.frigateApi}/events/${detectionId}/snapshot.jpg`;
+                        logger.info(`Fetching Frigate image for event ${detectionId} from ${endpoint}`);
+                        const imageBuf = await axios.get(endpoint, { responseType: 'arraybuffer' });
+                        image = await sdk.mediaManager.createMediaObject(imageBuf.data, 'image/jpeg');
+                        imageSource = ImageSource.Frigate;
+                    } catch (e) {
+                        logger.log(`Error trying to fetch frigate image ${detectionId}`, e.message);
                     }
                 }
             }
+
             if (!image) {
                 let runners = [];
-                const checkLatest = findFromLatest(reason === GetImageReason.MotionUpdate ? 5000 : 2000);
+                const checkLatest = findFromLatest(forceLatest ? 5000 : 2000);
                 const checkVeryRecent = findFromLatest(200);
                 const checkSnapshot = findFromSnapshot(forceSnapshot, snapshotTimeout);
                 const checkDetector = findFromDetector();
@@ -2572,13 +2572,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             ignoreCameraDetections,
         } = this.storageSettings.values;
 
-        const { candidates, isSensorEvent, facesFound } = filterAndSortValidDetections({
+        const { candidates, facesFound } = filterAndSortValidDetections({
             detections: detections ?? [],
             logger,
             consumedDetectionIdsSet: new Set(),
         });
 
-        const canPickImageRightAway = !isRawDetection || isSensorEvent;
+        const canPickImageRightAway = !isRawDetection;
         const canUpdateMqttImage = canPickImageRightAway && detectionSourceForMqtt === eventSource;
 
         eventDetails && this.processDetectionsInterval && this.accumulatedDetections.push({
@@ -2595,9 +2595,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let imageSource: ImageSource;
 
         try {
-            // The MQTT image should be updated only if:
-            // - the image comes already from NVR and the user wants MQTT detections to be used
-
             if (canPickImageRightAway) {
                 const classnamesLog = getDetectionsLog(detections)
                 const { b64Image: b64ImageNew, image: imageNew, imageSource: imageSourceNew } = await this.getImage({
@@ -2610,7 +2607,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 b64Image = b64ImageNew;
                 imageSource = imageSourceNew;
 
-                logger.log(`${eventSource} detections received, classnames ${classnamesLog}. b64Image ${getB64ImageLog(b64Image)} from ${imageSource}`);
+                logger.log(`${eventSource} detections received, classnames ${classnamesLog}. image from ${imageSource}`);
             }
 
             if (this.isActiveForMqttReporting) {
@@ -2634,7 +2631,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         );
 
                         if (spamBlockedDetections.length) {
-                            logger.log(`Triggering basic detections ${getDetectionsLog(spamBlockedDetections)}`);
+                            const isOnlyMotion = spamBlockedDetections?.length === 1 && spamBlockedDetections[0].className === DetectionClass.Motion;
+                            logger[isOnlyMotion ? 'info' : 'log'](`Triggering basic detections ${getDetectionsLog(spamBlockedDetections)}`);
 
                             for (const detection of spamBlockedDetections) {
                                 const { className, label } = detection;
@@ -2687,7 +2685,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             console: logger,
                             faces: facesFound,
                             b64Image,
-                            room: this.cameraDevice.room
+                            room: this.cameraDevice.room,
+                            imageSource,
                         }).catch(logger.error);
                     }
                 }
@@ -2704,7 +2703,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }).catch(logger.log);
 
             if (
-                (eventSource !== ScryptedEventSource.RawDetection || isSensorEvent) &&
+                (eventSource !== ScryptedEventSource.RawDetection) &&
                 b64Image &&
                 this.plugin.storageSettings.values.storeEvents
             ) {
@@ -2955,20 +2954,31 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             this.binaryListener = systemManager.listenDevice(this.id, {
                 event: ScryptedInterface.BinarySensor,
             }, async (_, __, data) => {
-                const timestamp = Date.now();
+                const now = Date.now();
 
                 if (data) {
-                    const { image, imageSource } = await this.getImage({ reason: GetImageReason.Sensor });
+                    const { image, imageSource, b64Image } = await this.getImage({ reason: GetImageReason.Sensor });
+                    logger.log(`Doorbell event detected, image found ${imageSource}`);
                     const detections: ObjectDetectionResult[] = [{
                         className: DetectionClass.Doorbell,
                         score: 1,
                     }];
-                    logger.log(`Doorbell event detected, image found ${imageSource}`);
+
                     this.processDetections({
-                        detect: { timestamp, detections },
+                        detect: { timestamp: now, detections },
                         eventSource: ScryptedEventSource.RawDetection,
                         image,
                     }).catch(logger.log);
+
+                    this.plugin.storeEventImage({
+                        b64Image,
+                        detections: [{ className: DetectionClass.Doorbell, score: 1 }],
+                        device: this.cameraDevice,
+                        eventSource: ScryptedEventSource.RawDetection,
+                        logger,
+                        timestamp: now,
+                        image,
+                    }).catch(logger.error);
                 } else {
                     this.resetDetectionEntities({
                         resetSource: 'MotionSensor',
@@ -3046,7 +3056,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const mqttClient = await this.getMqttClient();
 
         const funct = async () => {
-            logger.log(`Resetting basic detections ${classnames ?? 'All'}, signal coming from ${resetSource}`);
+            const isOnlyMotion = classnames?.length === 1 && classnames[0] === DetectionClass.Motion;
+            logger[isOnlyMotion ? 'info' : 'log'](`Resetting basic detections ${classnames ?? 'All'}, signal coming from ${resetSource}`);
 
             await publishResetDetectionsEntities({
                 mqttClient,
