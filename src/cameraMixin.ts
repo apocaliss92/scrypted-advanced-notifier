@@ -11,7 +11,6 @@ import { FrigateObjectDetection, objectDetectorNativeId } from '../../scrypted-f
 import { RtpPacket } from "../../scrypted/external/werift/packages/rtp/src/rtp/rtp";
 import { startRtpForwarderProcess } from '../../scrypted/plugins/webrtc/src/rtp-forwarders';
 import { Deferred } from "../../scrypted/server/src/deferred";
-import { name as pluginName } from '../package.json';
 import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, isFaceClassname, isObjectClassname, isPlateClassname, levenshteinDistance } from "./detectionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, publishAudioPressureValue, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
@@ -312,6 +311,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     rtspUrl: string;
     decoderStream: MediaStreamDestination;
     decoderResize: boolean;
+    checkingOutatedRules: boolean;
 
     accumulatedDetections: AccumulatedDetection[] = [];
     accumulatedRules: MatchRule[] = [];
@@ -350,7 +350,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const basicObjectDetector = systemManager.getDeviceById('@apocaliss92/scrypted-basic-object-detector')?.id;
         const frigateObjectDetector = systemManager.getDeviceById('@apocaliss92/scrypted-frigate-bridge', objectDetectorNativeId)?.id;
         const nvrId = systemManager.getDeviceById('@scrypted/nvr')?.id;
-        const advancedNotifierId = systemManager.getDeviceById(pluginName)?.id;
         let shouldBeMoved = false;
         const thisMixinOrder = this.mixins.indexOf(this.plugin.id);
 
@@ -370,8 +369,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         if (shouldBeMoved) {
             logger.log('This plugin needs object detection and NVR plugins to come before, fixing');
             setTimeout(() => {
-                const currentMixins = this.mixins.filter(mixin => mixin !== advancedNotifierId);
-                currentMixins.push(advancedNotifierId);
+                const currentMixins = this.mixins.filter(mixin => mixin !== this.plugin.id);
+                currentMixins.push(this.plugin.id);
                 this.cameraDevice.setMixins(currentMixins);
             }, 1000);
         }
@@ -472,7 +471,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     allowedOccupancyRules,
                     allowedTimelapseRules,
                     availableTimelapseRules,
-                    shouldListenDetections,
+                    shouldListenDetections: shouldListenDetectionsParent,
                     shouldListenAudio,
                     isActiveForMqttReporting,
                     anyAllowedNvrDetectionRule,
@@ -484,6 +483,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     deviceStorage: this.storageSettings
                 });
                 const shouldListenDoorbell = shouldListenDoorbellFromRules || this.cameraDevice.type === ScryptedDeviceType.Doorbell;
+                const shouldListenDetections = shouldListenDetectionsParent || this.plugin.storageSettings.values.storeEvents;
 
                 const currentlyRunningRules = [
                     ...this.runningDetectionRules,
@@ -1382,6 +1382,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const snapshotTimeout =
             reason === GetImageReason.RulesRefresh ? 10000 : this.currentSnapshotTimeout;
         const decoderRunning = !this.framesGeneratorSignal.finished;
+        const forceDecoder = reason === GetImageReason.RulesRefresh;
 
         let logPayload: any = {
             decoderRunning,
@@ -1392,7 +1393,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             forceLatest,
             forceSnapshot,
             tryDetector,
-            snapshotTimeout
+            snapshotTimeout,
+            forceDecoder,
         };
 
         const findFromDetector = () => async () => {
@@ -1443,7 +1445,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const findFromDecoder = () => async () => {
             const isRecent = this.lastFrameAcquired && (msPassedFromDecoder) <= 500;
 
-            if (decoderRunning && this.lastFrame && isRecent) {
+            if (this.lastFrame && (forceDecoder || (decoderRunning && isRecent))) {
                 const mo = await sdk.mediaManager.createMediaObject(this.lastFrame, 'image/jpeg');
                 if (this.decoderResize) {
                     const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(mo, ScryptedMimeTypes.Image);
@@ -1480,22 +1482,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         };
 
         try {
-            if (reason === GetImageReason.FromFrigate) {
-                if (!this.plugin.frigateApi || !detectionId) {
-                    logger.info(`Frigate API or detection id not available: ${detectionId}`);
-                } else {
-                    try {
-                        const endpoint = `${this.plugin.frigateApi}/events/${detectionId}/snapshot.jpg`;
-                        logger.info(`Fetching Frigate image for event ${detectionId} from ${endpoint}`);
-                        const imageBuf = await axios.get(endpoint, { responseType: 'arraybuffer' });
-                        image = await sdk.mediaManager.createMediaObject(imageBuf.data, 'image/jpeg');
-                        imageSource = ImageSource.Frigate;
-                    } catch (e) {
-                        logger.log(`Error trying to fetch frigate image ${detectionId}`, e.message);
-                    }
-                }
-            }
-
             if (!image) {
                 let runners = [];
                 const checkLatest = findFromLatest(forceLatest ? 5000 : 2000);
@@ -1509,6 +1495,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     runners = [
                         checkVeryRecent,
                         checkLatest
+                    ];
+                } else if (reason === GetImageReason.FromFrigate) {
+                    runners = [
+                        checkDetector
                     ];
                 } else if (reason === GetImageReason.AccumulatedDetections) {
                     runners = [
@@ -1568,7 +1558,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 imageFound: !!image
             };
             logger.info(`Image found from ${imageSource} for reason ${reason} lastSnapshotMs ${msPassedFromSnapshot} lastDecoderMs ${msPassedFromDecoder}`);
-            logger.debug(logPayload);
+            logger.info(logPayload);
             if (!imageParent && image && b64Image) {
                 this.lastImage = image;
                 this.lastB64Image = b64Image;
@@ -1641,77 +1631,88 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async checkOutdatedRules() {
+        if (this.checkingOutatedRules) {
+            return;
+        }
+
+        this.checkingOutatedRules = true;
         const now = new Date().getTime();
         const logger = this.getLogger();
 
-        const anyOutdatedOccupancyRule = this.runningOccupancyRules.some(rule => {
-            const { forceUpdate, name } = rule;
-            const currentState = this.occupancyState[name];
-            const shouldForceFrame = !currentState ||
-                (now - (currentState?.lastCheck ?? 0)) >= (1000 * forceUpdate) ||
-                (currentState.occupancyToConfirm != undefined && !!currentState.confirmationStart);
+        try {
+            const anyOutdatedOccupancyRule = this.runningOccupancyRules.some(rule => {
+                const { forceUpdate, name } = rule;
+                const currentState = this.occupancyState[name];
+                const shouldForceFrame = !currentState ||
+                    (now - (currentState?.lastCheck ?? 0)) >= (1000 * forceUpdate) ||
+                    (currentState.occupancyToConfirm != undefined && !!currentState.confirmationStart);
 
-            const isMotionOk = this.cameraDevice.motionDetected ||
-                !this.lastMotionEnd ||
-                (now - this.lastMotionEnd) > 1000 * 10;
+                const isMotionOk = this.cameraDevice.motionDetected ||
+                    !this.lastMotionEnd ||
+                    (now - this.lastMotionEnd) > 1000 * 10;
 
-            if (!this.occupancyState[name]) {
-                const initState: CurrentOccupancyState = getInitOccupancyState(rule);
-                logger.log(`Initializing occupancy data for rule ${name} to ${JSON.stringify(initState)}`);
-                this.occupancyState[name] = initState;
-            }
-
-            logger.info(`Should force occupancy data update: ${JSON.stringify({
-                shouldForceFrame,
-                isMotionOk,
-                lastCheck: currentState?.lastCheck,
-                forceUpdate,
-                now,
-                name
-            })}`);
-
-            return shouldForceFrame && isMotionOk;
-        }) || this.storageSettings.values.checkOccupancy;
-
-        const timelapsesToRefresh = (this.runningTimelapseRules || []).filter(rule => {
-            const { regularSnapshotInterval, name } = rule;
-            const lastCheck = this.timelapseLastCheck[name];
-            const shouldForceFrame = !lastCheck || (now - (lastCheck ?? 0)) >= (1000 * regularSnapshotInterval);
-
-            logger.info(`Should force timelapse frame: ${JSON.stringify({
-                shouldForceFrame,
-                lastCheck,
-                regularSnapshotInterval,
-                now,
-                name
-            })}`);
-
-            return shouldForceFrame;
-        });
-
-        const anyTimelapseToRefresh = !!timelapsesToRefresh.length;
-
-        if (anyOutdatedOccupancyRule || anyTimelapseToRefresh) {
-            const { image, b64Image, imageSource } = await this.getImage({ reason: GetImageReason.RulesRefresh });
-            if (image && b64Image) {
-                if (anyOutdatedOccupancyRule) {
-                    this.checkOccupancyData({ image, b64Image, source: 'MainFlow' }).catch(logger.log);
+                if (!this.occupancyState[name]) {
+                    const initState: CurrentOccupancyState = getInitOccupancyState(rule);
+                    logger.log(`Initializing occupancy data for rule ${name} to ${JSON.stringify(initState)}`);
+                    this.occupancyState[name] = initState;
                 }
 
-                if (anyTimelapseToRefresh) {
-                    for (const rule of timelapsesToRefresh) {
-                        logger.log(`Adding regular frame from ${imageSource} to the timelapse rule ${rule.name}`);
-                        this.plugin.storeTimelapseFrame({
-                            imageMo: image,
-                            timestamp: now,
-                            device: this.cameraDevice,
-                            rule: rule as TimelapseRule
-                        }).catch(logger.log);
+                logger.info(`Should force occupancy data update: ${JSON.stringify({
+                    shouldForceFrame,
+                    isMotionOk,
+                    lastCheck: currentState?.lastCheck,
+                    forceUpdate,
+                    now,
+                    name
+                })}`);
 
-                        this.timelapseLastCheck[rule.name] = now;
+                return shouldForceFrame && isMotionOk;
+            }) || this.storageSettings.values.checkOccupancy;
+
+            const timelapsesToRefresh = (this.runningTimelapseRules || []).filter(rule => {
+                const { regularSnapshotInterval, name } = rule;
+                const lastCheck = this.timelapseLastCheck[name];
+                const shouldForceFrame = !lastCheck || (now - (lastCheck ?? 0)) >= (1000 * regularSnapshotInterval);
+
+                logger.info(`Should force timelapse frame: ${JSON.stringify({
+                    shouldForceFrame,
+                    lastCheck,
+                    regularSnapshotInterval,
+                    now,
+                    name
+                })}`);
+
+                return shouldForceFrame;
+            });
+
+            const anyTimelapseToRefresh = !!timelapsesToRefresh.length;
+
+            if (anyOutdatedOccupancyRule || anyTimelapseToRefresh) {
+                const { image, b64Image, imageSource } = await this.getImage({ reason: GetImageReason.RulesRefresh });
+                if (image && b64Image) {
+                    if (anyOutdatedOccupancyRule) {
+                        this.checkOccupancyData({ image, b64Image, source: 'MainFlow' }).catch(logger.log);
+                    }
+
+                    if (anyTimelapseToRefresh) {
+                        for (const rule of uniqBy(timelapsesToRefresh, rule => rule.name)) {
+                            logger.log(`Adding regular frame from ${imageSource} to the timelapse rule ${rule.name}`);
+                            this.plugin.storeTimelapseFrame({
+                                imageMo: image,
+                                timestamp: now,
+                                device: this.cameraDevice,
+                                rule: rule as TimelapseRule
+                            }).catch(logger.log);
+
+                            this.timelapseLastCheck[rule.name] = now;
+                        }
                     }
                 }
             }
+        } catch (e) {
+            logger.log(`Error during checkOutdatedRules`, e);
+        } finally {
+            this.checkingOutatedRules = false;
         }
     }
 
@@ -2537,7 +2538,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const timePassed = !lastSetTime || !minDelayInSeconds ? true : (referenceTime - lastSetTime) >= (minDelayInSeconds * 1000);
         const lastSetInSeconds = lastSetTime ? (referenceTime - lastSetTime) / 1000 : undefined;
 
-        this.getLogger().info(`Is delay passed for ${delayKey}: ${timePassed}, last set ${lastSetInSeconds}. ${JSON.stringify(props)}`);
+        this.getLogger().debug(`Is delay passed for ${delayKey}: ${timePassed}, last set ${lastSetInSeconds}. ${JSON.stringify(props)}`);
         if (timePassed) {
             this.lastDelaySet[delayKey] = referenceTime;
         }

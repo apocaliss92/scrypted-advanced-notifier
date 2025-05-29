@@ -16,9 +16,11 @@ export type DbDetectionEvent = {
   label?: string;
   thumbnailUrl: string;
   imageUrl: string;
+  videoUrl?: string;
   source: ScryptedEventSource;
   deviceName: string;
   sensorName?: string;
+  sourceId?: string;
 }
 
 export const cleanupEvents = async (props: { logger: Console }) => {

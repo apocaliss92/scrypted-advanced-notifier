@@ -1,4 +1,4 @@
-import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, Image, MediaObject, MixinProvider, NotificationAction, Notifier, NotifierOptions, ObjectDetectionResult, PushHandler, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, Image, LauncherApplication, MediaObject, MixinProvider, NotificationAction, Notifier, NotifierOptions, ObjectDetectionResult, PushHandler, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
 import child_process from 'child_process';
@@ -65,7 +65,7 @@ export type PluginSettingKey =
     | BaseSettingsKey
     | TextSettingKey;
 
-export default class AdvancedNotifierPlugin extends BasePlugin implements MixinProvider, HttpRequestHandler, DeviceProvider, PushHandler {
+export default class AdvancedNotifierPlugin extends BasePlugin implements MixinProvider, HttpRequestHandler, DeviceProvider, PushHandler, LauncherApplication {
     initStorage: StorageSettingsDict<PluginSettingKey> = {
         ...getBaseSettings({
             onPluginSwitch: async (_, enabled) => {
@@ -387,6 +387,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             pluginFriendlyName: 'Advanced notifier'
         });
 
+        this.applicationInfo = {
+            name: 'Advanced Notifier',
+            description: 'Events viewer',
+            icon: 'fa-play',
+            href: '/endpoint/@apocaliss92/scrypted-advanced-notifier/public/app',
+            cloudHref: '/endpoint/@apocaliss92/scrypted-advanced-notifier/public/app',
+        }
         this.startStop(this.storageSettings.values.pluginEnabled).then().catch(this.getLogger().log);
     }
 
@@ -611,7 +618,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         cameras,
                         eventDays,
                         enabledDetectionSources: this.enabledDetectionSources,
-                        // enabledDetectionSources: this.enabledDetectionSources.filter(source => source !== ScryptedEventSource.RawDetection),
+                        nvrUrl: this.storageSettings.values.nvrUrl,
                     }), {
                         code: 200,
                         headers: {

@@ -114,7 +114,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             const {
                 allowedDetectionRules,
                 availableDetectionRules,
-                shouldListenDetections,
+                shouldListenDetections: shouldListenDetectionsParent,
                 hasClips
             } = await getActiveRules({
                 device: this,
@@ -149,6 +149,8 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             this.hasVideoclipRules = hasClips;
 
             const isCurrentlyRunning = !!this.detectionListener;
+
+            const shouldListenDetections = shouldListenDetectionsParent || this.plugin.storageSettings.values.storeEvents;
 
             if (isCurrentlyRunning && !shouldListenDetections) {
                 logger.log('Stopping and cleaning listeners.');
@@ -342,7 +344,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 if (!mixinDevice) {
                     return;
                 }
-                
+
                 const { image, b64Image } = (await mixinDevice.getImage({
                     image: imageParent,
                     reason: GetImageReason.Sensor,

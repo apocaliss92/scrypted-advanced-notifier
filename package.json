@@ -44,6 +44,7 @@
       "MixinProvider",
       "HttpRequestHandler",
       "Videoclips",
+      "LauncherApplication",
       "PushHandler"
     ],
     "pluginDependencies": []
