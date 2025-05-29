@@ -610,7 +610,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     response.send(JSON.stringify({
                         cameras,
                         eventDays,
-                        enabledDetectionSources: this.enabledDetectionSources.filter(source => source !== ScryptedEventSource.RawDetection),
+                        enabledDetectionSources: this.enabledDetectionSources,
+                        // enabledDetectionSources: this.enabledDetectionSources.filter(source => source !== ScryptedEventSource.RawDetection),
                     }), {
                         code: 200,
                         headers: {
@@ -730,7 +731,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 logger.info(JSON.stringify({
                     fileId: deviceIdOrAction,
                 }));
-                logger.log(deviceIdOrAction)
 
                 const mo = await this.camera.getVideoClipThumbnail(deviceIdOrAction);
                 const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');

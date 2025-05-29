@@ -248,11 +248,8 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
 
             logger.info('Fetching thumbnail ', fileId, snapshotPath);
 
-            const fileURLToPath = `file://${snapshotPath}`;
-            const mo = await sdk.mediaManager.createMediaObjectFromUrl(fileURLToPath);
-            // const thumbnailMo = await sdk.mediaManager.createMediaObjectFromUrl(fileURLToPath);
-            // const buf = await sdk.mediaManager.convertMediaObjectToBuffer(thumbnailMo, 'image/jpeg');
-            // const mo = await sdk.mediaManager.createMediaObject(buf, 'image/jpeg')
+            const imageBuf = await fs.promises.readFile(snapshotPath);
+            const mo = await sdk.mediaManager.createMediaObject(imageBuf, 'image/jpeg');
 
             return mo;
         } catch (e) {
