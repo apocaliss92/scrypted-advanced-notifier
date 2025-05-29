@@ -339,10 +339,10 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
                 const mixinDevice = this.plugin.currentCameraMixinsMap[device.id];
 
-                if (!this.runningDetectionRules.length || !mixinDevice) {
+                if (!mixinDevice) {
                     return;
                 }
-
+                
                 const { image, b64Image } = (await mixinDevice.getImage({
                     image: imageParent,
                     reason: GetImageReason.Sensor,
@@ -359,6 +359,10 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                     timestamp: triggerTime,
                     image,
                 }).catch(logger.error);
+
+                if (!this.runningDetectionRules.length) {
+                    return;
+                }
 
                 const rules = cloneDeep(this.runningDetectionRules);
                 for (const rule of rules) {
