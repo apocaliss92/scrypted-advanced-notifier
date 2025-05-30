@@ -128,14 +128,6 @@ const getBasicMqttEntities = () => {
         retain: false,
         icon: 'mdi:bell'
     };
-    const audioDetectionEnabledEntity: MqttEntity = {
-        domain: 'switch',
-        entity: 'audio_detection_enabled',
-        name: 'Audio detection enabled',
-        entityCategory: 'diagnostic',
-        retain: false,
-        icon: 'mdi:microphone-variant'
-    };
     const occupancyCheckEnabledEntity: MqttEntity = {
         domain: 'switch',
         entity: 'occupancy_check_enabled',
@@ -238,7 +230,6 @@ const getBasicMqttEntities = () => {
         batteryEntity,
         sleepingEntity,
         notificationsEnabledEntity,
-        audioDetectionEnabledEntity,
         occupancyCheckEnabledEntity,
         audioPressureEntity,
         onlineEntity,
@@ -820,7 +811,6 @@ export const subscribeToCameraMqttTopics = async (
         console: Console,
         switchRecordingCb?: (active: boolean) => void,
         switchNotificationsEnabledCb: (active: boolean) => void,
-        switchAudioDetectionCb: (active: boolean) => void,
         switchOccupancyCheckCb: (active: boolean) => void,
         rebootCb?: () => void,
         ptzCommandCb?: (command: PanTiltZoomCommand) => void,
@@ -837,7 +827,6 @@ export const subscribeToCameraMqttTopics = async (
         activationRuleCb,
         switchRecordingCb,
         switchNotificationsEnabledCb,
-        switchAudioDetectionCb,
         switchOccupancyCheckCb,
         rebootCb,
         ptzCommandCb,
@@ -876,7 +865,6 @@ export const subscribeToCameraMqttTopics = async (
     }
 
     const {
-        audioDetectionEnabledEntity,
         occupancyCheckEnabledEntity,
         notificationsEnabledEntity,
         ptzDownEntity,
@@ -966,21 +954,6 @@ export const subscribeToCameraMqttTopics = async (
                 }
             });
         }
-    }
-
-    if (switchAudioDetectionCb) {
-        const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: audioDetectionEnabledEntity, device });
-        await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
-            if (messageTopic === commandTopic) {
-                if (message === PAYLOAD_ON) {
-                    switchAudioDetectionCb(true);
-                } else if (message === PAYLOAD_OFF) {
-                    switchAudioDetectionCb(false);
-                }
-
-                await mqttClient.publish(stateTopic, message, audioDetectionEnabledEntity.retain);
-            }
-        });
     }
 
     if (switchOccupancyCheckCb) {
@@ -1171,9 +1144,8 @@ export const setupCameraAutodiscovery = async (props: {
     console: Console,
     rules: BaseRule[],
     occupancyEnabled: boolean,
-    withAudio: boolean,
 }) => {
-    const { device, mqttClient, rules, console, occupancyEnabled, withAudio } = props;
+    const { device, mqttClient, rules, console, occupancyEnabled } = props;
 
     if (!mqttClient) {
         return;
@@ -1188,7 +1160,6 @@ export const setupCameraAutodiscovery = async (props: {
     });
 
     const {
-        audioDetectionEnabledEntity,
         occupancyCheckEnabledEntity,
         audioPressureEntity,
         batteryEntity,
@@ -1204,7 +1175,6 @@ export const setupCameraAutodiscovery = async (props: {
     const mqttEntities = [
         triggeredEntity,
         notificationsEnabledEntity,
-        audioDetectionEnabledEntity,
         ...detectionMqttEntities
     ];
 
@@ -1232,7 +1202,7 @@ export const setupCameraAutodiscovery = async (props: {
         mqttEntities.push(rebootEntity);
     }
 
-    if (withAudio) {
+    if (device.interfaces.includes(ScryptedInterface.AudioVolumeControl)) {
         mqttEntities.push(audioPressureEntity);
     }
 
@@ -1500,31 +1470,6 @@ export const publishPeopleData = async (props: {
     }
 }
 
-export const publishAudioPressureValue = async (props: {
-    mqttClient?: MqttClient,
-    console: Console,
-    device: ScryptedDeviceBase,
-    decibels: number,
-}) => {
-    const { mqttClient, console, device, decibels } = props;
-
-    if (!mqttClient) {
-        return;
-    }
-
-    const {
-        audioPressureEntity,
-    } = getBasicMqttEntities();
-
-    console.info(`Publishing audio update ${decibels}`);
-    try {
-        const { stateTopic } = getMqttTopics({ mqttEntity: audioPressureEntity, device });
-        await mqttClient.publish(stateTopic, decibels, audioPressureEntity.retain);
-    } catch (e) {
-        console.log(`Error publishing audio pressure: ${decibels}`, e);
-    }
-}
-
 export const publishClassnameImages = async (props: {
     mqttClient?: MqttClient,
     device: DeviceInterface,
@@ -1569,7 +1514,6 @@ export const publishCameraValues = async (props: {
     mqttClient?: MqttClient,
     device: ScryptedDeviceBase,
     isRecording?: boolean,
-    checkSoundPressure?: boolean,
     checkOccupancy?: boolean,
     notificationsEnabled: boolean,
     console: Console,
@@ -1584,7 +1528,6 @@ export const publishCameraValues = async (props: {
         rulesToDisable,
         rulesToEnable,
         console,
-        checkSoundPressure,
         checkOccupancy,
     } = props;
 
@@ -1593,13 +1536,13 @@ export const publishCameraValues = async (props: {
     }
 
     const {
-        audioDetectionEnabledEntity,
         occupancyCheckEnabledEntity,
         batteryEntity,
         notificationsEnabledEntity,
         onlineEntity,
         recordingEntity,
         sleepingEntity,
+        audioPressureEntity
     } = getBasicMqttEntities();
 
     if (device) {
@@ -1619,12 +1562,13 @@ export const publishCameraValues = async (props: {
             const { stateTopic } = getMqttTopics({ mqttEntity: recordingEntity, device });
             await mqttClient.publish(stateTopic, isRecording ? PAYLOAD_ON : PAYLOAD_OFF, recordingEntity.retain);
         }
+        if (device.interfaces.includes(ScryptedInterface.AudioVolumeControl)) {
+            const { stateTopic } = getMqttTopics({ mqttEntity: audioPressureEntity, device });
+            await mqttClient.publish(stateTopic, device.audioVolumes?.dBFS, audioPressureEntity.retain);
+        }
 
         const { stateTopic: notificationsEnabledStateTopic } = getMqttTopics({ mqttEntity: notificationsEnabledEntity, device });
         await mqttClient.publish(notificationsEnabledStateTopic, notificationsEnabled ? PAYLOAD_ON : PAYLOAD_OFF, notificationsEnabledEntity.retain);
-
-        const { stateTopic: checkSoundPressureStateTopic } = getMqttTopics({ mqttEntity: audioDetectionEnabledEntity, device });
-        await mqttClient.publish(checkSoundPressureStateTopic, checkSoundPressure ? PAYLOAD_ON : PAYLOAD_OFF, audioDetectionEnabledEntity.retain);
 
         const { stateTopic: occupancyCheckEnabledEntityTopic } = getMqttTopics({ mqttEntity: occupancyCheckEnabledEntity, device });
         await mqttClient.publish(occupancyCheckEnabledEntityTopic, checkOccupancy ? PAYLOAD_ON : PAYLOAD_OFF, occupancyCheckEnabledEntity.retain);

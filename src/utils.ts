@@ -810,18 +810,19 @@ export const getMixinBaseSettings = (props: {
                 choices: [],
                 onPut: async () => await refreshSettings()
             };
-            settings[ruleTypeMetadataMap[RuleType.Audio].rulesKey] = {
-                title: 'Audio rules [DEPRECATED]',
-                description: 'Will be removed and bound to the detection rules',
-                group: mixinRulesGroup,
-                type: 'string',
-                multiple: true,
-                combobox: true,
-                immediate: true,
-                defaultValue: [],
-                choices: [],
-                onPut: async () => await refreshSettings()
-            };
+            if (device.interfaces.includes(ScryptedInterface.AudioVolumeControl)) {
+                settings[ruleTypeMetadataMap[RuleType.Audio].rulesKey] = {
+                    title: 'Audio rules',
+                    group: mixinRulesGroup,
+                    type: 'string',
+                    multiple: true,
+                    combobox: true,
+                    immediate: true,
+                    defaultValue: [],
+                    choices: [],
+                    onPut: async () => await refreshSettings()
+                };
+            }
         }
 
         if (isCamera || isNotifier || isSensor) {
@@ -1408,7 +1409,6 @@ export const getRuleSettings = (props: {
     const isDetectionRule = ruleType === RuleType.Detection;
     const isOccupancyRule = ruleType === RuleType.Occupancy;
     const isAudioRule = ruleType === RuleType.Audio;
-    const { isCamera } = !isPlugin && device ? isDeviceSupported(device) : {};
 
     const rules = storage.getItem(rulesKey);
     for (const ruleName of rules) {
@@ -3042,57 +3042,59 @@ export const getDeviceAudioRules = (
     const availableRules: AudioRule[] = [];
     const allowedRules: AudioRule[] = [];
 
-    const { securitySystem } = pluginStorage.values;
-    const { rulesKey } = ruleTypeMetadataMap[RuleType.Audio];
+    if (device.interfaces.includes(ScryptedInterface.AudioVolumeControl)) {
+        const { securitySystem } = pluginStorage.values;
+        const { rulesKey } = ruleTypeMetadataMap[RuleType.Audio];
 
-    const audioRuleNames = deviceStorage.getItem(rulesKey) ?? [];
-    for (const audioRuleName of audioRuleNames) {
-        const {
-            common: {
-                textKey,
-                minDelayKey,
-            },
-            audio: {
-                decibelThresholdKey,
-                audioDurationKey,
+        const audioRuleNames = deviceStorage.getItem(rulesKey) ?? [];
+        for (const audioRuleName of audioRuleNames) {
+            const {
+                common: {
+                    textKey,
+                    minDelayKey,
+                },
+                audio: {
+                    decibelThresholdKey,
+                    audioDurationKey,
+                }
+            } = getRuleKeys({
+                ruleType: RuleType.Audio,
+                ruleName: audioRuleName,
+            });
+
+            const { rule, basicRuleAllowed } = initBasicRule({
+                ruleName: audioRuleName,
+                ruleSource: RuleSource.Device,
+                ruleType: RuleType.Audio,
+                storage: deviceStorage,
+                securitySystem
+            });
+
+            const customText = deviceStorage.getItem(textKey) as string;
+            const decibelThreshold = deviceStorage.getItem(decibelThresholdKey) as number || 20;
+            const audioDuration = deviceStorage.getItem(audioDurationKey) as number || 0;
+            const minDelay = deviceStorage.getItem(minDelayKey) as number;
+
+            const audioRule: AudioRule = {
+                ...rule,
+                customText,
+                decibelThreshold,
+                audioDuration,
+                minDelay,
+                deviceId: device.id
+            };
+
+
+            console.debug(`Audio rule processed: ${JSON.stringify({
+                audioRule,
+                basicRuleAllowed,
+            })}`);
+
+            availableRules.push(cloneDeep(audioRule));
+
+            if (basicRuleAllowed) {
+                allowedRules.push(audioRule);
             }
-        } = getRuleKeys({
-            ruleType: RuleType.Audio,
-            ruleName: audioRuleName,
-        });
-
-        const { rule, basicRuleAllowed } = initBasicRule({
-            ruleName: audioRuleName,
-            ruleSource: RuleSource.Device,
-            ruleType: RuleType.Audio,
-            storage: deviceStorage,
-            securitySystem
-        });
-
-        const customText = deviceStorage.getItem(textKey) as string;
-        const decibelThreshold = deviceStorage.getItem(decibelThresholdKey) as number || 20;
-        const audioDuration = deviceStorage.getItem(audioDurationKey) as number || 0;
-        const minDelay = deviceStorage.getItem(minDelayKey) as number;
-
-        const audioRule: AudioRule = {
-            ...rule,
-            customText,
-            decibelThreshold,
-            audioDuration,
-            minDelay,
-            deviceId: device.id
-        };
-
-
-        console.debug(`Audio rule processed: ${JSON.stringify({
-            audioRule,
-            basicRuleAllowed,
-        })}`);
-
-        availableRules.push(cloneDeep(audioRule));
-
-        if (basicRuleAllowed) {
-            allowedRules.push(audioRule);
         }
     }
 
@@ -3367,30 +3369,6 @@ export const binarySensorMetadataMap: Record<SupportedSensorType, BinarySensorMe
         interface: ScryptedInterface.FloodSensor,
         isActiveFn: (device, value) => !!(device?.flooded ?? value),
     },
-}
-
-export const getDecibelsFromRtp_PCMU8 = (rtpPacket: Buffer, logger: Console) => {
-    const RTP_HEADER_SIZE = 12;
-    if (rtpPacket.length <= RTP_HEADER_SIZE) return null;
-
-    const payload = rtpPacket.slice(RTP_HEADER_SIZE);
-    const sampleCount = payload.length;
-    if (sampleCount === 0) return null;
-
-    let sumSquares = 0;
-    for (let i = 0; i < payload.length; i++) {
-        const sample = payload[i];
-        const centered = sample - 128;
-        const normalized = centered / 128;
-        sumSquares += normalized * normalized;
-    }
-
-    const rms = Math.sqrt(sumSquares / sampleCount);
-    const db = 20 * Math.log10(rms || 0.00001);
-
-    logger.debug(`Audio detections: ${JSON.stringify({ sumSquares, rms, db })}`);
-
-    return db;
 }
 
 export const toKebabCase = (str: string) => str
