@@ -1406,9 +1406,13 @@ export const publishBasicDetectionData = async (props: {
     const objectTypes = await device.getObjectTypes();
 
     try {
-        const detectionClass = objectTypes.classes.includes(detection.className) ?
+        let detectionClass = objectTypes.classes.includes(detection.className) ?
             detection.className :
             detectionClassesDefaultMap[detection.className];
+
+        if (isAudioClassname(detection.className) && detection.label) {
+            detectionClass = detection.label
+        }
 
         if (detectionClass) {
             const parentClass = parentDetectionClassMap[detectionClass];
@@ -1523,7 +1527,7 @@ export const publishAudioPressureValue = async (props: {
 
 export const publishClassnameImages = async (props: {
     mqttClient?: MqttClient,
-    device: ScryptedDeviceBase,
+    device: DeviceInterface,
     console: Console,
     triggerTime: number,
     classnamesData?: ObjectDetectionResult[],
@@ -1536,10 +1540,18 @@ export const publishClassnameImages = async (props: {
         return;
     }
     console.info(`Publishing image for classnames: ${classnamesData.map(data => data.className).join(', ')}`);
+    const objectTypes = await device.getObjectTypes();
 
     try {
-        for (const { className } of classnamesData) {
-            const detectionClass = detectionClassesDefaultMap[className];
+        for (const { className, label } of classnamesData) {
+            let detectionClass = objectTypes.classes.includes(className) ?
+                className :
+                detectionClassesDefaultMap[className];
+
+            if (isAudioClassname(className) && label) {
+                detectionClass = label
+            }
+
             if (detectionClass) {
                 const mqttEntity = getClassMqttEntities([detectionClass]).find(entry => entry.identifier === MqttEntityIdentifier.LastImage);
                 const { stateTopic } = getMqttTopics({ mqttEntity, device });
