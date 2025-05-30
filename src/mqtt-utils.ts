@@ -1,9 +1,9 @@
 import sdk, { Notifier, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoomCommand, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SecuritySystemMode } from '@scrypted/sdk';
-import { cloneDeep, groupBy, uniq } from 'lodash';
+import { cloneDeep, uniq } from 'lodash';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 import { OccupancyRuleData } from './cameraMixin';
-import { defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isLabelDetection, parentDetectionClassMap } from './detectionClasses';
-import { BaseRule, getB64ImageLog, ImageSource, isDetectionRule, RuleSource, RuleType, safeParseJson, toKebabCase, toSnakeCase, toTitleCase } from './utils';
+import { DetectionClass, detectionClassesDefaultMap, isAudioClassname, isFaceClassname, isLabelDetection, parentDetectionClassMap } from './detectionClasses';
+import { BaseRule, DeviceInterface, ImageSource, isDetectionRule, RuleSource, RuleType, safeParseJson, toKebabCase, toSnakeCase, toTitleCase } from './utils';
 
 export enum MqttEntityIdentifier {
     Triggered = 'Triggered',
@@ -27,7 +27,7 @@ interface MqttEntity {
     entity: 'triggered' | 'lastImage' | 'lastClassname' | 'lastZones' | 'lastLabel' | string;
     domain: 'sensor' | 'binary_sensor' | 'image' | 'switch' | 'button' | 'select' | 'alarm_control_panel';
     name: string;
-    className?: DetectionClass,
+    className?: string,
     key?: string,
     deviceClass?: string,
     icon?: string;
@@ -356,8 +356,9 @@ export const getMqttAutodiscoveryConfiguration = async (props: {
 const lastDetectionSuffix = '_last_detection';
 const lastImageSuffix = '_last_image';
 
-const deviceClassMqttEntities: MqttEntity[] = defaultDetectionClasses.flatMap(className => {
+const getClassMqttEntities = (classes: string[]) => classes.flatMap(className => {
     const parsedClassName = toTitleCase(className);
+    const isAudio = isAudioClassname(className);
     const entries: MqttEntity[] = [
         {
             entity: `${className}_detected`,
@@ -365,7 +366,7 @@ const deviceClassMqttEntities: MqttEntity[] = defaultDetectionClasses.flatMap(cl
             domain: 'binary_sensor',
             className,
             valueToDispatch: PAYLOAD_OFF,
-            deviceClass: 'motion',
+            deviceClass: isAudio ? 'sound' : 'motion',
             identifier: MqttEntityIdentifier.Detected
         },
         {
@@ -399,7 +400,7 @@ const deviceClassMqttEntities: MqttEntity[] = defaultDetectionClasses.flatMap(cl
         });
     }
 
-    if (detectionClassForObjectsReporting.includes(className)) {
+    if (detectionClassForObjectsReporting.includes(className as DetectionClass)) {
         entries.push({
             entity: `${className}_objects`,
             name: `${parsedClassName} objects`,
@@ -546,7 +547,7 @@ const getPersonMqttEntities = (person: string) => {
     return [personEntity, lastImageEntity];
 };
 
-export const deviceClassMqttEntitiesGrouped = groupBy(deviceClassMqttEntities, entry => entry.className);
+// export const deviceClassMqttEntitiesGrouped = groupBy(deviceClassMqttEntities, entry => entry.className);
 
 export const getMqttTopics = (props: {
     mqttEntity: MqttEntity,
@@ -1131,8 +1132,8 @@ const getMqttDevice = async (device: MqttDeviceType) => {
     }
 }
 
-const getCameraClassEntities = async (device: ScryptedDeviceBase & ObjectDetector) => {
-    const enabledClasses: DetectionClass[] = [];
+const getCameraClassEntities = async (device: ScryptedDeviceBase & ObjectDetector, console: Console) => {
+    const enabledClasses: string[] = [];
     if (device.interfaces.includes(ScryptedInterface.MotionSensor)) {
         enabledClasses.push(DetectionClass.Motion);
     }
@@ -1143,14 +1144,25 @@ const getCameraClassEntities = async (device: ScryptedDeviceBase & ObjectDetecto
 
     if (device.interfaces.includes(ScryptedInterface.ObjectDetector)) {
         const objectTypes = await device.getObjectTypes();
+        const detectionClassesSet = new Set<string>();
+
+        for (const supportedClass of objectTypes.classes) {
+            const defaultClass = detectionClassesDefaultMap[supportedClass];
+            if (defaultClass) {
+                detectionClassesSet.add(supportedClass);
+            } else {
+                console.log(`Class ${supportedClass} not supported`);
+            }
+        }
+
         enabledClasses.push(
-            ...(objectTypes?.classes?.map(classname => detectionClassesDefaultMap[classname]) ?? []),
+            ...Array.from(detectionClassesSet),
             DetectionClass.AnyObject,
         );
     }
 
     const classes = uniq(enabledClasses);
-    return deviceClassMqttEntities.filter(entry => !entry.className || classes.includes(entry.className));
+    return getClassMqttEntities(classes);
 }
 
 export const setupCameraAutodiscovery = async (props: {
@@ -1167,7 +1179,7 @@ export const setupCameraAutodiscovery = async (props: {
         return;
     }
 
-    const detectionMqttEntities = (await getCameraClassEntities(device)).filter(entity => {
+    const detectionMqttEntities = (await getCameraClassEntities(device, console)).filter(entity => {
         if (entity.identifier === MqttEntityIdentifier.Object && !occupancyEnabled) {
             return false;
         } else {
@@ -1323,7 +1335,7 @@ export const publishResetDetectionsEntities = async (props: {
     mqttClient?: MqttClient,
     device: ScryptedDeviceBase & ObjectDetector,
     console: Console,
-    classnames?: DetectionClass[]
+    classnames?: string[]
 }) => {
     const { device, mqttClient, console, classnames } = props;
 
@@ -1332,7 +1344,7 @@ export const publishResetDetectionsEntities = async (props: {
     }
 
     const mqttEntities: MqttEntity[] = [
-        ...(await getCameraClassEntities(device)).filter(item =>
+        ...(await getCameraClassEntities(device, console)).filter(item =>
             item.identifier === MqttEntityIdentifier.Detected &&
             (classnames ? classnames.includes(item.className) : true)
         ),
@@ -1374,7 +1386,7 @@ export const publishResetRuleEntities = async (props: {
 
 export const publishBasicDetectionData = async (props: {
     mqttClient?: MqttClient,
-    device: ScryptedDeviceBase,
+    device: DeviceInterface,
     console: Console,
     detection?: ObjectDetectionResult,
     triggerTime: number,
@@ -1391,12 +1403,17 @@ export const publishBasicDetectionData = async (props: {
         return;
     }
 
+    const objectTypes = await device.getObjectTypes();
+
     try {
-        const detectionClass = detectionClassesDefaultMap[detection.className];
+        const detectionClass = objectTypes.classes.includes(detection.className) ?
+            detection.className :
+            detectionClassesDefaultMap[detection.className];
+
         if (detectionClass) {
             const parentClass = parentDetectionClassMap[detectionClass];
-            const specificClassEntries = deviceClassMqttEntitiesGrouped[detectionClass] ?? [];
-            const parentClassEntries = parentClass ? deviceClassMqttEntitiesGrouped[parentClass] ?? [] : [];
+            const specificClassEntries = getClassMqttEntities([detectionClass]);
+            const parentClassEntries = parentClass ? getClassMqttEntities([parentClass]) ?? [] : [];
 
             const classEntries = [...specificClassEntries, ...parentClassEntries].filter(entity => entity.identifier !== MqttEntityIdentifier.LastImage);
             console.debug(`Relevant detections to publish: ${JSON.stringify({ detection, classEntries })}`);
@@ -1524,7 +1541,7 @@ export const publishClassnameImages = async (props: {
         for (const { className } of classnamesData) {
             const detectionClass = detectionClassesDefaultMap[className];
             if (detectionClass) {
-                const mqttEntity = deviceClassMqttEntitiesGrouped[detectionClass].find(entry => entry.identifier === MqttEntityIdentifier.LastImage);
+                const mqttEntity = getClassMqttEntities([detectionClass]).find(entry => entry.identifier === MqttEntityIdentifier.LastImage);
                 const { stateTopic } = getMqttTopics({ mqttEntity, device });
                 await mqttClient.publish(stateTopic, b64Image, false);
             } else {
@@ -1846,7 +1863,7 @@ export const publishOccupancy = async (props: {
 
     try {
         // Publish the occupancy data for each detection class
-        const entities = deviceClassMqttEntities.filter(entity => entity.identifier === MqttEntityIdentifier.Object);
+        const entities = getClassMqttEntities(detectionClassForObjectsReporting).filter(entity => entity.identifier === MqttEntityIdentifier.Object);
         for (const mqttEntity of entities) {
             const { stateTopic } = getMqttTopics({ mqttEntity, device });
             const classObjects = objectsDetected.detections.filter(det => mqttEntity.className === detectionClassesDefaultMap[det.className])?.length;

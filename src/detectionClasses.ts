@@ -296,6 +296,7 @@ export const isVehicleClassname = (classname: string) => vehicleClasses.includes
 export const isMotionClassname = (classname: string) => motionClasses.includes(classname);
 export const isDoorbellClassname = (classname: string) => doorbellClasses.includes(classname);
 export const isPackageClassname = (classname: string) => packageClasses.includes(classname);
+export const isAudioClassname = (classname: string) => audioClasses.includes(classname);
 export const isLabelDetection = (classname: string) => isFaceClassname(classname) || isPlateClassname(classname);
 export const isObjectClassname = (classname: string) =>
     isPackageClassname(classname) ||

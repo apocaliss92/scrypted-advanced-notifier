@@ -1498,7 +1498,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     ];
                 } else if (reason === GetImageReason.FromFrigate) {
                     runners = [
-                        checkDetector
+                        checkDetector,
+                        checkDecoder,
+                        checkVeryRecent,
+                        checkLatest,
+                        checkSnapshot
                     ];
                 } else if (reason === GetImageReason.AccumulatedDetections) {
                     runners = [
@@ -2573,14 +2577,24 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             ignoreCameraDetections,
         } = this.storageSettings.values;
 
-        const { candidates, facesFound } = filterAndSortValidDetections({
+        const {
+            candidates,
+            facesFound,
+            isAudioEvent,
+            hasNonStandardClasses
+        } = filterAndSortValidDetections({
             detections: detections ?? [],
             logger,
             consumedDetectionIdsSet: new Set(),
         });
 
-        const canPickImageRightAway = !isRawDetection;
+        // Audio events can only come from Frigate
+        const canPickImageRightAway = !isRawDetection || isAudioEvent;
         const canUpdateMqttImage = canPickImageRightAway && detectionSourceForMqtt === eventSource;
+        const canUpdateMqttClasses =
+            eventSource === detectionSourceForMqtt ||
+            hasNonStandardClasses ||
+            isAudioEvent;
 
         eventDetails && this.processDetectionsInterval && this.accumulatedDetections.push({
             detect: {
@@ -2615,7 +2629,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const mqttClient = await this.getMqttClient();
 
                 if (mqttClient) {
-                    if (eventSource === detectionSourceForMqtt) {
+                    if (canUpdateMqttClasses) {
                         if (candidates.some(elem => isObjectClassname(elem.className))) {
                             candidates.push(
                                 { className: DetectionClass.AnyObject, score: 1 }

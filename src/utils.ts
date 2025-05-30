@@ -415,6 +415,8 @@ export const filterAndSortValidDetections = (props: {
         1 - (detection.score ?? 0)]
     );
     let isSensorEvent = false;
+    let isAudioEvent = false;
+    let hasNonStandardClasses = false;
     const faces = new Set<string>();
     const uniqueByClassName = uniqBy(sortedByPriorityAndScore, det => det.className);
     const candidates = uniqueByClassName.filter(det => {
@@ -442,6 +444,7 @@ export const filterAndSortValidDetections = (props: {
         }
 
         detId && consumedDetectionIdsSet.add(detId);
+
         if (
             !isSensorEvent &&
             [DetectionClass.Doorbell, DetectionClass.Package, DetectionClass].includes(className as DetectionClass)
@@ -449,10 +452,25 @@ export const filterAndSortValidDetections = (props: {
             isSensorEvent = true
         }
 
+        const groupClass = detectionClassesDefaultMap[className];
+        if (!isAudioEvent && groupClass === DetectionClass.Audio) {
+            isAudioEvent = true;
+        }
+
+        if (!hasNonStandardClasses && className !== groupClass) {
+            hasNonStandardClasses = true;
+        }
+
         return true;
     });
 
-    return { candidates, isSensorEvent, facesFound: Array.from(faces) };
+    return {
+        candidates,
+        isSensorEvent,
+        facesFound: Array.from(faces),
+        isAudioEvent,
+        hasNonStandardClasses
+    };
 }
 
 export type TextSettingKey =
