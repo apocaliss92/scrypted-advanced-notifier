@@ -3024,6 +3024,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         return true;
                     }
 
+                    if (!eventFrameName) {
+                        eventFrameName = frameName;
+                    }
+
                     return false;
                 })
                 .map(file => `file '${this.getShortClipPaths({
@@ -3071,15 +3075,22 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     cameraName: device.name,
                     fileName: eventFrameName,
                 });
-                const mo = await sdk.mediaManager.createMediaObjectFromUrl(
-                    `file:${framePath}`
-                );
-                const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
-                if (jpeg.length) {
-                    logger.log(`Saving thumbnail in ${snapshotPath}`);
-                    await fs.promises.writeFile(snapshotPath, jpeg);
-                } else {
-                    logger.log('Not saving, image is corrupted');
+                try {
+                    const mo = await sdk.mediaManager.createMediaObjectFromUrl(
+                        `file:${framePath}`
+                    );
+                    const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
+                    if (jpeg.length) {
+                        logger.log(`Saving thumbnail in ${snapshotPath}`);
+                        await fs.promises.writeFile(snapshotPath, jpeg);
+                    } else {
+                        logger.log('Not saving, image is corrupted');
+                    }
+                } catch (e) {
+                    logger.log(`Error generating short clip thumbnail ${JSON.stringify({
+                        eventFrameName,
+                        framePath,
+                    })}`, e);
                 }
             } else {
                 logger.log(`Skipping ${rule.name} ${triggerTime} clip generation, no frames available in ${framesPath}`);
