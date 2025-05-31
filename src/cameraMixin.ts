@@ -2607,7 +2607,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             this.storeImagesOnFs({
                 b64Image,
-                detections: originalCandidates,
+                detections: candidates,
                 device: this.cameraDevice,
                 triggerTime,
                 prefix: 'object-detection',
@@ -2628,7 +2628,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 })}`);
                 this.plugin.storeEventImage({
                     b64Image,
-                    detections: candidates,
+                    detections: originalCandidates,
                     device: this.cameraDevice,
                     eventSource,
                     logger,
