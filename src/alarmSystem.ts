@@ -298,7 +298,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                                 mqttClient,
                                 console: logger,
                                 modeSwitchCb: async (mode) => {
-                                    logger.log(`Setting mode to ${mode}`);
+                                    logger.log(`Setting mode to ${mode} (currently ${this.securitySystemState.mode})`);
                                     this.armSecuritySystem(mode);
                                 },
                             });
@@ -735,7 +735,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
             const { autoCloseLocks } = this.storageSettings.values;
 
             const entity = getModeEntity({ mode, storage: this.storageSettings });
-            logger.log(`Trying to arm into ${mode} mode:`, entity);
+            logger.log(`Trying to arm into ${mode} mode:`, JSON.stringify(entity));
 
             const activeRules = this.plugin.allAvailableRules
                 .filter(item => item.securitySystemModes?.includes(mode));
@@ -804,13 +804,13 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
 
             const anyBlockers = !!blockingDevices.length;
 
-            logger.log({
+            logger.log(JSON.stringify({
                 activeDevices,
                 bypassedDevices,
                 blockingDevices,
                 locksToLock,
                 anyBlockers,
-            });
+            }));
 
             if (anyBlockers) {
                 await this.putSetting('activeMode', this.securitySystemState.mode);
