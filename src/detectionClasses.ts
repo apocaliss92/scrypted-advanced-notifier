@@ -317,10 +317,20 @@ export const detectionClassesDefaultMap: Record<string, DetectionClass> = {
     ...doorbellClasses.reduce((tot, curr) => ({ ...tot, [curr]: DetectionClass.Doorbell }), {}),
 }
 
-export const parentDetectionClassMap: Partial<Record<DetectionClass, DetectionClass>> = {
-    [DetectionClass.Face]: DetectionClass.Person,
-    [DetectionClass.Plate]: DetectionClass.Vehicle,
-}
+export const getParentDetectionClass = (det: { label?: string, className: string }) => {
+    const { className } = det;
+    const baseMap = {
+        [DetectionClass.Face]: DetectionClass.Person,
+        [DetectionClass.Plate]: DetectionClass.Vehicle,
+    };
+
+    const parentGroup = detectionClassesDefaultMap[className];
+    if (parentGroup && parentGroup !== className) {
+        return parentGroup;
+    } else {
+        return baseMap[className];
+    }
+};
 
 // visual similarity
 const similarCharacters = [

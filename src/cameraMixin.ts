@@ -2248,7 +2248,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         allowedClassnames.length && await publishClassnameImages({
                             mqttClient,
                             console: logger,
-                            classnamesData: allowedClassnames,
+                            detections: allowedClassnames,
                             device: this.cameraDevice,
                             b64Image,
                             triggerTime,
@@ -2572,7 +2572,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                         publishClassnameImages({
                                             mqttClient,
                                             console: logger,
-                                            classnamesData: [detection],
+                                            detections: [detection],
                                             device: this.cameraDevice,
                                             b64Image,
                                             triggerTime,

@@ -2,7 +2,7 @@ import sdk, { Notifier, ObjectDetectionResult, ObjectDetector, ObjectsDetected, 
 import { cloneDeep, uniq } from 'lodash';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 import { OccupancyRuleData } from './cameraMixin';
-import { DetectionClass, detectionClassesDefaultMap, isAudioClassname, isFaceClassname, isLabelDetection, parentDetectionClassMap } from './detectionClasses';
+import { DetectionClass, detectionClassesDefaultMap, getParentDetectionClass, isAudioClassname, isLabelDetection } from './detectionClasses';
 import { BaseRule, DeviceInterface, ImageSource, isDetectionRule, RuleSource, RuleType, safeParseJson, toKebabCase, toSnakeCase, toTitleCase } from './utils';
 
 export enum MqttEntityIdentifier {
@@ -1354,6 +1354,29 @@ export const publishResetRuleEntities = async (props: {
     }
 }
 
+export const getClassnameEntities = async (props: { device: DeviceInterface, detection: ObjectDetectionResult }) => {
+    const { detection, device } = props;
+    const objectTypes = await device.getObjectTypes();
+
+    let detectionClass = objectTypes.classes.includes(detection.className) ?
+        detection.className :
+        detectionClassesDefaultMap[detection.className];
+
+    if (isAudioClassname(detection.className) && detection.label) {
+        detectionClass = detection.label
+    }
+
+    if (detectionClass) {
+        const parentClass = getParentDetectionClass({ className: detectionClass, label: detection.label });
+        const specificClassEntries = getClassMqttEntities([detectionClass]);
+        const parentClassEntries = parentClass ? getClassMqttEntities([parentClass]) ?? [] : [];
+
+        return [...specificClassEntries, ...parentClassEntries];
+    } else {
+        return [];
+    }
+}
+
 export const publishBasicDetectionData = async (props: {
     mqttClient?: MqttClient,
     device: DeviceInterface,
@@ -1373,44 +1396,30 @@ export const publishBasicDetectionData = async (props: {
         return;
     }
 
-    const objectTypes = await device.getObjectTypes();
-
     try {
-        let detectionClass = objectTypes.classes.includes(detection.className) ?
-            detection.className :
-            detectionClassesDefaultMap[detection.className];
+        const classEntries = await getClassnameEntities({
+            detection,
+            device
+        });
 
-        if (isAudioClassname(detection.className) && detection.label) {
-            detectionClass = detection.label
-        }
+        console.debug(`Relevant detections to publish: ${JSON.stringify({ detection, classEntries })}`);
 
-        if (detectionClass) {
-            const parentClass = parentDetectionClassMap[detectionClass];
-            const specificClassEntries = getClassMqttEntities([detectionClass]);
-            const parentClassEntries = parentClass ? getClassMqttEntities([parentClass]) ?? [] : [];
+        for (const entry of classEntries.filter(entity => entity.identifier !== MqttEntityIdentifier.LastImage)) {
+            const { identifier, retain } = entry;
+            let value: any;
 
-            const classEntries = [...specificClassEntries, ...parentClassEntries].filter(entity => entity.identifier !== MqttEntityIdentifier.LastImage);
-            console.debug(`Relevant detections to publish: ${JSON.stringify({ detection, classEntries })}`);
-
-            for (const entry of classEntries) {
-                const { identifier, retain } = entry;
-                let value: any;
-
-                if (identifier === MqttEntityIdentifier.Detected) {
-                    value = true;
-                } else if (identifier === MqttEntityIdentifier.LastLabel) {
-                    value = detection?.label || null;
-                } else if (identifier === MqttEntityIdentifier.LastDetection) {
-                    value = new Date(triggerTime).toISOString();
-                }
-
-                if (value) {
-                    const { stateTopic } = getMqttTopics({ mqttEntity: entry, device });
-                    await mqttClient.publish(stateTopic, value, retain);
-                }
+            if (identifier === MqttEntityIdentifier.Detected) {
+                value = true;
+            } else if (identifier === MqttEntityIdentifier.LastLabel) {
+                value = detection?.label || null;
+            } else if (identifier === MqttEntityIdentifier.LastDetection) {
+                value = new Date(triggerTime).toISOString();
             }
-        } else {
-            console.log(`${detection.className} not found`);
+
+            if (value) {
+                const { stateTopic } = getMqttTopics({ mqttEntity: entry, device });
+                await mqttClient.publish(stateTopic, value, retain);
+            }
         }
     } catch (e) {
         console.log(`Error publishing ${JSON.stringify({
@@ -1475,38 +1484,31 @@ export const publishClassnameImages = async (props: {
     device: DeviceInterface,
     console: Console,
     triggerTime: number,
-    classnamesData?: ObjectDetectionResult[],
+    detections?: ObjectDetectionResult[],
     b64Image?: string,
     imageUrl?: string,
 }) => {
-    const { mqttClient, device, classnamesData = [], console, b64Image } = props;
+    const { mqttClient, device, detections = [], console, b64Image } = props;
 
     if (!mqttClient) {
         return;
     }
-    console.info(`Publishing image for classnames: ${classnamesData.map(data => data.className).join(', ')}`);
-    const objectTypes = await device.getObjectTypes();
+    console.info(`Publishing image for classnames: ${detections.map(data => data.className).join(', ')}`);
 
     try {
-        for (const { className, label } of classnamesData) {
-            let detectionClass = objectTypes.classes.includes(className) ?
-                className :
-                detectionClassesDefaultMap[className];
+        for (const detection of detections) {
 
-            if (isAudioClassname(className) && label) {
-                detectionClass = label
-            }
+            const classEntries = await getClassnameEntities({
+                detection,
+                device
+            });
 
-            if (detectionClass) {
-                const mqttEntity = getClassMqttEntities([detectionClass]).find(entry => entry.identifier === MqttEntityIdentifier.LastImage);
-                const { stateTopic } = getMqttTopics({ mqttEntity, device });
-                await mqttClient.publish(stateTopic, b64Image, false);
-            } else {
-                console.log(`${className} not found`);
-            }
+            const mqttEntity = classEntries.find(entry => entry.identifier === MqttEntityIdentifier.LastImage);
+            const { stateTopic } = getMqttTopics({ mqttEntity, device });
+            await mqttClient.publish(stateTopic, b64Image, false);
         }
     } catch (e) {
-        console.log(`Error publishing ${JSON.stringify({ classnamesData })}`, e);
+        console.log(`Error publishing ${JSON.stringify({ detections })}`, e);
     }
 }
 
