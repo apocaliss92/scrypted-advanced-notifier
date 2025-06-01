@@ -3515,6 +3515,8 @@ export const getFrigateTextKey = (label: string) => `frigate${label}Text` as Tex
 
 export enum NvrAppApiMethod {
     GetEvents = 'GetEvents',
+    GetVideoclips = 'GetVideoclips',
+    GetVideoclipHref = 'GetVideoclipHref',
     GetConfigs = 'GetConfigs',
 }
 

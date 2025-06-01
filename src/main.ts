@@ -1,4 +1,4 @@
-import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, Image, LauncherApplication, MediaObject, MixinProvider, NotificationAction, Notifier, NotifierOptions, ObjectDetectionResult, PushHandler, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, SettingValue, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, Image, LauncherApplication, MediaObject, MixinProvider, NotificationAction, Notifier, NotifierOptions, ObjectDetectionResult, PushHandler, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, SettingValue, VideoClip, VideoClips, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
 import child_process from 'child_process';
@@ -599,6 +599,50 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     });
 
                     response.send(JSON.stringify(eventsFound), {
+                        code: 200,
+                        headers: {
+                            'Content-Type': 'application/json',
+                        }
+                    });
+                    return;
+                } else if (apimethod === NvrAppApiMethod.GetVideoclips) {
+                    const { fromDate, tillDate } = payload;
+                    const videoclips: (VideoClip & {
+                        deviceName: string,
+                        deviceId: string,
+                    })[] = [];
+
+                    for (const deviceId of Object.keys(this.currentCameraMixinsMap)) {
+                        const device = sdk.systemManager.getDeviceById<VideoClips & ScryptedDeviceBase>(deviceId);
+                        if (device.interfaces.includes(ScryptedInterface.VideoClips)) {
+                            const cameraVideoclips = await device.getVideoClips({
+                                startTime: fromDate,
+                                endTime: tillDate
+                            });
+                            for (const clip of cameraVideoclips) {
+                                videoclips.push({
+                                    ...clip,
+                                    deviceName: device.name,
+                                    deviceId: device.id,
+                                });
+                            }
+                        }
+                    }
+
+                    response.send(JSON.stringify(videoclips), {
+                        code: 200,
+                        headers: {
+                            'Content-Type': 'application/json',
+                        }
+                    });
+                    return;
+                } else if (apimethod === NvrAppApiMethod.GetVideoclipHref) {
+                    const { deviceId, videoId } = payload;
+                    const device = sdk.systemManager.getDeviceById<VideoClips>(deviceId);
+                    let mo = await device.getVideoClip(videoId);
+                    const videoHref = (await mediaManager.convertMediaObjectToBuffer(mo, ScryptedMimeTypes.LocalUrl)).toString();
+
+                    response.send(JSON.stringify({ videoHref }), {
                         code: 200,
                         headers: {
                             'Content-Type': 'application/json',
