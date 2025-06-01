@@ -1810,7 +1810,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const tooOld = !currentState || lastChangeElpasedMs >= (1000 * 60 * 10); // Force an update every 10 minutes
                 const toConfirm = currentState.occupancyToConfirm != undefined && !!currentState.confirmationStart;
                 const isChanged = occupancyRuleTmpData.occupies !== currentState.occupies;
-                // const isChanged = occupancyRuleTmpData.occupies !== occupancyRuleTmpData.rule.occupies;
 
                 logger.info(JSON.stringify({
                     rule: name,
@@ -1855,18 +1854,24 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 ...occupancyDataToUpdate,
                                 confirmedFrames: (currentState.confirmedFrames ?? 0) + 1,
                             };
-                            logger.log(`Confirmation time is not passed yet for rule ${name}: toConfirm ${currentState.occupancyToConfirm} started ${elpasedTimeMs / 1000} seconds ago`);
+                            logger.log(`Confirmation time is not passed yet for rule ${name}: toConfirm ${currentState.occupancyToConfirm} started ${elpasedTimeMs / 1000} seconds ago  (V ${currentState.confirmedFrames} / X ${currentState.rejectedFrames})`);
                         } else {
                             // TODO: Implement here flow with discarded frames instead of discard right away
                             // Reset confirmation data because the value changed before confirmation time passed
-                            logger.log(`Confirmation failed for rule ${name}: toConfirm ${currentState.occupancyToConfirm} after ${elpasedTimeMs / 1000} seconds`);
 
+                            logger.log(`Increasing failed frames for rule ${name}: toConfirm ${currentState.occupancyToConfirm} after ${elpasedTimeMs / 1000} seconds (V ${currentState.confirmedFrames} / X ${currentState.rejectedFrames})`);
+                            // logger.log(`Confirmation failed for rule ${name}: toConfirm ${currentState.occupancyToConfirm} after ${elpasedTimeMs / 1000} seconds (V ${currentState.confirmedFrames} / X ${currentState.rejectedFrames})`);
+                            // this.occupancyState[name] = {
+                            //     ...getInitOccupancyState(rule),
+                            //     lastCheck: now,
+                            // };
                             this.occupancyState[name] = {
-                                ...getInitOccupancyState(rule),
-                                lastCheck: now,
+                                ...occupancyDataToUpdate,
+                                rejectedFrames: (currentState.rejectedFrames ?? 0) + 1,
                             };
                         }
                     } else {
+                        const { rejectedFrames, confirmedFrames } = this.occupancyState[name];
                         if (isStateConfirmed) {
                             // Time is passed and value didn't change, update the state
                             this.occupancyState[name] = {
@@ -1876,7 +1881,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 objectsDetected: occupancyRuleTmpData.objectsDetected
                             };
 
-                            logger.log(`Confirming occupancy rule ${name}: ${occupancyRuleTmpData.occupies} ${occupancyRuleTmpData.objectsDetected}`);
+                            logger.log(`Confirming occupancy rule ${name}: ${occupancyRuleTmpData.occupies} ${occupancyRuleTmpData.objectsDetected} (V ${currentState.confirmedFrames} / X ${currentState.rejectedFrames})`);
                             const { b64Image: _, ...rest } = currentState;
                             const { b64Image: __, image: ____, ...rest2 } = occupancyRuleTmpData;
                             const { b64Image: ___, ...rest3 } = occupancyDataToUpdate;
@@ -1896,14 +1901,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             await this.storageSettings.putSetting(occupiesKey, occupancyRuleTmpData.occupies);
 
                         } else {
-                            // Time is passed and value changed, restart confirmation flow
                             this.occupancyState[name] = {
-                                ...occupancyDataToUpdate,
-                                confirmationStart: now,
-                                occupancyToConfirm: occupancyRuleTmpData.occupies
+                                ...getInitOccupancyState(rule),
+                                lastCheck: now,
                             };
+                            logger.log(`Confirmation failed for rule ${name}: toConfirm ${currentState.occupancyToConfirm} after ${elpasedTimeMs / 1000} seconds (V ${currentState.confirmedFrames} / X ${currentState.rejectedFrames})`);
 
-                            logger.log(`Restarting confirmation flow (because time is passed and value changed) for occupancy rule ${name}: toConfirm ${occupancyRuleTmpData.occupies}`);
+                            // // Time is passed and value changed, restart confirmation flow
+                            // this.occupancyState[name] = {
+                            //     ...occupancyDataToUpdate,
+                            //     confirmationStart: now,
+                            //     occupancyToConfirm: occupancyRuleTmpData.occupies
+                            // };
+
+                            // logger.log(`Restarting confirmation flow (because time is passed and value changed) for occupancy rule ${name}: toConfirm ${occupancyRuleTmpData.occupies}`);
                         }
                     }
                 } else if (isChanged) {
@@ -1935,7 +1946,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     this.occupancyState[name] = {
                         ...occupancyDataToUpdate,
                     };
-                } {
+                } else {
                     logger.info(`Refreshing lastCheck only for rule ${name}`);
                 }
             }

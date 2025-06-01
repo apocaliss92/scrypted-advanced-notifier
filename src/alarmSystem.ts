@@ -236,6 +236,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
     lastAutoDiscovery: number;
     activeRules: BaseRule[];
     logger: Console;
+    lastMqttCommandReceived: number;
 
     constructor(nativeId: string, private plugin: AdvancedNotifierPlugin) {
         super(nativeId);
@@ -299,7 +300,12 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                                 console: logger,
                                 modeSwitchCb: async (mode) => {
                                     logger.log(`Setting mode to ${mode} (currently ${this.securitySystemState.mode})`);
-                                    this.armSecuritySystem(mode);
+
+                                    const now = Date.now();
+                                    if (!this.lastMqttCommandReceived || (now - this.lastMqttCommandReceived) > (1000 * 2)) {
+                                        this.lastMqttCommandReceived = now;
+                                        await this.armSecuritySystem(mode);
+                                    }
                                 },
                             });
                         }
