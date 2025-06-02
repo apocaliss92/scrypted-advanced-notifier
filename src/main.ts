@@ -1532,7 +1532,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     async canMixin(type: ScryptedDeviceType, interfaces: string[]): Promise<string[]> {
-        const { isSupported } = isDeviceSupported({ interfaces } as DeviceBase);
+        const { isNotifier, isCamera, isSupported } = isDeviceSupported({ interfaces, type } as DeviceBase);
 
         if (
             isSupported &&
@@ -1541,8 +1541,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         ) {
             const interfaces = [ScryptedInterface.Settings, ADVANCED_NOTIFIER_INTERFACE];
 
-            if (type === ScryptedDeviceType.Notifier) {
+            if (isNotifier) {
                 interfaces.push(ScryptedInterface.Notifier);
+            } else if (isCamera) {
+                interfaces.push(ScryptedInterface.VideoClips);
             }
 
             return interfaces;
@@ -3240,6 +3242,5 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger.error(`Error clearing events data for device ${device.name}`, e);
         }
     }
-
 }
 

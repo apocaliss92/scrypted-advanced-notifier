@@ -82,127 +82,31 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
     }
 
     async getVideoClips(options?: VideoClipOptions): Promise<VideoClip[]> {
-        const videoClips: VideoClip[] = [];
-
-        const imagesPath = this.plugin.getStoragePath();
-        const cameraFolders = await fs.promises.readdir(imagesPath);
-
         const logger = this.getLogger();
-        for (const cameraFolder of cameraFolders) {
-            const cameraDevice = sdk.systemManager.getDeviceByName<ScryptedDeviceBase>(cameraFolder);
-            const { rulesPath } = this.plugin.getRulePaths({ cameraName: cameraFolder });
+        try {
+            const videoClips: VideoClip[] = [];
 
-            let hasRules = true;
+            const imagesPath = this.plugin.getStoragePath();
+            const cameraFolders = await fs.promises.readdir(imagesPath);
 
-            try {
-                await fs.promises.access(rulesPath);
-            } catch (e) {
-                hasRules = false;
-            }
+            for (const cameraFolder of cameraFolders) {
+                const cameraDevice = sdk.systemManager.getDeviceByName(cameraFolder);
+                if (cameraDevice) {
+                    const cameraMixin = this.plugin.currentCameraMixinsMap[cameraDevice.id];
 
-            if (hasRules) {
-                const rulesFolder = await fs.promises.readdir(rulesPath);
-
-                for (const ruleFolder of rulesFolder) {
-                    const { generatedPath } = this.plugin.getRulePaths({
-                        cameraName: cameraFolder,
-                        ruleName: ruleFolder
-                    });
-
-                    const files = await fs.promises.readdir(generatedPath);
-
-                    for (const file of files) {
-                        const [fileName, extension] = file.split('.');
-                        if (extension === 'mp4') {
-                            const timestamp = Number(fileName);
-
-                            if (timestamp > options.startTime && timestamp < options.endTime) {
-                                const { fileId } = this.plugin.getRulePaths({
-                                    cameraName: cameraFolder,
-                                    fileName,
-                                    ruleName: ruleFolder
-                                });
-                                const { videoclipStreamUrl, videoclipThumbnailUrl } = await getWebHookUrls({
-                                    fileId: fileId
-                                });
-
-                                videoClips.push({
-                                    id: fileName,
-                                    startTime: timestamp,
-                                    duration: 30,
-                                    event: 'timelapse',
-                                    thumbnailId: fileId,
-                                    videoId: fileId,
-                                    resources: {
-                                        thumbnail: {
-                                            href: videoclipThumbnailUrl
-                                        },
-                                        video: {
-                                            href: videoclipStreamUrl
-                                        }
-                                    }
-                                });
-                            }
-                        }
+                    if (cameraMixin) {
+                        const cameraClips = await cameraMixin.getVideoClipsInternal(options);
+                        videoClips.push(...cameraClips);
                     }
                 }
             }
 
-            let clipsPath: string;
+            return sortBy(videoClips, 'startTime');
+        } catch (e) {
+            logger.log('Error in getVideoClips', e);
 
-            let hasClips = true;
-            try {
-                const { generatedPath } = this.plugin.getShortClipPaths({ cameraName: cameraDevice.name });
-                await fs.promises.access(generatedPath);
-                clipsPath = generatedPath;
-            } catch (e) {
-                hasClips = false;
-            }
-
-            if (hasClips) {
-                const files = await fs.promises.readdir(clipsPath);
-
-                try {
-                    for (const file of files) {
-                        const [fileName, extension] = file.split('.');
-                        if (extension === 'mp4') {
-                            const timestamp = Number(fileName);
-
-                            if (timestamp > options.startTime && timestamp < options.endTime) {
-                                const { fileId } = this.plugin.getShortClipPaths({
-                                    cameraName: cameraDevice.name,
-                                    fileName,
-                                });
-                                const { videoclipStreamUrl, videoclipThumbnailUrl } = await getWebHookUrls({
-                                    fileId: fileId
-                                });
-
-                                videoClips.push({
-                                    id: fileName,
-                                    startTime: timestamp,
-                                    duration: 30,
-                                    event: 'detection',
-                                    thumbnailId: fileId,
-                                    videoId: fileId,
-                                    resources: {
-                                        thumbnail: {
-                                            href: videoclipThumbnailUrl
-                                        },
-                                        video: {
-                                            href: videoclipStreamUrl
-                                        }
-                                    }
-                                });
-                            }
-                        }
-                    }
-                } catch (e) {
-                    logger.log(`Error fetching videoclips for camera ${cameraDevice.name}`, e);
-                }
-            }
+            return [];
         }
-
-        return sortBy(videoClips, 'startTime');
     }
 
     getFilePath(props: { fileId: string }) {

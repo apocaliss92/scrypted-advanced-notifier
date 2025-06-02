@@ -1,8 +1,8 @@
-import sdk, { EventDetails, EventListenerRegister, Image, MediaObject, MediaStreamDestination, ObjectDetection, ObjectDetectionResult, ObjectsDetected, PanTiltZoomCommand, ResponseMediaStreamOptions, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoFrame, VideoFrameGenerator } from "@scrypted/sdk";
+import sdk, { EventDetails, EventListenerRegister, Image, MediaObject, MediaStreamDestination, ObjectDetection, ObjectDetectionResult, ObjectsDetected, PanTiltZoomCommand, ResponseMediaStreamOptions, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoClip, VideoClipOptions, VideoClipThumbnailOptions, VideoClips, VideoFrame, VideoFrameGenerator } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
-import { cloneDeep, uniqBy } from "lodash";
+import { cloneDeep, orderBy, sortBy, uniqBy } from "lodash";
 import moment from "moment";
 import { Config, JsonDB } from "node-json-db";
 import { getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
@@ -14,7 +14,8 @@ import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, is
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, splitRules } from "./utils";
+import { AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DETECTION_CLIP_PREFIX, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, splitRules } from "./utils";
+import fs from 'fs';
 
 const { systemManager } = sdk;
 
@@ -85,7 +86,7 @@ type CameraSettingKey =
     | 'postDetectionImageMinDelay'
     | MixinBaseSettingKey;
 
-export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> implements Settings {
+export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> implements Settings, VideoClips {
     initStorage: StorageSettingsDict<CameraSettingKey> = {
         ...getMixinBaseSettings({
             plugin: this.plugin,
@@ -331,6 +332,209 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.initValues().catch(logger.log);
 
         this.startStop(this.plugin.storageSettings.values.pluginEnabled).catch(logger.log);
+    }
+
+    async getVideoClips(options?: VideoClipOptions): Promise<VideoClip[]> {
+        const videoClips: VideoClip[] = [];
+        const logger = this.getLogger();
+
+        try {
+            const deviceClips = await this.mixinDevice.getVideoClips(options);
+            videoClips.push(...deviceClips);
+        } catch { }
+
+        const internalClips = await this.getVideoClipsInternal(options);
+        videoClips.push(...internalClips);
+
+        return sortBy(videoClips, 'startTime');
+    }
+
+    async getVideoClipsInternal(options?: VideoClipOptions): Promise<VideoClip[]> {
+        const videoClips: VideoClip[] = [];
+        const logger = this.getLogger();
+        const cameraFolder = this.name;
+
+        const cameraDevice = sdk.systemManager.getDeviceByName<ScryptedDeviceBase>(cameraFolder);
+        const { rulesPath } = this.plugin.getRulePaths({ cameraName: cameraFolder });
+
+        let hasRules = true;
+
+        try {
+            await fs.promises.access(rulesPath);
+        } catch (e) {
+            hasRules = false;
+        }
+
+        if (hasRules) {
+            const rulesFolder = await fs.promises.readdir(rulesPath);
+
+            for (const ruleFolder of rulesFolder) {
+                const { generatedPath } = this.plugin.getRulePaths({
+                    cameraName: cameraFolder,
+                    ruleName: ruleFolder
+                });
+
+                const files = await fs.promises.readdir(generatedPath);
+
+                for (const file of files) {
+                    const [fileName, extension] = file.split('.');
+                    if (extension === 'mp4') {
+                        const timestamp = Number(fileName);
+
+                        if (timestamp > options.startTime && timestamp < options.endTime) {
+                            const { fileId } = this.plugin.getRulePaths({
+                                cameraName: cameraFolder,
+                                fileName,
+                                ruleName: ruleFolder
+                            });
+                            const { videoclipStreamUrl, videoclipThumbnailUrl } = await getWebHookUrls({
+                                fileId: fileId
+                            });
+
+                            videoClips.push({
+                                id: fileName,
+                                startTime: timestamp,
+                                duration: 30,
+                                event: 'timelapseClip',
+                                thumbnailId: fileId,
+                                videoId: fileId,
+                                detectionClasses: ['timelapseClip'],
+                                resources: {
+                                    thumbnail: {
+                                        href: videoclipThumbnailUrl
+                                    },
+                                    video: {
+                                        href: videoclipStreamUrl
+                                    }
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        let clipsPath: string;
+
+        let hasClips = true;
+        try {
+            const { generatedPath } = this.plugin.getShortClipPaths({ cameraName: cameraDevice.name });
+            await fs.promises.access(generatedPath);
+            clipsPath = generatedPath;
+        } catch (e) {
+            hasClips = false;
+        }
+
+        if (hasClips) {
+            const files = await fs.promises.readdir(clipsPath);
+
+            try {
+                for (const file of files) {
+                    const [fileName, extension] = file.split('.');
+                    if (extension === 'mp4') {
+                        const timestamp = Number(fileName);
+
+                        if (timestamp > options.startTime && timestamp < options.endTime) {
+                            const { fileId } = this.plugin.getShortClipPaths({
+                                cameraName: cameraDevice.name,
+                                fileName,
+                            });
+                            const { videoclipStreamUrl, videoclipThumbnailUrl } = await getWebHookUrls({
+                                fileId: fileId
+                            });
+
+                            videoClips.push({
+                                id: fileName,
+                                startTime: timestamp,
+                                duration: 30,
+                                event: 'detectionClip',
+                                detectionClasses: ['detectionClip'],
+                                thumbnailId: fileId,
+                                videoId: fileId,
+                                resources: {
+                                    thumbnail: {
+                                        href: videoclipThumbnailUrl
+                                    },
+                                    video: {
+                                        href: videoclipStreamUrl
+                                    }
+                                }
+                            });
+                        }
+                    }
+                }
+            } catch (e) {
+                logger.log(`Error fetching videoclips for camera ${cameraDevice.name}`, e);
+            }
+        }
+
+        return sortBy(videoClips, 'startTime');
+    }
+
+    getFilePath(props: { fileId: string }) {
+        const { fileId } = props;
+
+        if (fileId.startsWith(TIMELAPSE_CLIP_PREFIX)) {
+            const [_, cameraName, ruleName, fileName] = fileId.split('_');
+            return this.plugin.getRulePaths({
+                cameraName,
+                fileName,
+                ruleName
+            });
+        } else if (fileId.startsWith(DETECTION_CLIP_PREFIX)) {
+            const [_, cameraName, fileName] = fileId.split('_');
+            return this.plugin.getShortClipPaths({
+                cameraName,
+                fileName,
+            });
+        }
+    }
+
+    async getVideoClip(videoId: string): Promise<MediaObject> {
+        const logger = this.getLogger();
+        const filePathsRes = this.getFilePath({ fileId: videoId });
+
+        let videoclipMo: MediaObject;
+
+        if (filePathsRes) {
+            const { videoclipPath } = filePathsRes;
+            logger.info('Fetching videoclip ', videoId, videoclipPath);
+
+            const fileURLToPath = `file://${videoclipPath}`
+            videoclipMo = await sdk.mediaManager.createMediaObjectFromUrl(fileURLToPath);
+        }
+
+        if (videoclipMo) {
+            return videoclipMo;
+        } else {
+            return this.mixinDevice.getVideoClip(videoId);
+        }
+    }
+
+    async getVideoClipThumbnail(thumbnailId: string, options?: VideoClipThumbnailOptions): Promise<MediaObject> {
+        const logger = this.getLogger();
+        const filePathsRes = this.getFilePath({ fileId: thumbnailId });
+
+        let thumbnailMo: MediaObject;
+
+        if (filePathsRes) {
+            const { snapshotPath } = filePathsRes;
+
+            logger.info('Fetching thumbnail ', thumbnailId, snapshotPath);
+
+            const imageBuf = await fs.promises.readFile(snapshotPath);
+            thumbnailMo = await sdk.mediaManager.createMediaObject(imageBuf, 'image/jpeg');
+        }
+
+        if (thumbnailMo) {
+            return thumbnailMo;
+        } else {
+            return this.mixinDevice.getVideoClipThumbnail(thumbnailId, options);
+        }
+    }
+
+    removeVideoClips(...videoClipIds: string[]): Promise<void> {
+        return this.mixinDevice.removeVideoClips(...videoClipIds);
     }
 
     ensureMixinsOrder() {
@@ -1378,7 +1582,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 });
                 imageSource = ImageSource.Detector;
             } catch (e) {
-                logger.log(`Error finding the image from the detector (${e.message}) for reason ${reason}`);
+                logger.log(`Error finding the ${reason} image from the detector (${e.message})`);
             }
         }
 
