@@ -163,6 +163,7 @@ export const getWebooks = async () => {
     const eventThumbnail = 'eventThumbnail';
     const eventImage = 'eventImage';
     const eventsApp = 'eventsApp';
+    const eventVideoclip = 'eventVideoclip';
 
     return {
         lastSnapshot,
@@ -176,6 +177,7 @@ export const getWebooks = async () => {
         eventThumbnail,
         eventImage,
         eventsApp,
+        eventVideoclip,
     };
 }
 
@@ -213,6 +215,7 @@ export const getWebHookUrls = async (props: {
     let videoclipDownloadUrl: string;
     let eventThumbnailUrl: string;
     let eventImageUrl: string;
+    let eventVideoclipUrl: string;
 
     const snoozeActions: NotificationAction[] = [];
 
@@ -226,6 +229,7 @@ export const getWebHookUrls = async (props: {
         videoclipThumbnail,
         eventThumbnail,
         eventImage,
+        eventVideoclip
     } = await getWebooks();
 
     try {
@@ -249,6 +253,7 @@ export const getWebHookUrls = async (props: {
 
         eventThumbnailUrl = `/${eventThumbnail}/${device?.id}/${fileId}`;
         eventImageUrl = `/${eventImage}/${device?.id}/${fileId}`;
+        eventVideoclipUrl = `/${eventVideoclip}/${device?.id}/${fileId}`;
 
         if (snoozes) {
             for (const snooze of snoozes) {
@@ -278,6 +283,7 @@ export const getWebHookUrls = async (props: {
         videoclipThumbnailUrl,
         eventThumbnailUrl,
         eventImageUrl,
+        eventVideoclipUrl,
     };
 }
 
@@ -3516,7 +3522,6 @@ export const getFrigateTextKey = (label: string) => `frigate${label}Text` as Tex
 export enum NvrAppApiMethod {
     GetEvents = 'GetEvents',
     GetVideoclips = 'GetVideoclips',
-    GetVideoclipHref = 'GetVideoclipHref',
     GetConfigs = 'GetConfigs',
 }
 

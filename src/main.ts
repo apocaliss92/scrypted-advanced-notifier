@@ -332,7 +332,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         },
         storeEvents: {
             title: 'Store event images',
-            description: '(WIP frontend)',
             group: 'Storage',
             type: 'boolean',
             immediate: true,
@@ -340,7 +339,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         },
         cleanupEvents: {
             title: 'Cleanup events data',
-            description: '(WIP frontend)',
             group: 'Storage',
             type: 'button',
             onPut: async () => await this.clearAllEventsData()
@@ -570,6 +568,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 eventsApp,
                 eventThumbnail,
                 eventImage,
+                eventVideoclip,
             } = await getWebooks();
             if ([webhook, privateWebhook].includes('app')) {
                 if (deviceIdOrActionRaw) {
@@ -610,39 +609,42 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     const videoclips: (VideoClip & {
                         deviceName: string,
                         deviceId: string,
+                        videoclipHref: string,
                     })[] = [];
+                    const promises: Promise<VideoClip[]>[] = [];
+                    const deviceIds: string[] = [];
 
                     for (const deviceId of Object.keys(this.currentCameraMixinsMap)) {
                         const device = sdk.systemManager.getDeviceById<VideoClips & ScryptedDeviceBase>(deviceId);
                         if (device.interfaces.includes(ScryptedInterface.VideoClips)) {
-                            const cameraVideoclips = await device.getVideoClips({
+                            promises.push(device.getVideoClips({
                                 startTime: fromDate,
                                 endTime: tillDate
-                            });
-                            for (const clip of cameraVideoclips) {
-                                videoclips.push({
-                                    ...clip,
-                                    deviceName: device.name,
-                                    deviceId: device.id,
-                                });
-                            }
+                            }));
+                            deviceIds.push(device.id);
                         }
                     }
 
-                    response.send(JSON.stringify(videoclips), {
-                        code: 200,
-                        headers: {
-                            'Content-Type': 'application/json',
-                        }
-                    });
-                    return;
-                } else if (apimethod === NvrAppApiMethod.GetVideoclipHref) {
-                    const { deviceId, videoId } = payload;
-                    const device = sdk.systemManager.getDeviceById<VideoClips>(deviceId);
-                    let mo = await device.getVideoClip(videoId);
-                    const videoHref = (await mediaManager.convertMediaObjectToBuffer(mo, ScryptedMimeTypes.LocalUrl)).toString();
+                    const promisesRes = await Promise.all(promises);
+                    let index = 0;
+                    for (const cameraVideoclips of promisesRes) {
+                        const deviceId = deviceIds[index];
+                        for (const clip of cameraVideoclips) {
+                            const device = sdk.systemManager.getDeviceById<VideoClips & ScryptedDeviceBase>(deviceId);
+                            const videoclipHref = `/${eventVideoclip}/${device?.id}/${clip.videoId}`;
 
-                    response.send(JSON.stringify({ videoHref }), {
+
+                            videoclips.push({
+                                ...clip,
+                                deviceName: device.name,
+                                deviceId: device.id,
+                                videoclipHref
+                            });
+                        }
+                        index++;
+                    }
+
+                    response.send(JSON.stringify(videoclips), {
                         code: 200,
                         headers: {
                             'Content-Type': 'application/json',
@@ -778,6 +780,124 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 }
 
                 return;
+            } else if ([eventVideoclip].includes(webhook)) {
+                const device = sdk.systemManager.getDeviceById<VideoClips>(deviceIdOrAction);
+                const mo = await device.getVideoClip(decodedRuleNameOrSnoozeIdOrSnapshotId);
+                let videoUrl = (await mediaManager.convertMediaObjectToBuffer(mo, ScryptedMimeTypes.LocalUrl)).toString();
+                const supportH265 = url.searchParams.get('h265');
+                const range = request.headers.range;
+
+                if (videoUrl.startsWith('http')) {
+                    videoUrl = new URL(videoUrl).pathname;
+
+                }
+                const cloudEndpoint = await sdk.endpointManager.getCloudEndpoint(undefined, { public: true });
+                const origin = new URL(cloudEndpoint).origin;
+                videoUrl = `${origin}${videoUrl}`;
+
+                response.send('', {
+                    code: 302,
+                    headers: {
+                        Location: videoUrl,
+                        cookie: request.headers.cookie
+                    }
+                });
+                return;
+
+                // const sendVideo = async (props: {
+                //     buffer: Buffer
+                // }) => {
+                //     const { buffer } = props;
+
+                //     const fileSize = buffer.length;
+                //     const parts = range.replace(/bytes=/, "").split("-");
+                //     const start = parseInt(parts[0], 10);
+                //     const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+                //     const chunkSize = (end - start) + 1;
+                //     return new Promise<void>((resolve, reject) => {
+                //         try {
+                //             response.sendStream((async function* () {
+                //                 let offset = start;
+                //                 while (offset <= end) {
+                //                     const next = Math.min(offset + chunkSize, end + 1);
+                //                     yield buffer.slice(offset, next);
+                //                     offset = next;
+                //                 }
+                //             })(), {
+                //                 code: 206,
+                //                 headers: {
+                //                     'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+                //                     'Accept-Ranges': 'bytes',
+                //                     'Content-Length': chunkSize,
+                //                     'Content-Type': 'video/mp4',
+                //                 }
+                //             });
+
+                //             resolve();
+                //         } catch (err) {
+                //             reject(err);
+                //         }
+                //     });
+                // };
+
+                // if (range) {
+                //     let supportsRanges = false;
+                //     try {
+                //         const rangedResponse = await axios.get(videoUrl, {
+                //             headers: {
+                //                 Range: 'bytes=20-40'
+                //             },
+                //         });
+
+                //         supportsRanges = rangedResponse.status === 206;
+                //     } catch {
+                //         supportsRanges = false;
+                //     }
+
+                //     if (supportsRanges) {
+                //         const chunkResponse = await axios.get<Buffer>(videoUrl, {
+                //             responseType: "arraybuffer",
+                //             headers: {
+                //                 range,
+                //             }
+                //         });
+                //         response.send(chunkResponse.data, {
+                //             code: 200,
+                //             headers: {
+                //                 ...chunkResponse.headers
+                //             }
+                //         });
+                //     } else {
+                //         try {
+                //             // const axiosResponse = await axios.get<Buffer>(videoUrl, {
+                //             //     responseType: 'arraybuffer',
+                //             //     headers: {
+                //             //         cookie: request.headers.cookie
+                //             //     }
+                //             // });
+                //             // const buffer = axiosResponse.data;
+
+                //             response.send('', {
+                //                 code: 302,
+                //                 headers: {
+                //                     Location: videoUrl,
+                //                     cookie: request.headers.cookie
+                //                 }
+                //             });
+                //             // await sendVideo({
+                //             //     buffer,
+                //             // });
+                //         } catch (e) {
+                //             logger.log('Error fetching videoclip', videoUrl, e);
+                //         }
+
+                //     }
+                // } else {
+
+                // }
+
+                // return;
             } else if ([videoclipThumbnail].includes(webhook)) {
                 logger.info(JSON.stringify({
                     fileId: deviceIdOrAction,
