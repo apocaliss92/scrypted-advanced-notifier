@@ -118,3 +118,38 @@ export function fixLegacyClipPath(clipPath: ClipPath): ClipPath {
 
     return clipPath.map(p => p.map(c => c / 100)) as ClipPath;
 }
+
+
+export const getNvrThumbnailCrop = (
+    box: BoundingBox,
+    inputDimensions?: [number, number]
+) => {
+    const [x, y, width, height] = box;
+    const centerX = x + width / 2;
+    const centerY = y + height / 2;
+
+    const side = Math.max(width, height);
+
+    let left = Math.floor(centerX - side / 2);
+    let top = Math.floor(centerY - side / 2);
+    let right = Math.ceil(centerX + side / 2);
+    let bottom = Math.ceil(centerY + side / 2);
+
+    if (inputDimensions) {
+        const [videoWidth, videoHeight] = inputDimensions;
+        left = Math.max(0, left);
+        top = Math.max(0, top);
+        right = Math.min(videoWidth, right);
+        bottom = Math.min(videoHeight, bottom);
+    }
+
+    const params = new URLSearchParams({
+        height: '200',
+        left: left.toString(),
+        top: top.toString(),
+        right: right.toString(),
+        bottom: bottom.toString(),
+    });
+
+    return params.toString();
+}

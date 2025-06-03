@@ -288,6 +288,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     observeZoneData: ObserveZoneData[];
     frigateLabels: string[];
     frigateZones: string[];
+    frigateCameraName: string;
     lastFrigateDataFetched: number;
     occupancyState: Record<string, CurrentOccupancyState> = {};
     timelapseLastCheck: Record<string, number> = {};
@@ -1350,10 +1351,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             let labels: string[];
             let zones: string[] = [];
+            let cameraName: string;
             const isUpdated = this.lastFrigateDataFetched && (now - this.lastFrigateDataFetched) <= (1000 * 60);
 
             if (this.frigateLabels && isUpdated) {
                 labels = this.frigateLabels;
+                cameraName = this.frigateCameraName;
             } else {
                 const settings = await this.mixinDevice.getSettings();
                 const labelsResponse = (settings.find((setting: { key: string; }) => setting.key === 'frigateObjectDetector:labels')?.value ?? []) as string[];
@@ -1361,11 +1364,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 this.frigateLabels = labels;
             }
 
-            if (this.frigateZones && isUpdated) {
+            if (this.frigateZones && this.frigateCameraName && isUpdated) {
                 zones = this.frigateZones;
+                cameraName = this.frigateCameraName;
             } else {
                 const settings = await this.mixinDevice.getSettings();
-                const cameraName = settings.find((setting: { key: string; }) => setting.key === 'frigateObjectDetector:cameraName')?.value as string;
+                cameraName = settings.find((setting: { key: string; }) => setting.key === 'frigateObjectDetector:cameraName')?.value as string;
                 if (!cameraName) {
                     logger.log(`Camera name not set on the frigate object detector settings of this camera`);
                 } else {
@@ -1378,7 +1382,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             this.lastFrigateDataFetched = now;
 
-            return { frigateLabels: labels, frigateZones: zones };
+            return { frigateLabels: labels, frigateZones: zones, cameraName };
         } catch (e) {
             this.getLogger().log('Error in getFrigateData', e.message);
             return {};
@@ -2818,27 +2822,27 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 eventSource
             }).catch(logger.log);
 
-            if (
-                (eventSource !== ScryptedEventSource.RawDetection) &&
-                b64Image &&
-                this.plugin.storageSettings.values.storeEvents
-            ) {
-                // In case of NVR/Frigate events no need to delay, events are already controlled on the source
-                const logger = this.getLogger();
-                logger.info(`Starting ${eventSource} storeEventImage: ${JSON.stringify({
-                    detections,
-                    candidates,
-                })}`);
-                this.plugin.storeEventImage({
-                    b64Image,
-                    detections: originalCandidates,
-                    device: this.cameraDevice,
-                    eventSource,
-                    logger,
-                    timestamp: triggerTime,
-                    image,
-                }).catch(logger.error);
-            }
+            // if (
+            //     (eventSource === ScryptedEventSource.Frigate) &&
+            //     b64Image &&
+            //     this.plugin.storageSettings.values.storeEvents
+            // ) {
+            //     // In case of Frigate events no need to delay, events are already controlled on the source
+            //     const logger = this.getLogger();
+            //     logger.info(`Starting ${eventSource} storeEventImage: ${JSON.stringify({
+            //         detections,
+            //         candidates,
+            //     })}`);
+            //     this.plugin.storeEventImage({
+            //         b64Image,
+            //         detections: originalCandidates,
+            //         device: this.cameraDevice,
+            //         eventSource,
+            //         logger,
+            //         timestamp: triggerTime,
+            //         image,
+            //     }).catch(logger.error);
+            // }
         } catch (e) {
             logger.log('Error parsing detections', e);
         }

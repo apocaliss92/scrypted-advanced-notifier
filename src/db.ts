@@ -11,6 +11,7 @@ const eventDbsPath = path.join(dbsPath, 'events');
 
 export type DbDetectionEvent = {
   id: string;
+  eventId?: string;
   timestamp: number;
   classes: string[];
   label?: string;
@@ -20,7 +21,6 @@ export type DbDetectionEvent = {
   source: ScryptedEventSource;
   deviceName: string;
   sensorName?: string;
-  sourceId?: string;
 }
 
 export const cleanupEvents = async (props: { logger: Console }) => {
