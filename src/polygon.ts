@@ -1,6 +1,7 @@
 
 //https://github.com/koush/scrypted/blob/main/plugins/objectdetector/src/polygon.ts
-import type { ClipPath, Point } from '@scrypted/sdk';
+import type { ClipPath, ObjectDetection, ObjectsDetected, Point } from '@scrypted/sdk';
+import { DetectionClass } from './detectionClasses';
 
 // x y w h
 export type BoundingBox = [number, number, number, number];
@@ -120,11 +121,16 @@ export function fixLegacyClipPath(clipPath: ClipPath): ClipPath {
 }
 
 
-export const getNvrThumbnailCrop = (
-    box: BoundingBox,
-    inputDimensions?: [number, number]
-) => {
-    const [x, y, width, height] = box;
+export const getNvrThumbnailCrop = (props: {
+    detection: ObjectsDetected
+}) => {
+    const { detection: { inputDimensions, detections } } = props;
+
+    const prio1Det = detections.find(det => [DetectionClass.Face, DetectionClass.Plate].includes(det.className as DetectionClass));
+    const prio2Det = detections.find(det => [DetectionClass.Animal, DetectionClass.Person, DetectionClass.Vehicle].includes(det.className as DetectionClass));
+
+    const detToUse = prio1Det ?? prio2Det ?? detections[0];
+    const [x, y, width, height] = detToUse.boundingBox;
     const centerX = x + width / 2;
     const centerY = y + height / 2;
 

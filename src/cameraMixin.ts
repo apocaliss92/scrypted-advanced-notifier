@@ -337,7 +337,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async getVideoClips(options?: VideoClipOptions): Promise<VideoClip[]> {
         const videoClips: VideoClip[] = [];
-        const logger = this.getLogger();
 
         try {
             const deviceClips = await this.mixinDevice.getVideoClips(options);
@@ -501,8 +500,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const { videoclipPath } = filePathsRes;
             logger.info('Fetching videoclip ', videoId, videoclipPath);
 
-            const fileURLToPath = `file://${videoclipPath}`
-            videoclipMo = await sdk.mediaManager.createMediaObjectFromUrl(fileURLToPath);
+            const { videoclipStreamUrl } = await getWebHookUrls({ fileId: videoId });
+            videoclipMo = await sdk.mediaManager.createMediaObject(Buffer.from(videoclipStreamUrl), ScryptedMimeTypes.LocalUrl, {
+                sourceId: this.id
+            })
         }
 
         if (videoclipMo) {

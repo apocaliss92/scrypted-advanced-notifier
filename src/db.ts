@@ -15,8 +15,8 @@ export type DbDetectionEvent = {
   timestamp: number;
   classes: string[];
   label?: string;
-  thumbnailUrl: string;
-  imageUrl: string;
+  thumbnailUrl?: string;
+  imageUrl?: string;
   videoUrl?: string;
   source: ScryptedEventSource;
   deviceName: string;

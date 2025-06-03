@@ -216,6 +216,7 @@ export const getWebHookUrls = async (props: {
     let eventThumbnailUrl: string;
     let eventImageUrl: string;
     let eventVideoclipUrl: string;
+    let privatePathnamePrefix: string;
 
     const snoozeActions: NotificationAction[] = [];
 
@@ -229,31 +230,35 @@ export const getWebHookUrls = async (props: {
         videoclipThumbnail,
         eventThumbnail,
         eventImage,
-        eventVideoclip
+        eventVideoclip,
+        eventsApp,
     } = await getWebooks();
 
     try {
         const cloudEndpointRaw = await endpointManager.getCloudEndpoint(undefined, { public: true });
+        const cloudPrivateEndpointRaw = await endpointManager.getCloudEndpoint(undefined, { public: false });
         const localEndpoint = await endpointManager.getPublicLocalEndpoint();
+        const privatePathname = new URL(cloudPrivateEndpointRaw).pathname;
 
         const [cloudEndpoint, parameters] = cloudEndpointRaw.split('?') ?? '';
         const encodedId = encodeURIComponent(cameraIdOrAction ?? device?.id);
         endpoint = cloudEndpoint;
 
         const paramString = parameters ? `?${parameters}` : '';
+        privatePathnamePrefix = `${privatePathname}${eventsApp}`;
 
         lastSnapshotCloudUrl = `${cloudEndpoint}${lastSnapshot}/${encodedId}/{IMAGE_NAME}${paramString}`;
         lastSnapshotLocalUrl = `${localEndpoint}${lastSnapshot}/${encodedId}/{IMAGE_NAME}${paramString}`;
         haActionUrl = `${cloudEndpoint}${haAction}/${encodedId}${paramString}`;
         postNotificationUrl = `${cloudEndpoint}${postNotification}/${encodedId}${paramString}`;
 
-        videoclipDownloadUrl = `${cloudEndpoint}${videoclipDownload}/${fileId}${paramString}`;
-        videoclipStreamUrl = `${cloudEndpoint}${videoclipStream}/${fileId}${paramString}`;
-        videoclipThumbnailUrl = `${cloudEndpoint}${videoclipThumbnail}/${fileId}${paramString}`;
+        videoclipDownloadUrl = `${privatePathnamePrefix}/${videoclipDownload}/${fileId}${paramString}`;
+        videoclipStreamUrl = `${privatePathnamePrefix}/${videoclipStream}/${fileId}${paramString}`;
+        videoclipThumbnailUrl = `${privatePathnamePrefix}/${videoclipThumbnail}/${fileId}${paramString}`;
 
-        eventThumbnailUrl = `/${eventThumbnail}/${device?.id}/${fileId}`;
-        eventImageUrl = `/${eventImage}/${device?.id}/${fileId}`;
-        eventVideoclipUrl = `/${eventVideoclip}/${device?.id}/${fileId}`;
+        eventThumbnailUrl = `${privatePathnamePrefix}/${eventThumbnail}/${device?.id}/${fileId}`;
+        eventImageUrl = `${privatePathnamePrefix}/${eventImage}/${device?.id}/${fileId}`;
+        eventVideoclipUrl = `${privatePathnamePrefix}/${eventVideoclip}/${device?.id}/${fileId}`;
 
         if (snoozes) {
             for (const snooze of snoozes) {
@@ -284,6 +289,7 @@ export const getWebHookUrls = async (props: {
         eventThumbnailUrl,
         eventImageUrl,
         eventVideoclipUrl,
+        privatePathnamePrefix,
     };
 }
 
@@ -3528,7 +3534,7 @@ export enum NvrAppApiMethod {
 export const checkUserLogin = async (request: HttpRequest) => {
     const token = request.headers?.authorization;
     if (!token) {
-        return false
+        return;
     }
 
     const credendials = atob(token.split('Basic ')[1]);
@@ -3544,8 +3550,8 @@ export const checkUserLogin = async (request: HttpRequest) => {
     });
 
     if (loginResponse.error) {
-        return false;
+        return;
     }
 
-    return true;
+    return loginResponse;
 }
