@@ -3526,6 +3526,7 @@ export const b64ToMo = async (b64: string) => {
 export const getFrigateTextKey = (label: string) => `frigate${label}Text` as TextSettingKey;
 
 export enum NvrAppApiMethod {
+    RemoteLog = 'RemoteLog',
     GetEvents = 'GetEvents',
     GetVideoclips = 'GetVideoclips',
     GetConfigs = 'GetConfigs',

@@ -1357,7 +1357,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             if (this.frigateLabels && isUpdated) {
                 labels = this.frigateLabels;
-                cameraName = this.frigateCameraName;
             } else {
                 const settings = await this.mixinDevice.getSettings();
                 const labelsResponse = (settings.find((setting: { key: string; }) => setting.key === 'frigateObjectDetector:labels')?.value ?? []) as string[];
