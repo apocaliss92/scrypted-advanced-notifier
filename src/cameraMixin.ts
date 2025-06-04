@@ -387,7 +387,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 fileName,
                                 ruleName: ruleFolder
                             });
-                            const { videoclipStreamHref, videoclipThumbnailHref } = await getWebHookUrls({
+                            const { videoclipThumbnailUrl, videoclipStreamUrl } = await getWebHookUrls({
                                 fileId: fileId
                             });
 
@@ -402,10 +402,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 detectionClasses: ['timelapseClip'],
                                 resources: {
                                     thumbnail: {
-                                        href: videoclipThumbnailHref
+                                        href: videoclipThumbnailUrl
                                     },
                                     video: {
-                                        href: videoclipStreamHref
+                                        href: videoclipStreamUrl
                                     }
                                 }
                             });
@@ -440,7 +440,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 cameraName: cameraDevice.name,
                                 fileName,
                             });
-                            const { videoclipStreamHref, videoclipThumbnailHref } = await getWebHookUrls({
+                            const { videoclipThumbnailUrl, videoclipStreamUrl } = await getWebHookUrls({
                                 fileId: fileId
                             });
 
@@ -455,10 +455,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 videoId: fileId,
                                 resources: {
                                     thumbnail: {
-                                        href: videoclipThumbnailHref
+                                        href: videoclipThumbnailUrl
                                     },
                                     video: {
-                                        href: videoclipStreamHref
+                                        href: videoclipStreamUrl
                                     }
                                 }
                             });
@@ -504,7 +504,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             const { videoclipStreamUrl } = await getWebHookUrls({ fileId: videoId });
             videoclipMo = await sdk.mediaManager.createMediaObject(Buffer.from(videoclipStreamUrl), ScryptedMimeTypes.LocalUrl, {
-                sourceId: this.id
+                sourceId: this.plugin.id
             })
         }
 

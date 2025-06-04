@@ -800,6 +800,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     let videoUrl = (await mediaManager.convertMediaObjectToBuffer(mo, ScryptedMimeTypes.LocalUrl)).toString();
                     // const supportH265 = url.searchParams.get('h265');
                     // const range = request.headers.range;
+                    logger.log(mo.sourceId);
 
                     if (videoUrl.startsWith('http')) {
                         const urlEntity = new URL(videoUrl);
@@ -836,7 +837,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         const jpeg = await axios.get<Buffer>(imageUrl, {
                             responseType: "arraybuffer",
                             headers: {
-                                cookie: request.headers.cookie
+                                ...request.headers
                             }
                         })
 
