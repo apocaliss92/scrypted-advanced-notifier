@@ -217,6 +217,7 @@ export const getWebHookUrls = async (props: {
     let eventImageUrl: string;
     let eventVideoclipUrl: string;
     let privatePathnamePrefix: string;
+    let publicPathnamePrefix: string;
 
     const snoozeActions: NotificationAction[] = [];
 
@@ -235,12 +236,13 @@ export const getWebHookUrls = async (props: {
     } = await getWebooks();
 
     try {
-        const cloudEndpointRaw = await endpointManager.getCloudEndpoint(undefined, { public: true });
+        const cloudPublicEndpointRaw = await endpointManager.getCloudEndpoint(undefined, { public: true });
         const cloudPrivateEndpointRaw = await endpointManager.getCloudEndpoint(undefined, { public: false });
         const localEndpoint = await endpointManager.getPublicLocalEndpoint();
+        publicPathnamePrefix = new URL(cloudPublicEndpointRaw).pathname;
         const privatePathname = new URL(cloudPrivateEndpointRaw).pathname;
 
-        const [cloudEndpoint, parameters] = cloudEndpointRaw.split('?') ?? '';
+        const [cloudEndpoint, parameters] = cloudPublicEndpointRaw.split('?') ?? '';
         const encodedId = encodeURIComponent(cameraIdOrAction ?? device?.id);
         endpoint = cloudEndpoint;
 
@@ -252,9 +254,9 @@ export const getWebHookUrls = async (props: {
         haActionUrl = `${cloudEndpoint}${haAction}/${encodedId}${paramString}`;
         postNotificationUrl = `${cloudEndpoint}${postNotification}/${encodedId}${paramString}`;
 
-        videoclipDownloadUrl = `${privatePathnamePrefix}/${videoclipDownload}/${fileId}${paramString}`;
-        videoclipStreamUrl = `${privatePathnamePrefix}/${videoclipStream}/${fileId}${paramString}`;
-        videoclipThumbnailUrl = `${privatePathnamePrefix}/${videoclipThumbnail}/${fileId}${paramString}`;
+        videoclipDownloadUrl = `${publicPathnamePrefix}${videoclipDownload}/${fileId}${paramString}`;
+        videoclipStreamUrl = `${publicPathnamePrefix}${videoclipStream}/${fileId}${paramString}`;
+        videoclipThumbnailUrl = `${publicPathnamePrefix}${videoclipThumbnail}/${fileId}${paramString}`;
 
         eventThumbnailUrl = `${privatePathnamePrefix}/${eventThumbnail}/${device?.id}/${fileId}`;
         eventImageUrl = `${privatePathnamePrefix}/${eventImage}/${device?.id}/${fileId}`;
@@ -290,6 +292,7 @@ export const getWebHookUrls = async (props: {
         eventImageUrl,
         eventVideoclipUrl,
         privatePathnamePrefix,
+        publicPathnamePrefix,
     };
 }
 

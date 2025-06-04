@@ -24,6 +24,7 @@ import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { getNvrThumbnailCrop } from "./polygon";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_NAME, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImageSource, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrAppApiMethod, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier } from "./utils";
+import { servePluginGeneratedThumbnail, servePluginGeneratedVideoclip } from "./httpUtils";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -808,17 +809,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     });
                     return;
                 } else if ([privateWebhook, webhook].includes(videoclipThumbnail)) {
-                    logger.info(JSON.stringify({
+                    await servePluginGeneratedThumbnail({
                         fileId: deviceIdOrAction,
-                    }));
-
-                    const mo = await this.camera.getVideoClipThumbnail(deviceIdOrAction);
-                    const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
-
-                    response.send(jpeg, {
-                        headers: {
-                            'Content-Type': 'image/jpeg'
-                        }
+                        plugin: this,
+                        request,
+                        response
                     });
                     return;
                 } else if ([privateWebhook, webhook].some(hook => [eventThumbnail, eventImage].includes(hook))) {
@@ -872,64 +867,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     response.sendFile(videoclipPath);
                     return;
                 } else if ([privateWebhook, webhook].some(hook => [videoclipStream].includes(hook))) {
-                    const { videoclipPath } = this.camera.getFilePath({ fileId: deviceIdOrAction });
-
-                    const stat = await fs.promises.stat(videoclipPath);
-                    const fileSize = stat.size;
-                    const range = request.headers.range;
-
-                    logger.debug(`Videoclip requested: ${JSON.stringify({
-                        videoclipPath,
-                    })}`);
-
-                    if (range) {
-                        const parts = range.replace(/bytes=/, "").split("-");
-                        const start = parseInt(parts[0], 10);
-                        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-
-                        const chunksize = (end - start) + 1;
-                        const file = fs.createReadStream(videoclipPath, { start, end });
-
-                        const sendVideo = async () => {
-                            return new Promise<void>((resolve, reject) => {
-                                try {
-                                    response.sendStream((async function* () {
-                                        for await (const chunk of file) {
-                                            yield chunk;
-                                        }
-                                    })(), {
-                                        code: 206,
-                                        headers: {
-                                            'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-                                            'Accept-Ranges': 'bytes',
-                                            'Content-Length': chunksize,
-                                            'Content-Type': 'video/mp4',
-                                        }
-                                    });
-
-                                    resolve();
-                                } catch (err) {
-                                    reject(err);
-                                }
-                            });
-                        };
-
-                        try {
-                            await sendVideo();
-                            return;
-                        } catch (e) {
-                            logger.log('Error fetching videoclip', e);
-                        }
-                    } else {
-                        response.sendFile(videoclipPath, {
-                            code: 200,
-                            headers: {
-                                'Content-Length': fileSize,
-                                'Content-Type': 'video/mp4',
-                            }
-                        });
-                    }
-
+                    await servePluginGeneratedVideoclip({
+                        fileId: deviceIdOrAction,
+                        request,
+                        response,
+                        plugin: this,
+                    });
                     return;
                 }
             } else if (webhook === haAction) {
@@ -945,6 +888,22 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                 response.send(`Action ${deviceIdOrAction} executed`, {
                     code: 200,
+                });
+                return;
+            } else if (webhook === videoclipStream) {
+                await servePluginGeneratedVideoclip({
+                    fileId: deviceIdOrAction,
+                    request,
+                    response,
+                    plugin: this,
+                });
+                return;
+            } else if (webhook === videoclipThumbnail) {
+                await servePluginGeneratedThumbnail({
+                    fileId: deviceIdOrAction,
+                    plugin: this,
+                    request,
+                    response
                 });
                 return;
             } else if (webhook === lastSnapshot) {
