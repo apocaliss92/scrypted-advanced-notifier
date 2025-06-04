@@ -616,12 +616,19 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         }
                     }
 
+                    const eventsRecorderId = sdk.systemManager.getDeviceByName('Events recorder')?.id;
                     const nvrPromisesRes = await Promise.all(nvrPromises);
                     let index = 0;
                     for (const nvrCameraEvents of nvrPromisesRes) {
                         const deviceId = deviceIds[index];
                         const device = sdk.systemManager.getDeviceById<EventRecorder & ScryptedDeviceBase>(deviceId);
                         for (const event of nvrCameraEvents) {
+                            const isEventsRecorder = event.details.mixinId === eventsRecorderId;
+
+                            const pluginEventPath = isEventsRecorder ?
+                                '@apocaliss92/scrypted-events-recorder' :
+                                '@scrypted/nvr';
+
                             if (event.details.eventInterface === ScryptedInterface.ObjectDetector && event.data) {
                                 const detection: ObjectsDetected = event.data;
                                 const classes = uniq(detection.detections.map(det => det.className)
@@ -635,8 +642,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                                         deviceName: device.name,
                                         eventId: event.details.eventId,
                                         timestamp: detection.timestamp,
-                                        thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/@scrypted/nvr/thumbnail/${deviceId}/${detection.timestamp}.jpg?height=200}`)}`,
-                                        imageUrl: `${privatePathnamePrefix}/${eventImage}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/@scrypted/nvr/thumbnail/${deviceId}/${detection.timestamp}.jpg?height=1200`)}`,
+                                        thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?height=200`)}`,
+                                        imageUrl: `${privatePathnamePrefix}/${eventImage}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?height=1200`)}`,
                                     });
                                 } else {
                                     const label = detection.detections.find(det => det.label)?.label;
@@ -649,8 +656,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                                         deviceName: device.name,
                                         eventId: event.details.eventId,
                                         timestamp: detection.timestamp,
-                                        thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/@scrypted/nvr/thumbnail/${deviceId}/${detection.timestamp}.jpg?${thumbnailSearchParams}`)}`,
-                                        imageUrl: `${privatePathnamePrefix}/${eventImage}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/@scrypted/nvr/thumbnail/${deviceId}/${detection.timestamp}.jpg?height=1200?`)}`,
+                                        thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?${thumbnailSearchParams}`)}`,
+                                        imageUrl: `${privatePathnamePrefix}/${eventImage}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?height=1200?`)}`,
                                     });
                                 }
                             }
