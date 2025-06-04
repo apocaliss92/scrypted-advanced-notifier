@@ -803,8 +803,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     response.send('', {
                         code: 302,
                         headers: {
+                            ...request.headers,
                             Location: videoUrl,
-                            cookie: request.headers.cookie
                         }
                     });
                     return;
