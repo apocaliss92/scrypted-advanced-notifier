@@ -171,7 +171,6 @@ export const getWebooks = async () => {
         snoozeNotification,
         postNotification,
         setAlarm,
-        videoclipDownload,
         videoclipStream,
         videoclipThumbnail,
         eventThumbnail,
@@ -212,7 +211,8 @@ export const getWebHookUrls = async (props: {
     let endpoint: string;
     let videoclipThumbnailUrl: string;
     let videoclipStreamUrl: string;
-    let videoclipDownloadUrl: string;
+    let videoclipThumbnailHref: string;
+    let videoclipStreamHref: string;
     let eventThumbnailUrl: string;
     let eventImageUrl: string;
     let eventVideoclipUrl: string;
@@ -226,7 +226,6 @@ export const getWebHookUrls = async (props: {
         haAction,
         snoozeNotification,
         postNotification,
-        videoclipDownload,
         videoclipStream,
         videoclipThumbnail,
         eventThumbnail,
@@ -254,9 +253,11 @@ export const getWebHookUrls = async (props: {
         haActionUrl = `${cloudEndpoint}${haAction}/${encodedId}${paramString}`;
         postNotificationUrl = `${cloudEndpoint}${postNotification}/${encodedId}${paramString}`;
 
-        videoclipDownloadUrl = `${publicPathnamePrefix}${videoclipDownload}/${fileId}${paramString}`;
-        videoclipStreamUrl = `${publicPathnamePrefix}${videoclipStream}/${fileId}${paramString}`;
-        videoclipThumbnailUrl = `${publicPathnamePrefix}${videoclipThumbnail}/${fileId}${paramString}`;
+        videoclipStreamHref = `${publicPathnamePrefix}${videoclipStream}/${fileId}${paramString}`;
+        videoclipThumbnailHref = `${publicPathnamePrefix}${videoclipThumbnail}/${fileId}${paramString}`;
+
+        videoclipStreamUrl = `${cloudEndpoint}${videoclipStream}/${fileId}${paramString}`;
+        videoclipThumbnailUrl = `${cloudEndpoint}${videoclipThumbnail}/${fileId}${paramString}`;
 
         eventThumbnailUrl = `${privatePathnamePrefix}/${eventThumbnail}/${device?.id}/${fileId}`;
         eventImageUrl = `${privatePathnamePrefix}/${eventImage}/${device?.id}/${fileId}`;
@@ -285,9 +286,10 @@ export const getWebHookUrls = async (props: {
         snoozeActions,
         postNotificationUrl,
         endpoint,
-        videoclipDownloadUrl,
         videoclipStreamUrl,
         videoclipThumbnailUrl,
+        videoclipStreamHref,
+        videoclipThumbnailHref,
         eventThumbnailUrl,
         eventImageUrl,
         eventVideoclipUrl,

@@ -570,7 +570,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 snoozeNotification,
                 postNotification,
                 setAlarm,
-                videoclipDownload,
                 videoclipStream,
                 videoclipThumbnail,
                 eventsApp,
@@ -796,7 +795,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     // const range = request.headers.range;
 
                     if (videoUrl.startsWith('http')) {
-                        videoUrl = new URL(videoUrl).pathname;
+                        const urlEntity = new URL(videoUrl);
+                        videoUrl = `${urlEntity.pathname}${urlEntity.search}`;
                     }
                     videoUrl = `${this.serverOrigin}${videoUrl}`;
 
@@ -860,11 +860,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                         response.send(jpeg);
                     }
-                    return;
-                } else if ([privateWebhook, webhook].some(hook => [videoclipDownload].includes(hook))) {
-                    const { videoclipPath } = this.camera.getFilePath({ fileId: deviceIdOrAction });
-
-                    response.sendFile(videoclipPath);
                     return;
                 } else if ([privateWebhook, webhook].some(hook => [videoclipStream].includes(hook))) {
                     await servePluginGeneratedVideoclip({

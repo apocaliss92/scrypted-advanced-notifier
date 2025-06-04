@@ -387,7 +387,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 fileName,
                                 ruleName: ruleFolder
                             });
-                            const { videoclipStreamUrl, videoclipThumbnailUrl } = await getWebHookUrls({
+                            const { videoclipStreamHref, videoclipThumbnailHref } = await getWebHookUrls({
                                 fileId: fileId
                             });
 
@@ -401,10 +401,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 detectionClasses: ['timelapseClip'],
                                 resources: {
                                     thumbnail: {
-                                        href: videoclipThumbnailUrl
+                                        href: videoclipThumbnailHref
                                     },
                                     video: {
-                                        href: videoclipStreamUrl
+                                        href: videoclipStreamHref
                                     }
                                 }
                             });
@@ -439,7 +439,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 cameraName: cameraDevice.name,
                                 fileName,
                             });
-                            const { videoclipStreamUrl, videoclipThumbnailUrl } = await getWebHookUrls({
+                            const { videoclipStreamHref, videoclipThumbnailHref } = await getWebHookUrls({
                                 fileId: fileId
                             });
 
@@ -453,10 +453,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 videoId: fileId,
                                 resources: {
                                     thumbnail: {
-                                        href: videoclipThumbnailUrl
+                                        href: videoclipThumbnailHref
                                     },
                                     video: {
-                                        href: videoclipStreamUrl
+                                        href: videoclipStreamHref
                                     }
                                 }
                             });
