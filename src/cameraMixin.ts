@@ -852,16 +852,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         const settings = await this.mixinDevice.getSettings();
                         const isRecording = !settings.find(setting => setting.key === 'recording:privacyMode')?.value;
 
-                        publishCameraValues({
-                            console: logger,
-                            device: this.cameraDevice,
-                            mqttClient,
-                            notificationsEnabled,
-                            isRecording,
-                            rulesToEnable,
-                            rulesToDisable,
-                            checkOccupancy
-                        }).catch(logger.error);
+                        if (this.plugin.storageSettings.values.mqttEnabled) {
+                            publishCameraValues({
+                                console: logger,
+                                device: this.cameraDevice,
+                                mqttClient,
+                                notificationsEnabled,
+                                isRecording,
+                                rulesToEnable,
+                                rulesToDisable,
+                                checkOccupancy
+                            }).catch(logger.error);
+                        }
                     }
                 }
 

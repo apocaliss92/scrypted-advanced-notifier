@@ -1,7 +1,7 @@
 import sdk, { MediaObject, Notifier, NotifierOptions, ScryptedInterface, Setting, Settings, SettingValue } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
-import { getBaseLogger, getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
+import { getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, reportNotifierValues, setupNotifierAutodiscovery, subscribeToNotifierMqttTopics } from "./mqtt-utils";
@@ -234,7 +234,7 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
                                 await this.mqttClient.cleanupAutodiscoveryTopics(activeTopics);
                             }).catch(logger.error);
 
-                            logger.debug(`Subscribing to mqtt topics`);
+                            logger.log(`Subscribing to mqtt topics`);
                             subscribeToNotifierMqttTopics({
                                 mqttClient,
                                 device: this.notifierDevice,
@@ -265,13 +265,15 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
                             this.lastAutoDiscovery = now;
                         }
 
-                        const notificationsEnabled = this.isNvrNotifier ? this.on : enabled;
-                        reportNotifierValues({
-                            console: logger,
-                            device: this.notifierDevice,
-                            mqttClient,
-                            notificationsEnabled,
-                        }).catch(logger.error);
+                        if (this.plugin.storageSettings.values.mqttEnabled) {
+                            const notificationsEnabled = this.isNvrNotifier ? this.on : enabled;
+                            reportNotifierValues({
+                                console: logger,
+                                device: this.notifierDevice,
+                                mqttClient,
+                                notificationsEnabled,
+                            }).catch(logger.error);
+                        }
                     }
                 }
             } catch (e) {
