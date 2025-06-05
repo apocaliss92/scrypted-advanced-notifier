@@ -23,7 +23,7 @@ import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { getNvrThumbnailCrop } from "./polygon";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_NAME, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImageSource, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrAppApiMethod, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, EVENTS_RECORDER_PLUGIN_NAME, FRIGATE_BRIDGE_PLUGIN_NAME, getAiSettings, getAllDevices, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getAssetSource, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImageSource, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrAppApiMethod, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier } from "./utils";
 import { servePluginGeneratedThumbnail, servePluginGeneratedVideoclip } from "./httpUtils";
 
 const { systemManager, mediaManager } = sdk;
@@ -425,6 +425,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger.log(`Frigate cameras found ${frigateCameras}`);
         }
 
+
         const [major, minor, patch] = version.split('.').map(num => parseInt(num, 10));
 
         await sdk.deviceManager.onDeviceDiscovered(
@@ -616,14 +617,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         }
                     }
 
-                    const eventsRecorderId = sdk.systemManager.getDeviceByName('Events recorder')?.id;
                     const nvrPromisesRes = await Promise.all(nvrPromises);
                     let index = 0;
                     for (const nvrCameraEvents of nvrPromisesRes) {
                         const deviceId = deviceIds[index];
                         const device = sdk.systemManager.getDeviceById<EventRecorder & ScryptedDeviceBase>(deviceId);
                         for (const event of nvrCameraEvents) {
-                            const isEventsRecorder = event.details.mixinId === eventsRecorderId;
+                            const { isEventsRecorder } = getAssetSource({ sourceId: event.details.mixinId });
 
                             const pluginEventPath = isEventsRecorder ?
                                 '@apocaliss92/scrypted-events-recorder' :
@@ -788,7 +788,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     return;
                 } else if (apimethod === NvrAppApiMethod.RemoteLog) {
                     const { content } = payload;
-                    logger.log(`WebAppLogging: ${content}`);
+                    logger.log(`WebAppLogging: ${JSON.stringify(content)}`);
 
                     response.send('ok', {
                         code: 200,
@@ -800,22 +800,47 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     let videoUrl = (await mediaManager.convertMediaObjectToBuffer(mo, ScryptedMimeTypes.LocalUrl)).toString();
                     // const supportH265 = url.searchParams.get('h265');
                     // const range = request.headers.range;
-                    logger.log(mo.sourceId);
-
                     if (videoUrl.startsWith('http')) {
                         const urlEntity = new URL(videoUrl);
                         videoUrl = `${urlEntity.pathname}${urlEntity.search}`;
                     }
                     videoUrl = `${this.serverOrigin}${videoUrl}`;
 
-                    response.send('', {
-                        code: 302,
-                        headers: {
-                            ...request.headers,
-                            Location: videoUrl,
+                    const isIos = /iPhone|iPad|iPod/i.test(request.headers['user-agent']);
+                    const { isNvr } = getAssetSource({ videoUrl });
+
+                    // If iOS and nvr clips, prebuffer to avoid streaming issues 
+                    if (isNvr && isIos) {
+                        const remoteResponse = await axios.get<Buffer[]>(videoUrl, {
+                            headers: request.headers,
+                            responseType: 'stream',
+                        });
+                        const chunks: Buffer[] = [];
+
+                        for await (const chunk of remoteResponse.data) {
+                            chunks.push(chunk);
                         }
-                    });
-                    return;
+
+                        response.send(Buffer.concat(chunks), {
+                            code: 200,
+                            headers: {
+                                ...remoteResponse.headers,
+                                'Content-Type': 'video/mp4',
+                                'Content-Length': chunks.length,
+                                'transfer-encoding': undefined,
+                            },
+                        });
+                        return;
+                    } else {
+                        response.send('', {
+                            code: 302,
+                            headers: {
+                                ...request.headers,
+                                Location: videoUrl,
+                            }
+                        });
+                        return;
+                    }
                 } else if ([privateWebhook, webhook].includes(videoclipThumbnail)) {
                     await servePluginGeneratedThumbnail({
                         fileId: deviceIdOrAction,

@@ -23,6 +23,8 @@ export const NTFY_PLUGIN_ID = '@apocaliss92/ntfy';
 export const NVR_PLUGIN_ID = '@scrypted/nvr';
 export const VIDEO_ANALYSIS_PLUGIN_ID = '@scrypted/objectdetector';
 export const HOMEASSISTANT_PLUGIN_ID = '@scrypted/homeassistant';
+export const EVENTS_RECORDER_PLUGIN_ID = '@apocaliss92/scrypted-events-recorder';
+export const FRIGATE_BRIDGE_PLUGIN_ID = '@apocaliss92/scrypted-frigate-bridge';
 export const NVR_NOTIFIER_INTERFACE = `${NVR_PLUGIN_ID}:Notifier`;
 export const SNAPSHOT_WIDTH = 1280;
 export const LATEST_IMAGE_SUFFIX = '-latest';
@@ -32,9 +34,53 @@ export const ALARM_SYSTEM_NATIVE_ID = 'advancedNotifierAlarmSystem';
 export const MAX_PENDING_RESULT_PER_CAMERA = 5;
 export const MAX_RPC_OBJECTS_PER_CAMERA = 50;
 export const FRIGATE_BRIDGE_PLUGIN_NAME = 'Frigate bridge';
+export const EVENTS_RECORDER_PLUGIN_NAME = 'Events recorder';
 export const DECODER_FRAME_MIN_TIME = 100;
 export const TIMELAPSE_CLIP_PREFIX = 'TIMELAPSE';
 export const DETECTION_CLIP_PREFIX = 'DETECTION';
+export const ADVANCED_NOTIFIER_PLUGIN_NAME = scrypted.name;
+
+export const getAssetSource = (props: { videoUrl?: string, sourceId?: string }) => {
+    const { sourceId, videoUrl } = props;
+
+    const findFlags = () => {
+        if (sourceId) {
+            const eventsRecorderId = sdk.systemManager.getDeviceByName(EVENTS_RECORDER_PLUGIN_NAME)?.id;
+            const frigateBridgeId = sdk.systemManager.getDeviceByName(FRIGATE_BRIDGE_PLUGIN_NAME)?.id;
+            const advancedNotifierId = sdk.systemManager.getDeviceByName(ADVANCED_NOTIFIER_PLUGIN_NAME)?.id;
+
+            const isEventsRecorder = eventsRecorderId && eventsRecorderId === sourceId;
+            const isFrigateBridge = frigateBridgeId && frigateBridgeId === sourceId;
+            const isAdvancedNotifier = advancedNotifierId && advancedNotifierId === sourceId;
+            const isNvr = !isEventsRecorder && !isFrigateBridge && !isAdvancedNotifier;
+
+            return {
+                isEventsRecorder,
+                isFrigateBridge,
+                isAdvancedNotifier,
+                isNvr,
+            };
+        } else if (videoUrl) {
+
+            const isEventsRecorder = videoUrl.includes(EVENTS_RECORDER_PLUGIN_ID);
+            const isFrigateBridge = videoUrl.includes(FRIGATE_BRIDGE_PLUGIN_ID);
+            const isAdvancedNotifier = videoUrl.includes(ADVANCED_NOTIFIER_INTERFACE);
+            const isNvr = videoUrl.includes(NVR_PLUGIN_ID);
+
+            return {
+                isEventsRecorder,
+                isFrigateBridge,
+                isAdvancedNotifier,
+                isNvr,
+            };
+        }
+    }
+
+    const flags = findFlags();
+    return {
+        ...flags,
+    }
+}
 
 export enum ScryptedEventSource {
     RawDetection = 'RawDetection',
@@ -867,8 +913,6 @@ export const getMixinBaseSettings = (props: {
         console.log('Error in getBasixSettings', e);
     }
 }
-
-export const mainPluginName = scrypted.name;
 
 export const getActiveRules = async (
     props: {
