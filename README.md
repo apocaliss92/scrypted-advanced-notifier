@@ -61,7 +61,7 @@ Plugins supports scripting of the NVR buitin notifiers, following features are a
 - Camera notifications disabled: disable notifications for a specific camera
 - Schedule notifications on both cameras and notifiers
 - Translate notifications with the plugin `Texts` section (enabled by default)
-- Enable AI to generate descriptions, must be active also on the camera
+- Enable AI to generate descriptions. To make this to work, each camera and notifier should be extended with the Advanced notifier pluign and activate the AI flag on both. Reason is that ai calls can be expensive and needs to be explicitely enabled on both entities
 
 **NVR notifiers can be used both as plugin notifiers, then with rules and everything, or just to enhance the NVR notifications.**
 - If you want to use it as plugin notifier, you should keep the notifier enabled (at the very bottom of the page) BUT disable all the detection classes (on the device page of the device, i.e. `Scrypted iPhone App (user)`)
