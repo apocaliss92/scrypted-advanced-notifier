@@ -1731,7 +1731,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }
 
             if (image) {
-                b64Image = await moToB64(image)
+                b64Image = await moToB64(image);
             } else {
                 imageSource = ImageSource.NotFound;
             }

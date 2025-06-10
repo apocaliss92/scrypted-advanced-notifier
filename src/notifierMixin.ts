@@ -5,7 +5,7 @@ import { getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, reportNotifierValues, setupNotifierAutodiscovery, subscribeToNotifierMqttTopics } from "./mqtt-utils";
-import { convertSettingsToStorageSettings, DetectionRule, DeviceInterface, GetImageReason, getMixinBaseSettings, getTextSettings, getWebHookUrls, isSchedulerActive, MixinBaseSettingKey, NVR_NOTIFIER_INTERFACE, parseNvrNotificationMessage, TextSettingKey } from "./utils";
+import { convertSettingsToStorageSettings, DetectionRule, DeviceInterface, GetImageReason, getMixinBaseSettings, getTextSettings, getWebHookUrls, isSchedulerActive, MixinBaseSettingKey, moToB64, NVR_NOTIFIER_INTERFACE, parseNvrNotificationMessage, TextSettingKey } from "./utils";
 
 export type SendNotificationToPluginFn = (notifierId: string, title: string, options?: NotifierOptions, media?: MediaObject, icon?: MediaObject | string) => Promise<void>
 
@@ -383,7 +383,14 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
                         const { eventType, detection, triggerTime } = await parseNvrNotificationMessage(cameraDevice, deviceSensors, options, logger);
 
                         const image = typeof media === 'string' ? (await sdk.mediaManager.createMediaObjectFromUrl(media)) : media;
-                        const { b64Image } = await cameraMixin.getImage({ image, reason: GetImageReason.FromNvr });
+
+                        let b64Image: string;
+                        if (cameraMixin) {
+                            b64Image = (await cameraMixin.getImage({ image, reason: GetImageReason.FromNvr }))?.b64Image;
+                        } else if (image) {
+                            b64Image = await moToB64(image);
+                        }
+
                         const { message } = await this.plugin.getNotificationContent({
                             device: cameraDevice,
                             notifier: this.notifierDevice,
