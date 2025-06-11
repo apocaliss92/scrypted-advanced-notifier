@@ -859,24 +859,27 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     if (imageSource === ScryptedEventSource.NVR) {
                         const path = url.searchParams.get('path');
                         const imageUrl = `${this.serverOrigin}/${decodeURIComponent(path)}`;
-                        // const jpeg = await axios.get<Buffer>(imageUrl, {
-                        //     responseType: "arraybuffer",
-                        //     headers: {
-                        //         ...request.headers
-                        //     }
-                        // })
-
-                        // response.send(jpeg.data, {
-                        //     code: 200,
-                        // });
-                        // return;
-                        response.send('', {
-                            code: 302,
+                        const jpeg = await axios.get<Buffer>(imageUrl, {
+                            responseType: "arraybuffer",
                             headers: {
-                                ...request.headers,
-                                Location: imageUrl,
+                                ...request.headers
+                            }
+                        })
+
+                        response.send(jpeg.data, {
+                            code: 200,
+                            headers: {
+                                "Cache-Control": "max-age=31536000"
                             }
                         });
+                        return;
+                        // response.send('', {
+                        //     code: 302,
+                        //     headers: {
+                        //         ...request.headers,
+                        //         Location: imageUrl,
+                        //     }
+                        // });
                     } else if (imageSource === ScryptedEventSource.Frigate) {
                         const imagePath = webhook === eventThumbnail ? 'thumbnail' : 'snapshot';
                         const imageUrl = `${this.frigateApi}/events/${decodedRuleNameOrSnoozeIdOrSnapshotId}/${imagePath}.jpg`;
@@ -887,7 +890,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         response.send(jpeg.data, {
                             code: 200,
                             headers: {
-                                ...jpeg.headers
+                                ...jpeg.headers,
+                                "Cache-Control": "max-age=31536000"
                             }
                         });
                         return;
@@ -898,7 +902,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                         const jpeg = await fs.promises.readFile(imagePath);
 
-                        response.send(jpeg);
+                        response.send(jpeg, {
+                            headers: {
+                                "Cache-Control": "max-age=31536000"
+                            }
+                        });
                     }
                     return;
                 } else if ([privateWebhook, webhook].some(hook => [videoclipStream].includes(hook))) {
