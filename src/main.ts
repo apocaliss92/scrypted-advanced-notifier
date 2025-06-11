@@ -859,17 +859,24 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     if (imageSource === ScryptedEventSource.NVR) {
                         const path = url.searchParams.get('path');
                         const imageUrl = `${this.serverOrigin}/${decodeURIComponent(path)}`;
-                        const jpeg = await axios.get<Buffer>(imageUrl, {
-                            responseType: "arraybuffer",
-                            headers: {
-                                ...request.headers
-                            }
-                        })
+                        // const jpeg = await axios.get<Buffer>(imageUrl, {
+                        //     responseType: "arraybuffer",
+                        //     headers: {
+                        //         ...request.headers
+                        //     }
+                        // })
 
-                        response.send(jpeg.data, {
-                            code: 200,
+                        // response.send(jpeg.data, {
+                        //     code: 200,
+                        // });
+                        // return;
+                        response.send('', {
+                            code: 302,
+                            headers: {
+                                ...request.headers,
+                                Location: imageUrl,
+                            }
                         });
-                        return;
                     } else if (imageSource === ScryptedEventSource.Frigate) {
                         const imagePath = webhook === eventThumbnail ? 'thumbnail' : 'snapshot';
                         const imageUrl = `${this.frigateApi}/events/${decodedRuleNameOrSnoozeIdOrSnapshotId}/${imagePath}.jpg`;
@@ -1021,7 +1028,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 });
             }
         } catch (e) {
-            logger.log(`Error in onRequest`, e);
+            logger.log(`Error in onRequest`, e.message);
             response.send(`${JSON.stringify(e)}, ${e.message}`, {
                 code: 400,
             });
@@ -1137,15 +1144,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 this.currentNotifierMixinsMap[device.id] ||
                 this.currentSensorMixinsMap[device.id];
 
-            return super.getLoggerInternal({
-                console: mixin.console,
-                storage: mixin.storageSettings,
-                friendlyName: mixin.clientId,
-            });
-        } else {
-            return super.getLoggerInternal({});
+            if (mixin) {
+                return super.getLoggerInternal({
+                    console: mixin.console,
+                    storage: mixin.storageSettings,
+                    friendlyName: mixin.clientId,
+                });
+            }
         }
 
+        return super.getLoggerInternal({});
     }
 
     private async setupMqttEntities() {
