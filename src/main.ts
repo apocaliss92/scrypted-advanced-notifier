@@ -611,7 +611,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         if (device.interfaces.includes(ScryptedInterface.EventRecorder)) {
                             nvrPromises.push(device.getRecordedEvents({
                                 startTime: fromDate,
-                                endTime: tillDate
+                                endTime: tillDate,
                             }));
                             deviceIds.push(device.id);
                         }
@@ -657,7 +657,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                                         eventId: event.details.eventId,
                                         timestamp: detection.timestamp,
                                         thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?${thumbnailSearchParams}`)}`,
-                                        imageUrl: `${privatePathnamePrefix}/${eventImage}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?height=1200?`)}`,
+                                        imageUrl: `${privatePathnamePrefix}/${eventImage}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?height=1200`)}`,
                                     });
                                 }
                             }
