@@ -601,9 +601,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 }
                 return;
             } else if ([webhook, privateWebhook].includes(eventsApp)) {
-                let loginResponse
                 if (webhook === eventsApp) {
-                    loginResponse = await checkUserLogin(request);
+                    const loginResponse = await checkUserLogin(request);
                     if (!loginResponse) {
                         response.send('Unauthorized', {
                             code: 401

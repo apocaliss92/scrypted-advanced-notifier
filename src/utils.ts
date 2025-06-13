@@ -204,7 +204,6 @@ export const getWebooks = async () => {
     const snoozeNotification = 'snoozeNotification';
     const postNotification = 'postNotification';
     const setAlarm = 'setAlarm';
-    const videoclipDownload = 'videoclipDownload';
     const videoclipStream = 'videoclipStream';
     const videoclipThumbnail = 'videoclipThumbnail';
     const eventThumbnail = 'eventThumbnail';
