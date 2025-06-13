@@ -1,0 +1,254 @@
+
+import sdk, { EventRecorder, MediaObject, ObjectsDetected, RecordedEvent, RecordedEventOptions, ScryptedDeviceBase, ScryptedInterface, Setting, Settings, SettingValue, VideoClip, VideoClipOptions, VideoClips, VideoClipThumbnailOptions } from '@scrypted/sdk';
+import { StorageSettings, StorageSettingsDict } from '@scrypted/sdk/storage-settings';
+import axios from 'axios';
+import { groupBy, uniq } from 'lodash';
+import { DetectionData as FrigateEvent } from '../../scrypted-frigate-bridge/src/utils';
+import { getEventsInRange } from './db';
+import { DetectionClass } from './detectionClasses';
+import AdvancedNotifierPlugin from './main';
+import { getNvrThumbnailCrop } from './polygon';
+import { getAssetSource, getWebHookUrls, getWebooks, ScryptedEventSource } from './utils';
+
+type StorageKeys = string;
+
+export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements Settings, EventRecorder, VideoClips {
+    initStorage: StorageSettingsDict<StorageKeys> = {
+    };
+    logger: Console;
+
+    storageSettings = new StorageSettings(this, this.initStorage);
+
+    constructor(nativeId: string, private plugin: AdvancedNotifierPlugin) {
+        super(nativeId);
+        const logger = this.getLogger();
+    }
+
+    async getRecordedEvents(options: RecordedEventOptions): Promise<RecordedEvent[]> {
+        const { endTime, startTime } = options;
+        const { privatePathnamePrefix } = await getWebHookUrls({});
+        const { eventThumbnail, eventImage } = await getWebooks();
+        const logger = this.getLogger();
+
+        const events: RecordedEvent[] = [];
+        // const events: DbDetectionEvent[] = [];
+
+        const nvrPromises: Promise<RecordedEvent[]>[] = [];
+        let deviceIds: string[] = [];
+
+        for (const deviceId of Object.keys(this.plugin.currentCameraMixinsMap)) {
+            const device = sdk.systemManager.getDeviceById<EventRecorder & ScryptedDeviceBase>(deviceId);
+            if (device.interfaces.includes(ScryptedInterface.EventRecorder)) {
+                nvrPromises.push(device.getRecordedEvents({
+                    startTime,
+                    endTime,
+                }));
+                deviceIds.push(device.id);
+            }
+        }
+
+        const nvrPromisesRes = await Promise.all(nvrPromises);
+        let index = 0;
+        for (const nvrCameraEvents of nvrPromisesRes) {
+            const deviceId = deviceIds[index];
+            const device = sdk.systemManager.getDeviceById<EventRecorder & ScryptedDeviceBase>(deviceId);
+            for (const event of nvrCameraEvents) {
+                const { isEventsRecorder } = getAssetSource({ sourceId: event.details.mixinId });
+
+                const pluginEventPath = isEventsRecorder ?
+                    '@apocaliss92/scrypted-events-recorder' :
+                    '@scrypted/nvr';
+
+                if (event.details.eventInterface === ScryptedInterface.ObjectDetector && event.data) {
+                    const detection: ObjectsDetected = event.data;
+                    const classes = uniq(detection.detections.map(det => det.className)
+                        .filter(cl => !cl.includes('debug')));
+
+                    if (classes.length === 1 && classes[0] === DetectionClass.Motion) {
+                        events.push({
+                            details: event.details,
+                            data: {
+                                source: ScryptedEventSource.NVR,
+                                classes: ['motion'],
+                                id: detection.detectionId,
+                                deviceName: device.name,
+                                eventId: event.details.eventId,
+                                timestamp: detection.timestamp,
+                                thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?height=200`)}`,
+                                imageUrl: `${privatePathnamePrefix}/${eventImage}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?height=1200`)}`,
+                            }
+                        });
+                    } else {
+                        const label = detection.detections.find(det => det.label)?.label;
+                        const thumbnailSearchParams = getNvrThumbnailCrop({ detection });
+                        events.push({
+                            details: event.details,
+                            data: {
+                                source: ScryptedEventSource.NVR,
+                                classes,
+                                label,
+                                id: detection.detectionId,
+                                deviceName: device.name,
+                                eventId: event.details.eventId,
+                                timestamp: detection.timestamp,
+                                thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?${thumbnailSearchParams}`)}`,
+                                imageUrl: `${privatePathnamePrefix}/${eventImage}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?height=1200`)}`,
+                            }
+                        }
+                        );
+                    }
+                }
+            }
+            index++;
+        }
+
+        if (this.plugin.frigateApi) {
+            const frigateEvents = await axios.get<FrigateEvent[]>(`${this.plugin.frigateApi}/events?limit=99999999&has_snapshot=1&after=${startTime / 1000}&before=${endTime / 1000}`);
+            const eventsPerCamera = groupBy(frigateEvents.data, e => e.camera);
+
+            for (const cameraMixin of Object.values(this.plugin.currentCameraMixinsMap)) {
+                const { cameraName } = await cameraMixin.getFrigateData();
+                if (cameraName) {
+                    const frigateEvents = eventsPerCamera[cameraName] ?? [];
+
+                    for (const event of frigateEvents) {
+                        const label = event.label;
+                        const subLabel = event.sub_label;
+                        const isAudioEvent = event.data.type === 'audio';
+                        const timestamp = Math.trunc(event.start_time * 1000);
+                        events.push({
+                            details: {
+                                eventId: event.id,
+                                eventTime: timestamp
+                            },
+                            data: {
+                                source: ScryptedEventSource.Frigate,
+                                classes: isAudioEvent ? ['audio'] : ['motion', label],
+                                label: isAudioEvent ? label : subLabel?.[0],
+                                id: event.id,
+                                deviceName: cameraMixin.name,
+                                timestamp,
+                                thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${cameraMixin.id}/${event.id}/${ScryptedEventSource.Frigate}`,
+                                imageUrl: `${privatePathnamePrefix}/${eventImage}/${cameraMixin.id}/${event.id}/${ScryptedEventSource.Frigate}`,
+                            },
+                        });
+                    }
+                }
+            }
+        }
+
+        const rawEvents = await getEventsInRange({
+            startTimestamp: startTime,
+            endTimestamp: endTime,
+            logger
+        });
+
+        const eventsGroupByDevice = groupBy(rawEvents.filter(e => e.source === ScryptedEventSource.RawDetection), event => event.deviceName);
+        for (const [deviceName, deviceEvents] of Object.entries(eventsGroupByDevice)) {
+            const device = sdk.systemManager.getDeviceByName(deviceName);
+            for (const event of deviceEvents) {
+                events.push({
+                    details: {
+                        eventId: event.id,
+                        eventTime: event.timestamp,
+                    },
+                    data: {
+                        ...event,
+                        thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${device.id}/${event.id}/${ScryptedEventSource.RawDetection}`,
+                        imageUrl: `${privatePathnamePrefix}/${eventImage}/${device.id}/${event.id}/${ScryptedEventSource.RawDetection}`,
+                    }
+                });
+            }
+        }
+
+        return events;
+    }
+
+    async getVideoClips(options?: VideoClipOptions): Promise<VideoClip[]> {
+        const { startTime, endTime } = options;
+        const { privatePathnamePrefix } = await getWebHookUrls({});
+        const { eventVideoclip } = await getWebooks();
+
+        const videoclips: (VideoClip & {
+            deviceName: string,
+            deviceId: string,
+            videoclipHref: string,
+        })[] = [];
+        const promises: Promise<VideoClip[]>[] = [];
+        const deviceIds: string[] = [];
+
+        for (const deviceId of Object.keys(this.plugin.currentCameraMixinsMap)) {
+            const device = sdk.systemManager.getDeviceById<VideoClips & ScryptedDeviceBase>(deviceId);
+            if (device.interfaces.includes(ScryptedInterface.VideoClips)) {
+                promises.push(device.getVideoClips({
+                    startTime,
+                    endTime
+                }));
+                deviceIds.push(device.id);
+            }
+        }
+
+        const promisesRes = await Promise.all(promises);
+        let index = 0;
+        for (const cameraVideoclips of promisesRes) {
+            const deviceId = deviceIds[index];
+            for (const clip of cameraVideoclips) {
+                const device = sdk.systemManager.getDeviceById<VideoClips & ScryptedDeviceBase>(deviceId);
+                const videoclipHref = `${privatePathnamePrefix}/${eventVideoclip}/${device?.id}/${clip.videoId}`;
+
+                videoclips.push({
+                    ...clip,
+                    deviceName: device.name,
+                    deviceId: device.id,
+                    videoclipHref,
+                    detectionClasses: clip.detectionClasses.filter(cl => !cl.includes('debug'))
+                });
+            }
+            index++;
+        }
+
+        return videoclips;
+    }
+
+    getVideoClip(videoId: string): Promise<MediaObject> {
+        throw new Error('Method not implemented.');
+    }
+
+    getVideoClipThumbnail(thumbnailId: string, options?: VideoClipThumbnailOptions): Promise<MediaObject> {
+        throw new Error('Method not implemented.');
+    }
+
+    removeVideoClips(...videoClipIds: string[]): Promise<void> {
+        throw new Error('Method not implemented.');
+    }
+
+    public getLogger(forceNew?: boolean) {
+        if (!this.logger || forceNew) {
+            const newLogger = this.plugin.getLoggerInternal({
+                console: this.console,
+                storage: this.storageSettings,
+            });
+
+            if (forceNew) {
+                return newLogger;
+            } else {
+                this.logger = newLogger;
+            }
+        }
+
+        return this.logger;
+    }
+
+    async getSettings(): Promise<Setting[]> {
+        const { useRuleNotifiers } = this.storageSettings.values;
+        this.storageSettings.settings.notifiers.hide = useRuleNotifiers;
+        this.storageSettings.settings.activeNotifiers.hide = !useRuleNotifiers;
+        const settings = await this.storageSettings.getSettings();
+
+        return settings;
+    }
+
+    async putSetting(key: string, value: SettingValue): Promise<void> {
+        return this.storageSettings.putSetting(key, value);
+    }
+}

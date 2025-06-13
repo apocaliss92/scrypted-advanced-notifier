@@ -31,6 +31,7 @@ export const LATEST_IMAGE_SUFFIX = '-latest';
 export const NOTIFIER_NATIVE_ID = 'advancedNotifierDefaultNotifier';
 export const CAMERA_NATIVE_ID = 'advancedNotifierCamera';
 export const ALARM_SYSTEM_NATIVE_ID = 'advancedNotifierAlarmSystem';
+export const DATA_FETCHER_NATIVE_ID = 'advancedNotifierDataFetcher';
 export const MAX_PENDING_RESULT_PER_CAMERA = 5;
 export const MAX_RPC_OBJECTS_PER_CAMERA = 50;
 export const FRIGATE_BRIDGE_PLUGIN_NAME = 'Frigate bridge';
@@ -3573,13 +3574,6 @@ export const b64ToMo = async (b64: string) => {
 }
 
 export const getFrigateTextKey = (label: string) => `frigate${label}Text` as TextSettingKey;
-
-export enum NvrAppApiMethod {
-    RemoteLog = 'RemoteLog',
-    GetEvents = 'GetEvents',
-    GetVideoclips = 'GetVideoclips',
-    GetConfigs = 'GetConfigs',
-}
 
 export const checkUserLogin = async (request: HttpRequest) => {
     const token = request.headers?.authorization;
