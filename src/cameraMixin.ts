@@ -14,7 +14,7 @@ import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, is
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DETECTION_CLIP_PREFIX, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, splitRules } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DETECTION_CLIP_PREFIX, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, splitRules } from "./utils";
 import fs from 'fs';
 
 const { systemManager } = sdk;
@@ -2826,27 +2826,39 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 eventSource
             }).catch(logger.log);
 
-            // if (
-            //     (eventSource === ScryptedEventSource.Frigate) &&
-            //     b64Image &&
-            //     this.plugin.storageSettings.values.storeEvents
-            // ) {
-            //     // In case of Frigate events no need to delay, events are already controlled on the source
-            //     const logger = this.getLogger();
-            //     logger.info(`Starting ${eventSource} storeEventImage: ${JSON.stringify({
-            //         detections,
-            //         candidates,
-            //     })}`);
-            //     this.plugin.storeEventImage({
-            //         b64Image,
-            //         detections: originalCandidates,
-            //         device: this.cameraDevice,
-            //         eventSource,
-            //         logger,
-            //         timestamp: triggerTime,
-            //         image,
-            //     }).catch(logger.error);
-            // }
+            if (
+                isRawDetection &&
+                detect?.detectionId &&
+                eventDetails?.eventId &&
+                this.plugin.storageSettings.values.storeEvents
+            ) {
+                const { b64Image: b64ImageToStore, image: imageToStore } = await this.getImage({
+                    eventId: eventDetails.eventId,
+                    detectionId: detect.detectionId,
+                    reason: GetImageReason.StoreRawEvent
+                });
+
+                if (b64ImageToStore && imageToStore) {
+                    const logger = this.getLogger();
+                    logger.info(`Starting ${eventSource} storeEventImage: ${JSON.stringify({
+                        detections,
+                        candidates,
+                    })}`);
+
+                    const eventId = getDetectionEventKey({ detectionId: detect.detectionId, eventId: eventDetails.eventId });
+
+                    this.plugin.storeEventImage({
+                        b64Image: b64ImageToStore,
+                        detections: originalCandidates,
+                        device: this.cameraDevice,
+                        eventSource,
+                        logger,
+                        timestamp: triggerTime,
+                        image: imageToStore,
+                        eventId,
+                    }).catch(logger.error);
+                }
+            }
         } catch (e) {
             logger.log('Error parsing detections', e);
         }

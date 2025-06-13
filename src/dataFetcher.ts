@@ -8,7 +8,7 @@ import { getEventsInRange } from './db';
 import { DetectionClass } from './detectionClasses';
 import AdvancedNotifierPlugin from './main';
 import { getNvrThumbnailCrop } from './polygon';
-import { getAssetSource, getWebHookUrls, getWebooks, ScryptedEventSource } from './utils';
+import { getAssetSource, getDetectionEventKey, getWebHookUrls, getWebooks, ScryptedEventSource } from './utils';
 
 type StorageKeys = string;
 
@@ -31,7 +31,6 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
         const logger = this.getLogger();
 
         const events: RecordedEvent[] = [];
-        // const events: DbDetectionEvent[] = [];
 
         const nvrPromises: Promise<RecordedEvent[]>[] = [];
         let deviceIds: string[] = [];
@@ -64,15 +63,20 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                     const classes = uniq(detection.detections.map(det => det.className)
                         .filter(cl => !cl.includes('debug')));
 
+                    const eventId = getDetectionEventKey({
+                        detectionId: detection.detectionId,
+                        eventId: event.details.eventId
+                    });
+
                     if (classes.length === 1 && classes[0] === DetectionClass.Motion) {
                         events.push({
                             details: event.details,
                             data: {
                                 source: ScryptedEventSource.NVR,
+                                eventId,
                                 classes: ['motion'],
                                 id: detection.detectionId,
                                 deviceName: device.name,
-                                eventId: event.details.eventId,
                                 timestamp: detection.timestamp,
                                 thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?height=200`)}`,
                                 imageUrl: `${privatePathnamePrefix}/${eventImage}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?height=1200`)}`,
@@ -86,10 +90,10 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                             data: {
                                 source: ScryptedEventSource.NVR,
                                 classes,
+                                eventId,
                                 label,
                                 id: detection.detectionId,
                                 deviceName: device.name,
-                                eventId: event.details.eventId,
                                 timestamp: detection.timestamp,
                                 thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?${thumbnailSearchParams}`)}`,
                                 imageUrl: `${privatePathnamePrefix}/${eventImage}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?height=1200`)}`,
@@ -147,6 +151,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
         for (const [deviceName, deviceEvents] of Object.entries(eventsGroupByDevice)) {
             const device = sdk.systemManager.getDeviceByName(deviceName);
             for (const event of deviceEvents) {
+                // if (!event.eventId || !detectionsUsed.has(event.eventId)) {
                 events.push({
                     details: {
                         eventId: event.id,
@@ -158,6 +163,9 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                         imageUrl: `${privatePathnamePrefix}/${eventImage}/${device.id}/${event.id}/${ScryptedEventSource.RawDetection}`,
                     }
                 });
+                // } else {
+                //     logger.info(`Skipping event, already present from NVR: ${JSON.stringify(event)}`);
+                // }
             }
         }
 

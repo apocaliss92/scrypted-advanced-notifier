@@ -125,6 +125,7 @@ export enum GetImageReason {
     FromFrigate = 'FromFrigate',
     Notification = 'Notification',
     AccumulatedDetections = 'AccumulatedDetections',
+    StoreRawEvent = 'StoreRawEvent',
     Test = 'Test',
 }
 
@@ -3597,4 +3598,12 @@ export const checkUserLogin = async (request: HttpRequest) => {
     }
 
     return loginResponse;
+}
+
+export const getDetectionEventKey = (props: {
+    eventId: string,
+    detectionId: string
+}) => {
+    const { detectionId, eventId } = props;
+    return `${eventId}__${detectionId}`;
 }

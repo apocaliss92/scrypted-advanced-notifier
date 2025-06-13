@@ -3125,8 +3125,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         detections: ObjectDetectionResult[],
         timestamp: number,
         eventSource: ScryptedEventSource,
+        eventId?: string
     }) {
-        const { triggerDevice, device, timestamp, logger, b64Image, detections, eventSource, image } = props;
+        const { triggerDevice, device, timestamp, logger, b64Image, detections, eventSource, image, eventId } = props;
         const classNames = uniq(detections.map(det => det.className));
         const label = detections.find(det => det.label)?.label;
         const fileName = `${timestamp}_${eventSource}_${getDetectionsLogShort(detections)}`;
@@ -3151,7 +3152,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(image, ScryptedMimeTypes.Image);
         const resizedImage = await convertedImage.toImage({
             resize: {
-                width: 150,
+                height: 400,
             },
         });
         const smallB64Image = await moToB64(resizedImage);
@@ -3167,6 +3168,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 source: eventSource,
                 deviceName: device.name,
                 sensorName: triggerDevice?.name,
+                eventId,
             },
             logger,
         });
