@@ -4,7 +4,7 @@ import { StorageSettings, StorageSettingsDict } from '@scrypted/sdk/storage-sett
 import axios from 'axios';
 import { groupBy, uniq } from 'lodash';
 import { DetectionData as FrigateEvent } from '../../scrypted-frigate-bridge/src/utils';
-import { getEventsInRange } from './db';
+import { DbDetectionEvent, getEventsInRange } from './db';
 import { DetectionClass } from './detectionClasses';
 import AdvancedNotifierPlugin from './main';
 import { getNvrThumbnailCrop } from './polygon';
@@ -80,10 +80,10 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                                 timestamp: detection.timestamp,
                                 thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?height=200`)}`,
                                 imageUrl: `${privatePathnamePrefix}/${eventImage}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?height=1200`)}`,
-                            }
+                            } as DbDetectionEvent
                         });
                     } else {
-                        const label = detection.detections.find(det => det.label)?.label;
+                        const labelDet = detection.detections.find(det => det.label);
                         const thumbnailSearchParams = getNvrThumbnailCrop({ detection });
                         events.push({
                             details: event.details,
@@ -91,13 +91,14 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                                 source: ScryptedEventSource.NVR,
                                 classes,
                                 eventId,
-                                label,
+                                label: labelDet?.label,
+                                embedding: labelDet?.embedding,
                                 id: detection.detectionId,
                                 deviceName: device.name,
                                 timestamp: detection.timestamp,
                                 thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?${thumbnailSearchParams}`)}`,
                                 imageUrl: `${privatePathnamePrefix}/${eventImage}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?height=1200`)}`,
-                            }
+                            } as DbDetectionEvent
                         }
                         );
                     }
@@ -134,7 +135,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                                 timestamp,
                                 thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${cameraMixin.id}/${event.id}/${ScryptedEventSource.Frigate}`,
                                 imageUrl: `${privatePathnamePrefix}/${eventImage}/${cameraMixin.id}/${event.id}/${ScryptedEventSource.Frigate}`,
-                            },
+                            } as DbDetectionEvent,
                         });
                     }
                 }

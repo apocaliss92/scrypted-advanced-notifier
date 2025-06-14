@@ -134,7 +134,7 @@ Define a timeframe, the plugin will collect frames from the camera and generate 
 - Use the `Generate now` button to reuse the frames collected the previous session. They will be stored until the following session starts
 
 ### Audio (only on camera)
-
+**Audio rules will activate only if a source of audio measurement is active. These are currently probided by Basic object detector (Audio detector mixin) and Frigate Bridge (Frigate audio detector).**
 Audio rules will monitor the audio received by the camera
 
 - Create a new rule adding a new text in the `Audio rules` selector and hit save. A new tab will appear

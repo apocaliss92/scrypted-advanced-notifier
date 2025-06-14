@@ -15,6 +15,7 @@ export type DbDetectionEvent = {
   timestamp: number;
   classes: string[];
   label?: string;
+  embedding?: string;
   thumbnailUrl?: string;
   imageUrl?: string;
   videoUrl?: string;

@@ -548,6 +548,7 @@ export type TextSettingKey =
     | 'plateText'
     | 'familiarText'
     | 'audioText'
+    | 'audioWithLabelText'
     | 'motionText'
     | 'personText'
     | 'vehicleText'
@@ -744,6 +745,15 @@ export const getTextSettings = (props: { forMixin: boolean, isNvrNotifier?: bool
             placeholder: !forMixin ? 'Audio ${label}' : undefined,
             hide: forMixin
         },
+        audioWithLabelText: {
+            group: 'Texts',
+            subgroup: 'Detection classes',
+            title: 'Labeled audio text (Frigate)',
+            type: 'string',
+            defaultValue: !forMixin ? 'Audio (${label})' : undefined,
+            placeholder: !forMixin ? 'Audio (${label})' : undefined,
+            hide: forMixin
+        },
         familiarText: {
             group: 'Texts',
             subgroup: 'Detection classes',
@@ -935,6 +945,7 @@ export const getActiveRules = async (
         availableRules: availableDetectionRules,
         anyAllowedNvrRule: anyAllowedNvrDetectionRule,
         shouldListenDoorbell,
+        shouldListenAudioSensor,
     } = getDetectionRules({
         device,
         console,
@@ -1012,6 +1023,7 @@ export const getActiveRules = async (
         anyAllowedNvrDetectionRule,
         shouldListenDoorbell,
         hasClips,
+        shouldListenAudioSensor,
     }
 }
 
@@ -1065,7 +1077,7 @@ export const getEventTextKey = (props: { eventType: DetectionEvent, hasLabel: bo
             break;
         case DetectionClass.Audio:
             key = 'objectDetectionText';
-            subKey = 'audioText';
+            subKey = hasLabel ? 'audioWithLabelText' : 'audioText';
             break;
         case DetectionClass.Plate:
             key = 'objectDetectionText';
@@ -2740,6 +2752,7 @@ export const getDetectionRules = (props: {
     const allowedRules: DetectionRule[] = [];
     let anyAllowedNvrRule = false;
     let shouldListenDoorbell = false;
+    let shouldListenAudioSensor = false;
 
     const deviceId = device?.id;
 
@@ -2831,6 +2844,7 @@ export const getDetectionRules = (props: {
 
             const hasFace = detectionClasses.includes(DetectionClass.Face);
             const hasPlate = detectionClasses.includes(DetectionClass.Plate);
+            const hasAudio = detectionClasses.includes(DetectionClass.Audio);
 
             if (hasFace || hasPlate) {
                 detectionRule.labelScoreThreshold = storage.getItem(labelScoreKey) as number ?? 0;
@@ -2843,6 +2857,10 @@ export const getDetectionRules = (props: {
             if (hasPlate) {
                 detectionRule.plates = storage.getItem(platesKey) as string[] ?? [];
                 detectionRule.plateMaxDistance = storage.getItem(plateMaxDistanceKey) as number ?? 0;
+            }
+
+            if (hasAudio && !shouldListenAudioSensor) {
+                shouldListenAudioSensor = true;
             }
 
             let isSensorEnabled = true;
@@ -2893,7 +2911,13 @@ export const getDetectionRules = (props: {
         processDetectionRules(deviceStorage, RuleSource.Device);
     }
 
-    return { availableRules, allowedRules, anyAllowedNvrRule, shouldListenDoorbell };
+    return {
+        availableRules,
+        allowedRules,
+        anyAllowedNvrRule,
+        shouldListenDoorbell,
+        shouldListenAudioSensor,
+    };
 }
 
 export interface OccupancyRule extends BaseRule {

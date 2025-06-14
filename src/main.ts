@@ -34,7 +34,6 @@ export type PluginSettingKey =
     | 'sendDevNotifications'
     | 'serverId'
     | 'localAddresses'
-    | 'localIp'
     | 'scryptedToken'
     | 'nvrUrl'
     | 'enableCameraDevice'
@@ -47,6 +46,7 @@ export type PluginSettingKey =
     | 'testDevice'
     | 'testNotifier'
     | 'testEventType'
+    | 'testLabel'
     | 'testPriority'
     | 'testGenerateClip'
     | 'testGenerateClipSpeed'
@@ -111,11 +111,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             title: 'Local addresses',
             type: 'string',
             multiple: true,
-            hide: true,
-        },
-        localIp: {
-            title: 'Server local ip',
-            type: 'string',
             hide: true,
         },
         scryptedToken: {
@@ -230,6 +225,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 ...Object.values(NvrEvent),
             ],
             onPut: async () => await this.refreshSettings()
+        },
+        testLabel: {
+            group: 'Test',
+            title: 'Event label',
+            type: 'string',
         },
         testPriority: {
             group: 'Test',
@@ -1058,10 +1058,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger.log(`Local addresses found: ${localAddresses}`);
             await this.putSetting('localAddresses', localAddresses);
         }
-
-        const localIp = (await sdk.endpointManager.getLocalAddresses())?.[0];
-        this.putSetting('localIp', localIp);
-        logger.log(`Local IP found: ${localIp}`);
 
         if (this.storageSettings.values.haEnabled) {
             await this.generateHomeassistantHelpers();
@@ -2450,6 +2446,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             testGenerateClipSpeed,
             testNotifier,
             testPriority,
+            testLabel,
             testSound,
             testUseAi,
         } = this.storageSettings.values;
@@ -2472,6 +2469,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     testEventType,
                     testGenerateClip,
                     testGenerateClipSpeed,
+                    testLabel,
                     testNotifier,
                     testPriority,
                     testSound,
@@ -2484,7 +2482,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     triggerDeviceId: testDevice.id,
                     triggerTime: currentTime - 2000,
                     snoozeId,
-                    match: isDetection ? { label: 'TestLabelFound', className: testEventType, score: 1 } : undefined,
+                    match: isDetection ? { label: testLabel, className: testEventType, score: 1 } : undefined,
                     rule: {
                         notifierData: {
                             [testNotifierId]: {

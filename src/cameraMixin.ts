@@ -255,12 +255,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     motionListener: EventListenerRegister;
     binaryListener: EventListenerRegister;
     audioVolumesListener: EventListenerRegister;
+    audioSensorListener: EventListenerRegister;
     mqttDetectionMotionTimeout: NodeJS.Timeout;
     mainLoopListener: NodeJS.Timeout;
     isActiveForMqttReporting: boolean;
     isActiveForNvrNotifications: boolean;
     isActiveForDoorbelDetections: boolean;
     isActiveForAudioVolumesDetections: boolean;
+    isActiveForAudioSensorDetections: boolean;
     initializingMqtt: boolean;
     lastAutoDiscovery: number;
     lastFramesCleanup: number;
@@ -603,8 +605,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     public async startStop(enabled: boolean) {
-        const logger = this.getLogger();
-
         if (enabled) {
             await this.startCheckInterval();
             this.ensureMixinsOrder();
@@ -618,7 +618,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     get decoderType() {
-        const logger = this.getLogger();
         const { enableDecoder } = this.plugin.storageSettings.values;
         const { decoderType } = this.storageSettings.values;
 
@@ -628,17 +627,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const hasRunningTimelapseRules = !!this.runningTimelapseRules.length;
         const hasRunningOccupancyRules = !!this.runningOccupancyRules.length;
-        // const linkedSensors = uniq(Object.entries(this.plugin.deviceVideocameraMap)
-        //     .filter(([_, cameraId]) => this.cameraDevice.id === cameraId)
-        //     .map(([sensorId, _]) => sensorId));
 
-        let hasVideoclipRules = this.runningDetectionRules.some(rule => rule?.generateClip);
-
-        // if (!hasVideoclipRules) {
-        //     hasVideoclipRules = linkedSensors.some(
-        //         sensorId => this.plugin.currentSensorMixinsMap[sensorId]?.hasVideoclipRules
-        //     );
-        // }
+        const hasVideoclipRules = this.runningDetectionRules.some(rule => rule?.generateClip);
 
         if (decoderType === DecoderType.Always) {
             if (hasRunningOccupancyRules || hasRunningTimelapseRules || hasVideoclipRules) {
@@ -673,6 +663,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     anyAllowedNvrDetectionRule,
                     shouldListenDoorbell: shouldListenDoorbellFromRules,
                     shouldListenAudio,
+                    shouldListenAudioSensor,
                 } = await getActiveRules({
                     device: this.cameraDevice,
                     console: logger,
@@ -847,6 +838,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                     }) :
                                     undefined
                             }).catch(logger.error);
+
+                            this.refreshSettings().catch(logger.error);
                         }
 
                         const settings = await this.mixinDevice.getSettings();
@@ -897,6 +890,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     await this.stopAudioVolumesListener();
                 }
                 this.isActiveForAudioVolumesDetections = shouldListenAudio;
+
+                if (shouldListenAudioSensor && !this.isActiveForAudioSensorDetections) {
+                    logger.log(`Starting Audio sensor listener`);
+                    await this.startAudioSensorListener();
+                } else if (!shouldListenAudioSensor && this.isActiveForAudioSensorDetections) {
+                    logger.log(`Stopping Audio sensor listener`);
+                    await this.stopAudioSensorListener();
+                }
+                this.isActiveForAudioSensorDetections = shouldListenAudioSensor;
 
                 if (anyAllowedNvrDetectionRule && !this.isActiveForNvrNotifications) {
                     logger.log(`Starting NVR events listener`);
@@ -1108,6 +1110,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     async stopAudioVolumesListener() {
         this.audioVolumesListener?.removeListener && this.audioVolumesListener.removeListener();
         this.audioVolumesListener = undefined;
+    }
+
+    async stopAudioSensorListener() {
+        this.audioSensorListener?.removeListener && this.audioSensorListener.removeListener();
+        this.audioSensorListener = undefined;
     }
 
     resetListeners() {
@@ -2697,8 +2704,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         });
         const originalCandidates = cloneDeep(candidates);
 
-        // Audio events can only come from Frigate
-        const canPickImageRightAway = !isRawDetection || isAudioEvent;
+        const canPickImageRightAway = !isRawDetection || (isAudioEvent && isFromFrigate);
         const canUpdateMqttImage = canPickImageRightAway && detectionSourceForMqtt === eventSource;
         const canUpdateMqttClasses =
             eventSource === detectionSourceForMqtt ||
@@ -3138,6 +3144,50 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 if (data.dBFS) {
                     await this.processAudioDetection(data.dBFS);
+                }
+            });
+        } catch (e) {
+            this.getLogger().log('Error in startBinaryListener', e);
+        }
+    }
+
+    async startAudioSensorListener() {
+        try {
+            const logger = this.getLogger();
+
+            this.audioSensorListener = systemManager.listenDevice(this.id, {
+                event: ScryptedInterface.AudioSensor,
+            }, async (_, __, data) => {
+                const now = Date.now();
+
+                if (data) {
+                    const { image, imageSource, b64Image } = await this.getImage({ reason: GetImageReason.AudioTrigger });
+                    logger.log(`Audio event detected, image found ${imageSource}`);
+                    const detections: ObjectDetectionResult[] = [{
+                        className: DetectionClass.Audio,
+                        score: 1,
+                    }];
+
+                    this.processDetections({
+                        detect: { timestamp: now, detections },
+                        eventSource: ScryptedEventSource.RawDetection,
+                        image,
+                    }).catch(logger.log);
+
+                    this.plugin.storeEventImage({
+                        b64Image,
+                        detections: [{ className: DetectionClass.Audio, score: 1 }],
+                        device: this.cameraDevice,
+                        eventSource: ScryptedEventSource.RawDetection,
+                        logger,
+                        timestamp: now,
+                        image,
+                    }).catch(logger.error);
+                } else {
+                    this.resetDetectionEntities({
+                        resetSource: 'MotionSensor',
+                        classnames: [DetectionClass.Doorbell]
+                    }).catch(logger.log);
                 }
             });
         } catch (e) {
