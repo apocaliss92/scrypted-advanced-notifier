@@ -20,6 +20,7 @@ export const ADVANCED_NOTIFIER_NOTIFIER_INTERFACE = `${ADVANCED_NOTIFIER_INTERFA
 export const ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE = `${ADVANCED_NOTIFIER_INTERFACE}:SecuritySystem`;
 export const PUSHOVER_PLUGIN_ID = '@scrypted/pushover';
 export const NTFY_PLUGIN_ID = '@apocaliss92/ntfy';
+export const TELEGRAM_PLUGIN_ID = '@apocaliss92/scrypted-telegram';
 export const NVR_PLUGIN_ID = '@scrypted/nvr';
 export const VIDEO_ANALYSIS_PLUGIN_ID = '@scrypted/objectdetector';
 export const HOMEASSISTANT_PLUGIN_ID = '@scrypted/homeassistant';
@@ -1308,7 +1309,7 @@ export const getNotifierData = (props: {
     const priorityChoices: NotificationPriority[] = [];
     const isDetectionRule = ruleType === RuleType.Detection;
     const isAudioRule = ruleType === RuleType.Audio;
-    const withActions = ![NTFY_PLUGIN_ID, NVR_PLUGIN_ID].includes(pluginId) && isDetectionRule;
+    const withActions = ![NTFY_PLUGIN_ID, NVR_PLUGIN_ID, TELEGRAM_PLUGIN_ID].includes(pluginId) && isDetectionRule;
     const snoozingDefault = pluginId !== PUSHOVER_PLUGIN_ID;
     const addCameraActionsDefault = pluginId !== PUSHOVER_PLUGIN_ID;
     const withSnoozing = isDetectionRule || isAudioRule;
@@ -1339,6 +1340,11 @@ export const getNotifierData = (props: {
             NotificationPriority.Low,
             NotificationPriority.Normal,
             NotificationPriority.High,
+        );
+    } else if (pluginId === TELEGRAM_PLUGIN_ID) {
+        priorityChoices.push(
+            NotificationPriority.Low,
+            NotificationPriority.Normal,
         );
     }
 
