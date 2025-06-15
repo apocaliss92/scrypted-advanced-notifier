@@ -2280,7 +2280,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             imageSource = imageSourceNew;
                         }
 
-                        logger.log(`Triggering audio notification, image coming from ${imageSource} with an hit % of ${hitsInWindowPercentage} (${hitsInWindow} hits / ${samples} samples)`);
+                        logger.log(`Triggering audio notification, image coming from ${imageSource} with an hit % of ${hitsInWindowPercentage} (${hitsInWindow.length} hits / ${samples.length} samples)`);
 
                         let message = customText;
 

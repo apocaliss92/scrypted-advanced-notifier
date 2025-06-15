@@ -2496,6 +2496,7 @@ export const getAudioRulesSettings = async (props: {
                 subgroup,
                 type: 'number',
                 placeholder: '-',
+                defaultValue: 10,
             },
         );
 
