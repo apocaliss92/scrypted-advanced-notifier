@@ -2116,15 +2116,43 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 // sound
             };
 
-            // if (allActions.length) {
-            //     additionalMessageText += '\n';
-            //     for (const { title, url } of allActions) {
-            //         additionalMessageText += `<a href="${url}">${title}</a>\n`;
-            //     }
+            const telegramActions: any[][] = [];
+            const firstLine: any[] = []
+            if (videoUrl) {
+                firstLine.push({
+                    title: 'Clip',
+                    url: videoUrl,
+                });
+            }
+            firstLine.push({
+                title: 'Live',
+                url: externalUrl,
+            });
+            telegramActions.push(firstLine);
+            // for (const { action, url, icon, title } of actionsToUse) {
+            //     const isUriAction = action === 'URI';
+            //     const urlToUse = isUriAction ? url : undefined;
+            //     telegramActions.push({
+            //         action: url ? 'URI' : action,
+            //         uri: urlToUse,
+            //         icon,
+            //         title,
+            //     })
             // }
+            if (addSnozeActions) {
+                const snoozeLine: any[] = [];
+                for (const { data, title, url } of snoozeActions) {
+                    snoozeLine.push({
+                        action: `scrypted_an_snooze_${cameraId}_${notifierId}_${data}_${snoozeId}`,
+                        title: `${data} mins`,
+                        url,
+                    });
+                }
+                telegramActions.push(snoozeLine);
+            }
+            payload.data.telegram.actions = telegramActions;
             if (videoUrl) {
                 payload.data.telegram.gifUrl = videoUrl;
-                // additionalMessageText += '\n' + `<a href="${videoUrl}">Clip</a>\n`;
             }
 
             payload.silent = priority !== NotificationPriority.Normal;

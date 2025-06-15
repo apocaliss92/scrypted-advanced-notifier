@@ -298,16 +298,16 @@ export const getWebHookUrls = async (props: {
 
         privatePathnamePrefix = `${privatePathname}${eventsApp}`;
 
-        lastSnapshotCloudUrl = `${cloudEndpoint}${lastSnapshot}/${encodedId}/{IMAGE_NAME}${paramString}`;
+        lastSnapshotCloudUrl = `${cloudEndpoint}${publicPathnamePrefix}${lastSnapshot}/${encodedId}/{IMAGE_NAME}${paramString}`;
         lastSnapshotLocalUrl = `${localEndpoint}${lastSnapshot}/${encodedId}/{IMAGE_NAME}${paramString}`;
-        haActionUrl = `${cloudEndpoint}${haAction}/${encodedId}${paramString}`;
-        postNotificationUrl = `${cloudEndpoint}${postNotification}/${encodedId}${paramString}`;
+        haActionUrl = `${cloudEndpoint}${publicPathnamePrefix}${haAction}/${encodedId}${paramString}`;
+        postNotificationUrl = `${cloudEndpoint}${publicPathnamePrefix}${postNotification}/${encodedId}${paramString}`;
 
         videoclipStreamHref = `${publicPathnamePrefix}${videoclipStream}/${fileId}${paramString}`;
         videoclipThumbnailHref = `${publicPathnamePrefix}${videoclipThumbnail}/${fileId}${paramString}`;
 
-        videoclipStreamUrl = `${cloudEndpoint}${videoclipStream}/${fileId}${paramString}`;
-        videoclipThumbnailUrl = `${cloudEndpoint}${videoclipThumbnail}/${fileId}${paramString}`;
+        videoclipStreamUrl = `${cloudEndpoint}${publicPathnamePrefix}${videoclipStream}/${fileId}${paramString}`;
+        videoclipThumbnailUrl = `${cloudEndpoint}${publicPathnamePrefix}${videoclipThumbnail}/${fileId}${paramString}`;
 
         eventThumbnailUrl = `${privatePathnamePrefix}/${eventThumbnail}/${device?.id}/${fileId}`;
         eventImageUrl = `${privatePathnamePrefix}/${eventImage}/${device?.id}/${fileId}`;
@@ -318,7 +318,7 @@ export const getWebHookUrls = async (props: {
                 const text = snoozePlaceholder?.replaceAll('${snoozeTime}', String(snooze));
 
                 snoozeActions.push({
-                    url: `${cloudEndpoint}${snoozeNotification}/${encodedId}/${snoozeId}/${snooze}${paramString}`,
+                    url: `${cloudEndpoint}${publicPathnamePrefix}${snoozeNotification}/${encodedId}/${snoozeId}/${snooze}${paramString}`,
                     title: text,
                     action: `snooze${snooze}`,
                     data: snooze,

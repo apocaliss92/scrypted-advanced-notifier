@@ -7,7 +7,7 @@ import { scryptedToHaStateMap } from '../../scrypted-homeassistant/src/types/sec
 import { AlarmEvent, getAlarmSettings, getAlarmWebhookUrls, getModeEntity, supportedAlarmModes } from './alarmUtils';
 import AdvancedNotifierPlugin from './main';
 import { idPrefix, publishAlarmSystemValues, setupAlarmSystemAutodiscovery, subscribeToAlarmSystemMqttTopics } from './mqtt-utils';
-import { BaseRule, binarySensorMetadataMap, convertSettingsToStorageSettings, DeviceInterface, HOMEASSISTANT_PLUGIN_ID, isDeviceSupported, NotificationPriority, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, PUSHOVER_PLUGIN_ID } from './utils';
+import { BaseRule, binarySensorMetadataMap, convertSettingsToStorageSettings, DeviceInterface, HOMEASSISTANT_PLUGIN_ID, isDeviceSupported, NotificationPriority, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, PUSHOVER_PLUGIN_ID, TELEGRAM_PLUGIN_ID } from './utils';
 
 type StorageKeys = 'notifiers' |
     'autoCloseLocks' |
@@ -709,6 +709,18 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                     if (isCritical && !isSupPriorityLow) {
                         payload.critical = true;
                     }
+                } else if (notifier.pluginId === TELEGRAM_PLUGIN_ID) {
+                    payload.data.telegram = {};
+
+                    const telegramActions: any[] = [];
+                    for (const { action, url, title } of alarmActions) {
+                        telegramActions.push({
+                            action,
+                            title,
+                            url,
+                        })
+                    }
+                    payload.data.telegram.actions = telegramActions;
                 }
 
                 const notifierOptions: NotifierOptions = {
