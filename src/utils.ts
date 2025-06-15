@@ -1184,6 +1184,7 @@ export const getRuleKeys = (props: {
     // Specific for audio rules
     const decibelThresholdKey = `${prefix}:${ruleName}:decibelThreshold`;
     const audioDurationKey = `${prefix}:${ruleName}:audioDuration`;
+    const hitPercentageKey = `${prefix}:${ruleName}:hitPercentage`;
 
     return {
         common: {
@@ -1250,6 +1251,7 @@ export const getRuleKeys = (props: {
         audio: {
             decibelThresholdKey,
             audioDurationKey,
+            hitPercentageKey,
         }
     }
 }
@@ -2445,7 +2447,7 @@ export const getAudioRulesSettings = async (props: {
         const { audio, common } = getRuleKeys({ ruleName, ruleType: RuleType.Audio });
 
         const { textKey, minDelayKey } = common;
-        const { decibelThresholdKey, audioDurationKey } = audio;
+        const { decibelThresholdKey, audioDurationKey, hitPercentageKey } = audio;
 
         settings.push(
             {
@@ -2463,17 +2465,28 @@ export const getAudioRulesSettings = async (props: {
                 group,
                 subgroup,
                 type: 'number',
-                placeholder: '20',
-                defaultValue: 20
+                placeholder: '-30',
+                defaultValue: -30
             },
             {
                 key: audioDurationKey,
-                title: 'Duration in seconds',
-                description: 'How long the audio should last to trigger the rule. Set 0 for instant notifications',
+                title: 'Samples window',
+                description: 'How many seconds to analyze. (Basic object detector emits by default every 2 seconds)',
                 group,
                 subgroup,
                 type: 'number',
-                placeholder: '-',
+                placeholder: '6',
+                defaultValue: 6,
+            },
+            {
+                key: hitPercentageKey,
+                title: 'Hits percentage',
+                description: 'How many samples must hit de threshold to consider the notification',
+                group,
+                subgroup,
+                type: 'number',
+                placeholder: '80',
+                defaultValue: 80,
             },
             {
                 key: minDelayKey,
@@ -3041,7 +3054,8 @@ export interface TimelapseRule extends BaseRule {
 
 export interface AudioRule extends BaseRule {
     decibelThreshold: number;
-    audioDuration?: number;
+    hitPercentage: number;
+    audioDuration: number;
 }
 
 export const getDeviceTimelapseRules = (
@@ -3148,6 +3162,7 @@ export const getDeviceAudioRules = (
                 audio: {
                     decibelThresholdKey,
                     audioDurationKey,
+                    hitPercentageKey,
                 }
             } = getRuleKeys({
                 ruleType: RuleType.Audio,
@@ -3163,8 +3178,9 @@ export const getDeviceAudioRules = (
             });
 
             const customText = deviceStorage.getItem(textKey) as string;
-            const decibelThreshold = deviceStorage.getItem(decibelThresholdKey) as number || 20;
-            const audioDuration = deviceStorage.getItem(audioDurationKey) as number || 0;
+            const decibelThreshold = deviceStorage.getItem(decibelThresholdKey) as number ?? -30;
+            const audioDuration = deviceStorage.getItem(audioDurationKey) as number ?? 6;
+            const hitPercentage = deviceStorage.getItem(hitPercentageKey) as number || 80;
             const minDelay = deviceStorage.getItem(minDelayKey) as number;
 
             const audioRule: AudioRule = {
@@ -3172,6 +3188,7 @@ export const getDeviceAudioRules = (
                 customText,
                 decibelThreshold,
                 audioDuration,
+                hitPercentage,
                 minDelay,
                 deviceId: device.id
             };

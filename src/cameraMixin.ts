@@ -276,11 +276,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     runningAudioRules: AudioRule[] = [];
     availableTimelapseRules: TimelapseRule[] = [];
     allAvailableRules: BaseRule[] = [];
-    audioListeners: Record<string, {
-        inProgress: boolean;
-        lastDetection?: number;
-        resetInterval?: NodeJS.Timeout;
-    }> = {};
+    audioRuleSamples: Record<string, {
+        timestamp: number;
+        dBs: number;
+        dev: number;
+    }[]> = {};
     detectionRuleListeners: Record<string, {
         disableNvrRecordingTimeout?: NodeJS.Timeout;
         turnOffTimeout?: NodeJS.Timeout;
@@ -1092,9 +1092,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     resetAudioRule(ruleName: string) {
-        const resetInterval = this.audioListeners[ruleName]?.resetInterval;
-        resetInterval && clearInterval(resetInterval);
-        this.audioListeners[ruleName] = { inProgress: false, resetInterval: undefined, lastDetection: undefined };
+        this.audioRuleSamples[ruleName] = [];
     }
 
     stopAccumulatedDetectionsInterval() {
@@ -2212,103 +2210,116 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     public async processAudioDetection(props: {
-        decibels: number
+        dBs: number,
+        dev: number,
     }) {
         const logger = this.getLogger();
-        const { decibels } = props;
-        logger.debug(`Audio detection: ${decibels} dB`);
+        const { dBs, dev } = props;
+        logger.debug(`Audio detection: ${dBs} dB, dev ${dev}`);
         const now = Date.now();
 
         let image: MediaObject;
         let b64Image: string;
         for (const rule of (this.runningAudioRules ?? [])) {
-            const { name, audioDuration, decibelThreshold, customText, minDelay } = rule;
-            const { lastDetection, inProgress } = this.audioListeners[name] ?? {};
-            const isThresholdMet = decibels >= decibelThreshold;
-            const isTimePassed = !lastDetection || (now - lastDetection) > audioDuration;
-            const { timePassed: notificationTimePassed } = this.isDelayPassed({
-                type: DelayType.RuleNotification,
-                matchRule: { rule } as MatchRule,
-                eventSource: ScryptedEventSource.RawDetection
-            })
-
-            if (notificationTimePassed && !image) {
-                const { image: imageNew, b64Image: b64ImageNew } = await this.getImage({ reason: GetImageReason.AudioTrigger });
-                image = imageNew;
-                b64Image = b64ImageNew;
-            }
+            const {
+                name,
+                audioDuration,
+                decibelThreshold,
+                customText,
+                hitPercentage
+            } = rule;
+            let samples = this.audioRuleSamples[name] ?? [];
 
             logger.debug(`Audio rule: ${JSON.stringify({
                 name,
-                isThresholdMet,
-                isTimePassed,
-                inProgress,
-                audioDuration,
+                samples,
+                hitPercentage,
                 decibelThreshold,
+                audioDuration,
             })}`);
-            const currentDuration = lastDetection ? (now - lastDetection) / 1000 : 0;
 
-            const trigger = async () => {
-                logger.info(`Audio rule ${name} passed: ${JSON.stringify({ currentDuration, decibels })}`);
-                let message = customText;
+            let windowReached = false;
+            this.audioRuleSamples[name] = [
+                ...samples,
+                { dBs, dev, timestamp: now }
+            ].filter(sample => {
+                const isOverWindow = (now - sample.timestamp) > (audioDuration * 1000);
+                if (isOverWindow && !windowReached) {
+                    windowReached = true
+                }
 
-                message = message.toString()
-                    .replace('${decibels}', String(decibelThreshold) ?? '')
-                    .replace('${duration}', String(audioDuration) ?? '')
+                return !isOverWindow;
+            });
 
-                await this.plugin.notifyAudioEvent({
-                    cameraDevice: this.cameraDevice,
-                    image,
-                    message,
-                    rule,
-                    triggerTime: now,
-                });
+            samples = this.audioRuleSamples[name];
 
-                this.audioListeners[name] = {
-                    ...this.audioListeners[name],
-                };
+            if (windowReached) {
+                const hitsInWindow = samples.filter(sample => sample.dBs >= decibelThreshold);
+                const hitsInWindowPercentage = (hitsInWindow.length / samples.length) * 100;
 
-                this.triggerRule({
-                    matchRule: { rule },
-                    b64Image,
-                    device: this.cameraDevice,
-                    triggerTime: now,
-                    eventSource: ScryptedEventSource.RawDetection
-                }).catch(logger.log);
+                if (hitsInWindowPercentage >= hitPercentage) {
+                    logger.info(`Hits percentage reached: ${JSON.stringify({
+                        hitsInWindowPercentage,
+                        hitsInWindow,
+                        samples: samples.length,
+                    })}`);
 
-                this.resetAudioRule(name);
-            }
+                    const { timePassed: notificationTimePassed } = this.isDelayPassed({
+                        type: DelayType.RuleNotification,
+                        matchRule: { rule } as MatchRule,
+                        eventSource: ScryptedEventSource.RawDetection
+                    });
 
-            if (!audioDuration) {
-                if (notificationTimePassed) {
-                    await trigger();
+                    if (notificationTimePassed) {
+                        let imageSource: ImageSource;
+
+                        if (!image) {
+                            const { image: imageNew, b64Image: b64ImageNew, imageSource: imageSourceNew } = await this.getImage({ reason: GetImageReason.AudioTrigger });
+                            image = imageNew;
+                            b64Image = b64ImageNew;
+                            imageSource = imageSourceNew;
+                        }
+
+                        logger.log(`Triggering audio notification, image coming from ${imageSource} with an hit % of ${hitsInWindowPercentage} (${hitsInWindow} hits / ${samples} samples)`);
+
+                        let message = customText;
+
+                        message = message.toString()
+                        message = message.toString()
+                            .replace('${decibels}', String(decibelThreshold) ?? '')
+                            .replace('${duration}', String(audioDuration) ?? '')
+
+                        await this.plugin.notifyAudioEvent({
+                            cameraDevice: this.cameraDevice,
+                            image,
+                            message,
+                            rule,
+                            triggerTime: now,
+                        });
+
+                        this.triggerRule({
+                            matchRule: { rule },
+                            b64Image,
+                            device: this.cameraDevice,
+                            triggerTime: now,
+                            eventSource: ScryptedEventSource.RawDetection
+                        }).catch(logger.log);
+
+                        this.resetAudioRule(name);
+                    } else {
+                        logger.info(`Notification time not passed yet`);
+                    }
                 } else {
-                    logger.info(`Minimum amount of ${minDelay} seconds not passed yet`);
+                    logger.info(`Hits percentage not reached: ${JSON.stringify({
+                        hitsInWindowPercentage,
+                        hitsInWindow,
+                        samples: samples.length,
+                    })}`);
                 }
             } else {
-                if (inProgress) {
-                    if (isThresholdMet) {
-                        if (!notificationTimePassed) {
-                            logger.info(`Minimum amount of ${minDelay} seconds not passed yet`);
-                            // Do nothing and wait for next detection
-                        } else if (!isTimePassed) {
-                            logger.info(`Audio rule ${name} still in progress ${currentDuration} seconds`);
-                            // Do nothing and wait for next detection
-                        } else {
-                            await trigger();
-                        }
-                    } else {
-                        logger.info(`Audio rule ${name} didn't hold the threshold (${decibels} < ${decibelThreshold}), resetting after ${currentDuration} seconds`);
-                        this.resetAudioRule(name);
-                    }
-                } else if (isThresholdMet) {
-                    logger.info(`Audio rule ${name} started`);
-                    this.audioListeners[name] = {
-                        inProgress: true,
-                        lastDetection: now,
-                        resetInterval: undefined,
-                    };
-                }
+                logger.info(`Not enough samples, just adding ${JSON.stringify({
+                    samples: samples.length,
+                })}`);
             }
         }
     }
@@ -3143,7 +3154,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 logger.info(`Volume levels update: ${JSON.stringify(data)}`);
 
                 if (data.dBFS) {
-                    await this.processAudioDetection(data.dBFS);
+                    await this.processAudioDetection({
+                        dBs: data.dBFS,
+                        dev: data.dbStdDev
+                    });
                 }
             });
         } catch (e) {
