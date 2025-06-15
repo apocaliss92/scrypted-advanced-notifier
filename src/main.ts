@@ -1003,26 +1003,28 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 const mqttClient = await this.getMqttClient();
                 const logger = this.getLogger();
 
-                this.getLogger().log(`Subscribing to mqtt topics`);
-                await subscribeToPluginMqttTopics({
-                    entitiesActiveTopic: mqttActiveEntitiesTopic,
-                    mqttClient,
-                    console: logger,
-                    rules: this.allAvailableRules,
-                    activeEntitiesCb: async (message) => {
-                        logger.debug(`Received update for ${mqttActiveEntitiesTopic} topic: ${JSON.stringify(message)}`);
-                        await this.updateOnActiveDevices(message);
-                    },
-                    activationRuleCb: async ({ active, ruleName }) => {
-                        const { common: { enabledKey } } = getRuleKeys({ ruleName, ruleType: RuleType.Detection });
-                        logger.debug(`Setting rule ${ruleName} to ${active}`);
-                        await this.putSetting(enabledKey, active);
-                    },
-                    switchNotificationsEnabledCb: async (active) => {
-                        logger.log(`Setting notifications active to ${!active}`);
-                        await this.storageSettings.putSetting(`notificationsEnabled`, active);
-                    },
-                });
+                if (mqttClient) {
+                    this.getLogger().log(`Subscribing to mqtt topics`);
+                    await subscribeToPluginMqttTopics({
+                        entitiesActiveTopic: mqttActiveEntitiesTopic,
+                        mqttClient,
+                        console: logger,
+                        rules: this.allAvailableRules,
+                        activeEntitiesCb: async (message) => {
+                            logger.debug(`Received update for ${mqttActiveEntitiesTopic} topic: ${JSON.stringify(message)}`);
+                            await this.updateOnActiveDevices(message);
+                        },
+                        activationRuleCb: async ({ active, ruleName }) => {
+                            const { common: { enabledKey } } = getRuleKeys({ ruleName, ruleType: RuleType.Detection });
+                            logger.debug(`Setting rule ${ruleName} to ${active}`);
+                            await this.putSetting(enabledKey, active);
+                        },
+                        switchNotificationsEnabledCb: async (active) => {
+                            logger.log(`Setting notifications active to ${!active}`);
+                            await this.storageSettings.putSetting(`notificationsEnabled`, active);
+                        },
+                    });
+                }
             } catch (e) {
                 this.getLogger().log('Error setting up MQTT client', e);
             }
@@ -1162,30 +1164,32 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const { mqttEnabled, notificationsEnabled } = this.storageSettings.values;
             if (mqttEnabled) {
                 const mqttClient = await this.getMqttClient();
-                const logger = this.getLogger();
-                if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
-                    this.lastAutoDiscovery = now;
-                    this.aiMessageResponseMap = {};
+                if (mqttClient) {
+                    const logger = this.getLogger();
+                    if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
+                        this.lastAutoDiscovery = now;
+                        this.aiMessageResponseMap = {};
 
-                    logger.log('Starting MQTT autodiscovery');
-                    setupPluginAutodiscovery({
+                        logger.log('Starting MQTT autodiscovery');
+                        setupPluginAutodiscovery({
+                            mqttClient,
+                            people: await this.getKnownPeople(),
+                            console: logger,
+                            rules: availableRules,
+                        }).then(async (activeTopics) => {
+                            await this.mqttClient.cleanupAutodiscoveryTopics(activeTopics);
+                        }).catch(logger.error);
+
+                        await this.setupMqttEntities();
+                    }
+
+                    publishPluginValues({
                         mqttClient,
-                        people: await this.getKnownPeople(),
-                        console: logger,
-                        rules: availableRules,
-                    }).then(async (activeTopics) => {
-                        await this.mqttClient.cleanupAutodiscoveryTopics(activeTopics);
+                        notificationsEnabled,
+                        rulesToEnable,
+                        rulesToDisable,
                     }).catch(logger.error);
-
-                    await this.setupMqttEntities();
                 }
-
-                publishPluginValues({
-                    mqttClient,
-                    notificationsEnabled,
-                    rulesToEnable,
-                    rulesToDisable,
-                }).catch(logger.error);
             }
 
             if (!this.restartRequested) {
@@ -1391,18 +1395,21 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     async toggleRule(ruleName: string, ruleType: RuleType, enabled: boolean) {
         const mqttClient = await this.getMqttClient();
-        const logger = this.getLogger();
-        const rule = this.allAvailableRules.find(rule => rule.ruleType === ruleType && rule.name === ruleName);
 
-        logger.log(`Setting ${ruleType} rule ${ruleName} enabled to ${enabled}`);
+        if (mqttClient) {
+            const logger = this.getLogger();
+            const rule = this.allAvailableRules.find(rule => rule.ruleType === ruleType && rule.name === ruleName);
 
-        if (rule) {
-            await publishRuleEnabled({
-                console: logger,
-                rule,
-                enabled,
-                mqttClient
-            });
+            logger.log(`Setting ${ruleType} rule ${ruleName} enabled to ${enabled}`);
+
+            if (rule) {
+                await publishRuleEnabled({
+                    console: logger,
+                    rule,
+                    enabled,
+                    mqttClient
+                });
+            }
         }
     };
 
