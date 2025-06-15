@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI, HarmBlockThreshold, HarmCategory, Part } from "@google/generative-ai";
-import { ObjectDetectionResult } from "@scrypted/sdk";
+import { ObjectDetectionResult, ScryptedDeviceBase } from "@scrypted/sdk";
 import axios from "axios";
 import AdvancedNotifierPlugin from "./main";
 import { getAiSettingKeys } from "./utils";
@@ -123,14 +123,15 @@ export const executeGoogleAi = async (props: {
 const executeOpenAi = async (props: {
     systemPrompt: string,
     model: string,
-    imageUrl: string,
+    b64Image: string,
     originalTitle: string,
     detection?: ObjectDetectionResult,
     logger: Console,
     apiUrl: string,
     apiKey: string
 }) => {
-    const { imageUrl, originalTitle, model, systemPrompt, detection, logger, apiKey, apiUrl } = props;
+    const { b64Image, originalTitle, model, systemPrompt, detection, logger, apiKey, apiUrl } = props;
+    const imageUrl = `data:image/jpeg;base64,${b64Image}`;
 
     let text = `Original notification message is ${originalTitle}}.`;
 
@@ -268,15 +269,17 @@ export const getAiMessage = async (props: {
     plugin: AdvancedNotifierPlugin,
     originalTitle: string,
     detection?: ObjectDetectionResult,
-    imageUrl: string,
     b64Image: string,
     logger: Console,
     timeStamp: number,
+    device: ScryptedDeviceBase
 }) => {
-    const { originalTitle, detection, plugin, imageUrl, logger, b64Image, timeStamp } = props;
+    const { device, originalTitle, detection, plugin, logger, b64Image, timeStamp } = props;
 
+    const cacheKey = `${device.id}_${timeStamp}`;
     let title = originalTitle;
-    let message = plugin.aiMessageResponseMap[timeStamp];
+    let message = plugin.aiMessageResponseMap[cacheKey];
+    let fromCache = false;
 
     try {
         if (!message) {
@@ -301,7 +304,7 @@ export const getAiMessage = async (props: {
                 const result = await executeOpenAi({
                     apiKey,
                     apiUrl,
-                    imageUrl,
+                    b64Image,
                     logger,
                     model,
                     originalTitle,
@@ -342,14 +345,18 @@ export const getAiMessage = async (props: {
 
                 message = result;
             }
+        } else {
+            fromCache = true
         }
     } catch (e) {
         logger.log('Error in getAiMessage', e);
     } finally {
-        plugin.aiMessageResponseMap[timeStamp] = message;
+        plugin.aiMessageResponseMap[cacheKey] = message;
+
         return {
             message,
             title,
+            fromCache,
         }
     }
 }

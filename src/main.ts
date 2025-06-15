@@ -244,7 +244,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             title: 'Generate clip',
             type: 'boolean',
             immediate: true,
-            defaultValue: false
+            defaultValue: false,
+            onPut: async () => await this.refreshSettings()
         },
         testGenerateClipSpeed: {
             group: 'Test',
@@ -1785,6 +1786,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         triggerDeviceId: string,
         snoozeId?: string,
         triggerTime: number,
+        forceAi?: boolean,
     }) => {
         const {
             eventType,
@@ -1794,6 +1796,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             match,
             image: imageParent,
             rule,
+            forceAi,
         } = props;
         const { device: cameraDevice, triggerDevice } = await this.getLinkedCamera(triggerDeviceId);
         const logger = this.getLogger(cameraDevice);
@@ -1808,12 +1811,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             reason: GetImageReason.Notification
         });
 
-        if (imageSource !== ImageSource.Input) {
-            logger.log(`Notification image fetched from ${imageSource}`);
-        }
-
         const executeNotify = async (videoUrl?: string) => {
-            logger.log(`${rule.notifiers.length} notifiers will be notified with videourl ${videoUrl}: ${JSON.stringify({ match, rule })} `);
+            logger.log(`${rule.notifiers.length} notifiers will be notified with videourl ${videoUrl} and image from ${imageSource}: ${JSON.stringify({ match, rule })} `);
 
             for (const notifierId of rule.notifiers) {
                 const notifier = systemManager.getDeviceById<Settings & ScryptedDeviceBase>(notifierId);
@@ -1824,12 +1823,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     notifierId,
                     time: triggerTime,
                     image,
+                    b64Image,
                     detection: match,
                     eventType,
                     logger,
                     snoozeId,
                     rule: rule as DetectionRule,
                     videoUrl,
+                    forceAi,
                 }).catch(e => logger.log(`Error on notifier ${notifier.name} `, e));
 
                 const decoderType = cameraMixin.decoderType;
@@ -2250,9 +2251,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                 const isAiRuleOk = rule ? rule.useAi : true;
 
-                if (rule?.useAi || cameraAiEnabled || notifierAiEnabled) {
+                if (forceAi || rule?.useAi || cameraAiEnabled || notifierAiEnabled) {
                     logger.log(`Notification AI: ${JSON.stringify({
                         aiPlatform,
+                        camera: device?.name,
+                        notifier: notifier?.name,
+                        forceAi,
                         isAiRuleOk,
                         cameraAiEnabled,
                         notifierAiEnabled
@@ -2261,20 +2265,25 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                 const isAiEnabled = forceAi || (isAiRuleOk && cameraAiEnabled && notifierAiEnabled);
                 if (aiPlatform !== AiPlatform.Disabled && isAiEnabled) {
-                    const imageUrl = `data:image/jpeg;base64,${b64Image}`;
                     const aiResponse = await getAiMessage({
-                        imageUrl,
                         b64Image,
                         logger,
                         originalTitle: message,
                         plugin: this,
                         detection,
-                        timeStamp: triggerTime
+                        timeStamp: triggerTime,
+                        device,
                     });
 
                     if (aiResponse.message) {
                         message = aiResponse.message;
                         aiUsed = true;
+                    }
+
+                    if (aiResponse.fromCache) {
+                        logger.info(`AI response retrieved from cache: ${JSON.stringify(aiResponse)}`);
+                    } else {
+                        logger.log(`AI response generated: ${JSON.stringify(aiResponse)}`);
                     }
                 }
             }
@@ -2503,6 +2512,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     triggerTime: currentTime - 2000,
                     snoozeId,
                     match: isDetection ? { label: testLabel, className: testEventType, score: 1 } : undefined,
+                    forceAi: testUseAi,
                     rule: {
                         notifierData: {
                             [testNotifierId]: {
