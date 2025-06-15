@@ -170,14 +170,16 @@ export const getAlarmWebhookUrls = async (props: {
     setModeMessage: string,
     modeHomeText: string,
     modeNightText: string,
-    modeAwayText: string
+    modeAwayText: string,
+    cloudEndpoint: string,
 }) => {
     const {
         deactivateMessage,
         modeAwayText,
         modeHomeText,
         modeNightText,
-        setModeMessage
+        setModeMessage,
+        cloudEndpoint
     } = props;
 
     const actions: NotificationAction[] = [];
@@ -185,11 +187,11 @@ export const getAlarmWebhookUrls = async (props: {
     const { setAlarm } = await getWebooks();
 
     try {
-        const cloudEndpointRaw = await sdk.endpointManager.getCloudEndpoint(undefined, { public: true });
+        // const cloudEndpointRaw = await sdk.endpointManager.getCloudEndpoint(undefined, { public: true });
 
-        const [cloudEndpoint, parameters] = cloudEndpointRaw.split('?') ?? '';
+        // const [cloudEndpoint, parameters] = cloudEndpointRaw.split('?') ?? '';
 
-        const paramString = parameters ? `?${parameters}` : '';
+        // const paramString = parameters ? `?${parameters}` : '';
 
         for (const alarmMode of [
             SecuritySystemMode.Disarmed,
@@ -207,7 +209,8 @@ export const getAlarmWebhookUrls = async (props: {
                 title = setModeMessage.replace('${mode}', modeText);
             }
             actions.push({
-                url: `${cloudEndpoint}${setAlarm}/${alarmMode}${paramString}`,
+                url: `${cloudEndpoint}${setAlarm}/${alarmMode}`,
+                // url: `${cloudEndpoint}${setAlarm}/${alarmMode}${paramString}`,
                 title,
                 action: `scrypted_an_alarm_${alarmMode}`,
             });

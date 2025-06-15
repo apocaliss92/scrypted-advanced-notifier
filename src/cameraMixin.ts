@@ -390,7 +390,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 ruleName: ruleFolder
                             });
                             const { videoclipThumbnailUrl, videoclipStreamUrl } = await getWebHookUrls({
-                                fileId: fileId
+                                fileId: fileId,
+                                cloudEndpoint: this.plugin.cloudEndpoint
                             });
 
                             videoClips.push({
@@ -443,7 +444,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 fileName,
                             });
                             const { videoclipThumbnailUrl, videoclipStreamUrl } = await getWebHookUrls({
-                                fileId: fileId
+                                fileId: fileId,
+                                cloudEndpoint: this.plugin.cloudEndpoint
                             });
 
                             videoClips.push({
@@ -504,7 +506,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const { videoclipPath } = filePathsRes;
             logger.info('Fetching videoclip ', videoId, videoclipPath);
 
-            const { videoclipStreamUrl } = await getWebHookUrls({ fileId: videoId });
+            const { videoclipStreamUrl } = await getWebHookUrls({
+                fileId: videoId,
+                cloudEndpoint: this.plugin.cloudEndpoint
+            });
             videoclipMo = await sdk.mediaManager.createMediaObject(Buffer.from(videoclipStreamUrl), ScryptedMimeTypes.LocalUrl, {
                 sourceId: this.plugin.id
             })
@@ -1143,6 +1148,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     cameraIdOrAction: this.id,
                     console: logger,
                     device: this.cameraDevice,
+                    cloudEndpoint: this.plugin.cloudEndpoint
                 });
 
                 await this.storageSettings.putSetting('lastSnapshotWebhookCloudUrl', lastSnapshotCloudUrl);

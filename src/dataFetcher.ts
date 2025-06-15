@@ -26,7 +26,9 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
 
     async getRecordedEvents(options: RecordedEventOptions): Promise<RecordedEvent[]> {
         const { endTime, startTime } = options;
-        const { privatePathnamePrefix } = await getWebHookUrls({});
+        const { privatePathnamePrefix } = await getWebHookUrls({
+            cloudEndpoint: this.plugin.cloudEndpoint
+        });
         const { eventThumbnail, eventImage } = await getWebooks();
         const logger = this.getLogger();
 
@@ -175,7 +177,9 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
 
     async getVideoClips(options?: VideoClipOptions): Promise<VideoClip[]> {
         const { startTime, endTime } = options;
-        const { privatePathnamePrefix } = await getWebHookUrls({});
+        const { privatePathnamePrefix } = await getWebHookUrls({
+            cloudEndpoint: this.plugin.cloudEndpoint
+        });
         const { eventVideoclip } = await getWebooks();
 
         const videoclips: (VideoClip & {

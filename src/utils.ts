@@ -240,7 +240,8 @@ export const getWebHookUrls = async (props: {
     snoozes?: number[],
     snoozeId?: string,
     snoozePlaceholder?: string,
-    fileId?: string
+    fileId?: string,
+    cloudEndpoint: string,
 }) => {
     const {
         cameraIdOrAction,
@@ -249,7 +250,8 @@ export const getWebHookUrls = async (props: {
         snoozes,
         snoozeId,
         snoozePlaceholder,
-        fileId
+        fileId,
+        cloudEndpoint,
     } = props;
 
     let lastSnapshotCloudUrl: string;
@@ -283,17 +285,17 @@ export const getWebHookUrls = async (props: {
     } = await getWebooks();
 
     try {
-        const cloudPublicEndpointRaw = await endpointManager.getCloudEndpoint(undefined, { public: true });
-        const cloudPrivateEndpointRaw = await endpointManager.getCloudEndpoint(undefined, { public: false });
-        const localEndpoint = await endpointManager.getPublicLocalEndpoint();
-        publicPathnamePrefix = new URL(cloudPublicEndpointRaw).pathname;
-        const privatePathname = new URL(cloudPrivateEndpointRaw).pathname;
+        let privatePathname: string;
+        let localEndpoint: string;
+        try {
+            localEndpoint = await endpointManager.getPublicLocalEndpoint();
+            privatePathname = await endpointManager.getPath(undefined, { public: false });
+            publicPathnamePrefix = await endpointManager.getPath(undefined, { public: true });
+        } catch { }
 
-        const [cloudEndpoint, parameters] = cloudPublicEndpointRaw.split('?') ?? '';
         const encodedId = encodeURIComponent(cameraIdOrAction ?? device?.id);
-        endpoint = cloudEndpoint;
+        const paramString = '';
 
-        const paramString = parameters ? `?${parameters}` : '';
         privatePathnamePrefix = `${privatePathname}${eventsApp}`;
 
         lastSnapshotCloudUrl = `${cloudEndpoint}${lastSnapshot}/${encodedId}/{IMAGE_NAME}${paramString}`;
