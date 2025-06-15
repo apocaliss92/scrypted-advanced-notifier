@@ -3140,7 +3140,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             this.audioVolumesListener = systemManager.listenDevice(this.id, {
                 event: ScryptedInterface.AudioVolumeControl,
             }, async (_, __, data) => {
-                logger.log(data);
+                logger.info(`Volume levels update: ${JSON.stringify(data)}`);
 
                 if (data.dBFS) {
                     await this.processAudioDetection(data.dBFS);

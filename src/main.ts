@@ -1998,8 +1998,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { notifierData } = rule ?? {};
         const notifierId = notifier.id;
         const cameraId = device?.id;
-        const { actions, priority, addSnooze, addCameraActions, sound } = notifierData[notifierId] ?? {};
-        const { withActions, withSnoozing, withSound } = getNotifierData({ notifierId, ruleType: rule.ruleType });
+        const { actions, priority, addSnooze, addCameraActions, sound } = notifierData?.[notifierId] ?? {};
+        const { withActions, withSnoozing, withSound } = getNotifierData({ notifierId, ruleType: rule?.ruleType });
         const cameraMixin = cameraId ? this.currentCameraMixinsMap[cameraId] : undefined;
         const notifierMixin = this.currentNotifierMixinsMap[notifierId];
         const { notifierActions, aiEnabled: cameraAiEnabled } = cameraMixin?.storageSettings.values ?? {}
@@ -2250,7 +2250,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                 const isAiRuleOk = rule ? rule.useAi : true;
 
-                if (rule.useAi) {
+                if (rule?.useAi || cameraAiEnabled || notifierAiEnabled) {
                     logger.log(`Notification AI: ${JSON.stringify({
                         aiPlatform,
                         isAiRuleOk,

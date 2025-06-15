@@ -311,6 +311,7 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
                     endTime,
                     enabled,
                     enableTranslations,
+                    aiEnabled,
                 } = this.storageSettings.values;
 
                 if (!enabled) {
@@ -378,7 +379,7 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
 
                 if (canNotify) {
                     let titleToUse = title;
-                    if (!isNotificationFromAnPlugin && enableTranslations && cameraDevice) {
+                    if (!isNotificationFromAnPlugin && (enableTranslations || aiEnabled) && cameraDevice) {
                         const deviceSensors = this.plugin.videocameraDevicesMap[cameraDevice.id] ?? [];
                         const { eventType, detection, triggerTime } = await parseNvrNotificationMessage(cameraDevice, deviceSensors, options, logger);
 
@@ -399,14 +400,13 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
                             b64Image,
                             detection,
                             eventType,
-                            rule: { notifierData: { [this.id]: {} } } as DetectionRule
                         });
                         const tapToViewText = this.plugin.getTextKey({ notifierId: this.id, textKey: 'tapToViewText' });
 
                         options.subtitle = message;
                         options.bodyWithSubtitle = tapToViewText;
 
-                        logger.log(`Content translated to ${message} ${tapToViewText}`);
+                        logger.log(`Content modified to ${message} ${tapToViewText}`);
                     }
 
                     await this.mixinDevice.sendNotification(titleToUse, options, media, icon);
