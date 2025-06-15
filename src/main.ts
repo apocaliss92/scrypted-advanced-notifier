@@ -943,35 +943,37 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     async getMqttClient() {
-        if (!this.mqttClient && !this.initializingMqtt) {
-            const { mqttEnabled, useMqttPluginCredentials, pluginEnabled, mqttHost, mqttUsename, mqttPassword } = this.storageSettings.values;
-            if (mqttEnabled && pluginEnabled) {
-                this.initializingMqtt = true;
-                const logger = this.getLogger();
+        try {
+            if (!this.mqttClient && !this.initializingMqtt) {
+                const { mqttEnabled, useMqttPluginCredentials, pluginEnabled, mqttHost, mqttUsename, mqttPassword } = this.storageSettings.values;
+                if (mqttEnabled && pluginEnabled) {
+                    this.initializingMqtt = true;
+                    const logger = this.getLogger();
 
-                if (this.mqttClient) {
-                    this.mqttClient.disconnect();
-                    this.mqttClient = undefined;
-                }
+                    if (this.mqttClient) {
+                        this.mqttClient.disconnect();
+                        this.mqttClient = undefined;
+                    }
 
-                try {
-                    this.mqttClient = await getMqttBasicClient({
-                        logger,
-                        useMqttPluginCredentials,
-                        mqttHost,
-                        mqttUsename,
-                        mqttPassword,
-                        clientId: `scrypted_an`,
-                        configTopicPattern: `homeassistant/+/${idPrefix}-${this.pluginId}/+/config`
-                    });
-                    await this.mqttClient?.getMqttClient();
-                } catch (e) {
-                    logger.log('Error setting up MQTT client', e);
-                } finally {
-                    this.initializingMqtt = false;
+                    try {
+                        this.mqttClient = await getMqttBasicClient({
+                            logger,
+                            useMqttPluginCredentials,
+                            mqttHost,
+                            mqttUsename,
+                            mqttPassword,
+                            clientId: `scrypted_an`,
+                            configTopicPattern: `homeassistant/+/${idPrefix}-${this.pluginId}/+/config`
+                        });
+                        await this.mqttClient?.getMqttClient();
+                    } catch (e) {
+                        logger.log('Error setting up MQTT client', e);
+                    } finally {
+                        this.initializingMqtt = false;
+                    }
                 }
             }
-        }
+        } catch { }
 
         return this.mqttClient;
     }
@@ -1455,15 +1457,17 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             testGenerateClip,
         } = this.storageSettings.values;
 
-        if (mqttEnabled) {
-            this.storageSettings.settings.detectionSourceForMqtt.defaultValue =
-                useNvrDetectionsForMqtt ? ScryptedEventSource.NVR : ScryptedEventSource.RawDetection;
-            this.storageSettings.settings.detectionSourceForMqtt.choices = this.enabledDetectionSources;
-        }
-        this.storageSettings.settings.useNvrDetectionsForMqtt.hide = true;
+        try {
+            if (mqttEnabled) {
+                this.storageSettings.settings.detectionSourceForMqtt.defaultValue =
+                    useNvrDetectionsForMqtt ? ScryptedEventSource.NVR : ScryptedEventSource.RawDetection;
+                this.storageSettings.settings.detectionSourceForMqtt.choices = this.enabledDetectionSources;
+            }
+            this.storageSettings.settings.useNvrDetectionsForMqtt.hide = true;
 
-        this.storageSettings.settings.mqttActiveEntitiesTopic.hide = !mqttEnabled;
-        this.storageSettings.settings.detectionSourceForMqtt.hide = !mqttEnabled;
+            this.storageSettings.settings.mqttActiveEntitiesTopic.hide = !mqttEnabled;
+            this.storageSettings.settings.detectionSourceForMqtt.hide = !mqttEnabled;
+        } catch { }
 
         const { isCamera } = testDevice ? isDeviceSupported(testDevice) : {};
         this.storageSettings.settings.testEventType.hide = !isCamera;
