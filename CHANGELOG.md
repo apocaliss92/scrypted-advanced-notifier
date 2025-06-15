@@ -1,6 +1,13 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.2.0
+- Events app released. It is available as dashboard link as well as PWA app. It has events and videoclips views across all the possible source (NVR, Frigate, ...). Live view is still on initial stages
+- Telegram notifier supported
+- Audio rules improved a lot! They will now take into account analyzed sampling values and not only peaks
+- Fixed many issues when MQTT was not available initially and would crash the plugin
+- Plugin will not store relevant events to make them available in the web APP
+
 ### 3.7.21
 - Add detection clips to the camera clips
 
@@ -17,7 +24,6 @@
 ### 3.7.0
 - Add full support to Frigate detections, in combination with `Scrypted Frigate Bridge` will be possible to import frigate events into scrypted and use this plugin fully with them. Particularly interesting audio classifications and bird classification (untested, will need some test data). Snapshots are as well imported from Frigate, videoclips for accelerated GIFs will be coming soon
 - Motion reporting to MQTT reduced drastically to 5 seconds
-- Audio detection rules deprecated, will be integrated soon in the detection rules
 - Restructure of FS folders, old timelapses will be lost due to technical reasons
 - Decoder usage changed, if any rule requires a videoclip will be permanent. If enabled on the camera for snapshots will be run only when motion is triggered
 - Fix annoying MQTT bug where switch/buttons were persisted on the broker and would change state of entities randomly. Plugin will remove automatically those messages

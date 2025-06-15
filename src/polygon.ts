@@ -130,7 +130,8 @@ export const getNvrThumbnailCrop = (props: {
     const prio2Det = detections.find(det => [DetectionClass.Animal, DetectionClass.Person, DetectionClass.Vehicle].includes(det.className as DetectionClass));
 
     const detToUse = prio1Det ?? prio2Det ?? detections[0];
-    const [x, y, width, height] = detToUse.boundingBox;
+    const { boundingBox } = detToUse;
+    const [x, y, width, height] = boundingBox;
     const centerX = x + width / 2;
     const centerY = y + height / 2;
 
@@ -158,4 +159,61 @@ export const getNvrThumbnailCrop = (props: {
     });
 
     return params.toString();
+
+    // const result = {
+    //     resize: {},
+    //     crop: {}
+    // };
+
+    // // No crop if input is incomplete
+    // if (!boundingBox || !inputDimensions) {
+    //     return '';
+    // }
+
+    // const [inputWidth, inputHeight] = inputDimensions;
+    // const [x, y, boxWidth, boxHeight] = boundingBox;
+
+    // const targetAspectRatio = (inputWidth / inputHeight);
+
+    // // Compute center Y and initial crop dimensions
+    // let centerY = y + boxHeight / 2;
+    // let cropWidth = boxWidth;
+    // let cropHeight = cropWidth / targetAspectRatio;
+
+    // // Ensure crop height is at least as big as the bounding box height
+    // if (cropHeight < boxHeight) {
+    //     cropHeight = boxHeight;
+    //     cropWidth = cropHeight * targetAspectRatio;
+    // }
+
+    // // Compute top-left crop coordinates (centered on the bounding box)
+    // let cropLeft = x + boxWidth / 2 - cropWidth / 2;
+    // let cropTop = centerY - cropHeight / 2;
+
+    // // Clamp to image boundaries
+    // cropLeft = Math.max(0, Math.min(inputWidth - cropWidth, cropLeft));
+    // cropTop = Math.max(0, Math.min(inputHeight - cropHeight, cropTop));
+
+    // // Final crop dimensions (don't exceed image bounds)
+    // const finalWidth = Math.min(cropWidth, inputWidth);
+    // const finalHeight = Math.min(cropHeight, inputHeight);
+
+    // result.crop = {
+    //     left: cropLeft,
+    //     top: cropTop,
+    //     width: finalWidth,
+    //     height: finalHeight
+    // };
+
+    // const params = new URLSearchParams({
+    //     // height: '200',
+    //     height: finalHeight.toString(),
+    //     width: finalWidth.toString(),
+    //     left: cropLeft.toString(),
+    //     top: cropTop.toString(),
+    //     // right: right.toString(),
+    //     // bottom: bottom.toString(),
+    // });
+
+    // return params.toString();
 }
