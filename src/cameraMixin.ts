@@ -653,7 +653,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const funct = async () => {
             try {
-                await this.getMqttClient();
+                if (this.storageSettings.values.enabledToMqtt) {
+                    await this.getMqttClient();
+                }
 
                 const {
                     allAllowedRules,
@@ -1179,6 +1181,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     async toggleRule(ruleName: string, ruleType: RuleType, enabled: boolean) {
         const logger = this.getLogger();
         const mqttClient = await this.getMqttClient();
+
+        if (!mqttClient) {
+            return;
+        }
+
         const rule = this.allAvailableRules.find(rule => rule.ruleType === ruleType && rule.name === ruleName);
 
         logger.log(`Setting ${ruleType} rule ${ruleName} enabled to ${enabled}`);
@@ -1887,8 +1894,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             logger.info(`Checking occupancy for reason ${source}`);
 
-            const mqttClient = await this.getMqttClient();
-
             const occupancyRulesDataTmpMap: Record<string, OccupancyRuleData> = {};
             const zonesData = await this.getObserveZones();
 
@@ -2161,8 +2166,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     logger.info(`Refreshing lastCheck only for rule ${name}`);
                 }
             }
+            const mqttClient = await this.getMqttClient();
 
-            if (this.isActiveForMqttReporting && detectedResultParent) {
+            if (
+                this.storageSettings.values.enabledToMqtt &&
+                this.isActiveForMqttReporting &&
+                detectedResultParent &&
+                mqttClient
+            ) {
                 const logData = occupancyRulesData.map(elem => {
                     const { rule, b64Image, image, ...rest } = elem;
                     return rest
@@ -3279,6 +3290,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
         const mqttClient = await this.getMqttClient();
 
+        if (!mqttClient) {
+            return;
+        }
+
         const funct = async () => {
             const isOnlyMotion = classnames?.length === 1 && classnames[0] === DetectionClass.Motion;
             logger[isOnlyMotion ? 'info' : 'log'](`Resetting basic detections ${classnames ?? 'All'}, signal coming from ${resetSource}`);
@@ -3309,6 +3324,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     async resetRuleEntities(rule: BaseRule) {
         const logger = this.getLogger();
         const mqttClient = await this.getMqttClient();
+        if (!mqttClient) {
+            return;
+        }
+
         const { motionDuration, } = this.storageSettings.values;
 
         const turnOffTimeout = setTimeout(async () => {

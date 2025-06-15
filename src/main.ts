@@ -92,7 +92,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         mqttEnabled: {
             title: 'MQTT enabled',
             type: 'boolean',
-            defaultValue: true,
+            defaultValue: false,
             immediate: true,
         },
         notificationsEnabled: {
@@ -886,6 +886,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     async getKnownPeople() {
+        const logger = this.getLogger();
         try {
             const now = new Date().getTime();
             const isUpdated = this.lastKnownPeopleFetched && (now - this.lastKnownPeopleFetched) <= (1000 * 60);
@@ -894,6 +895,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
 
             const objDetectionPlugin = systemManager.getDeviceByName<Settings>('Scrypted NVR Object Detection');
+            if (!objDetectionPlugin) {
+                logger.log('Scrypted NVR Object Detection not found');
+                return [];
+            }
+
             const settings = await objDetectionPlugin.getSettings();
             const knownPeople = settings?.find(setting => setting.key === 'knownPeople')?.choices
                 ?.filter(choice => !!choice)
@@ -903,7 +909,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.lastKnownPeopleFetched = now;
             return this.knownPeople;
         } catch (e) {
-            this.getLogger().log('Error in getKnownPeople', e.message);
+            logger.log('Error in getKnownPeople', e.message);
             return [];
         }
     }

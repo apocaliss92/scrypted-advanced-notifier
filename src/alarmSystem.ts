@@ -512,14 +512,17 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
 
     async updateMqtt(props: { mode: string, info?: { activeDevices: string[], bypassedDevices: string[] } }) {
         const { info, mode } = props;
-        const logger = this.getLogger();
         const mqttClient = await this.getMqttClient();
 
-        publishAlarmSystemValues({
-            mqttClient,
-            mode,
-            info,
-        }).catch(logger.error);
+        if (mqttClient) {
+            const logger = this.getLogger();
+
+            publishAlarmSystemValues({
+                mqttClient,
+                mode,
+                info,
+            }).catch(logger.error);
+        }
     }
 
     async sendNotification(props: {
