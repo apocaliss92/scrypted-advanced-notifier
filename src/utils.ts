@@ -1313,7 +1313,7 @@ export const getNotifierData = (props: {
     const priorityChoices: NotificationPriority[] = [];
     const isDetectionRule = ruleType === RuleType.Detection;
     const isAudioRule = ruleType === RuleType.Audio;
-    const withActions = ![NTFY_PLUGIN_ID, NVR_PLUGIN_ID, TELEGRAM_PLUGIN_ID].includes(pluginId) && isDetectionRule;
+    const withActions = ![NTFY_PLUGIN_ID, NVR_PLUGIN_ID].includes(pluginId) && isDetectionRule;
     const snoozingDefault = pluginId !== PUSHOVER_PLUGIN_ID;
     const addCameraActionsDefault = pluginId !== PUSHOVER_PLUGIN_ID;
     const withSnoozing = isDetectionRule || isAudioRule;

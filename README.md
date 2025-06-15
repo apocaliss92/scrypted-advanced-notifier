@@ -40,8 +40,9 @@ The plugin provides customized way to deliver notifications. It is based on rule
 - Ntfy
 - Homeassistant push notifications
 - Pushover
+- Telegram
 
-  It's useful to use Pushover or NTFY as notifiers storage, in combination with a homeassistant or NVR one, setting its priority to the lowest. This will allow to have a rich notification and also to store it on another notifier. This because notifiers such as pushover or ntfy do not have a nice support to actions. Following parameters are required to successfully send notifications
+  It's useful to use Pushover or NTFY as notifiers storage, in combination with a homeassistant or NVR one, setting its priority to the lowest. This will allow to have a rich notification and also to store it on another notifier. This because notifiers such as pushover, ntfy or telegram do not have a nice support to actions. Following parameters are required to successfully send notifications
 
 - `Scrypted token`: Token stored on the scrypted entity on homeassistant
 - `NVR url`: Url pointing to the NVR instance, should be accessible from outside

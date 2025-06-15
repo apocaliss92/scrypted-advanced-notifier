@@ -1490,8 +1490,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const { priorityChoices } = getNotifierData({ notifierId: testNotifier.id, ruleType: RuleType.Detection });
             this.storageSettings.settings.testPriority.choices = priorityChoices;
         }
-
-        this.storageSettings.settings.testPriority.hide = testDevice && testDevice !== 'None';
     }
 
     get enabledDetectionSources() {
@@ -2109,12 +2107,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         };
 
         if (notifier.pluginId === TELEGRAM_PLUGIN_ID) {
-            payload.data.telegram = {
-                // timestamp: triggerTime,
-                // url: clickUrl ?? externalUrl,
-                // html: 1,
-                // sound
-            };
+            payload.data.telegram = {};
 
             const telegramActions: any[][] = [];
             const firstLine: any[] = []
@@ -2129,16 +2122,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 url: externalUrl,
             });
             telegramActions.push(firstLine);
-            // for (const { action, url, icon, title } of actionsToUse) {
-            //     const isUriAction = action === 'URI';
-            //     const urlToUse = isUriAction ? url : undefined;
-            //     telegramActions.push({
-            //         action: url ? 'URI' : action,
-            //         uri: urlToUse,
-            //         icon,
-            //         title,
-            //     })
-            // }
+
             if (addSnozeActions) {
                 const snoozeLine: any[] = [];
                 for (const { data, title, url } of snoozeActions) {
@@ -2150,6 +2134,19 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 }
                 telegramActions.push(snoozeLine);
             }
+
+            if (actionsToUse.length) {
+                const actionsLine: any[] = [];
+                for (const { url, title, action } of actionsToUse) {
+                    actionsLine.push({
+                        action,
+                        uri: url,
+                        title,
+                    })
+                }
+                telegramActions.push(actionsLine);
+            }
+
             payload.data.telegram.actions = telegramActions;
             if (videoUrl) {
                 payload.data.telegram.gifUrl = videoUrl;
