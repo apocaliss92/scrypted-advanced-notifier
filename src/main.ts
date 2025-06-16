@@ -2307,21 +2307,19 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     rule: rule as DetectionRule,
                 });
 
-                const isAiRuleOk = rule ? rule.useAi : true;
-
                 if (forceAi || rule?.useAi || cameraAiEnabled || notifierAiEnabled) {
                     logger.log(`Notification AI: ${JSON.stringify({
                         aiPlatform,
                         camera: device?.name,
                         notifier: notifier?.name,
                         forceAi,
-                        isAiRuleOk,
                         cameraAiEnabled,
                         notifierAiEnabled
                     })}`);
                 }
 
-                const isAiEnabled = forceAi || (isAiRuleOk && cameraAiEnabled && notifierAiEnabled);
+                
+                const isAiEnabled = forceAi || rule?.useAi || (!rule && cameraAiEnabled && notifierAiEnabled);
                 if (aiPlatform !== AiPlatform.Disabled && isAiEnabled) {
                     const aiResponse = await getAiMessage({
                         b64Image,
