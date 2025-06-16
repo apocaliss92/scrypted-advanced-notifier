@@ -1,6 +1,6 @@
-import sdk, { NotificationAction, SecuritySystemMode } from "@scrypted/sdk";
+import sdk, { SecuritySystemMode } from "@scrypted/sdk";
 import { StorageSetting, StorageSettings } from "@scrypted/sdk/storage-settings";
-import { getWebooks, sensorsFilter } from "./utils";
+import { ExtendedNotificationAction, getWebooks, sensorsFilter } from "./utils";
 
 export const supportedAlarmModes = [
     SecuritySystemMode.AwayArmed,
@@ -182,7 +182,7 @@ export const getAlarmWebhookUrls = async (props: {
         cloudEndpoint
     } = props;
 
-    const actions: NotificationAction[] = [];
+    const actions: ExtendedNotificationAction[] = [];
 
     const { setAlarm } = await getWebooks();
 

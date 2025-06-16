@@ -5,7 +5,7 @@ import { cloneDeep, sortBy, uniq, uniqBy } from "lodash";
 import moment, { Moment } from "moment";
 import sharp from 'sharp';
 import { name, scrypted } from '../package.json';
-import { AiPlatform, defaultModel } from "./aiUtils";
+import { AiPlatform, AiSource, defaultModel } from "./aiUtils";
 import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection } from "./detectionClasses";
 import AdvancedNotifierPlugin, { PluginSettingKey } from "./main";
 const { endpointManager } = sdk;
@@ -269,7 +269,7 @@ export const getWebHookUrls = async (props: {
     let privatePathnamePrefix: string;
     let publicPathnamePrefix: string;
 
-    const snoozeActions: NotificationAction[] = [];
+    const snoozeActions: ExtendedNotificationAction[] = [];
 
     const {
         lastSnapshot,
@@ -818,7 +818,7 @@ export enum NotificationPriority {
     SuperHigh = "SuperHigh",
 };
 
-export interface NotificationAction {
+export interface ExtendedNotificationAction {
     title: string;
     action: string;
     url: string;
@@ -2079,72 +2079,118 @@ export const getDetectionRulesSettings = async (props: {
     });
 }
 
-export const getAiSettingKeys = (aiPlatform: AiPlatform) => {
+export const getAiSettingKeys = () => {
+    const llmDeviceKey = `llmDevice`;
+    const aiPlatformKey = `aiPlatform`;
+    const systemPromptKey = `aiSystemPrompt`;
+
+    return {
+        llmDeviceKey,
+        aiPlatformKey,
+        systemPromptKey,
+    };
+}
+
+export const getManualAiSettingKeys = (aiPlatform: AiPlatform) => {
     const apiKeyKey = `${aiPlatform}:aiApiKey`;
     const apiUrlKey = `${aiPlatform}:aiApiUrl`;
     const modelKey = `${aiPlatform}:aiModel`;
-    const systemPromptKey = `${aiPlatform}:aiSystemPrompt`;
 
     return {
         apiKeyKey,
         apiUrlKey,
         modelKey,
-        systemPromptKey,
     }
 }
 
 export const getAiSettings = (props: {
-    aiPlatform: AiPlatform,
+    storage: StorageSettings<PluginSettingKey>,
     logger: Console,
     onRefresh: () => Promise<void>
 }) => {
-    const { aiPlatform, onRefresh } = props;
+    const { storage, onRefresh } = props;
+    const { aiSource } = storage.values;
 
-    const { apiKeyKey, apiUrlKey, modelKey, systemPromptKey } = getAiSettingKeys(aiPlatform);
+    const { aiPlatformKey, llmDeviceKey, systemPromptKey } = getAiSettingKeys();
+    const aiPlatform = storage.getItem(aiPlatformKey as any) as AiPlatform ?? AiPlatform.OpenAi;
+
     const settings: StorageSetting[] = [];
 
-    if ([AiPlatform.OpenAi].includes(aiPlatform)) {
+    if (aiSource === AiSource.LLMPlugin) {
         settings.push(
             {
-                key: apiUrlKey,
+                key: llmDeviceKey,
+                title: 'LLM tool',
                 group: 'AI',
-                title: 'API URL',
-                description: 'The API URL of the OpenAI compatible server.',
-                defaultValue: 'https://api.openai.com/v1/chat/completions',
-            },
+                type: 'device',
+                immediate: true,
+                deviceFilter: ({ ScryptedInterface, interfaces }) => {
+                    return interfaces.includes(ScryptedInterface.ChatCompletion);
+                },
+                onPut: async () => await onRefresh()
+            }
         );
+    } else if (aiSource === AiSource.Manual) {
+        settings.push(
+            {
+                key: aiPlatformKey,
+                title: 'AI Platform',
+                type: 'string',
+                group: 'AI',
+                immediate: true,
+                choices: Object.values(AiPlatform),
+                defaultValue: AiPlatform.OpenAi,
+                onPut: async () => await onRefresh()
+            }
+        );
+
+        const { apiKeyKey, apiUrlKey, modelKey } = getManualAiSettingKeys(aiPlatform);
+
+        if ([AiPlatform.OpenAi].includes(aiPlatform)) {
+            settings.push(
+                {
+                    key: apiUrlKey,
+                    group: 'AI',
+                    title: 'API URL',
+                    description: 'The API URL of the OpenAI compatible server.',
+                    defaultValue: 'https://api.openai.com/v1/chat/completions',
+                },
+            );
+        }
+
+        if (
+            [AiPlatform.OpenAi,
+            AiPlatform.GoogleAi,
+            AiPlatform.AnthropicClaude,
+            AiPlatform.Groq,
+            ].includes(aiPlatform)) {
+            settings.push(
+                {
+                    key: apiKeyKey,
+                    title: 'API Key',
+                    description: 'The API Key or token.',
+                    group: 'AI',
+                },
+                {
+                    key: modelKey,
+                    group: 'AI',
+                    title: 'Model',
+                    description: 'The model to use to generate the image description. Must be vision capable.',
+                    defaultValue: defaultModel[aiPlatform],
+                }
+            );
+        }
     }
 
-    if (
-        [AiPlatform.OpenAi,
-        AiPlatform.GoogleAi,
-        AiPlatform.AnthropicClaude,
-        AiPlatform.Groq,
-        ].includes(aiPlatform)) {
-        settings.push(
-            {
-                key: apiKeyKey,
-                title: 'API Key',
-                description: 'The API Key or token.',
-                group: 'AI',
-            },
-            {
-                key: modelKey,
-                group: 'AI',
-                title: 'Model',
-                description: 'The model to use to generate the image description. Must be vision capable.',
-                defaultValue: defaultModel[aiPlatform],
-            },
-            {
-                key: systemPromptKey,
-                group: 'AI',
-                title: 'System Prompt',
-                type: 'textarea',
-                description: 'The system prompt used to generate the notification.',
-                defaultValue: 'Create a notification suitable description of the image provided by the user. Describe the people, animals (coloring and breed), or vehicles (color and model) in the image. Do not describe scenery or static objects. Do not direct the user to click the notification. The original notification metadata may be provided and can be used to provide additional context for the new notification, but should not be used verbatim.',
-            }
-
-        );
+    if (aiSource !== AiSource.Disabled) {
+        settings.push({
+            key: systemPromptKey,
+            group: 'AI',
+            title: 'System Prompt',
+            type: 'textarea',
+            description: 'The system prompt used to generate the notification.',
+            defaultValue: 'Create a notification suitable description of the image provided by the user. Describe the people, animals (coloring and breed), or vehicles (color and model) in the image. Do not describe scenery or static objects. Do not direct the user to click the notification. The original notification metadata may be provided and can be used to provide additional context for the new notification, but should not be used verbatim.',
+        });
     }
 
     return settings;
@@ -2548,7 +2594,7 @@ export interface BaseRule {
     generateClipSpeed: VideoclipSpeed;
     generateClipPostSeconds: number;
     notifierData: Record<string, {
-        actions: NotificationAction[],
+        actions: ExtendedNotificationAction[],
         priority: NotificationPriority,
         addSnooze: boolean,
         addCameraActions: boolean,

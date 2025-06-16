@@ -24,6 +24,8 @@
  * MIT Licensed
  */
 
+/*! Axios v1.10.0 Copyright (c) 2025 Matt Zabriskie and contributors */
+
 /*! Based on fetch-blob. MIT License. Jimmy Wärting <https://jimmy.warting.se/opensource> & David Frank */
 
 /*! ReadWriteLock - v5.0.0 - 2015-01-16

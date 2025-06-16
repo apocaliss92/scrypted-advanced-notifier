@@ -1693,6 +1693,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 if (this.cameraDevice.sleeping) {
                     logger.log(`Not waking up the camera for a snapshot`);
                     runners = [
+                        checkDetector,
                         checkVeryRecent,
                         checkLatest
                     ];

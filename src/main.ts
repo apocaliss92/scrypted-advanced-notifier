@@ -1,4 +1,4 @@
-import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, Image, LauncherApplication, MediaObject, MixinProvider, NotificationAction, Notifier, NotifierOptions, ObjectDetectionResult, PushHandler, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, SettingValue, VideoClips, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, Image, LauncherApplication, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, PushHandler, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, SettingValue, VideoClips, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
 import child_process from 'child_process';
@@ -10,7 +10,7 @@ import { BasePlugin, BaseSettingsKey, getBaseSettings, getMqttBasicClient } from
 import { getRpcData } from '../../scrypted-monitor/src/utils';
 import { ffmpegFilterImageBuffer } from "../../scrypted/plugins/snapshot/src/ffmpeg-image-filter";
 import { name as pluginName, version } from '../package.json';
-import { AiPlatform, getAiMessage } from "./aiUtils";
+import { AiSource, getAiMessage } from "./aiUtils";
 import { AdvancedNotifierAlarmSystem } from "./alarmSystem";
 import { haAlarmAutomation, haAlarmAutomationId } from "./alarmUtils";
 import { AdvancedNotifierCamera } from "./camera";
@@ -23,7 +23,7 @@ import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodisco
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_NAME, getAiSettings, getAllDevices, getAssetSource, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImageSource, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, getAiSettings, getAllDevices, getAssetSource, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier } from "./utils";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -58,7 +58,7 @@ export type PluginSettingKey =
     | 'testAddActions'
     | 'testButton'
     | 'checkConfigurations'
-    | 'aiPlatform'
+    | 'aiSource'
     | 'imagesPath'
     | 'videoclipsRetention'
     | 'imagesRegex'
@@ -316,13 +316,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 await this.checkPluginConfigurations(true);
             },
         },
-        aiPlatform: {
-            title: 'AI Platform',
+        aiSource: {
+            title: 'AI Source',
             type: 'string',
             group: 'AI',
             immediate: true,
-            choices: Object.values(AiPlatform),
-            defaultValue: AiPlatform.Disabled,
+            choices: Object.values(AiSource),
+            defaultValue: AiSource.Disabled,
             onPut: async () => await this.refreshSettings()
         },
         imagesPath: {
@@ -1435,7 +1435,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         });
 
         dynamicSettings.push(...getAiSettings({
-            aiPlatform: this.storageSettings.values.aiPlatform,
+            storage: this.storageSettings,
             logger,
             onRefresh: async () => await this.refreshSettings(),
         }));
@@ -2041,11 +2041,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         let additionalMessageText: string = '';
 
         const actionsEnabled = withActions && addCameraActions;
-        const actionsToUseTmp: NotificationAction[] = actionsEnabled ?
+        const actionsToUseTmp: ExtendedNotificationAction[] = actionsEnabled ?
             [...(actions ?? []),
             ...((notifierActions || []).map(action => safeParseJson(action)) ?? [])] :
             [];
-        const actionsToUse: NotificationAction[] = [];
+        const actionsToUse: ExtendedNotificationAction[] = [];
 
         for (const { action, title, icon, url } of actionsToUseTmp) {
             let urlToUse = url;
@@ -2080,7 +2080,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             });
         }
 
-        let allActions: NotificationAction[] = [...actionsToUse];
+        let allActions: ExtendedNotificationAction[] = [...actionsToUse];
 
         const snoozePlaceholder = this.getTextKey({ notifierId, textKey: 'snoozeText' });
         const snoozes = [10, 30, 60];
@@ -2288,7 +2288,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
         }
 
-        const { aiPlatform } = this.storageSettings.values;
+        const { aiSource } = this.storageSettings.values;
 
         let message = messageParent;
         if (!message) {
@@ -2309,7 +2309,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                 if (forceAi || rule?.useAi || cameraAiEnabled || notifierAiEnabled) {
                     logger.log(`Notification AI: ${JSON.stringify({
-                        aiPlatform,
+                        aiSource,
                         camera: device?.name,
                         notifier: notifier?.name,
                         forceAi,
@@ -2318,9 +2318,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     })}`);
                 }
 
-                
+
                 const isAiEnabled = forceAi || rule?.useAi || (!rule && cameraAiEnabled && notifierAiEnabled);
-                if (aiPlatform !== AiPlatform.Disabled && isAiEnabled) {
+                if (aiSource !== AiSource.Disabled && isAiEnabled) {
                     const aiResponse = await getAiMessage({
                         b64Image,
                         logger,
@@ -2353,7 +2353,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             notifier: notifier.name,
             cameraAiEnabled,
             notifierAiEnabled,
-            aiPlatform,
+            aiSource,
             ruleAiEnabled: rule ? rule.useAi : 'Not applicable',
             actionsEnabled,
             addSnozeActions,

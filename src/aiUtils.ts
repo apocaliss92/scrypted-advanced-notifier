@@ -1,13 +1,18 @@
-import { GoogleGenerativeAI, HarmBlockThreshold, HarmCategory, Part } from "@google/generative-ai";
-import { ObjectDetectionResult, ScryptedDeviceBase } from "@scrypted/sdk";
-import axios from "axios";
-import AdvancedNotifierPlugin from "./main";
-import { getAiSettingKeys } from "./utils";
 import { Anthropic } from '@anthropic-ai/sdk';
+import { GoogleGenerativeAI, HarmBlockThreshold, HarmCategory, Part } from "@google/generative-ai";
+import sdk, { ChatCompletion, ChatCompletionCreateParamsNonStreaming, ObjectDetectionResult, ScryptedDeviceBase } from "@scrypted/sdk";
+import axios from "axios";
 import Groq from "groq-sdk";
+import AdvancedNotifierPlugin from "./main";
+import { getAiSettingKeys, getManualAiSettingKeys } from "./utils";
+
+export enum AiSource {
+    Disabled = 'Disabled',
+    LLMPlugin = 'LLM plugin',
+    Manual = 'Manual',
+}
 
 export enum AiPlatform {
-    Disabled = 'Disabled',
     OpenAi = 'OpenAi',
     GoogleAi = 'GoogleAi',
     AnthropicClaude = 'AnthropicClaude',
@@ -19,8 +24,123 @@ export const defaultModel: Record<AiPlatform, string> = {
     [AiPlatform.OpenAi]: 'gpt-4o',
     [AiPlatform.GoogleAi]: 'gemini-1.5-flash',
     [AiPlatform.Groq]: 'llama-3.2-90b-vision-preview',
-    [AiPlatform.Disabled]: '',
 }
+
+const createLlmMessageTemplate = (props: {
+    systemPrompt: string,
+    b64Image: string,
+    originalTitle: string,
+    detection?: ObjectDetectionResult,
+}): ChatCompletionCreateParamsNonStreaming => {
+    const { b64Image, originalTitle, detection, systemPrompt } = props;
+    const imageUrl = `data:image/jpeg;base64,${b64Image}`;
+
+    let text = `Original notification message is ${originalTitle}}.`;
+
+    if (detection?.label) {
+        text += ` In the image is present a familiar person with name ${detection.label}`;
+    }
+
+    const schema = "The response must be in JSON format with a message 'title', 'subtitle', and 'body'. The title and subtitle must not be more than 24 characters each. The body must not be more than 130 characters."
+    return {
+        model: undefined,
+        messages: [
+            {
+                role: "system",
+                content: systemPrompt + ' ' + schema,
+            },
+            {
+                role: "user",
+                content: [
+                    {
+                        type: 'text',
+                        text,
+                    },
+                    {
+                        type: "image_url",
+                        image_url: {
+                            url: imageUrl,
+                        }
+                    }
+                ]
+            }
+        ],
+        response_format: {
+            type: "json_schema",
+            json_schema: {
+                name: "notification_response",
+                strict: true,
+                schema: {
+                    type: "object",
+                    properties: {
+                        title: {
+                            type: "string"
+                        },
+                        subtitle: {
+                            type: "string"
+                        },
+                        body: {
+                            type: "string"
+                        }
+                    },
+                    required: ["title", "subtitle", "body"],
+                    additionalProperties: false
+                }
+            }
+        }
+    };
+    // const { b64Image, metadata, systemPrompt } = props;
+    // const schema = "The response must be in JSON format with a message 'title', 'subtitle', and 'body'. The title and subtitle must not be more than 24 characters each. The body must not be more than 130 characters."
+    // return {
+    //     messages: [
+    //         {
+    //             role: "system",
+    //             content: systemPrompt + ' ' + schema,
+    //         },
+    //         {
+    //             role: "user",
+    //             content: [
+    //                 {
+    //                     type: 'text',
+    //                     text: `Original notification metadata: ${metadata ? JSON.stringify(metadata) : 'none available'}`,
+    //                 },
+    //                 {
+    //                     type: "image_url",
+    //                     image_url: {
+    //                         // url: imageUrl,
+    //                         // url: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg"
+    //                         url: `data:image/jpeg;base64,${b64Image}`
+    //                     }
+    //                 }
+    //             ]
+    //         }
+    //     ],
+    //     response_format: {
+    //         type: "json_schema",
+    //         json_schema: {
+    //             name: "notification_response",
+    //             strict: true,
+    //             schema: {
+    //                 type: "object",
+    //                 properties: {
+    //                     title: {
+    //                         type: "string"
+    //                     },
+    //                     subtitle: {
+    //                         type: "string"
+    //                     },
+    //                     body: {
+    //                         type: "string"
+    //                     }
+    //                 },
+    //                 required: ["title", "subtitle", "body"],
+    //                 additionalProperties: false
+    //             }
+    //         }
+    //     }
+    // }
+}
+
 
 export const executeGoogleAi = async (props: {
     systemPrompt: string,
@@ -267,67 +387,88 @@ export const getAiMessage = async (props: {
 
     try {
         if (!message) {
-            const { aiPlatform } = plugin.storageSettings.values
-            const { apiKeyKey, apiUrlKey, modelKey, systemPromptKey } = getAiSettingKeys(aiPlatform);
-
-            const apiKey = plugin.storageSettings.getItem(apiKeyKey as any);
-            const apiUrl = plugin.storageSettings.getItem(apiUrlKey as any);
-            const model = plugin.storageSettings.getItem(modelKey as any);
+            const { aiSource } = plugin.storageSettings.values;
+            const { aiPlatformKey, llmDeviceKey, systemPromptKey } = getAiSettingKeys();
             const systemPrompt = plugin.storageSettings.getItem(systemPromptKey as any);
 
-            logger.debug(`Calling ${aiPlatform} with ${JSON.stringify({
-                aiPlatform,
-                apiKey,
-                apiUrl,
-                model,
-                systemPrompt,
-                originalTitle,
-            })}`);
 
-            if (aiPlatform === AiPlatform.OpenAi) {
-                const result = await executeOpenAi({
+            if (aiSource === AiSource.Manual) {
+                const aiPlatform = plugin.storageSettings.getItem(aiPlatformKey as any);
+                const { apiKeyKey, apiUrlKey, modelKey } = getManualAiSettingKeys(aiPlatform);
+
+                const apiKey = plugin.storageSettings.getItem(apiKeyKey as any);
+                const apiUrl = plugin.storageSettings.getItem(apiUrlKey as any);
+                const model = plugin.storageSettings.getItem(modelKey as any);
+
+                logger.debug(`Calling ${aiPlatform} with ${JSON.stringify({
+                    aiPlatform,
                     apiKey,
                     apiUrl,
-                    b64Image,
-                    logger,
                     model,
+                    systemPrompt,
                     originalTitle,
-                    systemPrompt,
-                    detection,
-                });
+                })}`);
 
-                title = result.title ?? originalTitle;
-                message = result.message;
-            } else if (aiPlatform === AiPlatform.GoogleAi) {
-                const result = await executeGoogleAi({
-                    apiKey,
-                    b64Image,
-                    logger,
-                    model,
-                    systemPrompt,
-                });
+                if (aiPlatform === AiPlatform.OpenAi) {
+                    const result = await executeOpenAi({
+                        apiKey,
+                        apiUrl,
+                        b64Image,
+                        logger,
+                        model,
+                        originalTitle,
+                        systemPrompt,
+                        detection,
+                    });
 
-                message = result;
-            } else if (aiPlatform === AiPlatform.AnthropicClaude) {
-                const result = await executeAnthropicClaude({
-                    apiKey,
-                    b64Image,
-                    logger,
-                    model,
-                    systemPrompt,
-                });
+                    title = result.title ?? originalTitle;
+                    message = result.message;
+                } else if (aiPlatform === AiPlatform.GoogleAi) {
+                    const result = await executeGoogleAi({
+                        apiKey,
+                        b64Image,
+                        logger,
+                        model,
+                        systemPrompt,
+                    });
 
-                message = result;
-            } else if (aiPlatform === AiPlatform.Groq) {
-                const result = await executeGroq({
-                    apiKey,
-                    b64Image,
-                    logger,
-                    model,
-                    systemPrompt,
-                });
+                    message = result;
+                } else if (aiPlatform === AiPlatform.AnthropicClaude) {
+                    const result = await executeAnthropicClaude({
+                        apiKey,
+                        b64Image,
+                        logger,
+                        model,
+                        systemPrompt,
+                    });
 
-                message = result;
+                    message = result;
+                } else if (aiPlatform === AiPlatform.Groq) {
+                    const result = await executeGroq({
+                        apiKey,
+                        b64Image,
+                        logger,
+                        model,
+                        systemPrompt,
+                    });
+
+                    message = result;
+                }
+            } else if (aiSource === AiSource.LLMPlugin) {
+                const llmDeviceParent = plugin.storageSettings.getItem(llmDeviceKey as any) as ScryptedDeviceBase;
+
+                if (llmDeviceParent) {
+                    const llmDevice = sdk.systemManager.getDeviceById<ChatCompletion>(llmDeviceParent.id);
+                    logger.log(llmDevice.interfaces);
+                    const template = createLlmMessageTemplate({
+                        b64Image,
+                        originalTitle,
+                        detection,
+                        systemPrompt,
+                    })
+                    const res = await llmDevice.getChatCompletion(template);
+                    logger.log(res);
+                }
             }
         } else {
             fromCache = true
