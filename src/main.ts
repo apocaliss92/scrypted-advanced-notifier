@@ -2201,12 +2201,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     uri: videoUrl,
                 });
             }
-            for (const { action, url, icon, title } of actionsToUse) {
-                const isUriAction = action === 'URI';
-                const urlToUse = isUriAction ? url : undefined;
+            for (const { action, icon, title } of actionsToUse) {
                 haActions.push({
-                    action: url ? 'URI' : action,
-                    uri: urlToUse,
+                    action,
                     icon,
                     title,
                 })
