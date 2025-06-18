@@ -23,7 +23,7 @@ import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodisco
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, getAiSettings, getAllDevices, getAssetSource, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAiSettings, getAllDevices, getAssetSource, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebhooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, isSecretValid } from "./utils";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -65,6 +65,7 @@ export type PluginSettingKey =
     | 'storeEvents'
     | 'cleanupEvents'
     | 'enableDecoder'
+    | 'privateKey'
     | BaseSettingsKey
     | TextSettingKey;
 
@@ -81,7 +82,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         overridePublicDomain: {
             title: 'Override public address',
             type: 'string',
-            placeholder: 'https://scrypted.yourdomain.net'
+            placeholder: 'https://scrypted.yourdomain.net',
+            subgroup: 'Advanced',
         },
         pluginEnabled: {
             title: 'Plugin enabled',
@@ -107,17 +109,26 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             type: 'boolean',
             defaultValue: false,
             immediate: true,
+            subgroup: 'Advanced',
+        },
+        privateKey: {
+            title: 'Secret',
+            description: 'Random string used to protect public resources.Used either as token either as public secret generator for limited time tokens',
+            type: 'string',
+            subgroup: 'Advanced',
         },
         serverId: {
             title: 'Server identifier',
             type: 'string',
             hide: true,
+            subgroup: 'Advanced',
         },
         localAddresses: {
             title: 'Local addresses',
             type: 'string',
             multiple: true,
             hide: true,
+            subgroup: 'Advanced',
         },
         scryptedToken: {
             title: 'Scrypted token',
@@ -130,13 +141,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             type: 'string',
             defaultValue: 'https://nvr.scrypted.app/',
             placeholder: 'https://nvr.scrypted.app/',
+            subgroup: 'Advanced',
         },
         enableCameraDevice: {
             title: 'Enable Camera',
             description: 'Enable a camera device allowing to replay past timelapses generated',
             type: 'boolean',
             immediate: true,
-            onPut: async (_, active) => this.executeCameraDiscovery(active)
+            onPut: async (_, active) => this.executeCameraDiscovery(active),
+            subgroup: 'Advanced',
         },
         mqttActiveEntitiesTopic: {
             title: 'Active entities topic',
@@ -605,7 +618,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 eventThumbnail,
                 eventImage,
                 eventVideoclip,
-            } = await getWebooks();
+            } = await getWebhooks();
             if ([webhook, privateWebhook].includes('app')) {
                 if (deviceIdOrActionRaw) {
                     response.sendFile(`dist/${deviceIdOrActionRaw}`);
@@ -748,122 +761,136 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     });
                     return;
                 }
-            } else if (webhook === haAction) {
-                const { url, accessToken } = await this.getHaApiUrl();
+            } else {
+                const publicKey = url.searchParams.get('secret');
 
-                await axios.post(`${url}/api/events/mobile_app_notification_action`,
-                    { "action": deviceIdOrAction },
-                    {
-                        headers: {
-                            'Authorization': 'Bearer ' + accessToken,
-                        }
+                if (!publicKey || !isSecretValid({
+                    publicKey,
+                    secret: this.storageSettings.values.privateKey,
+                })) {
+                    response.send('Unauthorized', {
+                        code: 403
                     });
+                    return;
+                }
 
-                response.send(`Action ${deviceIdOrAction} executed`, {
-                    code: 200,
-                });
-                return;
-            } else if (webhook === videoclipStream) {
-                await servePluginGeneratedVideoclip({
-                    fileId: deviceIdOrAction,
-                    request,
-                    response,
-                    plugin: this,
-                });
-                return;
-            } else if (webhook === videoclipThumbnail) {
-                await servePluginGeneratedThumbnail({
-                    fileId: deviceIdOrAction,
-                    plugin: this,
-                    request,
-                    response
-                });
-                return;
-            } else if (webhook === lastSnapshot) {
-                const isWebhookEnabled = device?.storageSettings.values.lastSnapshotWebhook;
+                if (webhook === haAction) {
+                    const { url, accessToken } = await this.getHaApiUrl();
 
-                if (isWebhookEnabled) {
-                    const imageIdentifier = `${ruleNameOrSnoozeIdOrSnapshotId}${LATEST_IMAGE_SUFFIX}`;
-                    const { filePath: imagePath } = this.getDetectionImagePaths({ device: realDevice, imageIdentifier });
-
-                    try {
-                        const jpeg = await fs.promises.readFile(imagePath);
-
-                        response.send(jpeg, {
+                    await axios.post(`${url}/api/events/mobile_app_notification_action`,
+                        { "action": deviceIdOrAction },
+                        {
                             headers: {
-                                'Content-Type': 'image/jpeg',
+                                'Authorization': 'Bearer ' + accessToken,
                             }
                         });
-                        return;
-                    } catch (e) {
-                        const message = `Error getting snapshot ${ruleNameOrSnoozeIdOrSnapshotId} for device ${device.name}: ${e.message}`;
-                        logger.log(message)
-                        response.send(message, {
-                            code: 404,
-                        });
-                        return;
+
+                    response.send(`Action ${deviceIdOrAction} executed`, {
+                        code: 200,
+                    });
+                    return;
+                } else if (webhook === videoclipStream) {
+                    await servePluginGeneratedVideoclip({
+                        fileId: deviceIdOrAction,
+                        request,
+                        response,
+                        plugin: this,
+                    });
+                    return;
+                } else if (webhook === videoclipThumbnail) {
+                    await servePluginGeneratedThumbnail({
+                        fileId: deviceIdOrAction,
+                        plugin: this,
+                        request,
+                        response
+                    });
+                    return;
+                } else if (webhook === lastSnapshot) {
+                    const isWebhookEnabled = device?.storageSettings.values.lastSnapshotWebhook;
+
+                    if (isWebhookEnabled) {
+                        const imageIdentifier = `${ruleNameOrSnoozeIdOrSnapshotId}${LATEST_IMAGE_SUFFIX}`;
+                        const { filePath: imagePath } = this.getDetectionImagePaths({ device: realDevice, imageIdentifier });
+
+                        try {
+                            const jpeg = await fs.promises.readFile(imagePath);
+
+                            response.send(jpeg, {
+                                headers: {
+                                    'Content-Type': 'image/jpeg',
+                                }
+                            });
+                            return;
+                        } catch (e) {
+                            const message = `Error getting snapshot ${ruleNameOrSnoozeIdOrSnapshotId} for device ${device.name}: ${e.message}`;
+                            logger.log(message)
+                            response.send(message, {
+                                code: 404,
+                            });
+                            return;
+                        }
                     }
+                } else if (webhook === snoozeNotification || isNvrSnooze) {
+                    let device: AdvancedNotifierCameraMixin;
+
+                    let snoozeTime: number;
+                    let snoozeId: string;
+                    let deviceId: string;
+                    if (isNvrSnooze) {
+                        deviceId = nvrSnoozeId.split('_')[1];
+                        device = this.currentCameraMixinsMap[deviceId];
+                        snoozeId = nvrSnoozeId;
+                        snoozeTime = Number(nvrSnoozeAction.split('snooze')[1]);
+                    } else {
+                        snoozeId = decodedRuleNameOrSnoozeIdOrSnapshotId;
+                        deviceId = deviceIdOrAction;
+                        device = this.currentCameraMixinsMap[deviceIdOrAction];
+                        snoozeTime = Number(decodedTimelapseNameOrSnoozeTime);
+                    }
+
+                    const message = device?.snoozeNotification({
+                        snoozeId,
+                        snoozeTime
+                    });
+
+                    response.send(message, {
+                        code: 200,
+                    });
+                } else if (webhook === setAlarm) {
+                    const mode = deviceIdOrAction as SecuritySystemMode
+                    await this.alarmSystem.armSecuritySystem(mode);
+
+                    response.send(`Alarm set to ${mode}`, {
+                        code: 200,
+                    });
+                } else if (webhook === postNotification && request.method === 'POST') {
+                    const parsedBody = JSON.parse(request.body ?? '{}');
+                    const { cameraId, imageUrl, timestamp, message } = parsedBody;
+                    const notifier = systemManager.getDeviceById(deviceIdOrAction);
+                    const camera = systemManager.getDeviceById<DeviceInterface>(cameraId);
+
+                    let image: MediaObject;
+                    if (imageUrl) {
+                        image = await sdk.mediaManager.createMediaObjectFromUrl(imageUrl);
+                    }
+
+                    const logMessage = `Notifying image ${getB64ImageLog(imageUrl)} to notifier ${notifier.name} through camera ${camera.name}. timestamp ${timestamp}`;
+                    logger.log(logMessage);
+
+                    this.notifyDetection({
+                        triggerDevice: camera,
+                        notifierId: deviceIdOrAction,
+                        time: timestamp,
+                        logger,
+                        message,
+                        image,
+                        rule: { ruleType: RuleType.Detection } as DetectionRule
+                    });
+
+                    response.send(logMessage, {
+                        code: 200,
+                    });
                 }
-            } else if (webhook === snoozeNotification || isNvrSnooze) {
-                let device: AdvancedNotifierCameraMixin;
-
-                let snoozeTime: number;
-                let snoozeId: string;
-                let deviceId: string;
-                if (isNvrSnooze) {
-                    deviceId = nvrSnoozeId.split('_')[1];
-                    device = this.currentCameraMixinsMap[deviceId];
-                    snoozeId = nvrSnoozeId;
-                    snoozeTime = Number(nvrSnoozeAction.split('snooze')[1]);
-                } else {
-                    snoozeId = decodedRuleNameOrSnoozeIdOrSnapshotId;
-                    deviceId = deviceIdOrAction;
-                    device = this.currentCameraMixinsMap[deviceIdOrAction];
-                    snoozeTime = Number(decodedTimelapseNameOrSnoozeTime);
-                }
-
-                const message = device?.snoozeNotification({
-                    snoozeId,
-                    snoozeTime
-                });
-
-                response.send(message, {
-                    code: 200,
-                });
-            } else if (webhook === setAlarm) {
-                const mode = deviceIdOrAction as SecuritySystemMode
-                await this.alarmSystem.armSecuritySystem(mode);
-
-                response.send(`Alarm set to ${mode}`, {
-                    code: 200,
-                });
-            } else if (webhook === postNotification && request.method === 'POST') {
-                const parsedBody = JSON.parse(request.body ?? '{}');
-                const { cameraId, imageUrl, timestamp, message } = parsedBody;
-                const notifier = systemManager.getDeviceById(deviceIdOrAction);
-                const camera = systemManager.getDeviceById<DeviceInterface>(cameraId);
-
-                let image: MediaObject;
-                if (imageUrl) {
-                    image = await sdk.mediaManager.createMediaObjectFromUrl(imageUrl);
-                }
-
-                const logMessage = `Notifying image ${getB64ImageLog(imageUrl)} to notifier ${notifier.name} through camera ${camera.name}. timestamp ${timestamp}`;
-                logger.log(logMessage);
-
-                this.notifyDetection({
-                    triggerDevice: camera,
-                    notifierId: deviceIdOrAction,
-                    time: timestamp,
-                    logger,
-                    message,
-                    image,
-                    rule: { ruleType: RuleType.Detection } as DetectionRule
-                });
-
-                response.send(logMessage, {
-                    code: 200,
-                });
             }
         } catch (e) {
             logger.log(`Error in onRequest`, e.message);
@@ -1084,6 +1111,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         if (this.storageSettings.values.haEnabled) {
             await this.generateHomeassistantHelpers();
+        }
+
+        if (!this.storageSettings.values.privateKey) {
+            const privateKey = generatePrivateKey();
+            await this.putSetting('privateKey', privateKey);
         }
     }
 
@@ -1573,7 +1605,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 const { videoclipStreamUrl } = await getWebHookUrls({
                     console: logger,
                     fileId: fileId,
-                    cloudEndpoint: this.cloudEndpoint
+                    cloudEndpoint: this.cloudEndpoint,
+                    secret: this.storageSettings.values.privateKey
                 });
 
                 await cb(videoclipStreamUrl);
@@ -1681,7 +1714,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { videoclipStreamUrl } = await getWebHookUrls({
             console: logger,
             fileId: fileId,
-            cloudEndpoint: this.cloudEndpoint
+            cloudEndpoint: this.cloudEndpoint,
+            secret: this.storageSettings.values.privateKey
         });
 
         const { videoclipPath, snapshotPath } = this.getRulePaths({
@@ -2057,6 +2091,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     console: deviceLogger,
                     device,
                     cloudEndpoint: this.cloudEndpoint,
+                    secret: this.storageSettings.values.privateKey
                 });
                 urlToUse = haActionUrl;
             }
@@ -2090,7 +2125,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             snoozes,
             snoozeId,
             snoozePlaceholder,
-            cloudEndpoint: this.cloudEndpoint
+            cloudEndpoint: this.cloudEndpoint,
+            secret: this.storageSettings.values.privateKey
         });
 
         const addSnozeActions = withSnoozing && addSnooze;

@@ -111,7 +111,8 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
                     cameraIdOrAction: this.id,
                     console: logger,
                     device: this.notifierDevice,
-                    cloudEndpoint: this.plugin.cloudEndpoint
+                    cloudEndpoint: this.plugin.cloudEndpoint,
+                    secret: this.plugin.storageSettings.values.privateKey
                 });
 
                 await this.storageSettings.putSetting('postNotificationWebhook', postNotificationUrl);

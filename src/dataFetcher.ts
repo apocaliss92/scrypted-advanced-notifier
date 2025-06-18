@@ -8,7 +8,7 @@ import { DbDetectionEvent, getEventsInRange } from './db';
 import { DetectionClass } from './detectionClasses';
 import AdvancedNotifierPlugin from './main';
 import { getNvrThumbnailCrop } from './polygon';
-import { getAssetSource, getDetectionEventKey, getWebHookUrls, getWebooks, ScryptedEventSource } from './utils';
+import { getAssetSource, getDetectionEventKey, getWebHookUrls, getWebhooks, ScryptedEventSource } from './utils';
 
 type StorageKeys = string;
 
@@ -27,9 +27,10 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
     async getRecordedEvents(options: RecordedEventOptions): Promise<RecordedEvent[]> {
         const { endTime, startTime } = options;
         const { privatePathnamePrefix } = await getWebHookUrls({
-            cloudEndpoint: this.plugin.cloudEndpoint
+            cloudEndpoint: this.plugin.cloudEndpoint,
+            secret: this.plugin.storageSettings.values.privateKey
         });
-        const { eventThumbnail, eventImage } = await getWebooks();
+        const { eventThumbnail, eventImage } = await getWebhooks();
         const logger = this.getLogger();
 
         const events: RecordedEvent[] = [];
@@ -178,9 +179,10 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
     async getVideoClips(options?: VideoClipOptions): Promise<VideoClip[]> {
         const { startTime, endTime } = options;
         const { privatePathnamePrefix } = await getWebHookUrls({
-            cloudEndpoint: this.plugin.cloudEndpoint
+            cloudEndpoint: this.plugin.cloudEndpoint,
+            secret: this.plugin.storageSettings.values.privateKey
         });
-        const { eventVideoclip } = await getWebooks();
+        const { eventVideoclip } = await getWebhooks();
 
         const videoclips: (VideoClip & {
             deviceName: string,

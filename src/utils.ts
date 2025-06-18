@@ -12,6 +12,7 @@ const { endpointManager } = sdk;
 import { FRIGATE_OBJECT_DETECTOR_INTERFACE } from '../../scrypted-frigate-bridge/src/utils';
 import { logLevelSetting } from "../../scrypted-apocaliss-base/src/basePlugin";
 import { loginScryptedClient } from "../../scrypted/packages/client/src";
+import crypto from 'crypto';
 
 export type DeviceInterface = ScryptedDevice & Camera & ScryptedDeviceBase & Notifier & Settings & ObjectDetector & VideoCamera & EntrySensor & Lock & BinarySensor & Reboot & PanTiltZoom & OnOff;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
@@ -200,7 +201,7 @@ export const safeParseJson = <T = any>(maybeStringValue: string | object, fallba
 }
 
 
-export const getWebooks = async () => {
+export const getWebhooks = async () => {
     const lastSnapshot = 'snapshot';
     const haAction = 'haAction';
     const snoozeNotification = 'snoozeNotification';
@@ -242,6 +243,7 @@ export const getWebHookUrls = async (props: {
     snoozePlaceholder?: string,
     fileId?: string,
     cloudEndpoint: string,
+    secret: string,
 }) => {
     const {
         cameraIdOrAction,
@@ -252,6 +254,7 @@ export const getWebHookUrls = async (props: {
         snoozePlaceholder,
         fileId,
         cloudEndpoint,
+        secret,
     } = props;
 
     let lastSnapshotCloudUrl: string;
@@ -261,8 +264,6 @@ export const getWebHookUrls = async (props: {
     let endpoint: string;
     let videoclipThumbnailUrl: string;
     let videoclipStreamUrl: string;
-    let videoclipThumbnailHref: string;
-    let videoclipStreamHref: string;
     let eventThumbnailUrl: string;
     let eventImageUrl: string;
     let eventVideoclipUrl: string;
@@ -282,7 +283,7 @@ export const getWebHookUrls = async (props: {
         eventImage,
         eventVideoclip,
         eventsApp,
-    } = await getWebooks();
+    } = await getWebhooks();
 
     try {
         let privatePathname: string;
@@ -294,21 +295,17 @@ export const getWebHookUrls = async (props: {
         } catch { }
 
         const encodedId = encodeURIComponent(cameraIdOrAction ?? device?.id);
-        const paramString = '';
-
-        privatePathnamePrefix = `${privatePathname}${eventsApp}`;
+        const paramString = `?secret=${secret}`;
 
         lastSnapshotCloudUrl = `${cloudEndpoint}${publicPathnamePrefix}${lastSnapshot}/${encodedId}/{IMAGE_NAME}${paramString}`;
         lastSnapshotLocalUrl = `${localEndpoint}${lastSnapshot}/${encodedId}/{IMAGE_NAME}${paramString}`;
         haActionUrl = `${cloudEndpoint}${publicPathnamePrefix}${haAction}/${encodedId}${paramString}`;
         postNotificationUrl = `${cloudEndpoint}${publicPathnamePrefix}${postNotification}/${encodedId}${paramString}`;
 
-        videoclipStreamHref = `${publicPathnamePrefix}${videoclipStream}/${fileId}${paramString}`;
-        videoclipThumbnailHref = `${publicPathnamePrefix}${videoclipThumbnail}/${fileId}${paramString}`;
-
         videoclipStreamUrl = `${cloudEndpoint}${publicPathnamePrefix}${videoclipStream}/${fileId}${paramString}`;
         videoclipThumbnailUrl = `${cloudEndpoint}${publicPathnamePrefix}${videoclipThumbnail}/${fileId}${paramString}`;
 
+        privatePathnamePrefix = `${privatePathname}${eventsApp}`;
         eventThumbnailUrl = `${privatePathnamePrefix}/${eventThumbnail}/${device?.id}/${fileId}`;
         eventImageUrl = `${privatePathnamePrefix}/${eventImage}/${device?.id}/${fileId}`;
         eventVideoclipUrl = `${privatePathnamePrefix}/${eventVideoclip}/${device?.id}/${fileId}`;
@@ -338,8 +335,6 @@ export const getWebHookUrls = async (props: {
         endpoint,
         videoclipStreamUrl,
         videoclipThumbnailUrl,
-        videoclipStreamHref,
-        videoclipThumbnailHref,
         eventThumbnailUrl,
         eventImageUrl,
         eventVideoclipUrl,
@@ -3702,4 +3697,47 @@ export const getDetectionEventKey = (props: {
 }) => {
     const { detectionId, eventId } = props;
     return `${eventId}__${detectionId}`;
+}
+
+export const generatePrivateKey = (length = 10) => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let secret = '';
+    for (let i = 0; i < length; i++) {
+        const randomIndex = crypto.randomInt(0, chars.length);
+        secret += chars[randomIndex];
+    }
+    return secret;
+}
+
+export const generatePublicKey = (props: {
+    secret: string,
+    hours?: number
+}) => {
+    const { secret, hours = 3 } = props;
+    const time = moment();
+
+    const slotHour = Math.floor(time.hour() / hours) * hours;
+    const slotTime = time.clone().startOf('day').add(slotHour, 'hours');
+
+    const slotString = slotTime.format('YYYY-MM-DDTHH');
+
+    const hmac = crypto.createHmac('sha256', secret);
+    hmac.update(slotString);
+    const hash = hmac.digest('hex');
+
+    return hash.slice(0, 10).toUpperCase();
+}
+
+export const isSecretValid = (props: {
+    secret: string,
+    publicKey: string,
+    hours?: number,
+}) => {
+    const { secret, publicKey, hours = 3 } = props;
+    if (secret === publicKey) {
+        return true;
+    }
+
+    const expectedPublicKey = generatePublicKey({ hours, secret });
+    return publicKey === expectedPublicKey;
 }

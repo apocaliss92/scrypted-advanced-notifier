@@ -391,7 +391,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             });
                             const { videoclipThumbnailUrl, videoclipStreamUrl } = await getWebHookUrls({
                                 fileId: fileId,
-                                cloudEndpoint: this.plugin.cloudEndpoint
+                                cloudEndpoint: this.plugin.cloudEndpoint,
+                                secret: this.plugin.storageSettings.values.privateKey
                             });
 
                             videoClips.push({
@@ -445,7 +446,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             });
                             const { videoclipThumbnailUrl, videoclipStreamUrl } = await getWebHookUrls({
                                 fileId: fileId,
-                                cloudEndpoint: this.plugin.cloudEndpoint
+                                cloudEndpoint: this.plugin.cloudEndpoint,
+                                secret: this.plugin.storageSettings.values.privateKey
                             });
 
                             videoClips.push({
@@ -508,7 +510,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             const { videoclipStreamUrl } = await getWebHookUrls({
                 fileId: videoId,
-                cloudEndpoint: this.plugin.cloudEndpoint
+                cloudEndpoint: this.plugin.cloudEndpoint,
+                secret: this.plugin.storageSettings.values.privateKey
             });
             videoclipMo = await sdk.mediaManager.createMediaObject(Buffer.from(videoclipStreamUrl), ScryptedMimeTypes.LocalUrl, {
                 sourceId: this.plugin.id
@@ -1150,7 +1153,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     cameraIdOrAction: this.id,
                     console: logger,
                     device: this.cameraDevice,
-                    cloudEndpoint: this.plugin.cloudEndpoint
+                    cloudEndpoint: this.plugin.cloudEndpoint,
+                    secret: this.plugin.storageSettings.values.privateKey
                 });
 
                 await this.storageSettings.putSetting('lastSnapshotWebhookCloudUrl', lastSnapshotCloudUrl);
