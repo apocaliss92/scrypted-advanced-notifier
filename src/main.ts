@@ -10,7 +10,7 @@ import { BasePlugin, BaseSettingsKey, getBaseSettings, getMqttBasicClient } from
 import { getRpcData } from '../../scrypted-monitor/src/utils';
 import { ffmpegFilterImageBuffer } from "../../scrypted/plugins/snapshot/src/ffmpeg-image-filter";
 import { name as pluginName, version } from '../package.json';
-import { AiSource, getAiMessage } from "./aiUtils";
+import { AiSource, getAiMessage, getAiSettings } from "./aiUtils";
 import { AdvancedNotifierAlarmSystem } from "./alarmSystem";
 import { haAlarmAutomation, haAlarmAutomationId } from "./alarmUtils";
 import { AdvancedNotifierCamera } from "./camera";
@@ -23,7 +23,7 @@ import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodisco
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAiSettings, getAllDevices, getAssetSource, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebhooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, isSecretValid } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllDevices, getAssetSource, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebhooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, isSecretValid } from "./utils";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -59,6 +59,7 @@ export type PluginSettingKey =
     | 'testButton'
     | 'checkConfigurations'
     | 'aiSource'
+    | 'aiFixed'
     | 'imagesPath'
     | 'videoclipsRetention'
     | 'imagesRegex'
@@ -334,9 +335,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             type: 'string',
             group: 'AI',
             immediate: true,
-            choices: Object.values(AiSource),
+            choices: [AiSource.Disabled, AiSource.Manual],
+            // choices: Object.values(AiSource),
             defaultValue: AiSource.Disabled,
             onPut: async () => await this.refreshSettings()
+        },
+        aiFixed: {
+            type: 'boolean',
+            hide: true,
         },
         imagesPath: {
             title: 'Storage path',
@@ -1116,6 +1122,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if (!this.storageSettings.values.privateKey) {
             const privateKey = generatePrivateKey();
             await this.putSetting('privateKey', privateKey);
+        }
+
+        if (!this.storageSettings.values.aiFixed) {
+            const aiPlatform = this.storageSettings.getItem('aiSource' as any);
+            if (aiPlatform !== 'Disabled') {
+                await this.putSetting('aiSource', AiSource.Manual);
+            }
+            await this.putSetting('aiFixed', true);
         }
     }
 

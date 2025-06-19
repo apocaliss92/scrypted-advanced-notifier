@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.2.5
+- Changes prepared to use LLMPlugin. Manual is the current working way
+
 ### 4.2.4
 - Secret protection added for all public endpoints. A secret is auto-generated under the section General -> Advanced, this must be used as search parameter for all webhook to avoid resources to be easily available to 3th parties. The token is now also used to serve videoclips and thumbnails with limited available tokens (3 hours)
 

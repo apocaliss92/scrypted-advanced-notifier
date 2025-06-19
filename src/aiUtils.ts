@@ -3,8 +3,8 @@ import { GoogleGenerativeAI, HarmBlockThreshold, HarmCategory, Part } from "@goo
 import sdk, { ChatCompletion, ChatCompletionCreateParamsNonStreaming, ObjectDetectionResult, ScryptedDeviceBase } from "@scrypted/sdk";
 import axios from "axios";
 import Groq from "groq-sdk";
-import AdvancedNotifierPlugin from "./main";
-import { getAiSettingKeys, getManualAiSettingKeys } from "./utils";
+import AdvancedNotifierPlugin, { PluginSettingKey } from "./main";
+import { StorageSetting, StorageSettings } from '@scrypted/sdk/storage-settings';
 
 export enum AiSource {
     Disabled = 'Disabled',
@@ -17,6 +17,123 @@ export enum AiPlatform {
     GoogleAi = 'GoogleAi',
     AnthropicClaude = 'AnthropicClaude',
     Groq = 'Groq',
+}
+
+export const getAiSettingKeys = () => {
+    const llmDeviceKey = `llmDevice`;
+    const aiPlatformKey = `aiPlatform`;
+    const systemPromptKey = `aiSystemPrompt`;
+
+    return {
+        llmDeviceKey,
+        aiPlatformKey,
+        systemPromptKey,
+    };
+}
+
+export const getManualAiSettingKeys = (aiPlatform: AiPlatform) => {
+    const apiKeyKey = `${aiPlatform}:aiApiKey`;
+    const apiUrlKey = `${aiPlatform}:aiApiUrl`;
+    const modelKey = `${aiPlatform}:aiModel`;
+
+    return {
+        apiKeyKey,
+        apiUrlKey,
+        modelKey,
+    }
+}
+
+export const getAiSettings = (props: {
+    storage: StorageSettings<PluginSettingKey>,
+    logger: Console,
+    onRefresh: () => Promise<void>
+}) => {
+    const { storage, onRefresh } = props;
+    const { aiSource } = storage.values;
+
+    const { aiPlatformKey, llmDeviceKey, systemPromptKey } = getAiSettingKeys();
+    const aiPlatform = storage.getItem(aiPlatformKey as any) as AiPlatform ?? AiPlatform.OpenAi;
+
+    const settings: StorageSetting[] = [];
+
+    if (aiSource === AiSource.LLMPlugin) {
+        settings.push(
+            {
+                key: llmDeviceKey,
+                title: 'LLM tool',
+                group: 'AI',
+                type: 'device',
+                immediate: true,
+                deviceFilter: ({ ScryptedInterface, interfaces }) => {
+                    return interfaces.includes(ScryptedInterface.ChatCompletion);
+                },
+                onPut: async () => await onRefresh()
+            }
+        );
+    } else if (aiSource === AiSource.Manual) {
+        settings.push(
+            {
+                key: aiPlatformKey,
+                title: 'AI Platform',
+                type: 'string',
+                group: 'AI',
+                immediate: true,
+                choices: Object.values(AiPlatform),
+                defaultValue: AiPlatform.OpenAi,
+                onPut: async () => await onRefresh()
+            }
+        );
+
+        const { apiKeyKey, apiUrlKey, modelKey } = getManualAiSettingKeys(aiPlatform);
+
+        if ([AiPlatform.OpenAi].includes(aiPlatform)) {
+            settings.push(
+                {
+                    key: apiUrlKey,
+                    group: 'AI',
+                    title: 'API URL',
+                    description: 'The API URL of the OpenAI compatible server.',
+                    defaultValue: 'https://api.openai.com/v1/chat/completions',
+                },
+            );
+        }
+
+        if (
+            [AiPlatform.OpenAi,
+            AiPlatform.GoogleAi,
+            AiPlatform.AnthropicClaude,
+            AiPlatform.Groq,
+            ].includes(aiPlatform)) {
+            settings.push(
+                {
+                    key: apiKeyKey,
+                    title: 'API Key',
+                    description: 'The API Key or token.',
+                    group: 'AI',
+                },
+                {
+                    key: modelKey,
+                    group: 'AI',
+                    title: 'Model',
+                    description: 'The model to use to generate the image description. Must be vision capable.',
+                    defaultValue: defaultModel[aiPlatform],
+                }
+            );
+        }
+    }
+
+    if (aiSource !== AiSource.Disabled) {
+        settings.push({
+            key: systemPromptKey,
+            group: 'AI',
+            title: 'System Prompt',
+            type: 'textarea',
+            description: 'The system prompt used to generate the notification.',
+            defaultValue: 'Create a notification suitable description of the image provided by the user. Describe the people, animals (coloring and breed), or vehicles (color and model) in the image. Do not describe scenery or static objects. Do not direct the user to click the notification. The original notification metadata may be provided and can be used to provide additional context for the new notification, but should not be used verbatim.',
+        });
+    }
+
+    return settings;
 }
 
 export const defaultModel: Record<AiPlatform, string> = {
@@ -89,58 +206,7 @@ const createLlmMessageTemplate = (props: {
             }
         }
     };
-    // const { b64Image, metadata, systemPrompt } = props;
-    // const schema = "The response must be in JSON format with a message 'title', 'subtitle', and 'body'. The title and subtitle must not be more than 24 characters each. The body must not be more than 130 characters."
-    // return {
-    //     messages: [
-    //         {
-    //             role: "system",
-    //             content: systemPrompt + ' ' + schema,
-    //         },
-    //         {
-    //             role: "user",
-    //             content: [
-    //                 {
-    //                     type: 'text',
-    //                     text: `Original notification metadata: ${metadata ? JSON.stringify(metadata) : 'none available'}`,
-    //                 },
-    //                 {
-    //                     type: "image_url",
-    //                     image_url: {
-    //                         // url: imageUrl,
-    //                         // url: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg"
-    //                         url: `data:image/jpeg;base64,${b64Image}`
-    //                     }
-    //                 }
-    //             ]
-    //         }
-    //     ],
-    //     response_format: {
-    //         type: "json_schema",
-    //         json_schema: {
-    //             name: "notification_response",
-    //             strict: true,
-    //             schema: {
-    //                 type: "object",
-    //                 properties: {
-    //                     title: {
-    //                         type: "string"
-    //                     },
-    //                     subtitle: {
-    //                         type: "string"
-    //                     },
-    //                     body: {
-    //                         type: "string"
-    //                     }
-    //                 },
-    //                 required: ["title", "subtitle", "body"],
-    //                 additionalProperties: false
-    //             }
-    //         }
-    //     }
-    // }
 }
-
 
 export const executeGoogleAi = async (props: {
     systemPrompt: string,
