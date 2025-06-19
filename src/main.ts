@@ -431,7 +431,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     get cloudEndpoint() {
-        return this.storageSettings.values.overridePublicDomain || this.storageSettings.values.cloudEndpointInternal;
+        return this.storageSettings.values.overridePublicDomain || this.storageSettings.getItem('cloudEndpointInternal');
     }
 
     async init() {
