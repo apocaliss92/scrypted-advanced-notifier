@@ -67,6 +67,7 @@ export type PluginSettingKey =
     | 'cleanupEvents'
     | 'enableDecoder'
     | 'privateKey'
+    | 'cloudEndpointInternal'
     | BaseSettingsKey
     | TextSettingKey;
 
@@ -344,6 +345,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             type: 'boolean',
             hide: true,
         },
+        cloudEndpointInternal: {
+            type: 'string',
+            hide: true,
+        },
         imagesPath: {
             title: 'Storage path',
             group: 'Storage',
@@ -405,7 +410,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     frigateLabels: string[];
     frigateCameras: string[];
     lastFrigateDataFetched: number;
-    cloudEndpointInternal: string;
     localEndpointInternal: string;
 
     accumulatedTimelapsesToGenerate: { ruleName: string, deviceId: string }[] = [];
@@ -427,7 +431,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     get cloudEndpoint() {
-        return this.storageSettings.values.overridePublicDomain || this.cloudEndpointInternal;
+        return this.storageSettings.values.overridePublicDomain || this.storageSettings.values.cloudEndpointInternal;
     }
 
     async init() {
@@ -438,8 +442,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.hasCloudPlugin = true;
             try {
                 const cloudEndpoint = await sdk.endpointManager.getCloudEndpoint(undefined, { public: false });
-                this.cloudEndpointInternal = new URL(cloudEndpoint).origin;
-                logger.log(`Cloud endpoint found ${this.cloudEndpointInternal}`);
+                const cloudUrl = new URL(cloudEndpoint).origin;
+                await this.storageSettings.putSetting('cloudEndpointInternal', cloudUrl);
+
+                logger.log(`Cloud endpoint found ${cloudUrl}`);
             } catch (e) {
                 logger.error(`Error finding a public endpoint. Set the override domain property with your public address`, e);
             }
