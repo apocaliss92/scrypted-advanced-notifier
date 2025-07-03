@@ -150,14 +150,14 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
             defaultValue: 'Alarm will be armed in "${mode}" mode in ${seconds} seconds. ${activeDevicesAmount} active devices. Bypassed devices: ${bypassedDevices}',
         },
         armingErrorMessage: {
-            title: 'Arming erorr message',
+            title: 'Arming message',
             description: 'Message sent when the alarm cannot be armed. Available placeholders are ${mode} and ${blockingDevices}',
             type: 'textarea',
             group: 'Texts',
             defaultValue: 'Alarm cannot be armed in "${mode}" mode. Blocking devices: ${blockingDevices}',
         },
         triggerMessage: {
-            title: 'Trigger erorr message',
+            title: 'Trigger message',
             description: 'Message sent when the alarm is triggered. Available placeholders are ${triggerDevices}',
             type: 'textarea',
             group: 'Texts',
@@ -331,22 +331,21 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
     }
 
     async trigger(deviceName: string) {
-        if (!this.securitySystemState.triggered) {
-            await this.putSetting('triggered', true);
-            this.securitySystemState = {
-                ...this.securitySystemState,
-                triggered: true
-            };
+        await this.putSetting('triggered', true);
+        this.securitySystemState = {
+            ...this.securitySystemState,
+            triggered: true
+        };
 
-            await this.updateMqtt({
-                mode: 'triggered',
-            });
-            await this.sendNotification({
-                mode: this.securitySystemState.mode,
-                event: AlarmEvent.Trigger,
-                activeDevices: [deviceName]
-            });
-        }
+        await this.updateMqtt({
+            mode: 'triggered',
+        });
+
+        await this.sendNotification({
+            mode: this.securitySystemState.mode,
+            event: AlarmEvent.Trigger,
+            triggerDevices: [deviceName]
+        });
     }
 
     async defuse(event: AlarmEvent) {
@@ -383,13 +382,15 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
             logger.log(`Alarm triggered by ${triggerDevice.name}`);
             const { autoDisarmTime, autoRiarmTime } = getModeEntity({ mode: this.securitySystemState.mode, storage: this.storageSettings });
 
-            await this.trigger(triggerDevice.name);
+            if (!this.securitySystemState.triggered) {
+                await this.trigger(triggerDevice.name);
+            }
 
             if (autoRiarmTime) {
                 this.resetDisarmListener();
                 this.disarmListener = setTimeout(async () => {
                     await this.defuse(AlarmEvent.RiarmAuto);
-                }, 1000 * autoDisarmTime);
+                }, 1000 * autoRiarmTime);
             } else if (autoDisarmTime) {
                 this.resetDisarmListener();
                 this.disarmListener = setTimeout(async () => {
@@ -576,23 +577,26 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                     disarmingMessage;
             } else {
                 switch (event) {
-                    case 'Preactivation':
+                    case AlarmEvent.Preactivation:
                         message = preActivationStartMessage;
                         break;
-                    case 'Blocked':
+                    case AlarmEvent.Blocked:
                         message = armingErrorMessage;
                         break;
-                    case 'Activate':
+                    case AlarmEvent.Activate:
                         message = armingMessage;
                         break;
-                    case 'Trigger':
+                    case AlarmEvent.Trigger:
                         message = triggerMessage;
                         break;
-                    case 'DefuseAuto':
+                    case AlarmEvent.DefuseAuto:
                         message = defuseMessageAutomatic;
                         break;
-                    case 'DefuseManual':
+                    case AlarmEvent.DefuseManual:
                         message = defuseMessage;
+                        break;
+                    case AlarmEvent.RiarmAuto:
+                        message = armingMessage;
                         break;
                 }
             }
