@@ -17,13 +17,13 @@ import { AdvancedNotifierCamera } from "./camera";
 import { AdvancedNotifierCameraMixin, OccupancyRuleData } from "./cameraMixin";
 import { AdvancedNotifierDataFetcher } from "./dataFetcher";
 import { addEvent, cleanupEvents } from "./db";
-import { DetectionClass, isLabelDetection } from "./detectionClasses";
+import { DetectionClass, isLabelDetection, isMotionClassname } from "./detectionClasses";
 import { servePluginGeneratedThumbnail, servePluginGeneratedVideoclip } from "./httpUtils";
 import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllDevices, getAssetSource, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebhooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, isSecretValid } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllDevices, getAssetSource, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebhooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, isSecretValid, SOFT_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_SENSOR, MAX_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_SENSOR, SOFT_RPC_OBJECTS_PER_NOTIFIER } from "./utils";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -37,12 +37,12 @@ export type PluginSettingKey =
     | 'localAddresses'
     | 'scryptedToken'
     | 'nvrUrl'
-    | 'enableCameraDevice'
     | 'mqttActiveEntitiesTopic'
     | 'useNvrDetectionsForMqtt'
     | 'detectionSourceForMqtt'
     | 'onActiveDevices'
     | 'objectDetectionDevice'
+    | 'clipDevice'
     | 'securitySystem'
     | 'testDevice'
     | 'testNotifier'
@@ -145,14 +145,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             placeholder: 'https://nvr.scrypted.app/',
             subgroup: 'Advanced',
         },
-        enableCameraDevice: {
-            title: 'Enable Camera',
-            description: 'Enable a camera device allowing to replay past timelapses generated',
-            type: 'boolean',
-            immediate: true,
-            onPut: async (_, active) => this.executeCameraDiscovery(active),
-            subgroup: 'Advanced',
-        },
         mqttActiveEntitiesTopic: {
             title: 'Active entities topic',
             subgroup: 'MQTT',
@@ -201,9 +193,17 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         objectDetectionDevice: {
             title: 'Object Detector',
             group: pluginRulesGroup,
-            description: 'Select the object detection plugin to use for detecting objects.',
+            description: 'Select the object detection device to use for detecting objects.',
             type: 'device',
             deviceFilter: `interfaces.includes('ObjectDetectionPreview') && id !== '${nvrAcceleratedMotionSensorId}'`,
+            immediate: true,
+        },
+        clipDevice: {
+            title: 'Clip device',
+            group: pluginRulesGroup,
+            description: 'Select the clip device plugin to execute text embedding.',
+            type: 'device',
+            deviceFilter: `interfaces.includes('TextEmbedding') && interfaces.includes('ImageEmbedding')`,
             immediate: true,
         },
         securitySystem: {
@@ -411,9 +411,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     frigateCameras: string[];
     lastFrigateDataFetched: number;
     localEndpointInternal: string;
+    connectionTime = Date.now();
 
     accumulatedTimelapsesToGenerate: { ruleName: string, deviceId: string }[] = [];
     mainFlowInProgress = false;
+
+    cameraMotionActive = new Set<string>();
 
     constructor(nativeId: string) {
         super(nativeId, {
@@ -496,35 +499,27 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     ScryptedInterface.EventRecorder,
                     ScryptedInterface.Settings,
                 ],
-                type: ScryptedDeviceType.SecuritySystem,
+                type: ScryptedDeviceType.API,
             }
         );
-        await this.executeCameraDiscovery(this.storageSettings.values.enableCameraDevice);
-
-        await this.initPluginSettings();
-    }
-
-    async executeCameraDiscovery(active: boolean) {
-        const interfaces: string[] = [
-            ScryptedInterface.Camera,
-            ScryptedInterface.VideoClips,
-            ScryptedInterface.Settings,
-            ADVANCED_NOTIFIER_CAMERA_INTERFACE
-        ];
-
-        if (active) {
-            interfaces.push(ScryptedInterface.VideoCamera);
-        }
-
         await sdk.deviceManager.onDeviceDiscovered(
             {
                 name: 'Advanced notifier Camera',
                 nativeId: CAMERA_NATIVE_ID,
-                interfaces,
+                interfaces: [
+                    ScryptedInterface.Camera,
+                    ScryptedInterface.VideoClips,
+                    ScryptedInterface.Settings,
+                    ScryptedInterface.VideoCamera,
+                    ADVANCED_NOTIFIER_CAMERA_INTERFACE
+                ],
                 type: ScryptedDeviceType.Camera,
             }
         );
+
+        await this.initPluginSettings();
     }
+
 
     async getDevice(nativeId: string) {
         if (nativeId === NOTIFIER_NATIVE_ID)
@@ -1251,11 +1246,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
 
             if (!this.restartRequested) {
-                const activeDevices = (getAllDevices()
-                    .filter(device =>
-                        device.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE) &&
-                        (device.type === ScryptedDeviceType.Camera || device.type === ScryptedDeviceType.Doorbell)
-                    )?.length || 0) + 1;
+                // const activeDevices = (getAllDevices()
+                //     .filter(device =>
+                //         device.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE) &&
+                //         (device.type === ScryptedDeviceType.Camera || device.type === ScryptedDeviceType.Doorbell)
+                //     )?.length || 0) + 1;
+                const activeCameras = Object.keys(this.currentCameraMixinsMap).length;
+                const activeSensors = Object.keys(this.currentSensorMixinsMap).length;
+                const activeNotifiers = Object.keys(this.currentNotifierMixinsMap).length;
+
+                const activeDevices = activeCameras + activeSensors + activeNotifiers;
 
                 if (!!activeDevices) {
                     const { pendingResults, rpcObjects } = await getRpcData();
@@ -1264,28 +1264,30 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                     logger.info(`PLUGIN-STUCK-CHECK: active devices ${activeDevices}, pending results ${pluginPendingResults} RPC objects ${pluginRpcObjects}`);
 
-                    if (
+                    const camerasHardCap = MAX_RPC_OBJECTS_PER_CAMERA * activeCameras;
+                    const sensorsHardCap = MAX_RPC_OBJECTS_PER_SENSOR * activeSensors;
+                    const notifiersHardCap = MAX_RPC_OBJECTS_PER_NOTIFIER * activeNotifiers;
+
+                    const camerasSoftCap = SOFT_RPC_OBJECTS_PER_CAMERA * activeCameras;
+                    const sensorsSoftCap = SOFT_RPC_OBJECTS_PER_SENSOR * activeSensors;
+                    const notifiersSoftCap = SOFT_RPC_OBJECTS_PER_NOTIFIER * activeNotifiers;
+
+                    const hardCap = camerasHardCap + sensorsHardCap + notifiersHardCap;
+                    const softCap = camerasSoftCap + sensorsSoftCap + notifiersSoftCap;
+
+                    const maxActiveMotion = Math.floor(activeCameras / 15);
+                    if (pluginRpcObjects > softCap && ((now - this.connectionTime) > (1000 * 60 * 60 * 2)) && this.cameraMotionActive.size <= maxActiveMotion) {
+                        logger.log(`${pluginRpcObjects} (> ${softCap}) RPC objects found, soft resetting because not much active motion`)
+                        this.restartRequested = true;
+                        await sdk.deviceManager.requestRestart();
+                    } else if (
                         pluginPendingResults > (MAX_PENDING_RESULT_PER_CAMERA * activeDevices) ||
-                        pluginRpcObjects > (MAX_RPC_OBJECTS_PER_CAMERA * activeDevices)
+                        pluginRpcObjects > hardCap
                     ) {
-                        logger.error(`Advanced notifier plugin seems stuck, ${pluginPendingResults} pending results and ${pluginRpcObjects} RPC objects. Restarting`);
+                        logger.error(`Advanced notifier plugin seems stuck, ${pluginPendingResults} pending results and ${pluginRpcObjects} (> ${hardCap}) RPC objects. Restarting`);
                         this.restartRequested = true;
                         await sdk.deviceManager.requestRestart();
                     }
-
-                    // if (!this.restartRequested) {
-                    //     const nvrPendingResults = pendingResults.find(elem => elem.name === NVR_PLUGIN_ID)?.count;
-                    //     const nvrRpcObjects = rpcObjects.find(elem => elem.name === NVR_PLUGIN_ID)?.count;
-                    //     logger.info(`NVR-STUCK-CHECK: active devices ${activeDevices}, pending results ${nvrPendingResults} RPC objects ${nvrRpcObjects}`);
-
-                    //     if (
-                    //         nvrPendingResults > (MAX_PENDING_RESULT_PER_CAMERA * activeDevices) ||
-                    //         nvrRpcObjects > (MAX_RPC_OBJECTS_PER_CAMERA * activeDevices)
-                    //     ) {
-                    //         logger.error(`NVR plugin seems stuck, ${nvrPendingResults} pending results and ${nvrRpcObjects} RPC objects. Restarting`);
-                    //         await sdk.deviceManager.requestRestart();
-                    //     }
-                    // }
                 }
             }
 
@@ -2238,8 +2240,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const isVideoValid = fileSizeInMegabytes < 50;
 
             payload.data.ha = {
-                url: clickUrl ?? haUrl,
-                clickAction: clickUrl ?? haUrl,
+                url: clickUrl ?? externalUrl,
+                clickAction: clickUrl ?? externalUrl,
                 video: isVideoValid ? videoUrl : undefined,
                 push: {
                     sound: {
@@ -3267,6 +3269,26 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { triggerDevice, device, timestamp, logger, b64Image, detections, eventSource, image, eventId } = props;
         const classNames = uniq(detections.map(det => det.className));
         const label = detections.find(det => det.label)?.label;
+        const deviceMixin = this.currentCameraMixinsMap[device.id];
+
+        if (!deviceMixin?.isDelayPassed({
+            type: DelayType.EventStore,
+            identifiers: detections.map(det => {
+                let identifier = det.className;
+                if (isMotionClassname(det.className)) {
+                    return identifier;
+                }
+                if (det.label) {
+                    identifier += `_${det.label}`;
+                }
+                if (det.id) {
+                    identifier += `_${det.id}`;
+                }
+            }),
+        })?.timePassed) {
+            return;
+        }
+
         const fileName = `${timestamp}_${eventSource}_${getDetectionsLogShort(detections)}`;
         const { eventImagePath, eventThumbnailPath, thumbnailsPath, imagesPath, fileId } = this.getEventPaths({ fileName, cameraName: device.name });
 

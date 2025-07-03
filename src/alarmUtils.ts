@@ -183,6 +183,7 @@ export const getAlarmWebhookUrls = async (props: {
         cloudEndpoint,
         secret
     } = props;
+    const publicPathnamePrefix = await sdk.endpointManager.getPath(undefined, { public: true });
 
     const actions: ExtendedNotificationAction[] = [];
 
@@ -207,7 +208,7 @@ export const getAlarmWebhookUrls = async (props: {
                 title = setModeMessage.replace('${mode}', modeText);
             }
             actions.push({
-                url: `${cloudEndpoint}${setAlarm}/${alarmMode}${paramString}`,
+                url: `${cloudEndpoint}${publicPathnamePrefix}${setAlarm}/${alarmMode}${paramString}`,
                 title,
                 action: `scrypted_an_alarm_${alarmMode}`,
             });

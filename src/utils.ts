@@ -1,4 +1,4 @@
-import sdk, { BinarySensor, Camera, DeviceBase, EntrySensor, HttpRequest, LockState, MediaObject, Notifier, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, OnOff, PanTiltZoom, Point, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, VideoCamera } from "@scrypted/sdk";
+import sdk, { BinarySensor, Camera, DeviceBase, EntrySensor, HttpRequest, ImageEmbedding, LockState, MediaObject, Notifier, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, OnOff, PanTiltZoom, Point, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, TextEmbedding, VideoCamera } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDevice, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import { cloneDeep, sortBy, uniq, uniqBy } from "lodash";
@@ -35,7 +35,12 @@ export const CAMERA_NATIVE_ID = 'advancedNotifierCamera';
 export const ALARM_SYSTEM_NATIVE_ID = 'advancedNotifierAlarmSystem';
 export const DATA_FETCHER_NATIVE_ID = 'advancedNotifierDataFetcher';
 export const MAX_PENDING_RESULT_PER_CAMERA = 5;
-export const MAX_RPC_OBJECTS_PER_CAMERA = 50;
+export const MAX_RPC_OBJECTS_PER_CAMERA = 35;
+export const SOFT_RPC_OBJECTS_PER_CAMERA = 20;
+export const MAX_RPC_OBJECTS_PER_SENSOR = 10;
+export const SOFT_RPC_OBJECTS_PER_SENSOR = 5;
+export const MAX_RPC_OBJECTS_PER_NOTIFIER = 7;
+export const SOFT_RPC_OBJECTS_PER_NOTIFIER = 3;
 export const FRIGATE_BRIDGE_PLUGIN_NAME = 'Frigate bridge';
 export const EVENTS_RECORDER_PLUGIN_NAME = 'Events recorder';
 export const DECODER_FRAME_MIN_TIME = 100;
@@ -160,7 +165,7 @@ export const videoclipSpeedMultiplier: Record<VideoclipSpeed, number> = {
 export type IsDelayPassedProps =
     { type: DelayType.OccupancyRegularCheck } |
     { type: DelayType.DecoderFrameOnStorage, eventSource: ScryptedEventSource, timestamp: number } |
-    { type: DelayType.EventStore, detection: ObjectDetectionResult } |
+    { type: DelayType.EventStore, identifiers: string[] } |
     { type: DelayType.BasicDetectionImage, classname: string, label?: string, eventSource: ScryptedEventSource } |
     { type: DelayType.BasicDetectionTrigger, classname: string, label?: string, eventSource: ScryptedEventSource } |
     { type: DelayType.FsImageUpdate, filename: string, eventSource: ScryptedEventSource } |
@@ -1155,6 +1160,7 @@ export const getRuleKeys = (props: {
     const platesKey = `${prefix}:${ruleName}:plates`;
     const plateMaxDistanceKey = `${prefix}:${ruleName}:plateMaxDistance`;
     const labelScoreKey = `${prefix}:${ruleName}:labelScore`;
+    const clipDescriptionKey = `${prefix}:${ruleName}:clipDescription`;
 
     // Specific for timelapse rules
     const regularSnapshotIntervalKey = `${prefix}:${ruleName}:regularSnapshotInterval`;
@@ -1222,6 +1228,7 @@ export const getRuleKeys = (props: {
             platesKey,
             plateMaxDistanceKey,
             labelScoreKey,
+            clipDescriptionKey,
         },
         timelapse: {
             regularSnapshotIntervalKey,
@@ -1806,6 +1813,7 @@ export const getDetectionRulesSettings = async (props: {
             plateMaxDistanceKey,
             platesKey,
             labelScoreKey,
+            clipDescriptionKey,
         } = detection;
 
         const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean ?? false;
@@ -1843,6 +1851,7 @@ export const getDetectionRulesSettings = async (props: {
         }
 
         const isFrigate = detectionSource === ScryptedEventSource.Frigate;
+        const isNvr = detectionSource === ScryptedEventSource.NVR;
 
         if (showCameraSettings) {
             settings.push(
@@ -1886,7 +1895,7 @@ export const getDetectionRulesSettings = async (props: {
                 );
             }
 
-            if (detectionSource === ScryptedEventSource.NVR && isPlugin) {
+            if (isNvr && isPlugin) {
                 settings.push(
                     {
                         key: nvrEventsKey,
@@ -1898,11 +1907,18 @@ export const getDetectionRulesSettings = async (props: {
                         immediate: true,
                         choices: Object.values(NvrEvent),
                         defaultValue: []
-                    }
+                    },
                 );
             }
 
             settings.push(
+                {
+                    key: clipDescriptionKey,
+                    title: 'CLIP Description',
+                    type: 'string',
+                    group,
+                    subgroup,
+                },
                 {
                     key: scoreThresholdKey,
                     title: 'Score threshold',
@@ -2491,6 +2507,7 @@ export interface DetectionRule extends BaseRule {
     blacklistedZones?: string[];
     people?: string[];
     plates?: string[];
+    clipDescription?: string;
     plateMaxDistance?: number;
     disableNvrRecordingSeconds?: number;
     detectionSource?: ScryptedEventSource;
@@ -2734,6 +2751,7 @@ export const getDetectionRules = (props: {
                     plateMaxDistanceKey,
                     platesKey,
                     labelScoreKey,
+                    clipDescriptionKey,
                 } } = getRuleKeys({
                     ruleType: RuleType.Detection,
                     ruleName: detectionRuleName,
@@ -2756,6 +2774,7 @@ export const getDetectionRules = (props: {
             const frigateLabels = storage.getItem(frigateLabelsKey) as string[] ?? [];
             const scoreThreshold = storage.getItem(scoreThresholdKey) as number || 0.7;
             const minDelay = storage.getItem(minDelayKey) as number;
+            const clipDescription = storage.getItem(clipDescriptionKey) as string;
             const minMqttPublishDelay = storage.getItem(minMqttPublishDelayKey) as number || 15;
             const disableNvrRecordingSeconds = storage.getItem(recordingTriggerSecondsKey) as number;
 
@@ -2778,6 +2797,7 @@ export const getDetectionRules = (props: {
                 deviceId,
                 disableNvrRecordingSeconds,
                 minDelay,
+                clipDescription,
                 minMqttPublishDelay,
                 detectionSource,
                 frigateLabels,
@@ -3623,4 +3643,44 @@ export const isSecretValid = (props: {
 
     const expectedPublicKey = generatePublicKey({ hours, secret });
     return publicKey === expectedPublicKey;
+}
+
+
+export const getEmbeddingSimilarityScore = async (props: {
+    clipDevice: TextEmbedding & ImageEmbedding,
+    image?: MediaObject,
+    imageEmbedding?: string,
+    text: string,
+}) => {
+    const { image, imageEmbedding, text, clipDevice } = props;
+
+    let imageEmbeddingBuffer: Buffer;
+    if (imageEmbedding) {
+        imageEmbeddingBuffer = Buffer.from(imageEmbedding, "base64");
+    } else if (image) {
+        imageEmbeddingBuffer = await clipDevice.getImageEmbedding(image);
+    }
+
+    if (imageEmbeddingBuffer) {
+        const imageEmbedding = new Float32Array(
+            imageEmbeddingBuffer.buffer,
+            imageEmbeddingBuffer.byteOffset,
+            imageEmbeddingBuffer.length / Float32Array.BYTES_PER_ELEMENT
+        );
+        const textEmbeddingBuffer = await clipDevice.getTextEmbedding(text);
+        const textEmbedding = new Float32Array(
+            textEmbeddingBuffer.buffer,
+            textEmbeddingBuffer.byteOffset,
+            textEmbeddingBuffer.length / Float32Array.BYTES_PER_ELEMENT
+        );
+
+        let dotProduct = 0;
+        for (let i = 0; i < imageEmbedding.length; i++) {
+            dotProduct += imageEmbedding[i] * textEmbedding[i];
+        }
+
+        return dotProduct;
+    } else {
+        return 0;
+    }
 }

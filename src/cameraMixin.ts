@@ -2,7 +2,8 @@ import sdk, { EventDetails, EventListenerRegister, Image, MediaObject, MediaStre
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
-import { cloneDeep, orderBy, sortBy, uniqBy } from "lodash";
+import fs from 'fs';
+import { cloneDeep, sortBy, uniqBy } from "lodash";
 import moment from "moment";
 import { Config, JsonDB } from "node-json-db";
 import { getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
@@ -10,12 +11,11 @@ import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import { filterOverlappedDetections } from '../../scrypted-basic-object-detector/src/util';
 import { FrigateObjectDetection, objectDetectorNativeId } from '../../scrypted-frigate-bridge/src/utils';
 import { Deferred } from "../../scrypted/server/src/deferred";
-import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, isFaceClassname, isObjectClassname, isPlateClassname, levenshteinDistance } from "./detectionClasses";
+import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, isFaceClassname, isMotionClassname, isObjectClassname, isPlateClassname, levenshteinDistance } from "./detectionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DETECTION_CLIP_PREFIX, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, splitRules } from "./utils";
-import fs from 'fs';
+import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DETECTION_CLIP_PREFIX, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, splitRules } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -1695,7 +1695,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const checkDecoder = findFromDecoder();
 
                 if (this.cameraDevice.sleeping) {
-                    logger.log(`Not waking up the camera for a snapshot`);
+                    logger.info(`Not waking up the camera for a snapshot`);
                     runners = [
                         checkDetector,
                         checkVeryRecent,
@@ -2571,31 +2571,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         }).catch(logger.log);
                     }
                 }
-
-                // if (this.plugin.storageSettings.values.storeEvents) {
-                //     const filteredCandidates = detections.filter(detection => {
-                //         const { id } = detection;
-                //         const isOk = id ? !this.consumedDetectionIdsSet.has(id) : this.isDelayPassed({ type: DelayType.EventStore, detection })?.timePassed;
-
-                //         if (isOk && id) {
-                //             this.consumedDetectionIdsSet.add(id);
-                //         }
-
-                //         return isOk;
-                //     });
-
-                //     if (filteredCandidates.length) {
-                //         const logger = this.getLogger();
-                //         this.plugin.storeEventImage({
-                //             b64Image,
-                //             detections: filteredCandidates,
-                //             device: this.cameraDevice,
-                //             eventSource: ScryptedEventSource.RawDetection,
-                //             logger,
-                //             timestamp: triggerTime,
-                //         }).catch(logger.error);
-                //     }
-                // }
             } catch (e) {
                 logger.log(`Error on publishing data: ${JSON.stringify(dataToAnalyze)}`, e)
             }
@@ -2676,10 +2651,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         } else if (type === DelayType.OccupancyRegularCheck) {
             minDelayInSeconds = !!this.runningOccupancyRules.length || this.storageSettings.values.checkOccupancy ? 0.3 : 0;
         } else if (type === DelayType.EventStore) {
-            const { detection } = props;
+            const { identifiers } = props;
 
-            if (detectionClassesDefaultMap[detection.className] === DetectionClass.Motion) {
-                delayKey += `-${detection.className}`;
+            delayKey += `-${identifiers.join('_')}`;
+
+            if (identifiers.length === 1 && isMotionClassname(identifiers[0])) {
                 minDelayInSeconds = 30;
             } else {
                 minDelayInSeconds = 15;
@@ -2770,7 +2746,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 b64Image = b64ImageNew;
                 imageSource = imageSourceNew;
 
-                logger.log(`${eventSource} detections received, classnames ${classnamesLog}. image from ${imageSource}`);
+                const withEmbeddings = detect.detections.filter(det => !!det.embedding);
+                logger.log(`${eventSource} detections received, classnames ${classnamesLog}, image from ${imageSource}, with embedding: ${withEmbeddings.length ? getDetectionsLog(withEmbeddings) : 'None'}`);
             }
 
             if (this.isActiveForMqttReporting) {
@@ -2917,6 +2894,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 rules,
             })}`);
 
+            const { clipDevice } = this.plugin.storageSettings.values;
+
             for (const rule of rules) {
                 const {
                     detectionClasses,
@@ -2928,7 +2907,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     plateMaxDistance,
                     labelScoreThreshold,
                     detectionSource,
-                    frigateLabels
+                    frigateLabels,
+                    clipDescription,
                 } = rule;
                 const isFromFrigate = detectionSource === ScryptedEventSource.Frigate;
 
@@ -2936,7 +2916,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     continue;
                 }
 
-                const match = candidates.find(d => {
+                const matches = candidates.filter(d => {
                     if (ignoreCameraDetections && !d.boundingBox) {
                         return false;
                     }
@@ -2978,6 +2958,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             return false;
                         }
                     }
+
                     if (isFromFrigate && label) {
                         if (!frigateLabels?.length || !frigateLabels.includes(label)) {
                             logger.debug(`Frigate label ${label} not whitelisted ${frigateLabels}`);
@@ -3026,14 +3007,34 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     return true;
                 });
 
-                if (match) {
-                    const matchRule = { match, rule, dataToReport };
-                    matchRules.push(matchRule);
-                    rule.detectionSource === ScryptedEventSource.RawDetection &&
-                        this.accumulatedRules.push(matchRule);
-                    // if (rule.markDetections) {
-                    //     shouldMarkBoundaries = true;
-                    // }
+                if (!!matches.length) {
+                    for (const match of matches) {
+                        let similarityOk = true;
+                        if (clipDescription && clipDevice) {
+                            try {
+                                logger.log('STARTING FAMILIARITY SCORE CHECK', clipDescription);
+                                const similarityScore = await getEmbeddingSimilarityScore({
+                                    clipDevice,
+                                    text: clipDescription,
+                                    image,
+                                    imageEmbedding: match.embedding
+                                });
+                                logger.debug(`Embedding familiarity score ${similarityScore}`);
+                                logger.log(`SIMILARITY: ${similarityScore}`);
+                            } catch (e) {
+                                logger.error('Error calculating similarity', e);
+                            }
+                        }
+                        if (similarityOk) {
+                            const matchRule = { match, rule, dataToReport };
+                            matchRules.push(matchRule);
+                            rule.detectionSource === ScryptedEventSource.RawDetection &&
+                                this.accumulatedRules.push(matchRule);
+                            // if (rule.markDetections) {
+                            //     shouldMarkBoundaries = true;
+                            // }
+                        }
+                    }
                 }
             }
 
@@ -3258,6 +3259,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const shouldUseDecoder = decoderType === DecoderType.OnMotion;
 
                 if (data) {
+                    this.plugin.cameraMotionActive.add(this.id);
                     this.consumedDetectionIdsSet = new Set();
                     const timestamp = now;
                     const detections: ObjectDetectionResult[] = [{
@@ -3270,6 +3272,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         this.startDecoder('StartMotion').catch(logger.error);
                     }
                 } else {
+                    this.plugin.cameraMotionActive.delete(this.id);
                     this.consumedDetectionIdsSet = new Set();
                     this.lastMotionEnd = now;
                     this.resetDetectionEntities({
