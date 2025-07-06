@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.3.3
+- Clip support added. Extend a detection rule setting a contextual description to filter even more a rule result
+- LLM tools support added
+
 ### 4.2.5
 - Changes prepared to use LLMPlugin. Manual is the current working way
 

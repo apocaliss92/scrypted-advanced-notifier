@@ -3012,19 +3012,22 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         let similarityOk = true;
                         if (clipDescription && clipDevice) {
                             try {
-                                logger.log('STARTING FAMILIARITY SCORE CHECK', clipDescription);
                                 const similarityScore = await getEmbeddingSimilarityScore({
-                                    clipDevice,
+                                    deviceId: clipDevice?.id,
                                     text: clipDescription,
                                     image,
                                     imageEmbedding: match.embedding
                                 });
-                                logger.debug(`Embedding familiarity score ${similarityScore}`);
-                                logger.log(`SIMILARITY: ${similarityScore}`);
+                                logger.info(`Embedding familiarity score for ${clipDescription}: ${similarityScore}`);
+
+                                if (similarityScore < scoreThreshold) {
+                                    similarityOk = false;
+                                }
                             } catch (e) {
                                 logger.error('Error calculating similarity', e);
                             }
                         }
+
                         if (similarityOk) {
                             const matchRule = { match, rule, dataToReport };
                             matchRules.push(matchRule);

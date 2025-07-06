@@ -5,6 +5,7 @@ import axios from "axios";
 import Groq from "groq-sdk";
 import AdvancedNotifierPlugin, { PluginSettingKey } from "./main";
 import { StorageSetting, StorageSettings } from '@scrypted/sdk/storage-settings';
+import { safeParseJson } from './utils';
 
 export enum AiSource {
     Disabled = 'Disabled',
@@ -457,7 +458,6 @@ export const getAiMessage = async (props: {
             const { aiPlatformKey, llmDeviceKey, systemPromptKey } = getAiSettingKeys();
             const systemPrompt = plugin.storageSettings.getItem(systemPromptKey as any);
 
-
             if (aiSource === AiSource.Manual) {
                 const aiPlatform = plugin.storageSettings.getItem(aiPlatformKey as any);
                 const { apiKeyKey, apiUrlKey, modelKey } = getManualAiSettingKeys(aiPlatform);
@@ -525,7 +525,6 @@ export const getAiMessage = async (props: {
 
                 if (llmDeviceParent) {
                     const llmDevice = sdk.systemManager.getDeviceById<ChatCompletion>(llmDeviceParent.id);
-                    logger.log(llmDevice.interfaces);
                     const template = createLlmMessageTemplate({
                         b64Image,
                         originalTitle,
@@ -533,7 +532,10 @@ export const getAiMessage = async (props: {
                         systemPrompt,
                     })
                     const res = await llmDevice.getChatCompletion(template);
-                    logger.log(res);
+                    logger.log(`${llmDeviceParent.name} result: ${JSON.stringify({...res, systemPrompt})}`);
+
+                    const resJson = safeParseJson(res.choices[0]?.message?.content);
+                    message = resJson?.body;
                 }
             }
         } else {

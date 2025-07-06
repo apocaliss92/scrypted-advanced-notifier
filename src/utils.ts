@@ -3647,12 +3647,13 @@ export const isSecretValid = (props: {
 
 
 export const getEmbeddingSimilarityScore = async (props: {
-    clipDevice: TextEmbedding & ImageEmbedding,
+    deviceId: string,
     image?: MediaObject,
     imageEmbedding?: string,
     text: string,
 }) => {
-    const { image, imageEmbedding, text, clipDevice } = props;
+    const { image, imageEmbedding, text, deviceId } = props;
+    const clipDevice = sdk.systemManager.getDeviceById<TextEmbedding & ImageEmbedding>(deviceId);
 
     let imageEmbeddingBuffer: Buffer;
     if (imageEmbedding) {

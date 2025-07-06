@@ -336,8 +336,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             type: 'string',
             group: 'AI',
             immediate: true,
-            choices: [AiSource.Disabled, AiSource.Manual],
-            // choices: Object.values(AiSource),
+            // choices: [AiSource.Disabled, AiSource.Manual],
+            choices: Object.values(AiSource),
             defaultValue: AiSource.Disabled,
             onPut: async () => await this.refreshSettings()
         },
