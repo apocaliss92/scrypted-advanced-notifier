@@ -1623,9 +1623,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 rule,
                 triggerTime,
                 pastMs,
-            });
+            }) ?? {};
 
-            if (filteredFiles.length) {
+            if (filteredFiles?.length) {
                 const { fileId } = this.getShortClipPaths({ cameraName: device.name, fileName: clipName });
                 const { videoclipStreamUrl } = await getWebHookUrls({
                     console: logger,
@@ -3157,6 +3157,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             } = this.getShortClipPaths({ cameraName: device.name, fileName });
             const listPath = path.join(shortClipsPath, 'file_list.txt');
 
+            try {
+                await fs.promises.access(framesPath);
+            } catch {
+                await fs.promises.mkdir(framesPath, { recursive: true });
+            }
+
             let preTriggerFrames = 0;
             let postTriggerFrames = 0;
             let eventFrameName: string;
@@ -3255,6 +3261,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         } catch (e) {
             logger.log('Error generating short clip', e);
+
+            return {};
         }
     }
 
