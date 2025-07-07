@@ -1,18 +1,17 @@
-import sdk, { BinarySensor, Camera, DeviceBase, EntrySensor, HttpRequest, ImageEmbedding, LockState, MediaObject, Notifier, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, OnOff, PanTiltZoom, Point, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, TextEmbedding, VideoCamera } from "@scrypted/sdk";
+import sdk, { BinarySensor, Camera, DeviceBase, EntrySensor, HttpRequest, LockState, MediaObject, Notifier, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, OnOff, PanTiltZoom, Point, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, VideoCamera } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDevice, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
+import crypto from 'crypto';
 import { cloneDeep, sortBy, uniq, uniqBy } from "lodash";
 import moment, { Moment } from "moment";
 import sharp from 'sharp';
+import { logLevelSetting } from "../../scrypted-apocaliss-base/src/basePlugin";
+import { FRIGATE_OBJECT_DETECTOR_INTERFACE } from '../../scrypted-frigate-bridge/src/utils';
+import { loginScryptedClient } from "../../scrypted/packages/client/src";
 import { name, scrypted } from '../package.json';
-import { AiPlatform, AiSource, defaultModel } from "./aiUtils";
 import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection } from "./detectionClasses";
 import AdvancedNotifierPlugin, { PluginSettingKey } from "./main";
 const { endpointManager } = sdk;
-import { FRIGATE_OBJECT_DETECTOR_INTERFACE } from '../../scrypted-frigate-bridge/src/utils';
-import { logLevelSetting } from "../../scrypted-apocaliss-base/src/basePlugin";
-import { loginScryptedClient } from "../../scrypted/packages/client/src";
-import crypto from 'crypto';
 
 export type DeviceInterface = ScryptedDevice & Camera & ScryptedDeviceBase & Notifier & Settings & ObjectDetector & VideoCamera & EntrySensor & Lock & BinarySensor & Reboot & PanTiltZoom & OnOff;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
@@ -107,6 +106,18 @@ export enum DecoderType {
     Off = 'Off',
     OnMotion = 'OnMotion',
     Always = 'Always',
+}
+
+export enum SimilarityConfidence {
+    Low = 'Low',
+    Medium = 'Medium',
+    High = 'High',
+}
+
+export const similarityConcidenceThresholdMap: Record<SimilarityConfidence, number> = {
+    [SimilarityConfidence.Low]: 0.22,
+    [SimilarityConfidence.Medium]: 0.26,
+    [SimilarityConfidence.High]: 0.30,
 }
 
 export enum DelayType {
@@ -1161,6 +1172,7 @@ export const getRuleKeys = (props: {
     const plateMaxDistanceKey = `${prefix}:${ruleName}:plateMaxDistance`;
     const labelScoreKey = `${prefix}:${ruleName}:labelScore`;
     const clipDescriptionKey = `${prefix}:${ruleName}:clipDescription`;
+    const clipConfidenceKey = `${prefix}:${ruleName}:clipConfidence`;
 
     // Specific for timelapse rules
     const regularSnapshotIntervalKey = `${prefix}:${ruleName}:regularSnapshotInterval`;
@@ -1229,6 +1241,7 @@ export const getRuleKeys = (props: {
             plateMaxDistanceKey,
             labelScoreKey,
             clipDescriptionKey,
+            clipConfidenceKey,
         },
         timelapse: {
             regularSnapshotIntervalKey,
@@ -1814,9 +1827,11 @@ export const getDetectionRulesSettings = async (props: {
             platesKey,
             labelScoreKey,
             clipDescriptionKey,
+            clipConfidenceKey,
         } = detection;
 
         const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean ?? false;
+        const clipDescription = storage.getItem(clipDescriptionKey) as string ?? '';
         const detectionClasses = safeParseJson<DetectionClass[]>(storage.getItem(detectionClassesKey), []);
         const activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
         const detectionSource = storage.getItem(detectionSourceKey) as ScryptedEventSource ||
@@ -1918,7 +1933,29 @@ export const getDetectionRulesSettings = async (props: {
                     type: 'string',
                     group,
                     subgroup,
+                    onPut: async () => {
+                        await refreshSettings()
+                    },
                 },
+            );
+
+            if (clipDescription) {
+                settings.push(
+                    {
+                        key: clipConfidenceKey,
+                        title: 'CLIP confidence level',
+                        description: 'Low could include false positives in the result',
+                        type: 'string',
+                        choices: Object.keys(SimilarityConfidence),
+                        immediate: true,
+                        defaultValue: SimilarityConfidence.Medium,
+                        group,
+                        subgroup,
+                    },
+                );
+            }
+
+            settings.push(
                 {
                     key: scoreThresholdKey,
                     title: 'Score threshold',
@@ -2508,6 +2545,7 @@ export interface DetectionRule extends BaseRule {
     people?: string[];
     plates?: string[];
     clipDescription?: string;
+    clipConfidence?: SimilarityConfidence;
     plateMaxDistance?: number;
     disableNvrRecordingSeconds?: number;
     detectionSource?: ScryptedEventSource;
@@ -2752,6 +2790,7 @@ export const getDetectionRules = (props: {
                     platesKey,
                     labelScoreKey,
                     clipDescriptionKey,
+                    clipConfidenceKey,
                 } } = getRuleKeys({
                     ruleType: RuleType.Detection,
                     ruleName: detectionRuleName,
@@ -2775,6 +2814,7 @@ export const getDetectionRules = (props: {
             const scoreThreshold = storage.getItem(scoreThresholdKey) as number || 0.7;
             const minDelay = storage.getItem(minDelayKey) as number;
             const clipDescription = storage.getItem(clipDescriptionKey) as string;
+            const clipConfidence = storage.getItem(clipConfidenceKey) as SimilarityConfidence;
             const minMqttPublishDelay = storage.getItem(minMqttPublishDelayKey) as number || 15;
             const disableNvrRecordingSeconds = storage.getItem(recordingTriggerSecondsKey) as number;
 
@@ -2798,6 +2838,7 @@ export const getDetectionRules = (props: {
                 disableNvrRecordingSeconds,
                 minDelay,
                 clipDescription,
+                clipConfidence,
                 minMqttPublishDelay,
                 detectionSource,
                 frigateLabels,
@@ -3643,45 +3684,4 @@ export const isSecretValid = (props: {
 
     const expectedPublicKey = generatePublicKey({ hours, secret });
     return publicKey === expectedPublicKey;
-}
-
-
-export const getEmbeddingSimilarityScore = async (props: {
-    deviceId: string,
-    image?: MediaObject,
-    imageEmbedding?: string,
-    text: string,
-}) => {
-    const { image, imageEmbedding, text, deviceId } = props;
-    const clipDevice = sdk.systemManager.getDeviceById<TextEmbedding & ImageEmbedding>(deviceId);
-
-    let imageEmbeddingBuffer: Buffer;
-    if (imageEmbedding) {
-        imageEmbeddingBuffer = Buffer.from(imageEmbedding, "base64");
-    } else if (image) {
-        imageEmbeddingBuffer = await clipDevice.getImageEmbedding(image);
-    }
-
-    if (imageEmbeddingBuffer) {
-        const imageEmbedding = new Float32Array(
-            imageEmbeddingBuffer.buffer,
-            imageEmbeddingBuffer.byteOffset,
-            imageEmbeddingBuffer.length / Float32Array.BYTES_PER_ELEMENT
-        );
-        const textEmbeddingBuffer = await clipDevice.getTextEmbedding(text);
-        const textEmbedding = new Float32Array(
-            textEmbeddingBuffer.buffer,
-            textEmbeddingBuffer.byteOffset,
-            textEmbeddingBuffer.length / Float32Array.BYTES_PER_ELEMENT
-        );
-
-        let dotProduct = 0;
-        for (let i = 0; i < imageEmbedding.length; i++) {
-            dotProduct += imageEmbedding[i] * textEmbedding[i];
-        }
-
-        return dotProduct;
-    } else {
-        return 0;
-    }
 }

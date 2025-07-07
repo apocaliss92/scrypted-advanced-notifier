@@ -1,4 +1,4 @@
-import sdk, { EventDetails, EventListenerRegister, Image, MediaObject, MediaStreamDestination, ObjectDetection, ObjectDetectionResult, ObjectsDetected, PanTiltZoomCommand, ResponseMediaStreamOptions, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoClip, VideoClipOptions, VideoClipThumbnailOptions, VideoClips, VideoFrame, VideoFrameGenerator } from "@scrypted/sdk";
+import sdk, { EventDetails, EventListenerRegister, Image, ImageEmbedding, MediaObject, MediaStreamDestination, ObjectDetection, ObjectDetectionResult, ObjectsDetected, PanTiltZoomCommand, ResponseMediaStreamOptions, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, TextEmbedding, VideoClip, VideoClipOptions, VideoClipThumbnailOptions, VideoClips, VideoFrame, VideoFrameGenerator } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
@@ -15,7 +15,7 @@ import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, is
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DETECTION_CLIP_PREFIX, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, splitRules } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DETECTION_CLIP_PREFIX, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -314,6 +314,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     snoozeUntilDic: Record<string, number> = {};
     consumedDetectionIdsSet: Set<string> = new Set();
+    imageEmbeddingCache: Map<string, Buffer> = new Map();
+    textEmbeddingCache: Map<string, Buffer> = new Map();
 
     lastMotionEnd: number;
     currentSnapshotTimeout = 4000;
@@ -2678,6 +2680,60 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
+    async getEmbeddingSimilarityScore(props: {
+        deviceId: string,
+        image?: MediaObject,
+        imageEmbedding?: string,
+        text: string,
+        detId: string,
+    }) {
+        const { image, imageEmbedding, text, deviceId, detId } = props;
+        const clipDevice = sdk.systemManager.getDeviceById<TextEmbedding & ImageEmbedding>(deviceId);
+
+        let imageEmbeddingBuffer: Buffer;
+        let textEmbeddingBuffer: Buffer;
+        if (imageEmbedding) {
+            imageEmbeddingBuffer = Buffer.from(imageEmbedding, "base64");
+        } else if (image) {
+            if (detId && this.imageEmbeddingCache.has(detId)) {
+                imageEmbeddingBuffer = this.imageEmbeddingCache.get(detId);
+            } else {
+                imageEmbeddingBuffer = await clipDevice.getImageEmbedding(image);
+                this.imageEmbeddingCache.set(detId, imageEmbeddingBuffer);
+            }
+        }
+
+        if (imageEmbeddingBuffer) {
+            const imageEmbedding = new Float32Array(
+                imageEmbeddingBuffer.buffer,
+                imageEmbeddingBuffer.byteOffset,
+                imageEmbeddingBuffer.length / Float32Array.BYTES_PER_ELEMENT
+            );
+
+            if (this.textEmbeddingCache.has(text)) {
+                textEmbeddingBuffer = this.textEmbeddingCache.get(text);
+            } else {
+                textEmbeddingBuffer = await clipDevice.getTextEmbedding(text);
+                this.textEmbeddingCache.set(detId, textEmbeddingBuffer);
+            }
+
+            const textEmbedding = new Float32Array(
+                textEmbeddingBuffer.buffer,
+                textEmbeddingBuffer.byteOffset,
+                textEmbeddingBuffer.length / Float32Array.BYTES_PER_ELEMENT
+            );
+
+            let dotProduct = 0;
+            for (let i = 0; i < imageEmbedding.length; i++) {
+                dotProduct += imageEmbedding[i] * textEmbedding[i];
+            }
+
+            return dotProduct;
+        } else {
+            return 0;
+        }
+    }
+
     public async processDetections(props: {
         detect: FrigateObjectDetection | ObjectsDetected,
         eventDetails?: EventDetails,
@@ -2909,6 +2965,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     detectionSource,
                     frigateLabels,
                     clipDescription,
+                    clipConfidence,
                 } = rule;
                 const isFromFrigate = detectionSource === ScryptedEventSource.Frigate;
 
@@ -3012,15 +3069,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         let similarityOk = true;
                         if (clipDescription && clipDevice) {
                             try {
-                                const similarityScore = await getEmbeddingSimilarityScore({
+                                const similarityScore = await this.getEmbeddingSimilarityScore({
                                     deviceId: clipDevice?.id,
                                     text: clipDescription,
                                     image,
-                                    imageEmbedding: match.embedding
+                                    imageEmbedding: match.embedding,
+                                    detId: match.id
                                 });
                                 logger.info(`Embedding familiarity score for ${clipDescription}: ${similarityScore}`);
 
-                                if (similarityScore < 0.26) {
+                                const threshold = similarityConcidenceThresholdMap[clipConfidence] ?? 0.25;
+                                if (similarityScore < threshold) {
                                     similarityOk = false;
                                 }
                             } catch (e) {
@@ -3264,6 +3323,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 if (data) {
                     this.plugin.cameraMotionActive.add(this.id);
                     this.consumedDetectionIdsSet = new Set();
+                    this.textEmbeddingCache = new Map();
+                    this.imageEmbeddingCache = new Map();
                     const timestamp = now;
                     const detections: ObjectDetectionResult[] = [{
                         className: 'motion',
