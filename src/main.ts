@@ -413,6 +413,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     localEndpointInternal: string;
     connectionTime = Date.now();
 
+    imageEmbeddingCache: Map<string, Buffer> = new Map();
+    textEmbeddingCache: Map<string, Buffer> = new Map();
+
     accumulatedTimelapsesToGenerate: { ruleName: string, deviceId: string }[] = [];
     mainFlowInProgress = false;
 

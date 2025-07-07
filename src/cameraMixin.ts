@@ -314,8 +314,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     snoozeUntilDic: Record<string, number> = {};
     consumedDetectionIdsSet: Set<string> = new Set();
-    imageEmbeddingCache: Map<string, Buffer> = new Map();
-    textEmbeddingCache: Map<string, Buffer> = new Map();
 
     lastMotionEnd: number;
     currentSnapshotTimeout = 4000;
@@ -2695,11 +2693,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         if (imageEmbedding) {
             imageEmbeddingBuffer = Buffer.from(imageEmbedding, "base64");
         } else if (image) {
-            if (detId && this.imageEmbeddingCache.has(detId)) {
-                imageEmbeddingBuffer = this.imageEmbeddingCache.get(detId);
+            if (detId && this.plugin.imageEmbeddingCache.has(detId)) {
+                imageEmbeddingBuffer = this.plugin.imageEmbeddingCache.get(detId);
             } else {
                 imageEmbeddingBuffer = await clipDevice.getImageEmbedding(image);
-                this.imageEmbeddingCache.set(detId, imageEmbeddingBuffer);
+                this.plugin.imageEmbeddingCache.set(detId, imageEmbeddingBuffer);
             }
         }
 
@@ -2710,11 +2708,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 imageEmbeddingBuffer.length / Float32Array.BYTES_PER_ELEMENT
             );
 
-            if (this.textEmbeddingCache.has(text)) {
-                textEmbeddingBuffer = this.textEmbeddingCache.get(text);
+            if (this.plugin.textEmbeddingCache.has(text)) {
+                textEmbeddingBuffer = this.plugin.textEmbeddingCache.get(text);
             } else {
                 textEmbeddingBuffer = await clipDevice.getTextEmbedding(text);
-                this.textEmbeddingCache.set(detId, textEmbeddingBuffer);
+                this.plugin.textEmbeddingCache.set(detId, textEmbeddingBuffer);
             }
 
             const textEmbedding = new Float32Array(
@@ -3331,8 +3329,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 if (data) {
                     this.plugin.cameraMotionActive.add(this.id);
                     this.consumedDetectionIdsSet = new Set();
-                    this.textEmbeddingCache = new Map();
-                    this.imageEmbeddingCache = new Map();
                     const timestamp = now;
                     const detections: ObjectDetectionResult[] = [{
                         className: 'motion',
