@@ -2712,7 +2712,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 textEmbeddingBuffer = this.plugin.textEmbeddingCache.get(text);
             } else {
                 textEmbeddingBuffer = await clipDevice.getTextEmbedding(text);
-                this.plugin.textEmbeddingCache.set(detId, textEmbeddingBuffer);
+                this.plugin.textEmbeddingCache.set(text, textEmbeddingBuffer);
             }
 
             const textEmbedding = new Float32Array(
@@ -3079,12 +3079,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                         imageEmbedding: match.embedding,
                                         detId: match.id
                                     });
-                                    logger.info(`Embedding familiarity score for ${clipDescription}: ${similarityScore}`);
 
                                     const threshold = similarityConcidenceThresholdMap[clipConfidence] ?? 0.25;
                                     if (similarityScore < threshold) {
                                         similarityOk = false;
                                     }
+
+                                    logger.log(`Embedding familiarity score for rule ${rule.name} (${clipDescription}): ${similarityScore} -> ${threshold}`);
                                 } catch (e) {
                                     logger.error('Error calculating similarity', e);
                                 }
