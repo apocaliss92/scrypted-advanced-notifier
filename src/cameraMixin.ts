@@ -3066,26 +3066,32 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 if (!!matches.length) {
                     for (const match of matches) {
-                        const candCheckSimilarity = isRawDetection && match.embedding || isFromNvr;
                         let similarityOk = true;
 
-                        if (candCheckSimilarity && clipDescription && clipDevice) {
-                            try {
-                                const similarityScore = await this.getEmbeddingSimilarityScore({
-                                    deviceId: clipDevice?.id,
-                                    text: clipDescription,
-                                    image,
-                                    imageEmbedding: match.embedding,
-                                    detId: match.id
-                                });
-                                logger.info(`Embedding familiarity score for ${clipDescription}: ${similarityScore}`);
+                        if (clipDescription && clipDevice) {
+                            // For now just go ahead if it's a raw detection and it has already embeding from NVR, 
+                            // or if it's an NVR notification. Could add a configuration to always calculate embedding on clipped images
+                            const canCheckSimilarity = (isRawDetection && match.embedding) || isFromNvr;
+                            if (canCheckSimilarity) {
+                                try {
+                                    const similarityScore = await this.getEmbeddingSimilarityScore({
+                                        deviceId: clipDevice?.id,
+                                        text: clipDescription,
+                                        image,
+                                        imageEmbedding: match.embedding,
+                                        detId: match.id
+                                    });
+                                    logger.info(`Embedding familiarity score for ${clipDescription}: ${similarityScore}`);
 
-                                const threshold = similarityConcidenceThresholdMap[clipConfidence] ?? 0.25;
-                                if (similarityScore < threshold) {
-                                    similarityOk = false;
+                                    const threshold = similarityConcidenceThresholdMap[clipConfidence] ?? 0.25;
+                                    if (similarityScore < threshold) {
+                                        similarityOk = false;
+                                    }
+                                } catch (e) {
+                                    logger.error('Error calculating similarity', e);
                                 }
-                            } catch (e) {
-                                logger.error('Error calculating similarity', e);
+                            } else {
+                                similarityOk = false;
                             }
                         }
 
