@@ -1,4 +1,4 @@
-import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, Image, LauncherApplication, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetectionResult, PushHandler, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, SettingValue, VideoClips, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, Image, LauncherApplication, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetection, ObjectDetectionResult, PushHandler, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, SettingValue, VideoClips, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
 import child_process from 'child_process';
@@ -23,7 +23,7 @@ import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodisco
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllDevices, getAssetSource, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebhooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, isSecretValid, SOFT_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_SENSOR, MAX_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_SENSOR, SOFT_RPC_OBJECTS_PER_NOTIFIER } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllDevices, getAssetSource, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebhooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, isSecretValid, SOFT_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_SENSOR, MAX_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_SENSOR, SOFT_RPC_OBJECTS_PER_NOTIFIER, ImagePostProcessing, addBoundingBoxesToImage } from "./utils";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -49,6 +49,7 @@ export type PluginSettingKey =
     | 'testEventType'
     | 'testLabel'
     | 'testPriority'
+    | 'testPostProcessing'
     | 'testGenerateClip'
     | 'testGenerateClipSpeed'
     | 'testUseAi'
@@ -259,6 +260,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             immediate: true,
             choices: Object.keys(NotificationPriority),
             defaultValue: NotificationPriority.Normal
+        },
+        testPostProcessing: {
+            group: 'Test',
+            title: 'Image processing',
+            type: 'string',
+            immediate: true,
+            choices: Object.keys(ImagePostProcessing),
+            defaultValue: ImagePostProcessing.None
         },
         testGenerateClip: {
             group: 'Test',
@@ -1894,10 +1903,34 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.alarmSystem.onEventTrigger({ triggerDevice }).catch(logger.log);
         }
 
-        const { b64Image, image, imageSource } = await cameraMixin.getImage({
+        let { b64Image, image, imageSource } = await cameraMixin.getImage({
             image: imageParent,
             reason: GetImageReason.Notification
         });
+
+        if (match) {
+            if (rule.imageProcessing === ImagePostProcessing.MarkBoundaries) {
+                const objectDetector: ObjectDetection & ScryptedDeviceBase = this.storageSettings.values.objectDetectionDevice;
+
+                if (objectDetector) {
+                    const detection = await objectDetector.detectObjects(image);
+                    if (detection.detections.length) {
+                        logger.log('Adding bounding boxes');
+
+                        const bufferImage = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg');
+                        const { newImage, newB64Image } = await addBoundingBoxesToImage({
+                            bufferImage,
+                            console: logger,
+                            detection,
+                        });
+                        b64Image = newB64Image;
+                        image = newImage;
+                    }
+                } else {
+                    logger.log('No object detector defined');
+                }
+            }
+        }
 
         const executeNotify = async (videoUrl?: string) => {
             logger.log(`${rule.notifiers.length} notifiers will be notified with videourl ${videoUrl} and image from ${imageSource}: ${JSON.stringify({ match, rule })} `);
@@ -2592,6 +2625,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             testLabel,
             testSound,
             testUseAi,
+            testPostProcessing,
         } = this.storageSettings.values;
 
         const logger = this.getLogger();
@@ -2617,6 +2651,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     testPriority,
                     testSound,
                     testUseAi,
+                    testPostProcessing,
                 })}`);
 
                 const snoozeId = testBypassSnooze ? Math.random().toString(36).substring(2, 12) : undefined;
@@ -2637,12 +2672,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                                 sound: testSound
                             }
                         },
+                        imageProcessing: testPostProcessing,
                         generateClipSpeed: testGenerateClipSpeed,
                         generateClip: testGenerateClip,
                         generateClipPostSeconds: 3,
                         useAi: testUseAi,
                         ruleType: RuleType.Detection,
-                        markDetections: false,
                         activationType: DetectionRuleActivation.Always,
                         source: RuleSource.Plugin,
                         isEnabled: true,

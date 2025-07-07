@@ -2539,7 +2539,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         });
 
                         if (timePassed) {
-                            logger.log(`Starting notifiers for detection rule ${getDetectionKey(matchRule)}, b64Image ${getB64ImageLog(b64Image)} from ${imageSource}, last check ${lastSetInSeconds}s ago with delay ${minDelayInSeconds}s (accumnulated detections)`);
+                            logger.log(`Starting notifiers for detection rule (accumulated detections) ${getDetectionKey(matchRule)}, b64Image ${getB64ImageLog(b64Image)} from ${imageSource}, last check ${lastSetInSeconds}s ago with delay ${minDelayInSeconds}s (accumnulated detections)`);
 
                             await this.plugin.notifyDetectionEvent({
                                 triggerDeviceId: this.id,
@@ -2936,8 +2936,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let dataToReport = {};
         try {
             const matchRules: MatchRule[] = [];
-            // const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
-            // let shouldMarkBoundaries = false;
 
             const rules = cloneDeep(this.runningDetectionRules.filter(rule => rule.detectionSource === eventSource)) ?? [];
             logger.debug(`Detections incoming ${JSON.stringify({
@@ -3099,40 +3097,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             matchRules.push(matchRule);
                             rule.detectionSource === ScryptedEventSource.RawDetection &&
                                 this.accumulatedRules.push(matchRule);
-                            // if (rule.markDetections) {
-                            //     shouldMarkBoundaries = true;
-                            // }
                         }
                     }
                 }
             }
-
-            // let markedImage: MediaObject;
-            // let markedb64Image: string;
-            // if (!!matchRules.length) {
-            // let bufferImage: Buffer;
-
-            // let isPeriodicImage = false
-            // if (!imageToNotify) {
-            //     const { b64Image: b64ImageNew, image: imageNew, bufferImage: bufferImageNew } = await this.getImage({ reason: "periodic" });
-            //     imageToNotify = imageNew;
-            //     b64Image = b64ImageNew;
-            //     !!imageToNotify && (isPeriodicImage = true);
-            //     // bufferImage = bufferImageNew;
-            // }
-
-            //     if (shouldMarkBoundaries && !!objectDetector) {
-            //         const detectionResult = await objectDetector.detectObjects(imageToNotify);
-
-            //         if (objectDetector.name !== 'Scrypted NVR Object Detection') {
-            //             detectionResult.detections = filterOverlappedDetections(detectionResult.detections);
-            //         }
-
-            //         const { newB64Image, newImage } = await addBoundingBoxes(b64Image, detectionResult.detections);
-            //         markedb64Image = newB64Image;
-            //         markedImage = newImage;
-            //     }
-            // }
 
             if (matchRules.length) {
                 logger.info(`Matching rules found: ${getRulesLog(matchRules)}`);
@@ -3158,7 +3126,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         }
 
                         if (isNonRawDetection && this.isDelayPassed({ type: DelayType.RuleNotification, matchRule, eventSource })?.timePassed) {
-                            logger.log(`Starting notifiers for detection rule ${getDetectionKey(matchRule)}, b64Image ${getB64ImageLog(b64Image)} from ${imageSource} (Decoder)`);
+                            logger.log(`Starting notifiers for detection rule (${eventSource}) ${getDetectionKey(matchRule)}, b64Image ${getB64ImageLog(b64Image)} from ${imageSource} (Decoder)`);
 
                             this.plugin.notifyDetectionEvent({
                                 triggerDeviceId: this.id,
@@ -3167,7 +3135,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 image,
                                 eventType: detectionClassesDefaultMap[match.className],
                                 triggerTime,
-                            });
+                            }).catch(logger.log);
                         }
                     } catch (e) {
                         logger.log(`Error processing matchRule ${JSON.stringify(matchRule)}`, e);

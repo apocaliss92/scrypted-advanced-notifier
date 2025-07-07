@@ -1120,6 +1120,12 @@ export enum DetectionRuleActivation {
     AdvancedSecuritySystem = 'AdvancedSecuritySystem',
 }
 
+export enum ImagePostProcessing {
+    None = 'None',
+    Crop = 'Crop',
+    MarkBoundaries = 'MarkBoundaries'
+}
+
 export enum NvrEvent {
     Online = 'Online',
     Offline = 'Offline',
@@ -1165,7 +1171,7 @@ export const getRuleKeys = (props: {
     const detectionSourceKey = `${prefix}:${ruleName}:detectionSource`;
     const whitelistedZonesKey = `${prefix}:${ruleName}:whitelistedZones`;
     const blacklistedZonesKey = `${prefix}:${ruleName}:blacklistedZones`;
-    const markDetectionsKey = `${prefix}:${ruleName}:markDetections`;
+    const imageProcessingKey = `${prefix}:${ruleName}:imageProcessing`;
     const recordingTriggerSecondsKey = `${prefix}:${ruleName}:recordingTriggerSeconds`;
     const peopleKey = `${prefix}:${ruleName}:people`;
     const platesKey = `${prefix}:${ruleName}:plates`;
@@ -1235,7 +1241,7 @@ export const getRuleKeys = (props: {
             frigateLabelsKey,
             devicesKey,
             detectionClassesKey,
-            markDetectionsKey,
+            imageProcessingKey,
             peopleKey,
             platesKey,
             plateMaxDistanceKey,
@@ -1661,6 +1667,7 @@ export const getRuleSettings = (props: {
             group,
             subgroup,
             multiple: true,
+            immediate: true,
             combobox: true,
             type: 'string',
             choices: [
@@ -1706,6 +1713,7 @@ export const getRuleSettings = (props: {
                     subgroup,
                     type: 'day',
                     multiple: true,
+                    immediate: true,
                 },
                 {
                     key: startTimeKey,
@@ -1713,6 +1721,7 @@ export const getRuleSettings = (props: {
                     group,
                     subgroup,
                     type: 'time',
+                    immediate: true,
                 },
                 {
                     key: endTimeKey,
@@ -1720,6 +1729,7 @@ export const getRuleSettings = (props: {
                     group,
                     subgroup,
                     type: 'time',
+                    immediate: true,
                 }
             );
         }
@@ -1750,6 +1760,7 @@ export const getRuleSettings = (props: {
                     group,
                     subgroup,
                     multiple: true,
+                    immediate: true,
                     combobox: true,
                     type: 'device',
                     deviceFilter: sensorsFilter,
@@ -1762,6 +1773,7 @@ export const getRuleSettings = (props: {
                     group,
                     subgroup,
                     multiple: true,
+                    immediate: true,
                     combobox: true,
                     type: 'device',
                     deviceFilter: sensorsFilter,
@@ -1818,7 +1830,6 @@ export const getDetectionRulesSettings = async (props: {
             recordingTriggerSecondsKey,
             useNvrDetectionsKey,
             detectionSourceKey,
-            // markDetectionsKey,
             whitelistedZonesKey,
             devicesKey,
             detectionClassesKey,
@@ -1828,6 +1839,7 @@ export const getDetectionRulesSettings = async (props: {
             labelScoreKey,
             clipDescriptionKey,
             clipConfidenceKey,
+            imageProcessingKey,
         } = detection;
 
         const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean ?? false;
@@ -1966,6 +1978,17 @@ export const getDetectionRulesSettings = async (props: {
                     placeholder: '0.7',
                     hide: !showMore
                 },
+                {
+                    key: imageProcessingKey,
+                    title: 'Image post processing',
+                    description: 'Crop or add box around the detected object',
+                    type: 'string',
+                    choices: Object.keys(ImagePostProcessing),
+                    immediate: true,
+                    defaultValue: isNvr ? ImagePostProcessing.Crop : ImagePostProcessing.None,
+                    group,
+                    subgroup,
+                },
             );
 
             const hasFace = detectionClasses.includes(DetectionClass.Face);
@@ -2053,6 +2076,7 @@ export const getDetectionRulesSettings = async (props: {
                     subgroup,
                     multiple: true,
                     combobox: true,
+                    immediate: true,
                     choices: zonesToUse,
                     readonly: !zonesToUse.length,
                     defaultValue: []
@@ -2065,6 +2089,7 @@ export const getDetectionRulesSettings = async (props: {
                     subgroup,
                     multiple: true,
                     combobox: true,
+                    immediate: true,
                     choices: zones,
                     readonly: !zones.length,
                     defaultValue: []
@@ -2339,10 +2364,12 @@ export const getTimelapseRulesSettings = async (props: {
                 subgroup,
                 type: 'day',
                 multiple: true,
+                immediate: true,
                 defaultValue: []
             },
             {
                 key: startTimeKey,
+                immediate: true,
                 title: 'Start time',
                 group,
                 subgroup,
@@ -2350,6 +2377,7 @@ export const getTimelapseRulesSettings = async (props: {
             },
             {
                 key: endTimeKey,
+                immediate: true,
                 title: 'End time',
                 group,
                 subgroup,
@@ -2534,7 +2562,7 @@ export interface BaseRule {
 }
 
 export interface DetectionRule extends BaseRule {
-    markDetections: boolean;
+    imageProcessing: ImagePostProcessing;
     detectionClasses?: RuleDetectionClass[];
     nvrEvents?: NvrEvent[];
     frigateLabels?: string[];
@@ -2777,7 +2805,6 @@ export const getDetectionRules = (props: {
                 detection: {
                     useNvrDetectionsKey,
                     detectionSourceKey,
-                    markDetectionsKey,
                     detectionClassesKey,
                     whitelistedZonesKey,
                     blacklistedZonesKey,
@@ -2791,6 +2818,7 @@ export const getDetectionRules = (props: {
                     labelScoreKey,
                     clipDescriptionKey,
                     clipConfidenceKey,
+                    imageProcessingKey,
                 } } = getRuleKeys({
                     ruleType: RuleType.Detection,
                     ruleName: detectionRuleName,
@@ -2799,7 +2827,6 @@ export const getDetectionRules = (props: {
             const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean;
             const detectionSource = storage.getItem(detectionSourceKey) as ScryptedEventSource ||
                 (useNvrDetections ? ScryptedEventSource.NVR : ScryptedEventSource.RawDetection);
-            const markDetections = storage.getItem(markDetectionsKey) as boolean ?? false;
             const activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
             const customText = storage.getItem(textKey) as string || undefined;
             const mainDevices = storage.getItem(devicesKey) as string[] ?? [];
@@ -2817,6 +2844,10 @@ export const getDetectionRules = (props: {
             const clipConfidence = storage.getItem(clipConfidenceKey) as SimilarityConfidence;
             const minMqttPublishDelay = storage.getItem(minMqttPublishDelayKey) as number || 15;
             const disableNvrRecordingSeconds = storage.getItem(recordingTriggerSecondsKey) as number;
+            let imageProcessing = storage.getItem(imageProcessingKey) as ImagePostProcessing;
+            if (!imageProcessing && detectionSource === ScryptedEventSource.NVR) {
+                imageProcessing = ImagePostProcessing.Crop;
+            }
 
             const { rule, basicRuleAllowed, ...restCriterias } = initBasicRule({
                 ruleName: detectionRuleName,
@@ -2830,7 +2861,7 @@ export const getDetectionRules = (props: {
                 ...rule,
                 scoreThreshold,
                 detectionClasses,
-                markDetections,
+                imageProcessing,
                 nvrEvents,
                 devices: devicesToUse,
                 customText,
@@ -3201,37 +3232,68 @@ export const getDeviceAudioRules = (
     };
 }
 
+const fontSize = 20;
+const thickness = 4;
+
+const detectionClassClorMap: Partial<Record<string, string>> = {
+    [DetectionClass.Animal]: '#2ECC40',
+    [DetectionClass.Vehicle]: '#0074D9',
+    [DetectionClass.Person]: '#FF4136',
+    [DetectionClass.Face]: '#FF851B',
+    [DetectionClass.Plate]: '#B10DC9',
+    Other: '#AAAAAA',
+};
+
 export const addBoundingBoxesToImage = async (props: {
     detection: ObjectsDetected,
     bufferImage: Buffer;
     console: Console;
 }) => {
     const { detection, bufferImage } = props;
-    const fontSize = 20;
-    const color = '#00FF00';
-    const thickness = 4;
 
     const svgRectsAndTexts = detection.detections.map(({ boundingBox, label, className, score }) => {
-        const labelText = `${label || className}: ${score.toFixed(2)}`;
+        const labelText = `${label || className}: ${Math.floor(score * 100)}%`;
         const [x, y, width, height] = boundingBox;
-        const textY = y - 5 < fontSize ? y + fontSize + 5 : y - 5;
+        const classNameParsed = detectionClassesDefaultMap[className] ?? 'Other';
+        const padding = 4;
+        const textWidth = labelText.length * (fontSize * 0.6);
+        const labelX = x;
+        const labelY = y - fontSize - 4;
+
+        const color = detectionClassClorMap[classNameParsed];
+
         return `
-          <rect x="${x}" y="${y}" width="${width}" height="${height}"
-            fill="none" stroke="${color}" stroke-width="${thickness}"/>
-          <text x="${x}" y="${textY}" class="label">${labelText}</text>
+            <rect 
+                x="${x}" 
+                y="${y}" 
+                width="${width}" 
+                height="${height}" 
+                fill="none" 
+                stroke="${color}" 
+                stroke-width="${thickness}" 
+                />
+            <rect
+                x="${labelX}"
+                y="${labelY}"
+                width="${textWidth + padding * 2}"
+                height="${fontSize + padding}"
+                fill="${color}"
+                rx="3"
+                />
+            <text
+                x="${labelX + padding}"
+                y="${labelY + fontSize}"
+                fill="black"
+                font-size="${fontSize}"
+                font-family="sans-serif"
+            >
+                ${labelText}
+            </text>
         `;
     }).join('\n');
 
     const svgOverlay = `
-        <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-          <style>
-            .label {
-              fill: ${color};
-              font-size: ${fontSize}px;
-              font-family: Arial, sans-serif;
-              font-weight: bold;
-            }
-          </style>
+        <svg width="${detection.inputDimensions[0]}" height="${detection.inputDimensions[1]}" xmlns="http://www.w3.org/2000/svg">
           ${svgRectsAndTexts}
         </svg>
       `;
@@ -3248,7 +3310,7 @@ export const addBoundingBoxesToImage = async (props: {
         .toBuffer();
 
     const newB64Image = outputBuffer.toString('base64');
-    const newImage = await sdk.mediaManager.createMediaObject(outputBuffer, ScryptedMimeTypes.Image);
+    const newImage = await sdk.mediaManager.createMediaObject(outputBuffer, 'image/jpeg');
 
     return {
         newB64Image,
@@ -3256,104 +3318,6 @@ export const addBoundingBoxesToImage = async (props: {
     };
 }
 
-// export const addBoundingToImage = async (boundingBox: number[], imageBuffer: Buffer, console: Console, label: string) => {
-//     const [x, y, width, height] = boundingBox;
-//     console.log(`Trying to add boundingBox ${boundingBox}`);
-//     const borderWidth = 5;
-//     try {
-//         const createRectangle = async () => {
-//             // Buffer per il rettangolo pieno
-//             const fullRect = await sharp({
-//                 create: {
-//                     width,
-//                     height,
-//                     channels: 3,
-//                     background: { r: 255, g: 255, b: 255, alpha: 1 }, // Bianco
-//                 },
-//             })
-//                 .png()
-//                 .toBuffer();
-
-//             // Crea il rettangolo vuoto
-//             const hollowRect = await sharp(fullRect)
-//                 .extract({ // Rimuovi la parte interna
-//                     left: borderWidth,
-//                     top: borderWidth,
-//                     width: width - borderWidth * 2,
-//                     height: height - borderWidth * 2,
-//                 })
-//                 .toBuffer();
-
-//             return sharp(fullRect)
-//                 .composite([{
-//                     input: hollowRect,
-//                     blend: 'dest-out' // Rende l'interno trasparente
-//                 }])
-//                 .toBuffer();
-//         };
-
-//         const rectangle = await createRectangle();
-
-//         const newImageBuffer = await sharp(imageBuffer)
-//             .composite([{
-//                 input: rectangle,
-//                 top: y,
-//                 left: x,
-//             }])
-//             .png()
-//             .toBuffer();
-
-//         const newB64Image = newImageBuffer.toString('base64');
-//         const newImage = await sdk.mediaManager.createMediaObject(imageBuffer, ScryptedMimeTypes.Image);
-//         console.log(`Bounding box added ${boundingBox}: ${newB64Image}`);
-
-//         return { newImageBuffer, newImage, newB64Image };
-//     } catch (e) {
-//         console.log('Error adding bounding box', e);
-//         return {}
-//     }
-// }
-
-// export const addBoundingBoxes = async (base64Image: string, detections: ObjectDetectionResult[]) => {
-//     try {
-
-//         const imageBuffer = Buffer.from(base64Image, 'base64');
-//         let image = await Jimp.read(imageBuffer);
-
-//         const borderColor = rgbaToInt(255, 0, 0, 255); // Rosso
-//         const font = await loadFont(SANS_16_WHITE);
-
-//         detections.forEach(({ boundingBox, className }) => {
-//             const text = detectionClassesDefaultMap[className];
-//             const [x, y, width, height] = boundingBox;
-//             // image.scan(x, y, width, height, function (dx, dy, idx) {
-//             //     // Bordo rosso (RGB: 255, 0, 0)
-//             //     this.bitmap.data[idx] = 255;   // Rosso
-//             //     this.bitmap.data[idx + 1] = 0; // Verde
-//             //     this.bitmap.data[idx + 2] = 0; // Blu
-//             //     this.bitmap.data[idx + 3] = 255; // Alpha
-//             // });
-//             function iterator(x, y, offset) {
-//                 this.bitmap.data.writeUInt32BE(0x00000088, offset, true);
-//             }
-
-//             image.scan(236, 100, 240, 1, iterator);
-//             image.scan(236, 100 + 110, 240, 1, iterator);
-//             image.scan(236, 100, 1, 110, iterator);
-//             image.scan(236 + 240, 100, 1, 110, iterator);
-//         });
-//         const outputBuffer = await image.getBuffer('image/jpeg');
-
-//         const newB64Image = outputBuffer.toString('base64');
-//         const newImage = await sdk.mediaManager.createMediaObject(imageBuffer, ScryptedMimeTypes.Image);
-
-//         return { newB64Image, newImage };
-
-//     } catch (error) {
-//         console.error("Errore:", error.message);
-//         return null;
-//     }
-// }
 
 export const getAllDevices = () => {
     return Object.keys(sdk.systemManager.getSystemState()).map(id => sdk.systemManager.getDeviceById(id));
