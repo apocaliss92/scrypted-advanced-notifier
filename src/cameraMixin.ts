@@ -3066,8 +3066,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 if (!!matches.length) {
                     for (const match of matches) {
+                        const candCheckSimilarity = isRawDetection && match.embedding || isFromNvr;
                         let similarityOk = true;
-                        if (clipDescription && clipDevice) {
+
+                        if (candCheckSimilarity && clipDescription && clipDevice) {
                             try {
                                 const similarityScore = await this.getEmbeddingSimilarityScore({
                                     deviceId: clipDevice?.id,
