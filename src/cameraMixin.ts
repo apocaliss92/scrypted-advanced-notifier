@@ -3020,7 +3020,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 });
                                 logger.info(`Embedding familiarity score for ${clipDescription}: ${similarityScore}`);
 
-                                if (similarityScore < scoreThreshold) {
+                                if (similarityScore < 0.26) {
                                     similarityOk = false;
                                 }
                             } catch (e) {
