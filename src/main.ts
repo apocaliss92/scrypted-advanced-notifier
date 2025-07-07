@@ -1,4 +1,4 @@
-import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, Image, LauncherApplication, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetection, ObjectDetectionResult, PushHandler, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, SettingValue, VideoClips, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { BoundingBoxResult, DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, Image, LauncherApplication, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetection, ObjectDetectionResult, ObjectsDetected, PushHandler, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, SettingValue, VideoClips, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
 import child_process from 'child_process';
@@ -23,7 +23,7 @@ import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodisco
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllDevices, getAssetSource, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebhooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, isSecretValid, SOFT_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_SENSOR, MAX_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_SENSOR, SOFT_RPC_OBJECTS_PER_NOTIFIER, ImagePostProcessing, addBoundingBoxesToImage } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllDevices, getAssetSource, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebHookUrls, getWebhooks, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, isDetectionClass, isDeviceSupported, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, isSecretValid, SOFT_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_SENSOR, MAX_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_SENSOR, SOFT_RPC_OBJECTS_PER_NOTIFIER, ImagePostProcessing, addBoundingBoxesToImage, cropImageToDetection } from "./utils";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -1908,26 +1908,47 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             reason: GetImageReason.Notification
         });
 
-        if (match) {
+        const objectDetector: ObjectDetection & ScryptedDeviceBase = this.storageSettings.values.objectDetectionDevice;
+
+        if (match && objectDetector) {
             if (rule.imageProcessing === ImagePostProcessing.MarkBoundaries) {
-                const objectDetector: ObjectDetection & ScryptedDeviceBase = this.storageSettings.values.objectDetectionDevice;
+                const detection = await objectDetector.detectObjects(image);
+                if (detection.detections.length) {
+                    logger.log('Adding bounding boxes');
 
-                if (objectDetector) {
-                    const detection = await objectDetector.detectObjects(image);
-                    if (detection.detections.length) {
-                        logger.log('Adding bounding boxes');
+                    const bufferImage = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg');
+                    const { newImage, newB64Image } = await addBoundingBoxesToImage({
+                        bufferImage,
+                        console: logger,
+                        detection,
+                    });
+                    b64Image = newB64Image;
+                    image = newImage;
+                }
+            } else if (rule.imageProcessing === ImagePostProcessing.Crop) {
+                let boundingBox: BoundingBoxResult['boundingBox'];
 
-                        const bufferImage = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg');
-                        const { newImage, newB64Image } = await addBoundingBoxesToImage({
-                            bufferImage,
-                            console: logger,
-                            detection,
-                        });
-                        b64Image = newB64Image;
-                        image = newImage;
-                    }
+                if (match.boundingBox) {
+                    boundingBox = match.boundingBox;
                 } else {
-                    logger.log('No object detector defined');
+                    const detection = await objectDetector.detectObjects(image);
+                    const found = detection.detections.find(det =>
+                        det.className === match.className &&
+                        (match.label ? det.className === match.className : true)
+                    );
+                    boundingBox = found?.boundingBox;
+
+                    if (boundingBox) {
+                        const { newB64Image, newImage } = await cropImageToDetection({
+                            image,
+                            boundingBox,
+                            inputDimensions: detection.inputDimensions,
+                            asSquare: false,
+                        });
+
+                        image = newImage;
+                        b64Image = newB64Image;
+                    }
                 }
             }
         }

@@ -1,4 +1,4 @@
-import sdk, { BinarySensor, Camera, DeviceBase, EntrySensor, HttpRequest, LockState, MediaObject, Notifier, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, OnOff, PanTiltZoom, Point, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, VideoCamera } from "@scrypted/sdk";
+import sdk, { Image, BinarySensor, Camera, DeviceBase, EntrySensor, HttpRequest, LockState, MediaObject, Notifier, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, OnOff, PanTiltZoom, Point, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, VideoCamera } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDevice, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import crypto from 'crypto';
@@ -1879,6 +1879,7 @@ export const getDetectionRulesSettings = async (props: {
 
         const isFrigate = detectionSource === ScryptedEventSource.Frigate;
         const isNvr = detectionSource === ScryptedEventSource.NVR;
+        const isRawDetection = detectionSource === ScryptedEventSource.RawDetection;
 
         if (showCameraSettings) {
             settings.push(
@@ -1978,18 +1979,23 @@ export const getDetectionRulesSettings = async (props: {
                     placeholder: '0.7',
                     hide: !showMore
                 },
-                {
-                    key: imageProcessingKey,
-                    title: 'Image post processing',
-                    description: 'Crop or add box around the detected object',
-                    type: 'string',
-                    choices: Object.keys(ImagePostProcessing),
-                    immediate: true,
-                    defaultValue: isNvr ? ImagePostProcessing.Crop : ImagePostProcessing.None,
-                    group,
-                    subgroup,
-                },
             );
+
+            if (isRawDetection) {
+                settings.push(
+                    {
+                        key: imageProcessingKey,
+                        title: 'Image post processing',
+                        description: 'Crop or add box around the detected object',
+                        type: 'string',
+                        choices: Object.keys(ImagePostProcessing),
+                        immediate: true,
+                        defaultValue: isNvr ? ImagePostProcessing.Crop : ImagePostProcessing.None,
+                        group,
+                        subgroup,
+                    }
+                );
+            }
 
             const hasFace = detectionClasses.includes(DetectionClass.Face);
             const hasPlate = detectionClasses.includes(DetectionClass.Plate);
@@ -2844,10 +2850,7 @@ export const getDetectionRules = (props: {
             const clipConfidence = storage.getItem(clipConfidenceKey) as SimilarityConfidence;
             const minMqttPublishDelay = storage.getItem(minMqttPublishDelayKey) as number || 15;
             const disableNvrRecordingSeconds = storage.getItem(recordingTriggerSecondsKey) as number;
-            let imageProcessing = storage.getItem(imageProcessingKey) as ImagePostProcessing;
-            if (!imageProcessing && detectionSource === ScryptedEventSource.NVR) {
-                imageProcessing = ImagePostProcessing.Crop;
-            }
+            const imageProcessing = detectionSource === ScryptedEventSource.RawDetection ? storage.getItem(imageProcessingKey) as ImagePostProcessing : undefined;
 
             const { rule, basicRuleAllowed, ...restCriterias } = initBasicRule({
                 ruleName: detectionRuleName,
@@ -3318,6 +3321,91 @@ export const addBoundingBoxesToImage = async (props: {
     };
 }
 
+export const cropImageToDetection = async (props: {
+    inputDimensions?: [number, number],
+    boundingBox?: [number, number, number, number],
+    image: MediaObject;
+    asSquare?: boolean
+}) => {
+    const { image, boundingBox, inputDimensions, asSquare, } = props;
+    const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(image, ScryptedMimeTypes.Image);
+
+    const [x, y, width, height] = boundingBox;
+    const [inputWidth, inputHeight] = inputDimensions;
+
+    const marginRatio = 0.1;
+    let cropWidth: number;
+    let cropHeight: number;
+    let cropX: number;
+    let cropY: number;
+
+    if (asSquare) {
+        const marginX = width * marginRatio;
+        const marginY = height * marginRatio;
+
+        cropX = x - marginX;
+        cropY = y - marginY;
+        cropWidth = width + marginX * 2;
+        cropHeight = height + marginY * 2;
+
+        const side = Math.max(cropWidth, cropHeight);
+
+        cropX = x + width / 2 - side / 2;
+        cropY = y + height / 2 - side / 2;
+
+        cropX = Math.max(0, cropX);
+        cropY = Math.max(0, cropY);
+        cropWidth = inputWidth - cropX;
+        cropHeight = inputHeight - cropY;
+        const squareSide = Math.min(side, cropWidth, cropHeight);
+        cropX = squareSide;
+        cropY = squareSide;
+    } else {
+        const imageRatio = inputWidth / inputHeight;
+
+        const marginX = width * marginRatio;
+        const marginY = height * marginRatio;
+
+        cropX = x - marginX;
+        cropY = y - marginY;
+        cropWidth = width + marginX * 2;
+        cropHeight = height + marginY * 2;
+
+        const cropRatio = cropWidth / cropHeight;
+
+        if (cropRatio > imageRatio) {
+            const newHeight = cropWidth / imageRatio;
+            const diff = newHeight - cropHeight;
+            cropY -= diff / 2;
+            cropHeight = newHeight;
+        } else {
+            const newWidth = cropHeight * imageRatio;
+            const diff = newWidth - cropWidth;
+            cropX -= diff / 2;
+            cropWidth = newWidth;
+        }
+
+        cropX = Math.max(0, cropX);
+        cropY = Math.max(0, cropY);
+        cropWidth = Math.min(inputWidth - cropX, cropWidth);
+        cropHeight = Math.min(inputHeight - cropY, cropHeight);
+    }
+
+    const newImage = await convertedImage.toImage({
+        crop: {
+            width: Math.round(cropWidth),
+            height: Math.round(cropHeight),
+            left: Math.round(cropX),
+            top: Math.round(cropY),
+        }
+    });
+    const newB64Image = await moToB64(newImage);
+
+    return {
+        newB64Image,
+        newImage,
+    };
+}
 
 export const getAllDevices = () => {
     return Object.keys(sdk.systemManager.getSystemState()).map(id => sdk.systemManager.getDeviceById(id));

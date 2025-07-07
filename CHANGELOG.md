@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.3.11
+- Added support (RawDetections only) to Boundaries marking and Image cropping for notifications. NVR detections will be later on extended with this too
+
 ### 4.3.3
 - Clip support added. Extend a detection rule setting a contextual description to filter even more a rule result
 - LLM tools support added
