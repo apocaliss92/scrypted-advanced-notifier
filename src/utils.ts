@@ -1184,7 +1184,6 @@ export const getRuleKeys = (props: {
     const regularSnapshotIntervalKey = `${prefix}:${ruleName}:regularSnapshotInterval`;
     const framesAcquisitionDelayKey = `${prefix}:${ruleName}:framesAcquisitionDelay`;
     const timelapseFramerateKey = `${prefix}:${ruleName}:timelapseFramerate`;
-    const additionalFfmpegParametersKey = `${prefix}:${ruleName}:additionalFfmpegParameters`;
     const generateKey = `${prefix}:${ruleName}:generate`;
     const cleanDataKey = `${prefix}:${ruleName}:clenup`;
     const lastGeneratedKey = `${prefix}:${ruleName}:lastGenerated`;
@@ -1201,6 +1200,8 @@ export const getRuleKeys = (props: {
     const forceUpdateKey = `${prefix}:${ruleName}:forceUpdate`;
     const occupiesKey = `${prefix}:${ruleName}:occupies`;
     const detectedObjectsKey = `${prefix}:${ruleName}:detectedObjects`;
+    const confirmWithAiKey = `${prefix}:${ruleName}:confirmWithAi`;
+    const manualCheckKey = `${prefix}:${ruleName}:manualCheck`;
 
     // Specific for audio rules
     const decibelThresholdKey = `${prefix}:${ruleName}:decibelThreshold`;
@@ -1253,7 +1254,6 @@ export const getRuleKeys = (props: {
             regularSnapshotIntervalKey,
             framesAcquisitionDelayKey,
             timelapseFramerateKey,
-            additionalFfmpegParametersKey,
             generateKey,
             cleanDataKey,
             lastGeneratedKey,
@@ -1269,7 +1269,9 @@ export const getRuleKeys = (props: {
             forceUpdateKey,
             detectionClassKey,
             occupiesKey,
-            detectedObjectsKey
+            detectedObjectsKey,
+            confirmWithAiKey,
+            manualCheckKey
         },
         audio: {
             decibelThresholdKey,
@@ -1306,11 +1308,6 @@ export const allInterfaces = [
 const getInterfacesString = (interfaces: ScryptedInterface[]) =>
     "[" + interfaces.map(int => `'${int}'`) + "]";
 
-// export const basicFilter: StorageSetting['deviceFilter'] = device => device.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE)
-// export const deviceFilter: StorageSetting['deviceFilter'] = device => basicFilter(device) && device.interfaces.some(int => [...sensorInterfaces, ...cameraInterfaces].includes(int as ScryptedInterface));
-// export const notifierFilter: StorageSetting['deviceFilter'] = device => basicFilter(device) && device.interfaces.some(int => notifierInterfaces.includes(int as ScryptedInterface));
-// export const sensorsFilter: StorageSetting['deviceFilter'] = device => basicFilter(device) && device.interfaces.some(int => sensorInterfaces.includes(int as ScryptedInterface));
-// export const cameraFilter: StorageSetting['deviceFilter'] = device => basicFilter(device) && device.interfaces.some(int => cameraInterfaces.includes(int as ScryptedInterface));
 export const deviceFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && interfaces.some(int => ${getInterfacesString([...sensorInterfaces, ...cameraInterfaces])}.includes(int))`;
 export const notifierFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && interfaces.some(int => ${getInterfacesString(notifierInterfaces)}.includes(int))`;
 export const sensorsFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && type !== '${ScryptedDeviceType.Doorbell}' && interfaces.some(int => ${getInterfacesString(sensorInterfaces)}.includes(int))`;
@@ -1576,7 +1573,6 @@ export const getRuleSettings = (props: {
         );
 
         if ((isOccupancyRule || isDetectionRule)) {
-            // if ((isCamera || isPlugin) && (isOccupancyRule || isDetectionRule)) {
             settings.push(
                 {
                     key: generateClipKey,
@@ -2165,10 +2161,11 @@ export const getOccupancyRulesSettings = async (props: {
     zones?: string[],
     ruleSource: RuleSource,
     refreshSettings: OnRefreshSettings,
+    onManualCheck: (ruleName: string) => Promise<void>,
     logger: Console,
     device: DeviceBase,
 }) => {
-    const { storage, zones, ruleSource, refreshSettings, logger, device } = props;
+    const { storage, zones, ruleSource, refreshSettings, logger, device, onManualCheck } = props;
 
     const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup, showMore }) => {
         const settings: StorageSetting[] = [];
@@ -2187,7 +2184,9 @@ export const getOccupancyRulesSettings = async (props: {
             zoneOccupiedTextKey,
             detectionClassKey,
             detectedObjectsKey,
+            confirmWithAiKey,
             occupiesKey,
+            manualCheckKey
         } = occupancy;
 
         settings.push(
@@ -2223,6 +2222,15 @@ export const getOccupancyRulesSettings = async (props: {
                 choices: zones,
                 readonly: !zones.length,
                 immediate: true
+            },
+            {
+                key: confirmWithAiKey,
+                title: 'Confirm occupancy with AI',
+                description: 'In the final stages of check, confirm the result with AI to avoid false positives',
+                group,
+                subgroup,
+                immediate: true,
+                type: 'boolean'
             },
             {
                 key: captureZoneKey,
@@ -2292,7 +2300,15 @@ export const getOccupancyRulesSettings = async (props: {
                 group,
                 subgroup,
                 type: 'string',
-            }
+            },
+            {
+                key: manualCheckKey,
+                title: 'Check manually with AI',
+                group,
+                subgroup,
+                type: 'button',
+                onPut: async () => await onManualCheck(ruleName),
+            },
         );
 
         return settings;
@@ -2327,7 +2343,6 @@ export const getTimelapseRulesSettings = async (props: {
 
         const { textKey, dayKey, startTimeKey, endTimeKey } = common;
         const {
-            // additionalFfmpegParametersKey,
             cleanDataKey,
             framesAcquisitionDelayKey,
             generateKey,
@@ -2354,14 +2369,6 @@ export const getTimelapseRulesSettings = async (props: {
                 placeholder: '15',
                 defaultValue: 15
             },
-            // {
-            //     key: additionalFfmpegParametersKey,
-            //     title: 'Additional FFmpeg parameters',
-            //     group: groupName,
-            //     subgroup: timelapseRuleName,
-            //     value: storage.getItem(additionalFfmpegParametersKey),
-            //     type: 'string',
-            // },
             {
                 key: dayKey,
                 title: 'Day',
@@ -2932,7 +2939,6 @@ export const getDetectionRules = (props: {
                 ...restCriterias,
             })}`);
 
-            // if (deviceOk || isPlugin || activationType === DetectionRuleActivation.OnActive) {
             if (deviceOk || (isPlugin && activationType === DetectionRuleActivation.OnActive)) {
                 availableRules.push(cloneDeep(detectionRule));
             }
@@ -2974,6 +2980,7 @@ export interface OccupancyRule extends BaseRule {
     captureZone?: Point[];
     occupies: boolean;
     detectedObjects: number;
+    confirmWithAi: boolean;
 }
 
 export const getDeviceOccupancyRules = (
@@ -3007,7 +3014,8 @@ export const getDeviceOccupancyRules = (
                 zoneNotOccupiedTextKey,
                 zoneOccupiedTextKey,
                 detectedObjectsKey,
-                occupiesKey
+                occupiesKey,
+                confirmWithAiKey,
             }
         } = getRuleKeys({
             ruleType: RuleType.Occupancy,
@@ -3033,6 +3041,7 @@ export const getDeviceOccupancyRules = (
         const zoneMatchType = deviceStorage.getItem(zoneMatchTypeKey) as ZoneMatchType;
         const captureZone = deviceStorage.getItem(captureZoneKey) as Point[];
         const occupies = deviceStorage.getItem(occupiesKey) as boolean;
+        const confirmWithAi = deviceStorage.getItem(confirmWithAiKey) as boolean;
         const detectedObjects = deviceStorage.getItem(detectedObjectsKey) as number;
 
         const occupancyRule: OccupancyRule = {
@@ -3050,6 +3059,7 @@ export const getDeviceOccupancyRules = (
             captureZone,
             occupies,
             detectedObjects,
+            confirmWithAi
         };
 
         const ruleAllowed = basicRuleAllowed && !!detectionClass && !!observeZone;
@@ -3102,7 +3112,6 @@ export const getDeviceTimelapseRules = (
                 textKey
             },
             timelapse: {
-                additionalFfmpegParametersKey,
                 framesAcquisitionDelayKey,
                 regularSnapshotIntervalKey,
                 timelapseFramerateKey,
@@ -3122,7 +3131,6 @@ export const getDeviceTimelapseRules = (
         });
 
         const customText = deviceStorage.getItem(textKey) as string;
-        const additionalFfmpegParameters = deviceStorage.getItem(additionalFfmpegParametersKey) as string;
         const minDelay = deviceStorage.getItem(framesAcquisitionDelayKey) as number;
         const timelapseFramerate = deviceStorage.getItem(timelapseFramerateKey) as number;
         const lastGenerated = deviceStorage.getItem(lastGeneratedKey) as number;
@@ -3133,7 +3141,6 @@ export const getDeviceTimelapseRules = (
             customText,
             minDelay,
             timelapseFramerate,
-            additionalFfmpegParameters,
             regularSnapshotInterval,
             deviceId: device.id,
             lastGenerated
@@ -3232,182 +3239,6 @@ export const getDeviceAudioRules = (
     return {
         availableRules,
         allowedRules,
-    };
-}
-
-const fontSize = 20;
-const thickness = 4;
-
-const detectionClassClorMap: Partial<Record<string, string>> = {
-    [DetectionClass.Animal]: '#2ECC40',
-    [DetectionClass.Vehicle]: '#0074D9',
-    [DetectionClass.Person]: '#FF4136',
-    [DetectionClass.Face]: '#FF851B',
-    [DetectionClass.Plate]: '#B10DC9',
-    Other: '#AAAAAA',
-};
-
-export const addBoundingBoxesToImage = async (props: {
-    inputDimensions?: [number, number],
-    detections?: ObjectDetectionResult[],
-    bufferImage: Buffer;
-    withScores?: boolean
-}) => {
-    const { detections, inputDimensions, bufferImage, withScores } = props;
-
-    const svgRectsAndTexts = detections.map(({ boundingBox, label, className, score }) => {
-        let labelText = `${label || className}`;
-        if (withScores) {
-            labelText += `: ${Math.floor(score * 100)}%`;
-        }
-        const [x, y, width, height] = boundingBox;
-        const classNameParsed = detectionClassesDefaultMap[className] ?? 'Other';
-        const padding = 4;
-        const textWidth = labelText.length * (fontSize * 0.6);
-        const labelX = x;
-        const labelY = y - fontSize - 4;
-
-        const color = detectionClassClorMap[classNameParsed];
-
-        return `
-            <rect 
-                x="${x}" 
-                y="${y}" 
-                width="${width}" 
-                height="${height}" 
-                fill="none" 
-                stroke="${color}" 
-                stroke-width="${thickness}" 
-                />
-            <rect
-                x="${labelX}"
-                y="${labelY}"
-                width="${textWidth + padding * 2}"
-                height="${fontSize + padding}"
-                fill="${color}"
-                rx="3"
-                />
-            <text
-                x="${labelX + padding}"
-                y="${labelY + fontSize}"
-                fill="black"
-                font-size="${fontSize}"
-                font-family="sans-serif"
-            >
-                ${labelText}
-            </text>
-        `;
-    }).join('\n');
-
-    const svgOverlay = `
-        <svg width="${inputDimensions[0]}" height="${inputDimensions[1]}" xmlns="http://www.w3.org/2000/svg">
-          ${svgRectsAndTexts}
-        </svg>
-      `;
-
-    const outputBuffer = await sharp(bufferImage)
-        .composite([
-            {
-                input: Buffer.from(svgOverlay),
-                top: 0,
-                left: 0,
-                blend: 'over',
-            }
-        ])
-        .toBuffer();
-
-    const newB64Image = outputBuffer.toString('base64');
-    const newImage = await sdk.mediaManager.createMediaObject(outputBuffer, 'image/jpeg');
-
-    return {
-        newB64Image,
-        newImage,
-    };
-}
-
-export const cropImageToDetection = async (props: {
-    inputDimensions?: [number, number],
-    boundingBox?: [number, number, number, number],
-    image: MediaObject;
-    asSquare?: boolean
-}) => {
-    const { image, boundingBox, inputDimensions, asSquare, } = props;
-    const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(image, ScryptedMimeTypes.Image);
-
-    const [x, y, width, height] = boundingBox;
-    const [inputWidth, inputHeight] = inputDimensions;
-
-    const marginRatio = 0.1;
-    let cropWidth: number;
-    let cropHeight: number;
-    let cropX: number;
-    let cropY: number;
-
-    if (asSquare) {
-        const marginX = width * marginRatio;
-        const marginY = height * marginRatio;
-
-        cropX = x - marginX;
-        cropY = y - marginY;
-        cropWidth = width + marginX * 2;
-        cropHeight = height + marginY * 2;
-
-        const side = Math.max(cropWidth, cropHeight);
-
-        cropX = x + width / 2 - side / 2;
-        cropY = y + height / 2 - side / 2;
-
-        cropX = Math.max(0, cropX);
-        cropY = Math.max(0, cropY);
-        cropWidth = inputWidth - cropX;
-        cropHeight = inputHeight - cropY;
-        const squareSide = Math.min(side, cropWidth, cropHeight);
-        cropX = squareSide;
-        cropY = squareSide;
-    } else {
-        const imageRatio = inputWidth / inputHeight;
-
-        const marginX = width * marginRatio;
-        const marginY = height * marginRatio;
-
-        cropX = x - marginX;
-        cropY = y - marginY;
-        cropWidth = width + marginX * 2;
-        cropHeight = height + marginY * 2;
-
-        const cropRatio = cropWidth / cropHeight;
-
-        if (cropRatio > imageRatio) {
-            const newHeight = cropWidth / imageRatio;
-            const diff = newHeight - cropHeight;
-            cropY -= diff / 2;
-            cropHeight = newHeight;
-        } else {
-            const newWidth = cropHeight * imageRatio;
-            const diff = newWidth - cropWidth;
-            cropX -= diff / 2;
-            cropWidth = newWidth;
-        }
-
-        cropX = Math.max(0, cropX);
-        cropY = Math.max(0, cropY);
-        cropWidth = Math.min(inputWidth - cropX, cropWidth);
-        cropHeight = Math.min(inputHeight - cropY, cropHeight);
-    }
-
-    const newImage = await convertedImage.toImage({
-        crop: {
-            width: Math.round(cropWidth),
-            height: Math.round(cropHeight),
-            left: Math.round(cropX),
-            top: Math.round(cropY),
-        }
-    });
-    const newB64Image = await moToB64(newImage);
-
-    return {
-        newB64Image,
-        newImage,
     };
 }
 

@@ -209,6 +209,34 @@ const createLlmMessageTemplate = (props: {
     };
 }
 
+const createLlmQuestionTemplate = (props: {
+    question: string,
+    b64Image: string,
+}): ChatCompletionCreateParamsNonStreaming => {
+    const { b64Image, question } = props;
+
+    return {
+        model: undefined,
+        messages: [
+            {
+                role: "user",
+                content: [
+                    {
+                        type: "image_url",
+                        image_url: {
+                            url: `data:image/jpeg;base64,${b64Image}`
+                        }
+                    },
+                    {
+                        type: "text",
+                        text: `${question}`
+                    }
+                ]
+            }
+        ],
+    };
+}
+
 export const executeGoogleAi = async (props: {
     systemPrompt: string,
     model: string,
@@ -532,7 +560,7 @@ export const getAiMessage = async (props: {
                         systemPrompt,
                     })
                     const res = await llmDevice.getChatCompletion(template);
-                    logger.log(`${llmDeviceParent.name} result: ${JSON.stringify({...res, systemPrompt})}`);
+                    logger.log(`${llmDeviceParent.name} result: ${JSON.stringify({ ...res, systemPrompt })}`);
 
                     const resJson = safeParseJson(res.choices[0]?.message?.content);
                     message = resJson?.body;
@@ -550,6 +578,44 @@ export const getAiMessage = async (props: {
             message,
             title,
             fromCache,
+        }
+    }
+}
+
+export const askAiQuestion = async (props: {
+    plugin: AdvancedNotifierPlugin,
+    question: string,
+    b64Image: string,
+    logger: Console,
+}) => {
+    const { b64Image, logger, plugin, question } = props;
+
+    let response: string;
+
+    try {
+        const { aiSource } = plugin.storageSettings.values;
+        const { llmDeviceKey } = getAiSettingKeys();
+
+        if (aiSource === AiSource.LLMPlugin) {
+            const llmDeviceParent = plugin.storageSettings.getItem(llmDeviceKey as any) as ScryptedDeviceBase;
+
+            if (llmDeviceParent) {
+                const llmDevice = sdk.systemManager.getDeviceById<ChatCompletion>(llmDeviceParent.id);
+                const template = createLlmQuestionTemplate({
+                    b64Image,
+                    question
+                })
+                const res = await llmDevice.getChatCompletion(template);
+                logger.log(`${llmDeviceParent.name} result: ${JSON.stringify({ ...res, question })}`);
+
+                response = res.choices[0]?.message?.content;
+            }
+        }
+    } catch (e) {
+        logger.log('Error in getAiMessage', e);
+    } finally {
+        return {
+            response,
         }
     }
 }

@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.3.13
+- Add setting to confirm occupancy rules with AI to avoid false positives even more
+
 ### 4.3.11
 - Added support (RawDetections only) to Boundaries marking and Image cropping for notifications. NVR detections will be later on extended with this too
 

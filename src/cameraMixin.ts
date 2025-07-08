@@ -1,4 +1,4 @@
-import sdk, { EventDetails, EventListenerRegister, Image, ImageEmbedding, MediaObject, MediaStreamDestination, ObjectDetection, ObjectDetectionResult, ObjectsDetected, PanTiltZoomCommand, ResponseMediaStreamOptions, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, TextEmbedding, VideoClip, VideoClipOptions, VideoClipThumbnailOptions, VideoClips, VideoFrame, VideoFrameGenerator } from "@scrypted/sdk";
+import sdk, { EventDetails, EventListenerRegister, Image, ImageEmbedding, MediaObject, MediaStreamDestination, Notifier, ObjectDetection, ObjectDetectionResult, ObjectsDetected, PanTiltZoomCommand, ResponseMediaStreamOptions, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, TextEmbedding, VideoClip, VideoClipOptions, VideoClipThumbnailOptions, VideoClips, VideoFrame, VideoFrameGenerator } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
@@ -16,6 +16,8 @@ import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DETECTION_CLIP_PREFIX, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
+import { addZoneClipPathToImage } from "./drawingUtils";
+import { askAiQuestion } from "./aiUtils";
 
 const { systemManager } = sdk;
 
@@ -1231,6 +1233,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             ruleSource: RuleSource.Device,
             logger,
             refreshSettings: this.refreshSettings.bind(this),
+            onManualCheck: async (ruleName: string) => await this.manualCheckOccupancyRule(ruleName),
             device: this,
         });
         dynamicSettings.push(...occupancyRulesSettings);
@@ -1863,6 +1866,42 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
+    async manualCheckOccupancyRule(ruleName: string) {
+        const logger = this.getLogger();
+        const rule = this.runningOccupancyRules.find(rule => rule.name === ruleName);
+
+        logger.log(`Starting AI check for occupancy rule ${ruleName}`);
+
+        const { image } = await this.getImage({
+            reason: GetImageReason.Sensor,
+        });
+
+        const zonesData = await this.getObserveZones();
+        const zone = zonesData.find(zoneData => zoneData.name === rule.observeZone);
+
+        const { newB64Image, newImage } = await addZoneClipPathToImage({
+            image,
+            clipPath: zone.path
+        });
+        const occupiesFromAi = await askAiQuestion({
+            b64Image: newB64Image,
+            logger,
+            plugin: this.plugin,
+            question: `How many objects of type ${rule.detectionClass} do you see on the red polygon on the image? Answer with only the number without additional text`
+        });
+
+        const detectedObjectsFromAi = Number(occupiesFromAi.response);
+
+        const currentState = this.occupancyState[ruleName];
+        const message = `AI detected ${detectedObjectsFromAi}, current state ${JSON.stringify(currentState)}`;
+        logger.log(message);
+
+        const { devNotifier } = this.plugin.storageSettings.values;
+        (devNotifier as Notifier).sendNotification(`Occupancy AI check ${ruleName}`, {
+            body: message,
+        }, newImage);
+    }
+
     async checkOccupancyData(props: {
         image: MediaObject,
         b64Image: string,
@@ -1876,6 +1915,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         if (!imageParent) {
             return;
         }
+
         const now = Date.now();
 
         const logger = this.getLogger();
@@ -1921,15 +1961,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const { name, zoneType, observeZone, scoreThreshold, detectionClass, maxObjects, captureZone } = occupancyRule;
 
                 let detectedResult = detectedResultParent;
+                const zone = zonesData.find(zoneData => zoneData.name === observeZone);
+
+                if (!zone) {
+                    logger.log(`Zone ${zone} for rule ${name} not found, skipping checks`);
+                    continue;
+                }
 
                 if (captureZone?.length >= 3) {
-                    const zone = zonesData.find(zoneData => zoneData.name === observeZone)?.path;
                     const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(imageParent, ScryptedMimeTypes.Image);
                     let left = convertedImage.width;
                     let top = convertedImage.height;
                     let right = 0;
                     let bottom = 0;
-                    for (const point of zone) {
+                    for (const point of zone.path) {
                         left = Math.min(left, point[0]);
                         top = Math.min(top, point[1]);
                         right = Math.max(right, point[0]);
@@ -1981,55 +2026,49 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 let objectsDetected = 0;
                 let maxScore = 0;
 
-                const zone = zonesData.find(zoneData => zoneData.name === observeZone);
+                for (const detection of detectedResult.detections) {
+                    const className = detectionClassesDefaultMap[detection.className];
+                    if (detection.score >= scoreThreshold && detectionClass === className) {
+                        if (!maxScore || detection.score > maxScore) {
+                            maxScore = detection.score;
+                        }
+                        const boundingBoxInCoords = normalizeBox(detection.boundingBox, detectedResult.inputDimensions);
+                        let zoneMatches = false;
 
-                if (zone) {
-                    for (const detection of detectedResult.detections) {
-                        const className = detectionClassesDefaultMap[detection.className];
-                        if (detection.score >= scoreThreshold && detectionClass === className) {
-                            if (!maxScore || detection.score > maxScore) {
-                                maxScore = detection.score;
-                            }
-                            const boundingBoxInCoords = normalizeBox(detection.boundingBox, detectedResult.inputDimensions);
-                            let zoneMatches = false;
+                        if (zoneType === ZoneMatchType.Intersect) {
+                            zoneMatches = polygonIntersectsBoundingBox(zone.path, boundingBoxInCoords);
+                        } else {
+                            zoneMatches = polygonContainsBoundingBox(zone.path, boundingBoxInCoords);
+                        }
 
-                            if (zoneType === ZoneMatchType.Intersect) {
-                                zoneMatches = polygonIntersectsBoundingBox(zone.path, boundingBoxInCoords);
-                            } else {
-                                zoneMatches = polygonContainsBoundingBox(zone.path, boundingBoxInCoords);
-                            }
-
-                            if (zoneMatches) {
-                                objectsDetected += 1;
-                            }
+                        if (zoneMatches) {
+                            objectsDetected += 1;
                         }
                     }
+                }
 
-                    const occupies = ((maxObjects || 1) - objectsDetected) <= 0;
+                const occupies = ((maxObjects || 1) - objectsDetected) <= 0;
 
-                    const updatedState: CurrentOccupancyState = {
-                        ...this.occupancyState[name] ?? {} as CurrentOccupancyState,
-                        score: maxScore,
-                        referenceZone: zone
-                    };
+                const updatedState: CurrentOccupancyState = {
+                    ...this.occupancyState[name] ?? {} as CurrentOccupancyState,
+                    score: maxScore,
+                    referenceZone: zone
+                };
 
-                    this.occupancyState[name] = updatedState;
+                this.occupancyState[name] = updatedState;
 
-                    const existingRule = occupancyRulesDataTmpMap[name];
-                    if (!existingRule) {
-                        occupancyRulesDataTmpMap[name] = {
-                            rule: occupancyRule,
-                            occupies,
-                            triggerTime: now,
-                            objectsDetected: objectsDetected,
-                            image,
-                            objectsDetectedResult: [detectedResult]
-                        }
-                    } else if (!existingRule.occupies && occupies) {
-                        existingRule.occupies = true;
+                const existingRule = occupancyRulesDataTmpMap[name];
+                if (!existingRule) {
+                    occupancyRulesDataTmpMap[name] = {
+                        rule: occupancyRule,
+                        occupies,
+                        triggerTime: now,
+                        objectsDetected: objectsDetected,
+                        image,
+                        objectsDetectedResult: [detectedResult]
                     }
-                } else {
-                    logger.log(`Zone ${zone} for rule ${name} not found, skipping checks`);
+                } else if (!existingRule.occupies && occupies) {
+                    existingRule.occupies = true;
                 }
             }
 
@@ -2089,7 +2128,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             };
                             logger.log(`Confirmation time is not passed yet for rule ${name}: toConfirm ${currentState.occupancyToConfirm} started ${elpasedTimeMs / 1000} seconds ago  (V ${currentState.confirmedFrames} / X ${currentState.rejectedFrames})`);
                         } else {
-                            // TODO: Implement here flow with discarded frames instead of discard right away
                             // Reset confirmation data because the value changed before confirmation time passed
                             logger.log(`Confirmation failed for rule ${name}: toConfirm ${currentState.occupancyToConfirm} after ${elpasedTimeMs / 1000} seconds (V ${currentState.confirmedFrames} / X ${currentState.rejectedFrames})`);
 
@@ -2100,32 +2138,70 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         }
                     } else {
                         if (isStateConfirmed) {
-                            // Time is passed and value didn't change, update the state
-                            this.occupancyState[name] = {
-                                ...getInitOccupancyState(rule),
-                                lastChange: now,
-                                occupies: occupancyRuleTmpData.occupies,
-                                objectsDetected: occupancyRuleTmpData.objectsDetected
-                            };
+                            // Time is passed and value didn't change, update the state. But let's ask AI first
+                            let confirmedByAi = false;
 
-                            logger.log(`Confirming occupancy rule ${name}: ${occupancyRuleTmpData.occupies} ${occupancyRuleTmpData.objectsDetected} (V ${currentState.confirmedFrames} / X ${currentState.rejectedFrames})`);
-                            const { b64Image: _, ...rest } = currentState;
-                            const { b64Image: __, image: ____, ...rest2 } = occupancyRuleTmpData;
-                            const { b64Image: ___, ...rest3 } = occupancyDataToUpdate;
-                            logger.log(JSON.stringify({
-                                occupancyRuleTmpData: rest2,
-                                currentState: rest,
-                                occupancyData: rest3,
-                            }));
+                            if (rule.confirmWithAi) {
+                                try {
+                                    const zone = zonesData.find(zoneData => zoneData.name === rule.observeZone);
 
-                            occupancyRulesData.push({
-                                ...occupancyRuleTmpData,
-                                triggerTime: currentState.confirmationStart,
-                                changed: true,
-                                b64Image: currentState.b64Image,
-                            });
+                                    const { newB64Image } = await addZoneClipPathToImage({
+                                        image,
+                                        clipPath: zone.path
+                                    });
+                                    const occupiesFromAi = await askAiQuestion({
+                                        b64Image: newB64Image,
+                                        logger, plugin: this.plugin,
+                                        question: `How many objects of type ${rule.detectionClass} do you see on the red polygon on the image? Answer with only the number without additional text`
+                                    });
 
-                            await this.storageSettings.putSetting(occupiesKey, occupancyRuleTmpData.occupies);
+                                    const detectedObjectsFromAi = Number(occupiesFromAi.response);
+                                    if (!Number.isNaN(detectedObjectsFromAi)) {
+                                        confirmedByAi = detectedObjectsFromAi === currentState.objectsDetected
+                                    } else {
+                                        confirmedByAi = true;
+                                    }
+                                } catch (e) {
+                                    logger.error(`Error trying to confirm occupancy rule ${rule.name}`, e);
+                                    confirmedByAi = true;
+                                }
+                            }
+
+                            if (confirmedByAi) {
+                                this.occupancyState[name] = {
+                                    ...getInitOccupancyState(rule),
+                                    lastChange: now,
+                                    occupies: occupancyRuleTmpData.occupies,
+                                    objectsDetected: occupancyRuleTmpData.objectsDetected
+                                };
+
+                                logger.log(`Confirming occupancy rule ${name}: ${occupancyRuleTmpData.occupies} ${occupancyRuleTmpData.objectsDetected} (V ${currentState.confirmedFrames} / X ${currentState.rejectedFrames})`);
+                                const { b64Image: _, ...rest } = currentState;
+                                const { b64Image: __, image: ____, ...rest2 } = occupancyRuleTmpData;
+                                const { b64Image: ___, ...rest3 } = occupancyDataToUpdate;
+                                logger.log(JSON.stringify({
+                                    occupancyRuleTmpData: rest2,
+                                    currentState: rest,
+                                    occupancyData: rest3,
+                                }));
+
+                                occupancyRulesData.push({
+                                    ...occupancyRuleTmpData,
+                                    triggerTime: currentState.confirmationStart,
+                                    changed: true,
+                                    b64Image: currentState.b64Image,
+                                });
+
+                                await this.storageSettings.putSetting(occupiesKey, occupancyRuleTmpData.occupies);
+                            } else {
+                                this.occupancyState[name] = {
+                                    ...occupancyDataToUpdate,
+                                    confirmationStart: now,
+                                    occupancyToConfirm: occupancyRuleTmpData.occupies
+                                };
+
+                                logger.log(`Discarding confirmation of occupancy rule ${name}: ${occupancyRuleTmpData.occupies} ${occupancyRuleTmpData.objectsDetected} (V ${currentState.confirmedFrames} / X ${currentState.rejectedFrames}). AI didn't confirm`);
+                            }
 
                         } else {
                             // Time is passed and value changed, restart confirmation flow

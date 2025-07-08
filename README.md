@@ -123,6 +123,7 @@ These rules will monitor a specific area to mark it as occupied or not
 - Set `Force update in seconds` to force an occupancy check if no detection happens. Any detection running on the camera will anyways check all the occupancy rules
 - Set the `Max objects` the zone can contain. The zone will be marked as occupied if the detected objects are >= of the number set here
 - Set a text in both `Zone occupied text` and `Zone not occupied text` for the notification texts
+- Activate `Confirm occupancy with AI` to confirm occupancy results to reduce even more false positives
 
 ### Timelapse (only on camera)
 
