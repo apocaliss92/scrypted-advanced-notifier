@@ -3248,14 +3248,18 @@ const detectionClassClorMap: Partial<Record<string, string>> = {
 };
 
 export const addBoundingBoxesToImage = async (props: {
-    detection: ObjectsDetected,
+    inputDimensions?: [number, number],
+    detections?: ObjectDetectionResult[],
     bufferImage: Buffer;
-    console: Console;
+    withScores?: boolean
 }) => {
-    const { detection, bufferImage } = props;
+    const { detections, inputDimensions, bufferImage, withScores } = props;
 
-    const svgRectsAndTexts = detection.detections.map(({ boundingBox, label, className, score }) => {
-        const labelText = `${label || className}: ${Math.floor(score * 100)}%`;
+    const svgRectsAndTexts = detections.map(({ boundingBox, label, className, score }) => {
+        let labelText = `${label || className}`;
+        if (withScores) {
+            labelText += `: ${Math.floor(score * 100)}%`;
+        }
         const [x, y, width, height] = boundingBox;
         const classNameParsed = detectionClassesDefaultMap[className] ?? 'Other';
         const padding = 4;
@@ -3296,7 +3300,7 @@ export const addBoundingBoxesToImage = async (props: {
     }).join('\n');
 
     const svgOverlay = `
-        <svg width="${detection.inputDimensions[0]}" height="${detection.inputDimensions[1]}" xmlns="http://www.w3.org/2000/svg">
+        <svg width="${inputDimensions[0]}" height="${inputDimensions[1]}" xmlns="http://www.w3.org/2000/svg">
           ${svgRectsAndTexts}
         </svg>
       `;

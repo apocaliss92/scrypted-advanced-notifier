@@ -3065,7 +3065,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         let similarityOk = true;
 
                         if (clipDescription && clipDevice) {
-                            // For now just go ahead if it's a raw detection and it has already embeding from NVR, 
+                            // For now just go ahead if it's a raw detection and it has already embedding from NVR, 
                             // or if it's an NVR notification. Could add a configuration to always calculate embedding on clipped images
                             const canCheckSimilarity = (isRawDetection && match.embedding) || isFromNvr;
                             if (canCheckSimilarity) {
@@ -3083,7 +3083,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                         similarityOk = false;
                                     }
 
-                                    logger.log(`Embedding familiarity score for rule ${rule.name} (${clipDescription}): ${similarityScore} -> ${threshold}`);
+                                    logger.info(`Embedding similarity score for rule ${rule.name} (${clipDescription}): ${similarityScore} -> ${threshold}`);
                                 } catch (e) {
                                     logger.error('Error calculating similarity', e);
                                 }

@@ -1914,13 +1914,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             if (rule.imageProcessing === ImagePostProcessing.MarkBoundaries) {
                 const detection = await objectDetector.detectObjects(image);
                 if (detection.detections.length) {
-                    logger.log('Adding bounding boxes');
-
+                    detection.detections = detection.detections.filter(det => det.className === match.className);
                     const bufferImage = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg');
                     const { newImage, newB64Image } = await addBoundingBoxesToImage({
                         bufferImage,
-                        console: logger,
-                        detection,
+                        detections: detection.detections,
+                        inputDimensions: detection.inputDimensions,
                     });
                     b64Image = newB64Image;
                     image = newImage;
