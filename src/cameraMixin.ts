@@ -3471,10 +3471,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         };
     }
 
-    async getDetectionModel() {
-        return await (this.plugin.storageSettings.values.objectDetectionDevice as ObjectDetection)?.getDetectionModel();
-    }
-
     async getFrameGenerator() {
         const pipelines = getAllDevices().filter(d => d.interfaces.includes(ScryptedInterface.VideoFrameGenerator));
         const webassembly = sdk.systemManager.getDeviceById(NVR_PLUGIN_ID, 'decoder') || undefined;
@@ -3489,7 +3485,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async createFrameGenerator(skipDecoder?: boolean): Promise<AsyncGenerator<VideoFrame, any, unknown>> {
         const logger = this.getLogger();
-        const model = await this.getDetectionModel();
         const stream = await this.cameraDevice.getVideoStream({
             prebuffer: 0,
             destination: this.decoderStream,
@@ -3499,14 +3494,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const frameGeneratorData = await this.getFrameGenerator();
 
         logger.info(`Camera decoder check: ${JSON.stringify({
-            model,
             streamFound: !!stream,
             destination: this.decoderStream,
             frameGeneratorData,
             skipDecoder,
         })}`);
 
-        if (model.decoder && !skipDecoder) {
+        if (!skipDecoder) {
             return stream as unknown as AsyncGenerator<VideoFrame, any, unknown>
         }
 
