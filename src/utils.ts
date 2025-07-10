@@ -2230,6 +2230,7 @@ export const getOccupancyRulesSettings = async (props: {
                 group,
                 subgroup,
                 immediate: true,
+                hide: true,
                 type: 'boolean'
             },
             {
@@ -3041,7 +3042,7 @@ export const getDeviceOccupancyRules = (
         const zoneMatchType = deviceStorage.getItem(zoneMatchTypeKey) as ZoneMatchType;
         const captureZone = deviceStorage.getItem(captureZoneKey) as Point[];
         const occupies = deviceStorage.getItem(occupiesKey) as boolean;
-        const confirmWithAi = deviceStorage.getItem(confirmWithAiKey) as boolean;
+        // const confirmWithAi = deviceStorage.getItem(confirmWithAiKey) as boolean;
         const detectedObjects = deviceStorage.getItem(detectedObjectsKey) as number;
 
         const occupancyRule: OccupancyRule = {
@@ -3059,7 +3060,7 @@ export const getDeviceOccupancyRules = (
             captureZone,
             occupies,
             detectedObjects,
-            confirmWithAi
+            confirmWithAi: false
         };
 
         const ruleAllowed = basicRuleAllowed && !!detectionClass && !!observeZone;

@@ -2139,7 +2139,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     } else {
                         if (isStateConfirmed) {
                             // Time is passed and value didn't change, update the state. But let's ask AI first
-                            let confirmedByAi = false;
+                            let confirmedByAi = true;
 
                             if (rule.confirmWithAi) {
                                 try {
