@@ -1,9 +1,9 @@
 # Scrypted advanced notifier
 
-☕️ If this extension works well for you, consider buying me a coffee. Thanks! https://buymeacoffee.com/apocaliss92
+☕️ If this extension works well for you, consider buying me a coffee. Thanks!
+[Buy me a coffee!](https://buymeacoffee.com/apocaliss92)
 
-
-https://github.com/apocaliss92/scrypted-advanced-notifier - For requests and bugs
+[For requests and bugs](https://github.com/apocaliss92/scrypted-advanced-notifier)
 
 # Getting started
 
