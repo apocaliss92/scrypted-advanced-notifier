@@ -17,7 +17,7 @@ import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassn
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DETECTION_CLIP_PREFIX, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
 import { addZoneClipPathToImage } from "./drawingUtils";
-import { askAiQuestion } from "./aiUtils";
+import { checkObjectsOccupancy } from "./aiUtils";
 
 const { systemManager } = sdk;
 
@@ -1883,11 +1883,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             image,
             clipPath: zone.path
         });
-        const occupiesFromAi = await askAiQuestion({
+        const occupiesFromAi = await checkObjectsOccupancy({
             b64Image: newB64Image,
             logger,
             plugin: this.plugin,
-            question: `How many objects of type ${rule.detectionClass} do you see on the red polygon on the image? Answer with only the number without additional text`
+            detectionClass: rule.detectionClass
         });
 
         const detectedObjectsFromAi = Number(occupiesFromAi.response);
@@ -2149,10 +2149,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                         image,
                                         clipPath: zone.path
                                     });
-                                    const occupiesFromAi = await askAiQuestion({
+                                    const occupiesFromAi = await checkObjectsOccupancy({
                                         b64Image: newB64Image,
-                                        logger, plugin: this.plugin,
-                                        question: `How many objects of type ${rule.detectionClass} do you see on the red polygon on the image? Answer with only the number without additional text`
+                                        logger,
+                                        plugin: this.plugin,
+                                        detectionClass: rule.detectionClass
                                     });
 
                                     const detectedObjectsFromAi = Number(occupiesFromAi.response);

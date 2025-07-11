@@ -25,11 +25,13 @@ export const getAiSettingKeys = () => {
     const llmDeviceKey = `llmDevice`;
     const aiPlatformKey = `aiPlatform`;
     const systemPromptKey = `aiSystemPrompt`;
+    const occupancyPromptKey = `aiOccupancyPrompt`;
 
     return {
         llmDeviceKey,
         aiPlatformKey,
         systemPromptKey,
+        occupancyPromptKey
     };
 }
 
@@ -53,7 +55,7 @@ export const getAiSettings = (props: {
     const { storage, onRefresh } = props;
     const { aiSource } = storage.values;
 
-    const { aiPlatformKey, llmDeviceKey, systemPromptKey } = getAiSettingKeys();
+    const { aiPlatformKey, llmDeviceKey, systemPromptKey, occupancyPromptKey } = getAiSettingKeys();
     const aiPlatform = storage.getItem(aiPlatformKey as any) as AiPlatform ?? AiPlatform.OpenAi;
 
     const settings: StorageSetting[] = [];
@@ -128,16 +130,27 @@ export const getAiSettings = (props: {
         settings.push({
             key: systemPromptKey,
             group: 'AI',
-            title: 'System Prompt',
+            subgroup: 'Prompts',
+            title: 'Detections prompt',
             type: 'textarea',
-            description: 'The system prompt used to generate the notification.',
+            description: 'Prompt to analyze snapshots for detections.',
             defaultValue: 'Create a notification suitable description of the image provided by the user. Describe the people, animals (coloring and breed), or vehicles (color and model) in the image. Do not describe scenery or static objects. Do not direct the user to click the notification. The original notification metadata may be provided and can be used to provide additional context for the new notification, but should not be used verbatim.',
+        });
+        settings.push({
+            key: occupancyPromptKey,
+            group: 'AI',
+            subgroup: 'Prompts',
+            title: 'Occupancy prompt',
+            type: 'textarea',
+            description: 'Prompt to check occupancy rules. Use the placeholder ${class} to specify the object type watched',
+            defaultValue: 'Carefully analyze this image. Count how many distinct physical objects of type {class} are at least partially overlapping or visibly touching the shape of red color. Do not count shadows, textures, or flat surfaces like the ground. Respond with a single number only, with no explanation',
         });
     }
 
     return settings;
 }
 
+// To Remove when LLM is official
 export const defaultModel: Record<AiPlatform, string> = {
     [AiPlatform.AnthropicClaude]: 'claude-3-opus-20240229',
     [AiPlatform.OpenAi]: 'gpt-4o',
@@ -583,13 +596,17 @@ export const getAiMessage = async (props: {
     }
 }
 
-export const askAiQuestion = async (props: {
+export const checkObjectsOccupancy = async (props: {
     plugin: AdvancedNotifierPlugin,
-    question: string,
     b64Image: string,
     logger: Console,
+    detectionClass: DetectionClass,
 }) => {
-    const { b64Image, logger, plugin, question } = props;
+    const { b64Image, logger, plugin, detectionClass } = props;
+
+    const { occupancyPromptKey } = getAiSettingKeys();
+    let question: string = plugin.storageSettings.getItem(occupancyPromptKey as any);
+    question = question?.replaceAll('{class}', detectionClass);
 
     let response: string;
 
@@ -620,5 +637,3 @@ export const askAiQuestion = async (props: {
         }
     }
 }
-
-// export const getOccupancyQuestion = (class: DetectionClass) => 

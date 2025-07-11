@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.3.19
+- Add prompt customization for the occupancy confirmation flow
+
 ### 4.3.13
 - Add setting to confirm occupancy rules with AI to avoid false positives even more
 

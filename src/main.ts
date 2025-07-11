@@ -61,7 +61,6 @@ export type PluginSettingKey =
     | 'testButton'
     | 'checkConfigurations'
     | 'aiSource'
-    | 'aiFixed'
     | 'imagesPath'
     | 'videoclipsRetention'
     | 'imagesRegex'
@@ -350,10 +349,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             choices: Object.values(AiSource),
             defaultValue: AiSource.Disabled,
             onPut: async () => await this.refreshSettings()
-        },
-        aiFixed: {
-            type: 'boolean',
-            hide: true,
         },
         cloudEndpointInternal: {
             type: 'string',
@@ -1136,14 +1131,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if (!this.storageSettings.values.privateKey) {
             const privateKey = generatePrivateKey();
             await this.putSetting('privateKey', privateKey);
-        }
-
-        if (!this.storageSettings.values.aiFixed) {
-            const aiPlatform = this.storageSettings.getItem('aiSource' as any);
-            if (aiPlatform !== 'Disabled') {
-                await this.putSetting('aiSource', AiSource.Manual);
-            }
-            await this.putSetting('aiFixed', true);
         }
     }
 
