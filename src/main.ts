@@ -3335,6 +3335,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { triggerDevice, device, timestamp, logger, b64Image, detections, eventSource, image, eventId } = props;
         const classNames = uniq(detections.map(det => det.className));
         const label = detections.find(det => det.label)?.label;
+        const embeddings = detections.filter(det => !!det.embedding)
+            .map(det => det.embedding);
         const deviceMixin = this.currentCameraMixinsMap[device.id];
 
         const identifiers = detections.map(det => {
@@ -3398,6 +3400,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 deviceName: device.name,
                 sensorName: triggerDevice?.name,
                 eventId,
+                embeddings,
             },
             logger,
         });
