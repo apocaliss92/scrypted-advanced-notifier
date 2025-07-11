@@ -2902,7 +2902,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                         if (spamBlockedDetections.length) {
                             const isOnlyMotion = spamBlockedDetections?.length === 1 && spamBlockedDetections[0].className === DetectionClass.Motion;
-                            logger[isOnlyMotion ? 'info' : 'log'](`Triggering basic detections ${getDetectionsLog(spamBlockedDetections)}`);
+                            logger.info(`Triggering basic detections ${getDetectionsLog(spamBlockedDetections)}`);
 
                             for (const detection of spamBlockedDetections) {
                                 const { className, label } = detection;
@@ -3417,7 +3417,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const funct = async () => {
             const isOnlyMotion = classnames?.length === 1 && classnames[0] === DetectionClass.Motion;
-            logger[isOnlyMotion ? 'info' : 'log'](`Resetting basic detections ${classnames ?? 'All'}, signal coming from ${resetSource}`);
+            logger.info(`Resetting basic detections ${classnames ?? 'All'}, signal coming from ${resetSource}`);
 
             await publishResetDetectionsEntities({
                 mqttClient,

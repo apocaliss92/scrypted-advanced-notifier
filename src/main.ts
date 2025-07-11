@@ -3337,20 +3337,24 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const label = detections.find(det => det.label)?.label;
         const deviceMixin = this.currentCameraMixinsMap[device.id];
 
+        const identifiers = detections.map(det => {
+            let identifier = det.className;
+            if (isMotionClassname(det.className)) {
+                return identifier;
+            }
+            if (det.label) {
+                identifier += `_${det.label}`;
+            }
+            if (det.id) {
+                identifier += `_${det.id}`;
+            }
+
+            return identifier;
+        });
+
         if (!deviceMixin?.isDelayPassed({
             type: DelayType.EventStore,
-            identifiers: detections.map(det => {
-                let identifier = det.className;
-                if (isMotionClassname(det.className)) {
-                    return identifier;
-                }
-                if (det.label) {
-                    identifier += `_${det.label}`;
-                }
-                if (det.id) {
-                    identifier += `_${det.id}`;
-                }
-            }),
+            identifiers,
         })?.timePassed) {
             return;
         }
