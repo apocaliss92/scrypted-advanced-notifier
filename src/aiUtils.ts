@@ -6,6 +6,7 @@ import Groq from "groq-sdk";
 import AdvancedNotifierPlugin, { PluginSettingKey } from "./main";
 import { StorageSetting, StorageSettings } from '@scrypted/sdk/storage-settings';
 import { safeParseJson } from './utils';
+import { DetectionClass } from './detectionClasses';
 
 export enum AiSource {
     Disabled = 'Disabled',
@@ -619,3 +620,5 @@ export const askAiQuestion = async (props: {
         }
     }
 }
+
+// export const getOccupancyQuestion = (class: DetectionClass) => 
