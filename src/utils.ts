@@ -1999,11 +1999,10 @@ export const getDetectionRulesSettings = async (props: {
                 {
                     key: scoreThresholdKey,
                     title: 'Score threshold',
-                    description: 'Applied after detections. Threshold defined on the object detector will still take precedence',
+                    description: 'Applied after detections. Threshold defined on the object detector will still take precedence, default to 0.5 for audio events, 0.7 otherwise',
                     group,
                     subgroup,
                     type: 'number',
-                    placeholder: '0.7',
                     hide: !showMore
                 },
             );
@@ -2882,16 +2881,19 @@ export const getDetectionRules = (props: {
             const devicesToUse = activationType === DetectionRuleActivation.OnActive ? onActiveDevices : devices;
 
             const detectionClasses = storage.getItem(detectionClassesKey) as RuleDetectionClass[] ?? [];
+            const isAudioOnly = detectionClasses.length === 1 && detectionClasses[0] === DetectionClass.Audio;
+
             const nvrEvents = storage.getItem(nvrEventsKey) as NvrEvent[] ?? [];
             const frigateLabels = storage.getItem(frigateLabelsKey) as string[] ?? [];
             const audioLabels = storage.getItem(audioLabelsKey) as string[] ?? [];
-            const scoreThreshold = storage.getItem(scoreThresholdKey) as number || 0.7;
+            const scoreThreshold = storage.getItem(scoreThresholdKey) as number || (isAudioOnly ? 0.5 : 0.7);
             const minDelay = storage.getItem(minDelayKey) as number;
             const clipDescription = storage.getItem(clipDescriptionKey) as string;
             const clipConfidence = storage.getItem(clipConfidenceKey) as SimilarityConfidence;
             const minMqttPublishDelay = storage.getItem(minMqttPublishDelayKey) as number || 15;
             const disableNvrRecordingSeconds = storage.getItem(recordingTriggerSecondsKey) as number;
             const imageProcessing = detectionSource === ScryptedEventSource.RawDetection ? storage.getItem(imageProcessingKey) as ImagePostProcessing : undefined;
+
 
             const { rule, basicRuleAllowed, ...restCriterias } = initBasicRule({
                 ruleName: detectionRuleName,
