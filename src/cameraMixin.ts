@@ -1618,6 +1618,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const forceSnapshot = [
             GetImageReason.Sensor,
             GetImageReason.Notification,
+            GetImageReason.ObjectUpdate,
         ].includes(reason);
         const tryDetector = !!detectionId && !!eventId;
         const snapshotTimeout =
@@ -2568,29 +2569,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
 
         if (image && b64Image) {
-            // if (bufferImage) {
-            //     try {
-            //         const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
-
-            //         if (!objectDetector) {
-            //             return;
-            //         }
-            //         logger.log('Adding bounding boxes');
-
-            //         const detection = await objectDetector.detectObjects(image);
-            //         const { newB64Image, newImage } = await addBoundingBoxesToImage({
-            //             console: logger,
-            //             detection,
-            //             bufferImage,
-            //         });
-
-            //         image = newImage;
-            //         b64Image = newB64Image;
-            //     } catch (e) {
-            //         logger.log(`Error adding bounding boxes`, e);
-            //     }
-            // }
-
             try {
                 const classnamesString = getDetectionsLog(detections);
 
@@ -2685,6 +2663,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             } catch (e) {
                 logger.log(`Error on publishing data: ${JSON.stringify(dataToAnalyze)}`, e)
             }
+        } else {
+            logger.debug(`Image not found for rules ${rulesToUpdate.map(rule => rule.rule.name).join(',')}`);
         }
     }
 
@@ -2885,14 +2865,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             hasNonStandardClasses ||
             isAudioEvent;
 
-        eventDetails && this.processDetectionsInterval && this.accumulatedDetections.push({
-            detect: {
-                ...detect,
-                detections: cloneDeep(candidates)
-            },
-            eventId: eventDetails.eventId,
-            eventSource,
-        });
+        if (eventDetails && this.processDetectionsInterval) {
+            this.accumulatedDetections.push({
+                detect: {
+                    ...detect,
+                    detections: cloneDeep(candidates)
+                },
+                eventId: eventDetails.eventId,
+                eventSource,
+            });
+        }
 
         let image: MediaObject;
         let b64Image: string;
@@ -3215,15 +3197,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         if (similarityOk) {
                             const matchRule = { match, rule, dataToReport };
                             matchRules.push(matchRule);
-                            rule.detectionSource === ScryptedEventSource.RawDetection &&
+                            if (rule.detectionSource === ScryptedEventSource.RawDetection) {
+
                                 this.accumulatedRules.push(matchRule);
+                            }
                         }
                     }
                 }
             }
 
             if (matchRules.length) {
-                logger.info(`Matching rules found: ${getRulesLog(matchRules)}`);
+                logger.log(`Matching rules found: ${getRulesLog(matchRules)}`);
 
                 for (const matchRule of matchRules) {
                     try {
@@ -3496,7 +3480,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { motionDuration, } = this.storageSettings.values;
 
         const turnOffTimeout = setTimeout(async () => {
-            logger.log(`Rule ${rule.name} trigger entities reset`);
+            logger.info(`Rule ${rule.name} trigger entities reset`);
 
             await publishResetRuleEntities({
                 mqttClient,

@@ -139,7 +139,7 @@ const getBasicMqttEntities = () => {
     const audioPressureEntity: MqttEntity = {
         domain: 'sensor',
         entity: 'sound_pressure',
-        name: 'Sound pressure',
+        name: 'Audio level',
         entityCategory: 'diagnostic',
         deviceClass: 'sound_pressure',
         precision: 1,
