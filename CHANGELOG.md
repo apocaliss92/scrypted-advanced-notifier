@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.3.20
+- Add support to onboarded audio detections (YAMnet plugin)
+
 ### 4.3.19
 - Add prompt customization for the occupancy confirmation flow
 

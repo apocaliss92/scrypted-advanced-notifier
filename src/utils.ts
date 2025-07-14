@@ -4,7 +4,6 @@ import { StorageSetting, StorageSettings, StorageSettingsDevice, StorageSettings
 import crypto from 'crypto';
 import { cloneDeep, sortBy, uniq, uniqBy } from "lodash";
 import moment, { Moment } from "moment";
-import sharp from 'sharp';
 import { logLevelSetting } from "../../scrypted-apocaliss-base/src/basePlugin";
 import { FRIGATE_OBJECT_DETECTOR_INTERFACE } from '../../scrypted-frigate-bridge/src/utils';
 import { loginScryptedClient } from "../../scrypted/packages/client/src";
@@ -1167,6 +1166,7 @@ export const getRuleKeys = (props: {
     const detectionClassesKey = `${prefix}:${ruleName}:detecionClasses`;
     const nvrEventsKey = `${prefix}:${ruleName}:nvrEvents`;
     const frigateLabelsKey = `${prefix}:${ruleName}:frigateLabels`;
+    const audioLabelsKey = `${prefix}:${ruleName}:audioLabels`;
     const useNvrDetectionsKey = `${prefix}:${ruleName}:useNvrDetections`;
     const detectionSourceKey = `${prefix}:${ruleName}:detectionSource`;
     const whitelistedZonesKey = `${prefix}:${ruleName}:whitelistedZones`;
@@ -1240,6 +1240,7 @@ export const getRuleKeys = (props: {
             recordingTriggerSecondsKey,
             nvrEventsKey,
             frigateLabelsKey,
+            audioLabelsKey,
             devicesKey,
             detectionClassesKey,
             imageProcessingKey,
@@ -1804,12 +1805,24 @@ export const getDetectionRulesSettings = async (props: {
     frigateZones?: string[],
     people?: string[],
     frigateLabels?: string[],
+    audioLabels?: string[],
     ruleSource: RuleSource,
     device?: DeviceBase,
     refreshSettings: OnRefreshSettings,
     logger: Console
 }) => {
-    const { storage, zones, frigateZones, device, ruleSource, frigateLabels, refreshSettings, logger, people } = props;
+    const {
+        storage,
+        zones,
+        frigateZones,
+        device,
+        ruleSource,
+        frigateLabels,
+        refreshSettings,
+        logger,
+        people,
+        audioLabels
+    } = props;
     const isPlugin = ruleSource === RuleSource.Plugin;
     const { isCamera } = !isPlugin ? isDeviceSupported(device) : {};
 
@@ -1823,6 +1836,7 @@ export const getDetectionRulesSettings = async (props: {
             blacklistedZonesKey,
             nvrEventsKey,
             frigateLabelsKey,
+            audioLabelsKey,
             recordingTriggerSecondsKey,
             useNvrDetectionsKey,
             detectionSourceKey,
@@ -1914,6 +1928,23 @@ export const getDetectionRulesSettings = async (props: {
                         combobox: true,
                         immediate: true,
                         choices: frigateLabelsChoices,
+                        defaultValue: []
+                    }
+                );
+            }
+
+            if (isRawDetection && detectionClasses.includes(DetectionClass.Audio)) {
+                settings.push(
+                    {
+                        key: audioLabelsKey,
+                        title: 'Audio labels',
+                        description: 'Leave blank to trigger on every audio event',
+                        group,
+                        subgroup,
+                        multiple: true,
+                        combobox: true,
+                        immediate: true,
+                        choices: audioLabels,
                         defaultValue: []
                     }
                 );
@@ -2579,6 +2610,7 @@ export interface DetectionRule extends BaseRule {
     detectionClasses?: RuleDetectionClass[];
     nvrEvents?: NvrEvent[];
     frigateLabels?: string[];
+    audioLabels?: string[];
     scoreThreshold?: number;
     labelScoreThreshold?: number;
     whitelistedZones?: string[];
@@ -2658,7 +2690,7 @@ const initBasicRule = (props: {
     const activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
     const generateClipSpeed = storage.getItem(generateClipSpeedKey) as VideoclipSpeed || VideoclipSpeed.Fast;
     const securitySystemModes = storage.getItem(securitySystemModesKey) as SecuritySystemMode[] ?? [];
-    const notifiers = storage.getItem(notifiersKey) as string[];
+    const notifiers = storage.getItem(notifiersKey) as string[] ?? [];
     const generateClip = storage.getItem(generateClipKey) as boolean;
     const generateClipPostSeconds = safeParseJson<number>(storage.getItem(generateClipPostSecondsKey)) ?? 3;
 
@@ -2824,6 +2856,7 @@ export const getDetectionRules = (props: {
                     devicesKey,
                     nvrEventsKey,
                     frigateLabelsKey,
+                    audioLabelsKey,
                     recordingTriggerSecondsKey,
                     peopleKey,
                     plateMaxDistanceKey,
@@ -2851,6 +2884,7 @@ export const getDetectionRules = (props: {
             const detectionClasses = storage.getItem(detectionClassesKey) as RuleDetectionClass[] ?? [];
             const nvrEvents = storage.getItem(nvrEventsKey) as NvrEvent[] ?? [];
             const frigateLabels = storage.getItem(frigateLabelsKey) as string[] ?? [];
+            const audioLabels = storage.getItem(audioLabelsKey) as string[] ?? [];
             const scoreThreshold = storage.getItem(scoreThresholdKey) as number || 0.7;
             const minDelay = storage.getItem(minDelayKey) as number;
             const clipDescription = storage.getItem(clipDescriptionKey) as string;
@@ -2883,6 +2917,7 @@ export const getDetectionRules = (props: {
                 minMqttPublishDelay,
                 detectionSource,
                 frigateLabels,
+                audioLabels,
             };
 
             if (!isPlugin) {

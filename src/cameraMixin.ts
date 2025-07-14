@@ -289,7 +289,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }> = {};
     lastDelaySet: Record<string, number> = {};
     lastObserveZonesFetched: number;
+    lastAudioDataFetched: number;
     observeZoneData: ObserveZoneData[];
+    audioLabels: string[];
     frigateLabels: string[];
     frigateZones: string[];
     frigateCameraName: string;
@@ -557,6 +559,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
         const nvrObjectDetector = systemManager.getDeviceById('@scrypted/nvr', 'detection')?.id;
         const basicObjectDetector = systemManager.getDeviceById('@apocaliss92/scrypted-basic-object-detector')?.id;
+        const basicAudioDetector = systemManager.getDeviceById('@apocaliss92/scrypted-basic-object-detector', 'basicAudioDetector')?.id;
         const frigateObjectDetector = systemManager.getDeviceById('@apocaliss92/scrypted-frigate-bridge', objectDetectorNativeId)?.id;
         const nvrId = systemManager.getDeviceById('@scrypted/nvr')?.id;
         let shouldBeMoved = false;
@@ -569,6 +572,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             shouldBeMoved = true
         }
         if (frigateObjectDetector && this.mixins.indexOf(frigateObjectDetector) > thisMixinOrder) {
+            shouldBeMoved = true
+        }
+        if (basicAudioDetector && this.mixins.indexOf(basicAudioDetector) > thisMixinOrder) {
             shouldBeMoved = true
         }
         if (nvrId && this.mixins.indexOf(nvrId) > thisMixinOrder) {
@@ -1211,8 +1217,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
         const dynamicSettings: StorageSetting[] = [];
         const zones = (await this.getObserveZones()).map(item => item.name);
-        const people = (await this.plugin.getKnownPeople());
-        const { frigateLabels, frigateZones } = (await this.getFrigateData());
+        const people = await this.plugin.getKnownPeople();
+        const { frigateLabels, frigateZones } = await this.getFrigateData();
+        const { labels: audioLabels } = await this.getAudioData();
 
         const detectionRulesSettings = await getDetectionRulesSettings({
             storage: this.storageSettings,
@@ -1222,6 +1229,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             device: this,
             logger,
             frigateLabels,
+            audioLabels,
             ruleSource: RuleSource.Device,
             refreshSettings: this.refreshSettings.bind(this),
         });
@@ -1366,6 +1374,32 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         } catch (e) {
             this.getLogger().log('Error in getObserveZones', e);
             return [];
+        }
+    }
+
+    async getAudioData() {
+        let labels: string[] = this.audioLabels;
+
+        try {
+            const now = new Date().getTime();
+            const isUpdated = this.lastAudioDataFetched && (now - this.lastAudioDataFetched) <= (1000 * 60);
+
+            if (!labels || !isUpdated) {
+                this.lastAudioDataFetched = now;
+                const settings = await this.mixinDevice.getSettings();
+                const labelsSetting = settings.find((setting: { key: string; }) => setting.key === 'basicAudioDetector:detectionClasses')?.value ?? [];
+
+                if (labelsSetting) {
+                    labels = labelsSetting.value as string[];
+                    this.audioLabels = labels;
+                }
+            }
+
+
+        } catch (e) {
+            this.getLogger().log('Error in getObserveZones', e);
+        } finally {
+            return { labels };
         }
     }
 
@@ -3039,8 +3073,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     frigateLabels,
                     clipDescription,
                     clipConfidence,
+                    audioLabels,
                 } = rule;
                 const isFromFrigate = detectionSource === ScryptedEventSource.Frigate;
+                const isRawDetection = detectionSource === ScryptedEventSource.RawDetection;
 
                 if (!detectionClasses.length || !rule.currentlyActive) {
                     continue;
@@ -3092,6 +3128,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     if (isFromFrigate && label) {
                         if (!frigateLabels?.length || !frigateLabels.includes(label)) {
                             logger.debug(`Frigate label ${label} not whitelisted ${frigateLabels}`);
+                            return false;
+                        }
+                    }
+
+                    if (audioLabels && isAudioEvent) {
+                        if (audioLabels.length && !audioLabels.includes(label)) {
+                            logger.debug(`Audio label ${label} not whitelisted ${frigateLabels}`);
                             return false;
                         }
                     }

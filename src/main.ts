@@ -412,9 +412,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     knownPeople: string[] = [];
     restartRequested = false;
     public aiMessageResponseMap: Record<string, string> = {};
+    audioLabels: string[];
     frigateLabels: string[];
     frigateCameras: string[];
     lastFrigateDataFetched: number;
+    lastAudioDataFetched: number;
     localEndpointInternal: string;
     connectionTime = Date.now();
 
@@ -974,11 +976,35 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                 this.frigateLabels = labels.filter(label => label !== 'person');
                 this.frigateCameras = cameras;
+                this.lastFrigateDataFetched = now;
             }
 
             return {
                 frigateLabels: this.frigateLabels,
                 frigateCameras: this.frigateCameras,
+            }
+        } catch (e) {
+            this.getLogger().log('Error in getObserveZones', e.message);
+            return {};
+        }
+    }
+
+    async getAudioData() {
+        try {
+            const now = new Date().getTime();
+
+            const isUpdated = this.lastAudioDataFetched && (now - this.lastAudioDataFetched) <= (1000 * 60);
+            const yamnetPlugin = sdk.systemManager.getDeviceByName<ObjectDetection>('YAMNet Audio Classification');
+
+
+            if (!isUpdated && yamnetPlugin) {
+                const { classes } = await yamnetPlugin.getDetectionModel();
+
+                this.audioLabels = classes;
+            }
+
+            return {
+                labels: this.audioLabels,
             }
         } catch (e) {
             this.getLogger().log('Error in getObserveZones', e.message);
@@ -1478,12 +1504,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const dynamicSettings: StorageSetting[] = [];
         const people = (await this.getKnownPeople());
         const { frigateLabels } = await this.getFrigateData();
+        const { labels: audioLabels } = await this.getAudioData();
 
         const detectionRulesSettings = await getDetectionRulesSettings({
             storage: this.storageSettings,
             ruleSource: RuleSource.Plugin,
             logger,
             frigateLabels,
+            audioLabels,
             people,
             refreshSettings: async () => await this.refreshSettings(),
         });
@@ -1494,12 +1522,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             onRefresh: async () => await this.refreshSettings(),
         }));
 
-        if (frigateLabels) {
-            for (const label of frigateLabels) {
+        const additionalLabels = uniq([...frigateLabels ?? [], ...audioLabels ?? []]);
+
+        if (additionalLabels.length) {
+            for (const label of additionalLabels) {
                 dynamicSettings.push({
                     key: getFrigateTextKey(label),
                     group: 'Texts',
-                    subgroup: 'Frigate labels',
+                    subgroup: 'Additional labels',
                     title: `${label} text`,
                     type: 'string',
                     defaultValue: label,
