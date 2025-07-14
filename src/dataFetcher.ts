@@ -1,5 +1,5 @@
 
-import sdk, { EventRecorder, MediaObject, ObjectsDetected, RecordedEvent, RecordedEventOptions, ScryptedDeviceBase, ScryptedInterface, Setting, Settings, SettingValue, VideoClip, VideoClipOptions, VideoClips, VideoClipThumbnailOptions } from '@scrypted/sdk';
+import sdk, { EventRecorder, MediaObject, ObjectsDetected, RecordedEvent, RecordedEventOptions, ScryptedDevice, ScryptedDeviceBase, ScryptedInterface, Setting, Settings, SettingValue, VideoClip, VideoClipOptions, VideoClips, VideoClipThumbnailOptions } from '@scrypted/sdk';
 import { StorageSettings, StorageSettingsDict } from '@scrypted/sdk/storage-settings';
 import axios from 'axios';
 import { groupBy, uniq } from 'lodash';
@@ -80,6 +80,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                                 classes: ['motion'],
                                 id: detection.detectionId,
                                 deviceName: device.name,
+                                deviceId: device.id,
                                 timestamp: detection.timestamp,
                                 thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?height=200`)}`,
                                 imageUrl: `${privatePathnamePrefix}/${eventImage}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?height=1200`)}`,
@@ -98,6 +99,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                                 embedding: labelDet?.embedding,
                                 id: detection.detectionId,
                                 deviceName: device.name,
+                                deviceId: device.id,
                                 timestamp: detection.timestamp,
                                 thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?${thumbnailSearchParams}`)}`,
                                 imageUrl: `${privatePathnamePrefix}/${eventImage}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?height=1200`)}`,
@@ -151,27 +153,60 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
             logger
         });
 
-        const eventsGroupByDevice = groupBy(rawEvents.filter(e => e.source === ScryptedEventSource.RawDetection), event => event.deviceName);
-        for (const [deviceName, deviceEvents] of Object.entries(eventsGroupByDevice)) {
-            const device = sdk.systemManager.getDeviceByName(deviceName);
-            for (const event of deviceEvents) {
-                // if (!event.eventId || !detectionsUsed.has(event.eventId)) {
-                events.push({
-                    details: {
-                        eventId: event.id,
-                        eventTime: event.timestamp,
-                    },
-                    data: {
-                        ...event,
-                        thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${device.id}/${event.id}/${ScryptedEventSource.RawDetection}`,
-                        imageUrl: `${privatePathnamePrefix}/${eventImage}/${device.id}/${event.id}/${ScryptedEventSource.RawDetection}`,
-                    }
-                });
-                // } else {
-                //     logger.info(`Skipping event, already present from NVR: ${JSON.stringify(event)}`);
-                // }
+        const anEvents = rawEvents.filter(e => e.source === ScryptedEventSource.RawDetection);
+        const devicesMap: Record<string, ScryptedDevice> = {};
+        for (const event of anEvents) {
+            const { deviceId, deviceName } = event;
+            const deviceIdentifier = deviceId || deviceName;
+            let device: ScryptedDevice = devicesMap[deviceIdentifier];
+
+            if (!device) {
+                if (deviceId) {
+                    device = sdk.systemManager.getDeviceById(deviceId);
+                } else if (deviceName) {
+                    device = sdk.systemManager.getDeviceByName(deviceName);
+                }
             }
+
+            if (!device) {
+                continue;
+            }
+
+            devicesMap[deviceIdentifier] = device;
+
+            events.push({
+                details: {
+                    eventId: event.id,
+                    eventTime: event.timestamp,
+                },
+                data: {
+                    ...event,
+                    thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${device.id}/${event.id}/${ScryptedEventSource.RawDetection}`,
+                    imageUrl: `${privatePathnamePrefix}/${eventImage}/${device.id}/${event.id}/${ScryptedEventSource.RawDetection}`,
+                }
+            });
         }
+        // const eventsGroupByDevice = groupBy(rawEvents.filter(e => e.source === ScryptedEventSource.RawDetection), event => event.deviceName);
+        // for (const [deviceName, deviceEvents] of Object.entries(eventsGroupByDevice)) {
+        //     let device = sdk.systemManager.getDeviceByName(deviceName);
+
+        //     if (!device) {
+        //         continue;
+        //     }
+        //     for (const event of deviceEvents) {
+        //         events.push({
+        //             details: {
+        //                 eventId: event.id,
+        //                 eventTime: event.timestamp,
+        //             },
+        //             data: {
+        //                 ...event,
+        //                 thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${device.id}/${event.id}/${ScryptedEventSource.RawDetection}`,
+        //                 imageUrl: `${privatePathnamePrefix}/${eventImage}/${device.id}/${event.id}/${ScryptedEventSource.RawDetection}`,
+        //             }
+        //         });
+        //     }
+        // }
 
         return events;
     }

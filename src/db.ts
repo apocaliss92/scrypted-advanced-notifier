@@ -8,6 +8,7 @@ import { ScryptedEventSource } from './utils';
 const pluginVolume = process.env.SCRYPTED_PLUGIN_VOLUME;
 const dbsPath = path.join(pluginVolume, 'dbs');
 const eventDbsPath = path.join(dbsPath, 'events');
+const dbFileFormat = 'YYYYMMDD';
 
 export type DbDetectionEvent = {
   id: string;
@@ -21,6 +22,7 @@ export type DbDetectionEvent = {
   videoUrl?: string;
   source: ScryptedEventSource;
   deviceName: string;
+  deviceId: string;
   sensorName?: string;
 }
 
@@ -33,7 +35,7 @@ export const cleanupEvents = async (props: { logger: Console }) => {
 
 const getDbForEvent = async (timestamp: number) => {
   const date = new Date(timestamp);
-  const dayStr = moment(date).format('YYYYMMDD');
+  const dayStr = moment(date).format(dbFileFormat);
 
   try {
     await fs.promises.access(eventDbsPath);
@@ -67,7 +69,7 @@ export const addEvent = async (props: {
 
 export const getEventDays = async () => {
   const folders = await fs.promises.readdir(eventDbsPath);
-  return folders.map(date => moment(date, 'YYYYMMDD').toISOString());
+  return folders.map(date => moment(date, dbFileFormat).toISOString());
 }
 
 export const getEventsInRange = async (props: {
@@ -84,7 +86,7 @@ export const getEventsInRange = async (props: {
   let current = start.clone()
 
   while (current.isSameOrBefore(end, 'day')) {
-    const dayStr = current.format('YYYYMMDD')
+    const dayStr = current.format(dbFileFormat)
     const dbPath = path.join(eventDbsPath, `${dayStr}.json`);
 
     if (fs.existsSync(dbPath)) {
@@ -104,4 +106,26 @@ export const getEventsInRange = async (props: {
   }
 
   return orderBy(allEvents, 'timestamp', ['desc']);
+}
+
+export const cleanupDatabases = async (props: {
+  days: number,
+  logger: Console
+}) => {
+  const { days, logger } = props;
+
+  const allDays = await fs.promises.readdir(eventDbsPath);
+
+  const todayLessNDays = moment().subtract(days, 'days');
+  const dbsToDelete = allDays.filter(dataStr => {
+    const data = moment(dataStr.replace('.json', ''), dbFileFormat);
+    return data.isSameOrBefore(todayLessNDays);
+  });
+
+  for (const db of dbsToDelete) {
+    const pathToDb = path.join(eventDbsPath, db);
+    await fs.promises.rm(pathToDb, { recursive: true, force: true, maxRetries: 10 });
+  }
+
+  logger.log(`DBs cleanup completed: ${dbsToDelete.length} removed (${dbsToDelete.join(', ')})`);
 }

@@ -16,7 +16,7 @@ import { haAlarmAutomation, haAlarmAutomationId } from "./alarmUtils";
 import { AdvancedNotifierCamera } from "./camera";
 import { AdvancedNotifierCameraMixin, OccupancyRuleData } from "./cameraMixin";
 import { AdvancedNotifierDataFetcher } from "./dataFetcher";
-import { addEvent, cleanupEvents } from "./db";
+import { addEvent, cleanupDatabases, cleanupEvents } from "./db";
 import { DetectionClass, isLabelDetection, isMotionClassname } from "./detectionClasses";
 import { addBoundingBoxesToImage, cropImageToDetection } from "./drawingUtils";
 import { servePluginGeneratedThumbnail, servePluginGeneratedVideoclip } from "./httpUtils";
@@ -1238,6 +1238,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             if (!this.lastConfigurationsCheck || (now - this.lastConfigurationsCheck) > 1000 * 60 * 60) {
                 this.lastConfigurationsCheck = now;
                 await this.checkPluginConfigurations(false);
+
+                await cleanupDatabases({
+                    days: this.storageSettings.values.videoclipsRetention,
+                    logger,
+                });
             }
 
             const { mqttEnabled, notificationsEnabled } = this.storageSettings.values;
@@ -3132,7 +3137,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             clipsFound: 0,
             clipsRemoved: 0,
             timelapsesFound: 0,
-            timelapsesRemoved: 0
+            timelapsesRemoved: 0,
         };
 
         try {
@@ -3415,6 +3420,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 timestamp,
                 source: eventSource,
                 deviceName: device.name,
+                deviceId: device.id,
                 sensorName: triggerDevice?.name,
                 eventId,
                 embeddings,

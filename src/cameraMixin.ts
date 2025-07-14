@@ -2991,13 +2991,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             if (
                 isRawDetection &&
-                detect?.detectionId &&
                 eventDetails?.eventId &&
                 this.plugin.storageSettings.values.storeEvents
             ) {
                 const { b64Image: b64ImageToStore, image: imageToStore } = await this.getImage({
-                    eventId: eventDetails.eventId,
-                    detectionId: detect.detectionId,
+                    eventId: eventDetails?.eventId,
+                    detectionId: detect?.detectionId,
                     reason: GetImageReason.StoreRawEvent
                 });
 
@@ -3008,7 +3007,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         candidates,
                     })}`);
 
-                    const eventId = getDetectionEventKey({ detectionId: detect.detectionId, eventId: eventDetails.eventId });
+                    const eventId = getDetectionEventKey({ detectionId: detect?.detectionId, eventId: eventDetails?.eventId });
 
                     this.plugin.storeEventImage({
                         b64Image: b64ImageToStore,
