@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.3.25
+- Add setting for homeassistant notifiers to open notifications on the homeassistant's scrypted component
+
 ### 4.3.20
 - Add support to onboarded audio detections (YAMnet plugin)
 

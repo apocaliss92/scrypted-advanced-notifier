@@ -2162,8 +2162,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { notifierData } = rule ?? {};
         const notifierId = notifier.id;
         const cameraId = device?.id;
-        const { actions, priority, addSnooze, addCameraActions, sound } = notifierData?.[notifierId] ?? {};
-        const { withActions, withSnoozing, withSound } = getNotifierData({ notifierId, ruleType: rule?.ruleType });
+        const { actions, priority, addSnooze, addCameraActions, sound, openInApp } = notifierData?.[notifierId] ?? {};
+        const { withActions, withSnoozing, withSound, withOpenInApp } = getNotifierData({ notifierId, ruleType: rule?.ruleType });
         const cameraMixin = cameraId ? this.currentCameraMixinsMap[cameraId] : undefined;
         const notifierMixin = this.currentNotifierMixinsMap[notifierId];
         const { notifierActions, aiEnabled: cameraAiEnabled } = cameraMixin?.storageSettings.values ?? {}
@@ -2317,9 +2317,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const fileSizeInMegabytes = videoSize / (1024 * 1024);
             const isVideoValid = fileSizeInMegabytes < 50;
 
+            const urlToUse = withOpenInApp && openInApp ? haUrl : externalUrl;
             payload.data.ha = {
-                url: clickUrl ?? externalUrl,
-                clickAction: clickUrl ?? externalUrl,
+                url: clickUrl ?? urlToUse,
+                clickAction: clickUrl ?? urlToUse,
                 video: isVideoValid ? videoUrl : undefined,
                 push: {
                     sound: {
