@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.3.27
+- Publish audio entities to MQTT
+
 ### 4.3.25
 - Add setting for homeassistant notifiers to open notifications on the homeassistant's scrypted component
 
