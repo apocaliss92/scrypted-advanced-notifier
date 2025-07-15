@@ -2712,7 +2712,7 @@ const initBasicRule = (props: {
     const generateClipSpeed = storage.getItem(generateClipSpeedKey) as VideoclipSpeed || VideoclipSpeed.Fast;
     const securitySystemModes = storage.getItem(securitySystemModesKey) as SecuritySystemMode[] ?? [];
     const notifiers = storage.getItem(notifiersKey) as string[] ?? [];
-    const generateClip = storage.getItem(generateClipKey) as boolean;
+    const generateClip = storage.getItem(generateClipKey) as boolean ?? false;
     const generateClipPostSeconds = safeParseJson<number>(storage.getItem(generateClipPostSecondsKey)) ?? 3;
 
     const rule: BaseRule = {
@@ -2727,8 +2727,8 @@ const initBasicRule = (props: {
         source: ruleSource,
         securitySystemModes,
         generateClip,
-        generateClipSpeed,
-        generateClipPostSeconds,
+        generateClipSpeed: generateClip ? generateClipSpeed : undefined,
+        generateClipPostSeconds: generateClip ? generateClipPostSeconds : undefined,
         notifierData: {},
     };
 

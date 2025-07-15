@@ -24,7 +24,7 @@ import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodisco
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAssetSource, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, isDetectionClass, isDeviceSupported, isSecretValid, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllDevices, getAssetSource, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, isDetectionClass, isDeviceSupported, isSecretValid, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, ScryptedEventSource, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier } from "./utils";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -478,7 +478,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger.log(`Frigate cameras found ${frigateCameras}`);
         }
 
-        const [major, minor, patch] = version.split('.').map(num => parseInt(num, 10));
+        // const [major, minor, patch] = version.split('.').map(num => parseInt(num, 10));
 
         await sdk.deviceManager.onDeviceDiscovered(
             {
@@ -1158,6 +1158,18 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const privateKey = generatePrivateKey();
             await this.putSetting('privateKey', privateKey);
         }
+
+        if (!this.storageSettings.values.objectDetectionDevice) {
+            const allDetectors = getAllDevices().filter(dev => dev.interfaces.includes(ScryptedInterface.ObjectDetectionPreview) && dev.id !== nvrAcceleratedMotionSensorId);
+            logger.log(`Object detector not set, defaulting to ${allDetectors[0].name}`);
+            await this.putSetting('objectDetectionDevice', allDetectors[0].id);
+        }
+
+        if (!this.storageSettings.values.objectDetectionDevice) {
+            const allClippers = getAllDevices().filter(dev => dev.interfaces.includes(ScryptedInterface.TextEmbedding));
+            logger.log(`Clip device not set, defaulting to ${allClippers[0].name}`);
+            await this.putSetting('clipDevice', allClippers[0].id);
+        }
     }
 
     private async mainFlow() {
@@ -1426,6 +1438,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 scryptedToken,
                 nvrUrl,
                 objectDetectionDevice,
+                clipDevice,
                 haEnabled,
                 securitySystem,
             } = this.storageSettings.values;
@@ -1460,6 +1473,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 serverId: this.storageSettings.getItem('serverId') ? 'Found' : 'Not found',
                 nvrUrl: nvrUrl ? 'Set' : 'Not set',
                 objectDetectionDevice: objectDetectionDevice ? objectDetectionDevice.name : 'Not set',
+                clipDevice: clipDevice ? clipDevice.name : 'Not set',
                 securitySystemSet: securitySystemDevice ? 'Set' : 'Not set',
                 securitySystemState: securitySystemDevice ? securitySystemCorrectMode ? 'Ok' : `Wrong: ${securitySyetemState?.mode}` : undefined
             });
@@ -1936,31 +1950,38 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         const objectDetector: ObjectDetection & ScryptedDeviceBase = this.storageSettings.values.objectDetectionDevice;
 
+        logger.log(`Post-processing set to ${rule.imageProcessing}, objectDetector is set to ${objectDetector ? objectDetector.name : 'NOT_DEFINED'}`);
         if (match && objectDetector) {
-            if (rule.imageProcessing === ImagePostProcessing.MarkBoundaries) {
+            if (rule.imageProcessing !== ImagePostProcessing.None) {
                 const detection = await objectDetector.detectObjects(image);
-                if (detection.detections.length) {
-                    detection.detections = detection.detections.filter(det => det.className === match.className);
-                    const { newImage, newB64Image } = await addBoundingBoxesToImage({
-                        image,
-                        detections: detection.detections,
-                        inputDimensions: detection.inputDimensions,
-                    });
-                    b64Image = newB64Image;
-                    image = newImage;
-                }
-            } else if (rule.imageProcessing === ImagePostProcessing.Crop) {
-                let boundingBox: BoundingBoxResult['boundingBox'];
 
-                if (match.boundingBox) {
-                    boundingBox = match.boundingBox;
-                } else {
-                    const detection = await objectDetector.detectObjects(image);
-                    const found = detection.detections.find(det =>
-                        det.className === match.className &&
-                        (match.label ? det.className === match.className : true)
-                    );
-                    boundingBox = found?.boundingBox;
+                if (rule.imageProcessing === ImagePostProcessing.MarkBoundaries) {
+                    if (detection.detections.length) {
+                        detection.detections = detection.detections.filter(det => det.className === match.className);
+                        const { newImage, newB64Image } = await addBoundingBoxesToImage({
+                            image,
+                            detections: detection.detections,
+                            inputDimensions: detection.inputDimensions,
+                        });
+                        b64Image = newB64Image;
+                        image = newImage;
+                    } else {
+                        logger.log(`Post-processing detections returned no results: ${JSON.stringify(detection)}`);
+                    }
+                } else if (rule.imageProcessing === ImagePostProcessing.Crop) {
+                    let boundingBox: BoundingBoxResult['boundingBox'];
+
+                    if (match.boundingBox) {
+                        boundingBox = match.boundingBox;
+                    } else {
+                        if (detection.detections.length) {
+                            const found = detection.detections.find(det =>
+                                det.className === match.className &&
+                                (match.label ? det.className === match.className : true)
+                            );
+                            boundingBox = found?.boundingBox;
+                        }
+                    }
 
                     if (boundingBox) {
                         const { newB64Image, newImage } = await cropImageToDetection({
@@ -1972,6 +1993,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                         image = newImage;
                         b64Image = newB64Image;
+                    } else {
+                        logger.log(`Post-processing bounding box not found: ${JSON.stringify(detection)}`);
                     }
                 }
             }

@@ -2631,7 +2631,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         });
 
                         if (timePassed) {
-                            logger.log(`Starting notifiers for detection rule (accumulated detections) ${getDetectionKey(matchRule)}, b64Image ${getB64ImageLog(b64Image)} from ${imageSource}, last check ${lastSetInSeconds}s ago with delay ${minDelayInSeconds}s (accumnulated detections)`);
+                            logger.log(`Starting notifiers for detection rule (accumulated detections) ${getDetectionKey(matchRule)}, b64Image ${getB64ImageLog(b64Image)} from ${imageSource}, last check ${lastSetInSeconds ? lastSetInSeconds + 's ago' : '-'} with delay ${minDelayInSeconds}s`);
 
                             await this.plugin.notifyDetectionEvent({
                                 triggerDeviceId: this.id,
@@ -3209,8 +3209,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }
 
             if (matchRules.length) {
-                logger.log(`Matching rules found: ${getRulesLog(matchRules)}`);
-
                 for (const matchRule of matchRules) {
                     try {
                         const { match, rule } = matchRule;
