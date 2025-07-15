@@ -1053,6 +1053,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }).catch(logger.log);
                 }
             }
+            
 
             try {
                 for await (const frame of
