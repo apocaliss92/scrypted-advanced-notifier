@@ -47,6 +47,7 @@ export const DECODER_FRAME_MIN_TIME = 100;
 export const TIMELAPSE_CLIP_PREFIX = 'TIMELAPSE';
 export const DETECTION_CLIP_PREFIX = 'DETECTION';
 export const ADVANCED_NOTIFIER_PLUGIN_NAME = scrypted.name;
+export const SCRYPTED_NVR_OBJECT_DETECTION_NAME = 'Scrypted NVR Object Detection';
 
 export const getAssetSource = (props: { videoUrl?: string, sourceId?: string }) => {
     const { sourceId, videoUrl } = props;

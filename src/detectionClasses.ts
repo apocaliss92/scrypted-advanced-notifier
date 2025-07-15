@@ -215,7 +215,7 @@ export const objectClasses = [
 export const audioClasses = [
     DetectionClass.Audio,
 
-    "speech", "babbling", "yell", "bellow", "whoop", "whispering", "laughter", "snicker",
+    "speech", "scream", "babbling", "yell", "bellow", "whoop", "whispering", "laughter", "snicker",
     "crying", "sigh", "singing", "choir", "sodeling", "chant", "mantra", "child_singing",
     "synthetic_singing", "rapping", "humming", "groan", "grunt", "whistling", "breathing",
     "wheeze", "snoring", "gasp", "pant", "snort", "cough", "throat_clearing", "sneeze",
