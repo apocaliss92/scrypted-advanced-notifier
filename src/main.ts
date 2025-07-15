@@ -3423,7 +3423,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 deviceId: device.id,
                 sensorName: triggerDevice?.name,
                 eventId,
-                embeddings,
+                detections,
             },
             logger,
         });

@@ -1999,7 +1999,7 @@ export const getDetectionRulesSettings = async (props: {
                 {
                     key: scoreThresholdKey,
                     title: 'Score threshold',
-                    description: 'Applied after detections. Threshold defined on the object detector will still take precedence, default to 0.6 for audio events, 0.7 otherwise',
+                    description: 'Applied after detections. Threshold defined on the object detector will still take precedence, default to 0.5 for audio events, 0.7 otherwise',
                     group,
                     subgroup,
                     type: 'number',

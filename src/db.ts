@@ -4,6 +4,7 @@ import moment from 'moment';
 import { Config, JsonDB } from 'node-json-db';
 import path from 'path';
 import { ScryptedEventSource } from './utils';
+import { ObjectDetectionResult } from '@scrypted/sdk';
 
 const pluginVolume = process.env.SCRYPTED_PLUGIN_VOLUME;
 const dbsPath = path.join(pluginVolume, 'dbs');
@@ -16,7 +17,6 @@ export type DbDetectionEvent = {
   timestamp: number;
   classes: string[];
   label?: string;
-  embeddings?: string[];
   thumbnailUrl?: string;
   imageUrl?: string;
   videoUrl?: string;
@@ -24,6 +24,7 @@ export type DbDetectionEvent = {
   deviceName: string;
   deviceId: string;
   sensorName?: string;
+  detections: ObjectDetectionResult[];
 }
 
 export const cleanupEvents = async (props: { logger: Console }) => {
