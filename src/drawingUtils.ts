@@ -144,92 +144,6 @@ export const addZoneClipPathToImage = async (props: {
 }
 
 export const cropImageToDetection = async (props: {
-    inputDimensions?: [number, number],
-    boundingBox?: [number, number, number, number],
-    image: MediaObject;
-    asSquare?: boolean
-}) => {
-    const { image, boundingBox, inputDimensions, asSquare, } = props;
-    const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(image, ScryptedMimeTypes.Image);
-
-    const [x, y, width, height] = boundingBox;
-    const [inputWidth, inputHeight] = inputDimensions;
-
-    const marginRatio = 0.1;
-    let cropWidth: number;
-    let cropHeight: number;
-    let cropX: number;
-    let cropY: number;
-
-    if (asSquare) {
-        const marginX = width * marginRatio;
-        const marginY = height * marginRatio;
-
-        cropX = x - marginX;
-        cropY = y - marginY;
-        cropWidth = width + marginX * 2;
-        cropHeight = height + marginY * 2;
-
-        const side = Math.max(cropWidth, cropHeight);
-
-        cropX = x + width / 2 - side / 2;
-        cropY = y + height / 2 - side / 2;
-
-        cropX = Math.max(0, cropX);
-        cropY = Math.max(0, cropY);
-        cropWidth = inputWidth - cropX;
-        cropHeight = inputHeight - cropY;
-        const squareSide = Math.min(side, cropWidth, cropHeight);
-        cropX = squareSide;
-        cropY = squareSide;
-    } else {
-        const imageRatio = inputWidth / inputHeight;
-
-        const marginX = width * marginRatio;
-        const marginY = height * marginRatio;
-
-        cropX = x - marginX;
-        cropY = y - marginY;
-        cropWidth = width + marginX * 2;
-        cropHeight = height + marginY * 2;
-
-        const cropRatio = cropWidth / cropHeight;
-
-        if (cropRatio > imageRatio) {
-            const newHeight = cropWidth / imageRatio;
-            const diff = newHeight - cropHeight;
-            cropY -= diff / 2;
-            cropHeight = newHeight;
-        } else {
-            const newWidth = cropHeight * imageRatio;
-            const diff = newWidth - cropWidth;
-            cropX -= diff / 2;
-            cropWidth = newWidth;
-        }
-
-        cropX = Math.max(0, cropX);
-        cropY = Math.max(0, cropY);
-        cropWidth = Math.min(inputWidth - cropX, cropWidth);
-        cropHeight = Math.min(inputHeight - cropY, cropHeight);
-    }
-
-    const newImage = await convertedImage.toImage({
-        crop: {
-            width: Math.round(cropWidth),
-            height: Math.round(cropHeight),
-            left: Math.round(cropX),
-            top: Math.round(cropY),
-        }
-    });
-    const newB64Image = await moToB64(newImage);
-
-    return {
-        newB64Image,
-        newImage,
-    };
-}
-
-export const cropImageToDetectionV2 = async (props: {
     inputDimensions: [number, number],
     boundingBox: [number, number, number, number],
     image: MediaObject;
@@ -255,7 +169,7 @@ export const cropImageToDetectionV2 = async (props: {
 
     cropX = Math.max(0, cropX);
     cropY = Math.max(0, cropY);
-    
+
     cropWidth = Math.min(cropWidth, inputWidth - cropX);
     cropHeight = Math.min(cropHeight, inputHeight - cropY);
 
@@ -284,5 +198,64 @@ export const cropImageToDetectionV2 = async (props: {
     return {
         newB64Image,
         newImage,
+    };
+}
+
+export const getCropResizeOptions = (props: {
+    inputDimensions?: [number, number],
+    boundingBox: [number, number, number, number],
+    aspectRatio?: number
+}) => {
+    const {
+        inputDimensions,
+        boundingBox,
+        aspectRatio,
+    } = props;
+
+    if (!boundingBox || !inputDimensions) {
+        return {};
+    }
+
+    const imageAspectRatio = inputDimensions[0] / inputDimensions[1];
+    const targetAspectRatio = aspectRatio || imageAspectRatio;
+    const [boundingBoxX, boundingBoxY, boundingBoxWidth, boundingBoxHeight] = boundingBox;
+    const centerY = boundingBoxY + boundingBoxHeight / 2;
+
+    let cropWidth = boundingBoxWidth;
+    let cropHeight = cropWidth / targetAspectRatio;
+
+    if (cropHeight < boundingBoxHeight) {
+        cropHeight = boundingBoxHeight;
+        cropWidth = cropHeight * targetAspectRatio;
+    }
+
+    const centerX = boundingBoxX + boundingBoxWidth / 2;
+    let cropLeft = centerX - cropWidth / 2;
+
+    if (cropLeft < 0) {
+        cropLeft = 0;
+    } else if (cropLeft + cropWidth > inputDimensions[0]) {
+        cropLeft = inputDimensions[0] - cropWidth;
+    }
+
+    let cropTop = centerY - cropHeight / 2;
+
+    if (cropTop < 0) {
+        cropTop = 0;
+    } else if (cropTop + cropHeight > inputDimensions[1]) {
+        cropTop = inputDimensions[1] - cropHeight;
+    }
+
+    cropLeft = Math.min(inputDimensions[0], Math.max(0, cropLeft));
+    cropTop = Math.min(inputDimensions[1], Math.max(0, cropTop));
+
+    const finalWidth = Math.min(inputDimensions[0], cropWidth);
+    const finalHeight = Math.min(inputDimensions[1], cropHeight);
+
+    return {
+        left: cropLeft,
+        top: cropTop,
+        width: finalWidth,
+        height: finalHeight
     };
 }

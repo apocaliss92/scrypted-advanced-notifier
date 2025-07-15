@@ -18,7 +18,7 @@ import { AdvancedNotifierCameraMixin, OccupancyRuleData } from "./cameraMixin";
 import { AdvancedNotifierDataFetcher } from "./dataFetcher";
 import { addEvent, cleanupDatabases, cleanupEvents } from "./db";
 import { DetectionClass, isLabelDetection, isMotionClassname } from "./detectionClasses";
-import { addBoundingBoxesToImage, cropImageToDetection, cropImageToDetectionV2 } from "./drawingUtils";
+import { addBoundingBoxesToImage, cropImageToDetection } from "./drawingUtils";
 import { servePluginGeneratedThumbnail, servePluginGeneratedVideoclip } from "./httpUtils";
 import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
 import { AdvancedNotifierNotifier } from "./notifier";
@@ -2010,7 +2010,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                         if (boundingBox) {
                             try {
-                                const { newB64Image, newImage } = await cropImageToDetectionV2({
+                                const { newB64Image, newImage } = await cropImageToDetection({
                                     image,
                                     boundingBox,
                                     inputDimensions: detection.inputDimensions,
@@ -3422,8 +3422,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { triggerDevice, device, timestamp, logger, b64Image, detections, eventSource, image, eventId } = props;
         const classNames = uniq(detections.map(det => det.className));
         const label = detections.find(det => det.label)?.label;
-        const embeddings = detections.filter(det => !!det.embedding)
-            .map(det => det.embedding);
         const deviceMixin = this.currentCameraMixinsMap[device.id];
 
         const identifiers = detections.map(det => {
