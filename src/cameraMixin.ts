@@ -857,6 +857,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                     undefined
                             }).catch(logger.error);
 
+                            this.ensureMixinsOrder();
+
                             this.refreshSettings().catch(logger.error);
                         }
 
