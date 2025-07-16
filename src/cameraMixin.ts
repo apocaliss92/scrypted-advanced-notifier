@@ -1528,7 +1528,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 eventSource
             });
 
-            if (this.isActiveForMqttReporting && timePassed) {
+            if (this.isActiveForMqttReporting) {
                 const mqttClient = await this.getMqttClient();
                 if (mqttClient) {
                     try {
@@ -1537,7 +1537,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             device,
                             triggerValue: !skipTrigger ? true : undefined,
                             console: logger,
-                            b64Image,
+                            b64Image: timePassed ? b64Image : undefined,
                             rule,
                             triggerTime,
                             skipMqttImage,
@@ -3379,7 +3379,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             if (matchRules.length) {
                 for (const matchRule of matchRules) {
                     try {
-                        const { match, rule, inputDimensions } = matchRule;
+                        const { match, rule } = matchRule;
                         const isRawDetectionRule = (rule as DetectionRule).detectionSource === ScryptedEventSource.RawDetection;
                         const isNonRawDetection = !isRawDetection && !isRawDetectionRule;
                         const canUpdateMqttImage = isNonRawDetection && this.isDelayPassed({ type: DelayType.RuleImageUpdate, matchRule, eventSource })?.timePassed;
