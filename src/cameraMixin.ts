@@ -11,13 +11,13 @@ import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import { filterOverlappedDetections } from '../../scrypted-basic-object-detector/src/util';
 import { FrigateObjectDetection, objectDetectorNativeId } from '../../scrypted-frigate-bridge/src/utils';
 import { Deferred } from "../../scrypted/server/src/deferred";
+import { checkObjectsOccupancy } from "./aiUtils";
 import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, isFaceClassname, isMotionClassname, isObjectClassname, isPlateClassname, levenshteinDistance } from "./detectionClasses";
+import { addBoundingBoxesToImage, addZoneClipPathToImage, cropImageToDetection } from "./drawingUtils";
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DETECTION_CLIP_PREFIX, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
-import { addBoundingBoxesToImage, addZoneClipPathToImage, cropImageToDetection } from "./drawingUtils";
-import { checkObjectsOccupancy } from "./aiUtils";
+import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DETECTION_CLIP_PREFIX, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyDetectionSource, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -2627,26 +2627,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             eventSource: ScryptedEventSource.RawDetection
                         }).catch(logger.log);
 
-                        const { timePassed, lastSetInSeconds, minDelayInSeconds } = this.isDelayPassed({
-                            type: DelayType.RuleNotification,
+                        this.preProcessNotificationRule({
+                            triggerDeviceId: this.id,
+                            eventSource: NotifyDetectionSource.AccumulatedDetection,
                             matchRule,
-                        });
-
-                        if (timePassed) {
-                            logger.log(`Starting notifiers for detection rule (accumulated detections) ${getDetectionKey(matchRule)}, b64Image ${getB64ImageLog(b64Image)} from ${imageSource}, last check ${lastSetInSeconds ? lastSetInSeconds + 's ago' : '-'} with delay ${minDelayInSeconds}s`);
-
-                            this.preProcessNotificationRule({
-                                triggerDeviceId: this.id,
-                                matchRule,
-                                imageData: {
-                                    image,
-                                    b64Image,
-                                    imageSource,
-                                },
-                                eventType: detectionClassesDefaultMap[match.className],
-                                triggerTime,
-                            }).catch(logger.log);
-                        }
+                            imageData: {
+                                image,
+                                b64Image,
+                                imageSource,
+                            },
+                            eventType: detectionClassesDefaultMap[match.className],
+                            triggerTime,
+                        }).catch(logger.log);
                     }
                 }
 
@@ -2691,159 +2683,171 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     public async preProcessNotificationRule(props: NotifyDetectionProps) {
-        const { matchRule, imageData } = props;
+        const { matchRule, imageData, eventSource } = props;
         const { rule: ruleParent, match, inputDimensions: inputDimensionsParent } = matchRule;
         const rule = ruleParent as DetectionRule;
         const logger = this.getLogger();
         const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
 
-        let image: MediaObject;
-        let b64Image: string;
-        let imageSource: ImageSource;
+        const { timePassed, lastSetInSeconds, minDelayInSeconds } = this.isDelayPassed({
+            type: DelayType.RuleNotification,
+            matchRule: matchRule as MatchRule,
+        });
 
-        if (!imageData) {
-            let { b64Image: newB64Image, image: newImage, imageSource: newImageSource } = await this.getImage({
-                reason: GetImageReason.Notification
-            });
+        if (timePassed) {
+            let image: MediaObject;
+            let b64Image: string;
+            let imageSource: ImageSource;
 
-            image = newImage;
-            b64Image = newB64Image;
-            imageSource = newImageSource;
-        } else {
-            image = imageData.image;
-            b64Image = imageData.b64Image;
-            imageSource = imageData.imageSource;
-        }
+            if (!imageData) {
+                let { b64Image: newB64Image, image: newImage, imageSource: newImageSource } = await this.getImage({
+                    reason: GetImageReason.Notification
+                });
 
-        let shouldResetTimer = false;
-
-        if (image) {
-            logger.log(`Post-processing set to ${rule.imageProcessing}, objectDetector is set to ${objectDetector ? objectDetector.name : 'NOT_DEFINED'}`);
-            let inputDimensions = inputDimensionsParent;
-
-            if (match && objectDetector && image) {
-                if (rule.imageProcessing !== ImagePostProcessing.None) {
-                    let boundingBox: BoundingBoxResult['boundingBox'];
-
-                    if (imageSource === ImageSource.Detector) {
-                        boundingBox = match.boundingBox;
-                    } else {
-                        const detection = await sdk.connectRPCObject(
-                            await objectDetector.detectObjects(image)
-                        );
-                        inputDimensions = detection.inputDimensions;
-                        if (detection.detections.length) {
-                            const matchingDetections = detection.detections.filter(det =>
-                                det.className === match.className &&
-                                (match.label ? det.label === match.label : true)
-                            );
-
-                            if (matchingDetections.length > 0) {
-                                if (match.boundingBox) {
-                                    if (match.label) {
-                                        boundingBox = matchingDetections[0].boundingBox;
-                                    } else {
-                                        const [targetX, targetY] = match.boundingBox;
-                                        let closestDetection = matchingDetections[0];
-                                        let minDistance = Infinity;
-
-                                        for (const det of matchingDetections) {
-                                            const [detX, detY] = det.boundingBox;
-                                            const distance = Math.sqrt(Math.pow(detX - targetX, 2) + Math.pow(detY - targetY, 2));
-
-                                            if (distance < minDistance) {
-                                                minDistance = distance;
-                                                closestDetection = det;
-                                            }
-                                        }
-
-                                        boundingBox = closestDetection.boundingBox;
-                                    }
-                                } else {
-                                    boundingBox = matchingDetections[0].boundingBox;
-                                }
-                            }
-                        } else {
-                            logger.info(`Post-processing re-detection didn't find anything. ${JSON.stringify({
-                                detection,
-                                imageSource,
-                                match,
-                            })}`);
-                            shouldResetTimer = true;
-                        }
-                    }
-
-                    if (boundingBox) {
-                        try {
-                            if (rule.imageProcessing === ImagePostProcessing.MarkBoundaries) {
-                                const { newImage, newB64Image } = await addBoundingBoxesToImage({
-                                    image,
-                                    detections: [{
-                                        ...match,
-                                        boundingBox,
-                                    }],
-                                    inputDimensions,
-                                });
-                                b64Image = newB64Image;
-                                image = newImage;
-                            } else if (rule.imageProcessing === ImagePostProcessing.Crop) {
-                                try {
-                                    const { newB64Image, newImage } = await cropImageToDetection({
-                                        image,
-                                        boundingBox,
-                                        inputDimensions,
-                                    });
-
-                                    image = newImage;
-                                    b64Image = newB64Image;
-                                } catch (e) {
-                                    logger.error('Failed to crop image', {
-                                        boundingBox,
-                                        inputDimensions,
-                                        error: e.message
-                                    });
-
-                                    shouldResetTimer = true;
-                                }
-                            }
-                        } catch (e) {
-                            logger.error(`Error during post-processing`, JSON.stringify({
-                                boundingBox,
-                                inputDimensions,
-                            }), e);
-
-                            shouldResetTimer = true;
-                        }
-                    }
-                }
+                image = newImage;
+                b64Image = newB64Image;
+                imageSource = newImageSource;
+            } else {
+                image = imageData.image;
+                b64Image = imageData.b64Image;
+                imageSource = imageData.imageSource;
             }
-        } else {
-            logger.log(`Post-processing skipping, no image provided, ${JSON.stringify({
-                matchRule,
-            })}`);
 
-            shouldResetTimer = true;
-        }
+            let shouldResetTimer = false;
 
-        if (shouldResetTimer) {
-            logger.info(`Post-processing failed. Skipping notification and resetting delay to allow new detections to come through`);
-            const delayKey = this.isDelayPassed({
-                type: DelayType.RuleNotification,
-                matchRule: matchRule as MatchRule,
-            })?.delayKey;
+            if (image) {
+                logger.log(`Post-processing set to ${rule.imageProcessing}, objectDetector is set to ${objectDetector ? objectDetector.name : 'NOT_DEFINED'}`);
+                let inputDimensions = inputDimensionsParent;
 
-            this.lastDelaySet[delayKey] = undefined;
+                if (match && objectDetector && image) {
+                    if (rule.imageProcessing !== ImagePostProcessing.None) {
+                        let boundingBox: BoundingBoxResult['boundingBox'];
 
-            return;
-        } else {
-            await this.plugin.notifyDetectionEvent({
-                ...props,
-                imageData: {
-                    image,
-                    b64Image,
-                    imageSource
+                        if (imageSource === ImageSource.Detector) {
+                            boundingBox = match.boundingBox;
+                        } else {
+                            const detection = await sdk.connectRPCObject(
+                                await objectDetector.detectObjects(image)
+                            );
+                            inputDimensions = detection.inputDimensions;
+                            if (detection.detections.length) {
+                                const matchingDetections = detection.detections.filter(det =>
+                                    det.className === match.className &&
+                                    (match.label ? det.label === match.label : true)
+                                );
+
+                                if (matchingDetections.length > 0) {
+                                    if (match.boundingBox) {
+                                        if (match.label) {
+                                            boundingBox = matchingDetections[0].boundingBox;
+                                        } else {
+                                            const [targetX, targetY] = match.boundingBox;
+                                            let closestDetection = matchingDetections[0];
+                                            let minDistance = Infinity;
+
+                                            for (const det of matchingDetections) {
+                                                const [detX, detY] = det.boundingBox;
+                                                const distance = Math.sqrt(Math.pow(detX - targetX, 2) + Math.pow(detY - targetY, 2));
+
+                                                if (distance < minDistance) {
+                                                    minDistance = distance;
+                                                    closestDetection = det;
+                                                }
+                                            }
+
+                                            boundingBox = closestDetection.boundingBox;
+                                        }
+                                    } else {
+                                        boundingBox = matchingDetections[0].boundingBox;
+                                    }
+                                }
+                            } else {
+                                logger.info(`Post-processing re-detection didn't find anything. ${JSON.stringify({
+                                    detection,
+                                    imageSource,
+                                    match,
+                                })}`);
+                                shouldResetTimer = true;
+                            }
+                        }
+
+                        if (boundingBox) {
+                            try {
+                                if (rule.imageProcessing === ImagePostProcessing.MarkBoundaries) {
+                                    const { newImage, newB64Image } = await addBoundingBoxesToImage({
+                                        image,
+                                        detections: [{
+                                            ...match,
+                                            boundingBox,
+                                        }],
+                                        inputDimensions,
+                                    });
+                                    b64Image = newB64Image;
+                                    image = newImage;
+
+                                    logger.log(`Post-processing ${rule.imageProcessing} successful`);
+                                } else if (rule.imageProcessing === ImagePostProcessing.Crop) {
+                                    try {
+                                        const { newB64Image, newImage } = await cropImageToDetection({
+                                            image,
+                                            boundingBox,
+                                            inputDimensions,
+                                        });
+
+                                        image = newImage;
+                                        b64Image = newB64Image;
+                                        logger.log(`Post-processing ${rule.imageProcessing} successful`);
+                                    } catch (e) {
+                                        logger.error('Failed to crop image', {
+                                            boundingBox,
+                                            inputDimensions,
+                                            error: e.message
+                                        });
+
+                                        shouldResetTimer = true;
+                                    }
+                                }
+                            } catch (e) {
+                                logger.error(`Error during post-processing`, JSON.stringify({
+                                    boundingBox,
+                                    inputDimensions,
+                                }), e);
+
+                                shouldResetTimer = true;
+                            }
+                        }
+                    }
                 }
-            });
+            } else {
+                logger.log(`Post-processing skipping, no image provided, ${JSON.stringify({
+                    matchRule,
+                })}`);
+
+                shouldResetTimer = true;
+            }
+
+            if (shouldResetTimer) {
+                logger.info(`Post-processing failed. Skipping notification and resetting delay to allow new detections to come through`);
+                const delayKey = this.isDelayPassed({
+                    type: DelayType.RuleNotification,
+                    matchRule: matchRule as MatchRule,
+                })?.delayKey;
+
+                this.lastDelaySet[delayKey] = undefined;
+
+                return;
+            } else {
+                logger.log(`Starting notifiers for detection rule (${eventSource}) ${getDetectionKey(matchRule as MatchRule)}, b64Image ${getB64ImageLog(b64Image)} from ${imageSource}, last check ${lastSetInSeconds ? lastSetInSeconds + 's ago' : '-'} with delay ${minDelayInSeconds}s`);
+
+                await this.plugin.notifyDetectionEvent({
+                    ...props,
+                    imageData: {
+                        image,
+                        b64Image,
+                        imageSource
+                    }
+                });
+            }
         }
     }
 
@@ -3397,11 +3401,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             }).catch(logger.log);
                         }
 
-                        if (isNonRawDetection && this.isDelayPassed({ type: DelayType.RuleNotification, matchRule })?.timePassed) {
-                            logger.log(`Starting notifiers for detection rule (${eventSource}) ${getDetectionKey(matchRule)}, b64Image ${getB64ImageLog(b64Image)} from ${imageSource} (Decoder)`);
-
+                        if (isNonRawDetection) {
                             this.preProcessNotificationRule({
                                 triggerDeviceId: this.id,
+                                eventSource: NotifyDetectionSource.Decoder,
                                 matchRule,
                                 imageData: {
                                     image,

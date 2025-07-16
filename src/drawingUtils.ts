@@ -184,7 +184,7 @@ export const cropImageToDetection = async (props: {
     }
 }
 
-export const getCropResizeOptions = (props: {
+export const getCropResizeOptionsOld = (props: {
     inputDimensions?: [number, number],
     boundingBox: [number, number, number, number],
     aspectRatio?: number
@@ -256,3 +256,75 @@ export const getCropResizeOptions = (props: {
         boundingBox: newBoundingBox
     };
 }
+
+export const getCropResizeOptions = (props: {
+    inputDimensions?: [number, number],
+    boundingBox: [number, number, number, number],
+    aspectRatio?: number,
+    sizeIncrease?: number // Aggiungo questo parametro configurabile
+}): { crop: ImageOptions['crop'], boundingBox: [number, number, number, number] } => {
+    const {
+        inputDimensions,
+        boundingBox,
+        aspectRatio,
+        sizeIncrease = 1.2
+    } = props;
+
+    if (!boundingBox || !inputDimensions) {
+        return undefined;
+    }
+
+    const [inputWidth, inputHeight] = inputDimensions;
+    const targetAspectRatio = aspectRatio || (inputWidth / inputHeight);
+
+    const [originalX, originalY, originalWidth, originalHeight] = boundingBox;
+
+    const centerX = originalX + originalWidth / 2;
+    const centerY = originalY + originalHeight / 2;
+
+    const newWidth = originalWidth * sizeIncrease;
+    const newHeight = originalHeight * sizeIncrease;
+
+    const newBoundingBox: [number, number, number, number] = [
+        centerX - newWidth / 2,
+        centerY - newHeight / 2,
+        newWidth,
+        newHeight
+    ];
+
+    let cropWidth = newWidth;
+    let cropHeight = cropWidth / targetAspectRatio;
+
+    if (cropHeight < newHeight) {
+        cropHeight = newHeight;
+        cropWidth = cropHeight * targetAspectRatio;
+    }
+
+    let cropLeft = centerX - cropWidth / 2;
+    let cropTop = centerY - cropHeight / 2;
+
+    if (cropLeft < 0) {
+        cropLeft = 0;
+    } else if (cropLeft + cropWidth > inputWidth) {
+        cropLeft = inputWidth - cropWidth;
+    }
+
+    if (cropTop < 0) {
+        cropTop = 0;
+    } else if (cropTop + cropHeight > inputHeight) {
+        cropTop = inputHeight - cropHeight;
+    }
+
+    const finalWidth = Math.min(cropWidth, inputWidth - cropLeft);
+    const finalHeight = Math.min(cropHeight, inputHeight - cropTop);
+
+    return {
+        crop: {
+            left: Math.round(cropLeft),
+            top: Math.round(cropTop),
+            width: Math.round(finalWidth),
+            height: Math.round(finalHeight)
+        },
+        boundingBox: newBoundingBox
+    };
+};
