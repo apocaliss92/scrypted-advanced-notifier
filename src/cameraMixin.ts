@@ -1053,7 +1053,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }).catch(logger.log);
                 }
             }
-            
+
 
             try {
                 for await (const frame of
@@ -2633,14 +2633,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         if (timePassed) {
                             logger.log(`Starting notifiers for detection rule (accumulated detections) ${getDetectionKey(matchRule)}, b64Image ${getB64ImageLog(b64Image)} from ${imageSource}, last check ${lastSetInSeconds ? lastSetInSeconds + 's ago' : '-'} with delay ${minDelayInSeconds}s`);
 
-                            await this.plugin.notifyDetectionEvent({
+                            this.plugin.notifyDetectionEvent({
                                 triggerDeviceId: this.id,
                                 match,
                                 rule: rule as DetectionRule,
                                 image,
                                 eventType: detectionClassesDefaultMap[match.className],
                                 triggerTime,
-                            });
+                            }).catch(logger.error);
                         }
                     }
                 }
@@ -2855,7 +2855,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             isAudioEvent,
             hasNonStandardClasses
         } = filterAndSortValidDetections({
-            detections: detections ?? [],
+            detect,
             logger,
             consumedDetectionIdsSet: new Set(),
         });

@@ -1,4 +1,4 @@
-import sdk, { Image, ObjectDetectionResult, MediaObject, ScryptedMimeTypes } from "@scrypted/sdk";
+import sdk, { Image, ObjectDetectionResult, MediaObject, ScryptedMimeTypes, ImageOptions } from "@scrypted/sdk";
 import sharp from "sharp";
 import { DetectionClass, detectionClassesDefaultMap } from "./detectionClasses";
 import { moToB64 } from "./utils";
@@ -151,61 +151,79 @@ export const cropImageToDetection = async (props: {
     const { image, boundingBox, inputDimensions } = props;
     const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(image, ScryptedMimeTypes.Image);
 
-    const [x, y, width, height] = boundingBox;
-    const [inputWidth, inputHeight] = inputDimensions;
+    // const [x, y, width, height] = boundingBox;
+    // const [inputWidth, inputHeight] = inputDimensions;
 
-    if (width <= 0 || height <= 0 || x < 0 || y < 0) {
-        throw new Error(`Invalid bounding box: [${x}, ${y}, ${width}, ${height}]`);
-    }
+    // if (width <= 0 || height <= 0 || x < 0 || y < 0) {
+    //     throw new Error(`Invalid bounding box: [${x}, ${y}, ${width}, ${height}]`);
+    // }
 
-    const marginRatio = 0.2;
-    const marginX = width * marginRatio;
-    const marginY = height * marginRatio;
+    // const marginRatio = 0.2;
+    // const marginX = width * marginRatio;
+    // const marginY = height * marginRatio;
 
-    let cropX = x - marginX;
-    let cropY = y - marginY;
-    let cropWidth = width + marginX * 2;
-    let cropHeight = height + marginY * 2;
+    // let cropX = x - marginX;
+    // let cropY = y - marginY;
+    // let cropWidth = width + marginX * 2;
+    // let cropHeight = height + marginY * 2;
 
-    cropX = Math.max(0, cropX);
-    cropY = Math.max(0, cropY);
+    // cropX = Math.max(0, cropX);
+    // cropY = Math.max(0, cropY);
 
-    cropWidth = Math.min(cropWidth, inputWidth - cropX);
-    cropHeight = Math.min(cropHeight, inputHeight - cropY);
+    // cropWidth = Math.min(cropWidth, inputWidth - cropX);
+    // cropHeight = Math.min(cropHeight, inputHeight - cropY);
 
-    cropWidth = Math.max(1, cropWidth);
-    cropHeight = Math.max(1, cropHeight);
+    // cropWidth = Math.max(1, cropWidth);
+    // cropHeight = Math.max(1, cropHeight);
 
-    const finalCropX = Math.max(0, Math.round(cropX));
-    const finalCropY = Math.max(0, Math.round(cropY));
-    const finalCropWidth = Math.max(1, Math.round(cropWidth));
-    const finalCropHeight = Math.max(1, Math.round(cropHeight));
+    // const finalCropX = Math.max(0, Math.round(cropX));
+    // const finalCropY = Math.max(0, Math.round(cropY));
+    // const finalCropWidth = Math.max(1, Math.round(cropWidth));
+    // const finalCropHeight = Math.max(1, Math.round(cropHeight));
 
-    if (finalCropX + finalCropWidth > inputWidth || finalCropY + finalCropHeight > inputHeight) {
-        throw new Error(`Crop area exceeds image boundaries: crop[${finalCropX}, ${finalCropY}, ${finalCropWidth}, ${finalCropHeight}] vs image[${inputWidth}, ${inputHeight}]`);
-    }
+    // if (finalCropX + finalCropWidth > inputWidth || finalCropY + finalCropHeight > inputHeight) {
+    //     throw new Error(`Crop area exceeds image boundaries: crop[${finalCropX}, ${finalCropY}, ${finalCropWidth}, ${finalCropHeight}] vs image[${inputWidth}, ${inputHeight}]`);
+    // }
 
-    const newImage = await convertedImage.toImage({
-        crop: {
-            width: finalCropWidth,
-            height: finalCropHeight,
-            left: finalCropX,
-            top: finalCropY,
-        }
+    // const newImage = await convertedImage.toImage({
+    //     crop: {
+    //         width: finalCropWidth,
+    //         height: finalCropHeight,
+    //         left: finalCropX,
+    //         top: finalCropY,
+    //     }
+    // });
+    const crop = getCropResizeOptions({
+        inputDimensions,
+        aspectRatio: 1,
+        boundingBox,
     });
-    const newB64Image = await moToB64(newImage);
 
-    return {
-        newB64Image,
-        newImage,
-    };
+    if (crop) {
+        const newImage = await convertedImage.toImage({
+            crop
+        });
+        const newB64Image = await moToB64(newImage);
+
+        return {
+            newB64Image,
+            newImage,
+        };
+    } else {
+        const newB64Image = await moToB64(image);
+
+        return {
+            newB64Image,
+            newImage: image
+        };
+    }
 }
 
 export const getCropResizeOptions = (props: {
     inputDimensions?: [number, number],
     boundingBox: [number, number, number, number],
     aspectRatio?: number
-}) => {
+}): ImageOptions['crop'] => {
     const {
         inputDimensions,
         boundingBox,
@@ -213,7 +231,7 @@ export const getCropResizeOptions = (props: {
     } = props;
 
     if (!boundingBox || !inputDimensions) {
-        return {};
+        return undefined;
     }
 
     const imageAspectRatio = inputDimensions[0] / inputDimensions[1];
@@ -228,6 +246,10 @@ export const getCropResizeOptions = (props: {
         cropHeight = boundingBoxHeight;
         cropWidth = cropHeight * targetAspectRatio;
     }
+
+    const sizeIncrease = 1.3;
+    cropWidth *= sizeIncrease;
+    cropHeight *= sizeIncrease;
 
     const centerX = boundingBoxX + boundingBoxWidth / 2;
     let cropLeft = centerX - cropWidth / 2;

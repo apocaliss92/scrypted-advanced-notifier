@@ -485,11 +485,12 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
 }
 
 export const filterAndSortValidDetections = (props: {
-    detections: ObjectDetectionResult[],
+    detect: ObjectsDetected,
     logger: Console,
     consumedDetectionIdsSet: Set<string>
 }) => {
-    const { detections, logger, consumedDetectionIdsSet } = props;
+    const { detect, logger, consumedDetectionIdsSet } = props;
+    const { detections = [] } = detect ?? {};
     const sortedByPriorityAndScore = sortBy(detections,
         (detection) => [detection?.className ? classnamePrio[detection.className] : 100,
         1 - (detection.score ?? 0)]

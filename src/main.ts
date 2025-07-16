@@ -1957,6 +1957,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const objectDetector: ObjectDetection & ScryptedDeviceBase = this.storageSettings.values.objectDetectionDevice;
 
         logger.log(`Post-processing set to ${rule.imageProcessing}, objectDetector is set to ${objectDetector ? objectDetector.name : 'NOT_DEFINED'}`);
+        let skipNotification = false;
+
         if (match && objectDetector) {
             if (rule.imageProcessing !== ImagePostProcessing.None) {
                 let boundingBox: BoundingBoxResult['boundingBox'];
@@ -1994,13 +1996,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                                     for (const det of matchingDetections) {
                                         const [detX, detY] = det.boundingBox;
                                         const distance = Math.sqrt(Math.pow(detX - targetX, 2) + Math.pow(detY - targetY, 2));
-                                        
+
                                         if (distance < minDistance) {
                                             minDistance = distance;
                                             closestDetection = det;
                                         }
                                     }
-                                    
+
                                     boundingBox = closestDetection.boundingBox;
                                 } else {
                                     boundingBox = matchingDetections[0].boundingBox;
@@ -2026,7 +2028,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                                 });
                             }
                         } else {
-                            logger.log(`Post-processing bounding box not found: ${JSON.stringify(detection)}`);
+                            logger.log(`Post-processing bounding box not found. Skipping notification: ${JSON.stringify({ newDetection: detection, match })}`);
+                            skipNotification = true;
                         }
                     }
                 } catch (e) {
@@ -2036,6 +2039,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     }), e);
                 }
             }
+        }
+
+        if (skipNotification) {
+            return;
         }
 
         const executeNotify = async (videoUrl?: string) => {
