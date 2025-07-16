@@ -2709,6 +2709,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             image = newImage;
             b64Image = newB64Image;
             imageSource = newImageSource;
+        } else {
+            image = imageData.image;
+            b64Image = imageData.b64Image;
+            imageSource = imageData.imageSource;
         }
 
         let shouldResetTimer = false;
