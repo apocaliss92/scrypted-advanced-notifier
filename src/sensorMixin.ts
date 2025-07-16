@@ -345,7 +345,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                     return;
                 }
 
-                const { image, b64Image } = (await mixinDevice.getImage({
+                const { image, b64Image, imageSource } = (await mixinDevice.getImage({
                     image: imageParent,
                     reason: GetImageReason.Sensor,
                 }));
@@ -379,8 +379,14 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                         triggerDeviceId: this.id,
                         eventType: this.supportedSensorType,
                         triggerTime,
-                        rule,
-                        image,
+                        matchRule: {
+                            rule,
+                        },
+                        imageData: {
+                            image,
+                            b64Image,
+                            imageSource
+                        }
                     }).catch(logger.error);
                 }
             }

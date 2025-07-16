@@ -24,7 +24,7 @@ import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodisco
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllDevices, getAssetSource, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, isDetectionClass, isDeviceSupported, isSecretValid, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllDevices, getAssetSource, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, LATEST_IMAGE_SUFFIX, MatchRule, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier } from "./utils";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -1921,26 +1921,18 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         return { device: cameraDevice, triggerDevice: device };
     }
 
-    public notifyDetectionEvent = async (props: {
-        image?: MediaObject,
-        match?: ObjectDetectionResult,
-        rule: DetectionRule,
-        eventType: DetectionEvent,
-        triggerDeviceId: string,
-        snoozeId?: string,
-        triggerTime: number,
-        forceAi?: boolean,
-    }) => {
+    public notifyDetectionEvent = async (props: NotifyDetectionProps) => {
         const {
             eventType,
             triggerDeviceId,
             snoozeId,
             triggerTime,
-            match,
-            image: imageParent,
-            rule,
             forceAi,
+            imageData,
+            matchRule,
         } = props;
+        const { rule: ruleParent, match } = matchRule;
+        const rule = ruleParent as DetectionRule;
         const { device: cameraDevice, triggerDevice } = await this.getLinkedCamera(triggerDeviceId);
         const logger = this.getLogger(cameraDevice);
         const cameraMixin = this.currentCameraMixinsMap[cameraDevice.id];
@@ -1949,101 +1941,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.alarmSystem.onEventTrigger({ triggerDevice }).catch(logger.log);
         }
 
-        let { b64Image, image, imageSource } = await cameraMixin.getImage({
-            image: imageParent,
-            reason: GetImageReason.Notification
-        });
-
-        const objectDetector: ObjectDetection & ScryptedDeviceBase = this.storageSettings.values.objectDetectionDevice;
-
-        logger.log(`Post-processing set to ${rule.imageProcessing}, objectDetector is set to ${objectDetector ? objectDetector.name : 'NOT_DEFINED'}`);
-        let skipNotification = false;
-
-        if (match && objectDetector) {
-            if (rule.imageProcessing !== ImagePostProcessing.None) {
-                let boundingBox: BoundingBoxResult['boundingBox'];
-                let detection: ObjectsDetected;
-
-                try {
-                    detection = await objectDetector.detectObjects(image);
-
-                    if (rule.imageProcessing === ImagePostProcessing.MarkBoundaries) {
-                        if (detection.detections.length) {
-                            detection.detections = detection.detections.filter(det => det.className === match.className);
-                            const { newImage, newB64Image } = await addBoundingBoxesToImage({
-                                image,
-                                detections: detection.detections,
-                                inputDimensions: detection.inputDimensions,
-                            });
-                            b64Image = newB64Image;
-                            image = newImage;
-                        } else {
-                            logger.log(`Post-processing detections returned no results: ${JSON.stringify(detection)}`);
-                        }
-                    } else if (rule.imageProcessing === ImagePostProcessing.Crop) {
-                        if (detection.detections.length) {
-                            const matchingDetections = detection.detections.filter(det =>
-                                det.className === match.className &&
-                                (match.label ? det.label === match.label : true)
-                            );
-
-                            if (matchingDetections.length > 0) {
-                                if (match.boundingBox) {
-                                    const [targetX, targetY] = match.boundingBox;
-                                    let closestDetection = matchingDetections[0];
-                                    let minDistance = Infinity;
-
-                                    for (const det of matchingDetections) {
-                                        const [detX, detY] = det.boundingBox;
-                                        const distance = Math.sqrt(Math.pow(detX - targetX, 2) + Math.pow(detY - targetY, 2));
-
-                                        if (distance < minDistance) {
-                                            minDistance = distance;
-                                            closestDetection = det;
-                                        }
-                                    }
-
-                                    boundingBox = closestDetection.boundingBox;
-                                } else {
-                                    boundingBox = matchingDetections[0].boundingBox;
-                                }
-                            }
-                        }
-
-                        if (boundingBox) {
-                            try {
-                                const { newB64Image, newImage } = await cropImageToDetection({
-                                    image,
-                                    boundingBox,
-                                    inputDimensions: detection.inputDimensions,
-                                });
-
-                                image = newImage;
-                                b64Image = newB64Image;
-                            } catch (e) {
-                                logger.error('Failed to crop image', {
-                                    boundingBox,
-                                    inputDimensions: detection.inputDimensions,
-                                    error: e.message
-                                });
-                            }
-                        } else {
-                            logger.log(`Post-processing bounding box not found. Skipping notification: ${JSON.stringify({ newDetection: detection, match })}`);
-                            skipNotification = true;
-                        }
-                    }
-                } catch (e) {
-                    logger.error(`Error during post-processing`, JSON.stringify({
-                        boundingBox,
-                        detection
-                    }), e);
-                }
-            }
-        }
-
-        if (skipNotification) {
-            return;
-        }
+        const { b64Image, image, imageSource } = imageData;
 
         const executeNotify = async (videoUrl?: string) => {
             logger.log(`${rule.notifiers.length} notifiers will be notified with videourl ${videoUrl} and image from ${imageSource}: ${JSON.stringify({ match, rule })} `);
@@ -2748,7 +2646,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             if (testDevice && testEventType && testNotifier) {
                 const currentTime = new Date().getTime();
                 const testNotifierId = testNotifier.id
-                const { sensorType } = isDeviceSupported(testDevice);
+                const { sensorType, isCamera } = isDeviceSupported(testDevice);
                 const eventType = sensorType ?? testEventType;
                 const isDetection = isDetectionClass(testEventType);
 
@@ -2769,36 +2667,46 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 })}`);
 
                 const snoozeId = testBypassSnooze ? Math.random().toString(36).substring(2, 12) : undefined;
-                await this.notifyDetectionEvent({
+                const payload: NotifyDetectionProps = {
                     eventType,
                     triggerDeviceId: testDevice.id,
                     triggerTime: currentTime - 2000,
                     snoozeId,
-                    match: isDetection ? { label: testLabel, className: testEventType, score: 1 } : undefined,
+                    matchRule: {
+                        inputDimensions: [0, 0],
+                        match: isDetection ? { label: testLabel, className: testEventType, score: 1 } : undefined,
+                        rule: {
+                            notifierData: {
+                                [testNotifierId]: {
+                                    priority: testPriority,
+                                    actions: [],
+                                    addSnooze: testAddSnoozing,
+                                    addCameraActions: testAddActions,
+                                    sound: testSound
+                                }
+                            },
+                            imageProcessing: testPostProcessing,
+                            generateClipSpeed: testGenerateClipSpeed,
+                            generateClip: testGenerateClip,
+                            generateClipPostSeconds: 3,
+                            useAi: testUseAi,
+                            ruleType: RuleType.Detection,
+                            activationType: DetectionRuleActivation.Always,
+                            source: RuleSource.Plugin,
+                            isEnabled: true,
+                            name: 'Test rule',
+                            notifiers: [testNotifier?.id]
+                        } as DetectionRule
+                    },
                     forceAi: testUseAi,
-                    rule: {
-                        notifierData: {
-                            [testNotifierId]: {
-                                priority: testPriority,
-                                actions: [],
-                                addSnooze: testAddSnoozing,
-                                addCameraActions: testAddActions,
-                                sound: testSound
-                            }
-                        },
-                        imageProcessing: testPostProcessing,
-                        generateClipSpeed: testGenerateClipSpeed,
-                        generateClip: testGenerateClip,
-                        generateClipPostSeconds: 3,
-                        useAi: testUseAi,
-                        ruleType: RuleType.Detection,
-                        activationType: DetectionRuleActivation.Always,
-                        source: RuleSource.Plugin,
-                        isEnabled: true,
-                        name: 'Test rule',
-                        notifiers: [testNotifier?.id]
-                    }
-                })
+                };
+
+                if (isCamera) {
+                    const cameraMixin = this.currentCameraMixinsMap[testDevice.id];
+                    await cameraMixin.preProcessNotificationRule(payload);
+                } else {
+                    await this.notifyDetectionEvent(payload);
+                }
             }
         } catch (e) {
             logger.log('Error in executeNotificationTest', e);

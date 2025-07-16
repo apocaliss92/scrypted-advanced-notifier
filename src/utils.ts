@@ -91,6 +91,20 @@ export const getAssetSource = (props: { videoUrl?: string, sourceId?: string }) 
     }
 }
 
+export interface NotifyDetectionProps {
+    eventType: DetectionEvent,
+    triggerDeviceId: string,
+    snoozeId?: string,
+    triggerTime: number,
+    forceAi?: boolean,
+    matchRule: Partial<MatchRule>;
+    imageData?: {
+        image: MediaObject,
+        b64Image: string,
+        imageSource: ImageSource,
+    }
+}
+
 export enum ScryptedEventSource {
     RawDetection = 'RawDetection',
     NVR = 'NVR',
@@ -102,7 +116,12 @@ export interface ObserveZoneData {
     path: Point[]
 };
 
-export interface MatchRule { match?: ObjectDetectionResult, rule: BaseRule, dataToReport?: any }
+export interface MatchRule {
+    match?: ObjectDetectionResult,
+    rule: BaseRule,
+    inputDimensions: [number, number],
+    dataToReport?: any
+}
 
 export enum DecoderType {
     Off = 'Off',
@@ -185,7 +204,7 @@ export type IsDelayPassedProps =
     { type: DelayType.OccupancyNotification, matchRule: MatchRule, eventSource: ScryptedEventSource } |
     { type: DelayType.PostWebhookImage, classname: string, eventSource: ScryptedEventSource } |
     { type: DelayType.RuleImageUpdate, matchRule: MatchRule, eventSource: ScryptedEventSource } |
-    { type: DelayType.RuleNotification, matchRule: MatchRule, eventSource: ScryptedEventSource };
+    { type: DelayType.RuleNotification, matchRule: MatchRule };
 
 export const getElegibleDevices = (isFrigate?: boolean) => {
     const allDevices = Object.keys(sdk.systemManager.getSystemState()).map(deviceId => sdk.systemManager.getDeviceById<DeviceInterface>(deviceId));

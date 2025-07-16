@@ -234,9 +234,19 @@ export const getCropResizeOptions = (props: {
         return undefined;
     }
 
-    const imageAspectRatio = inputDimensions[0] / inputDimensions[1];
-    const targetAspectRatio = aspectRatio || imageAspectRatio;
-    const [boundingBoxX, boundingBoxY, boundingBoxWidth, boundingBoxHeight] = boundingBox;
+    const targetAspectRatio = aspectRatio || (inputDimensions[0] / inputDimensions[1]);
+
+    const sizeIncrease = 1.2;
+    const [boundingBoxXTmp, boundingBoxYTmp, boundingBoxWidthTmp, boundingBoxHeightTmp] = boundingBox;
+
+    const newBoundingBox = [
+        boundingBoxXTmp + boundingBoxWidthTmp / 2 - boundingBoxWidthTmp * sizeIncrease / 2,
+        boundingBoxYTmp + boundingBoxHeightTmp / 2 - boundingBoxHeightTmp * sizeIncrease / 2,
+        boundingBoxWidthTmp * sizeIncrease,
+        boundingBoxHeightTmp * sizeIncrease
+    ];
+    const [boundingBoxX, boundingBoxY, boundingBoxWidth, boundingBoxHeight] = newBoundingBox;
+
     const centerY = boundingBoxY + boundingBoxHeight / 2;
 
     let cropWidth = boundingBoxWidth;
@@ -246,10 +256,6 @@ export const getCropResizeOptions = (props: {
         cropHeight = boundingBoxHeight;
         cropWidth = cropHeight * targetAspectRatio;
     }
-
-    const sizeIncrease = 1.3;
-    cropWidth *= sizeIncrease;
-    cropHeight *= sizeIncrease;
 
     const centerX = boundingBoxX + boundingBoxWidth / 2;
     let cropLeft = centerX - cropWidth / 2;

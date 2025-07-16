@@ -1,4 +1,4 @@
-import sdk, { EventDetails, EventListenerRegister, Image, ImageEmbedding, MediaObject, MediaStreamDestination, Notifier, ObjectDetection, ObjectDetectionResult, ObjectsDetected, PanTiltZoomCommand, ResponseMediaStreamOptions, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, TextEmbedding, VideoClip, VideoClipOptions, VideoClipThumbnailOptions, VideoClips, VideoFrame, VideoFrameGenerator } from "@scrypted/sdk";
+import sdk, { BoundingBoxResult, EventDetails, EventListenerRegister, Image, ImageEmbedding, MediaObject, MediaStreamDestination, Notifier, ObjectDetection, ObjectDetectionResult, ObjectsDetected, PanTiltZoomCommand, ResponseMediaStreamOptions, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, TextEmbedding, VideoClip, VideoClipOptions, VideoClipThumbnailOptions, VideoClips, VideoFrame, VideoFrameGenerator } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
@@ -15,8 +15,8 @@ import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, is
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DETECTION_CLIP_PREFIX, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
-import { addZoneClipPathToImage } from "./drawingUtils";
+import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DETECTION_CLIP_PREFIX, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
+import { addBoundingBoxesToImage, addZoneClipPathToImage, cropImageToDetection } from "./drawingUtils";
 import { checkObjectsOccupancy } from "./aiUtils";
 
 const { systemManager } = sdk;
@@ -1987,7 +1987,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 return;
             }
 
-            const detectedResultParent = await objectDetector.detectObjects(imageParent);
+            const detectedResultParent = await sdk.connectRPCObject(
+                await objectDetector.detectObjects(imageParent)
+            );
 
             if (!objectDetector.interfaces.includes(ScryptedInterface.ObjectDetectionGenerator)) {
                 detectedResultParent.detections = filterOverlappedDetections(detectedResultParent.detections);
@@ -2046,7 +2048,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 height,
                             },
                         });
-                        detectedResult = await objectDetector.detectObjects(image);
+                        detectedResult = await sdk.connectRPCObject(
+                            await objectDetector.detectObjects(image)
+                        );
                     }
 
                     if (!objectDetector.interfaces.includes(ScryptedInterface.ObjectDetectionGenerator)) {
@@ -2322,7 +2326,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 const { timePassed } = this.isDelayPassed({
                     type: DelayType.OccupancyNotification,
-                    matchRule: { rule },
+                    matchRule: { rule, inputDimensions: [0, 0] },
                     eventSource: ScryptedEventSource.RawDetection
                 });
 
@@ -2403,8 +2407,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                     const { timePassed: notificationTimePassed } = this.isDelayPassed({
                         type: DelayType.RuleNotification,
-                        matchRule: { rule } as MatchRule,
-                        eventSource: ScryptedEventSource.RawDetection
+                        matchRule: { rule, inputDimensions: [0, 0] } as MatchRule,
                     });
 
                     if (notificationTimePassed) {
@@ -2435,7 +2438,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         });
 
                         this.triggerRule({
-                            matchRule: { rule },
+                            matchRule: { rule, inputDimensions: [0, 0] },
                             b64Image,
                             device: this.cameraDevice,
                             triggerTime: now,
@@ -2611,7 +2614,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 if (rulesToUpdate.length) {
                     logger.info(`Updating accumulated rules ${getRulesLog(rulesToUpdate)} with image source ${imageSource}`);
                     for (const matchRule of rulesToUpdate) {
-                        const { rule, match } = matchRule;
+                        const { match } = matchRule;
 
                         logger.info(`Publishing accumulated detection rule ${getDetectionKey(matchRule)} data, b64Image ${getB64ImageLog(b64Image)} from ${imageSource}. Has image ${!!image}`);
 
@@ -2627,20 +2630,22 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         const { timePassed, lastSetInSeconds, minDelayInSeconds } = this.isDelayPassed({
                             type: DelayType.RuleNotification,
                             matchRule,
-                            eventSource: ScryptedEventSource.RawDetection
                         });
 
                         if (timePassed) {
                             logger.log(`Starting notifiers for detection rule (accumulated detections) ${getDetectionKey(matchRule)}, b64Image ${getB64ImageLog(b64Image)} from ${imageSource}, last check ${lastSetInSeconds ? lastSetInSeconds + 's ago' : '-'} with delay ${minDelayInSeconds}s`);
 
-                            this.plugin.notifyDetectionEvent({
+                            this.preProcessNotificationRule({
                                 triggerDeviceId: this.id,
-                                match,
-                                rule: rule as DetectionRule,
-                                image,
+                                matchRule,
+                                imageData: {
+                                    image,
+                                    b64Image,
+                                    imageSource,
+                                },
                                 eventType: detectionClassesDefaultMap[match.className],
                                 triggerTime,
-                            }).catch(logger.error);
+                            }).catch(logger.log);
                         }
                     }
                 }
@@ -2683,6 +2688,154 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
 
         return source ?? ScryptedEventSource.RawDetection;
+    }
+
+    public async preProcessNotificationRule(props: NotifyDetectionProps) {
+        const { matchRule, imageData } = props;
+        const { rule: ruleParent, match, inputDimensions: inputDimensionsParent } = matchRule;
+        const rule = ruleParent as DetectionRule;
+        const logger = this.getLogger();
+        const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
+
+        let image: MediaObject;
+        let b64Image: string;
+        let imageSource: ImageSource;
+
+        if (!imageData) {
+            let { b64Image: newB64Image, image: newImage, imageSource: newImageSource } = await this.getImage({
+                reason: GetImageReason.Notification
+            });
+
+            image = newImage;
+            b64Image = newB64Image;
+            imageSource = newImageSource;
+        }
+
+        let shouldResetTimer = false;
+
+        if (image) {
+            logger.log(`Post-processing set to ${rule.imageProcessing}, objectDetector is set to ${objectDetector ? objectDetector.name : 'NOT_DEFINED'}`);
+            let inputDimensions = inputDimensionsParent;
+
+            if (match && objectDetector && image) {
+                if (rule.imageProcessing !== ImagePostProcessing.None) {
+                    let boundingBox: BoundingBoxResult['boundingBox'];
+
+                    if (imageSource === ImageSource.Detector) {
+                        boundingBox = match.boundingBox;
+                    } else {
+                        const detection = await sdk.connectRPCObject(
+                            await objectDetector.detectObjects(image)
+                        );
+                        inputDimensions = detection.inputDimensions;
+                        if (detection.detections.length) {
+                            const matchingDetections = detection.detections.filter(det =>
+                                det.className === match.className &&
+                                (match.label ? det.label === match.label : true)
+                            );
+
+                            if (matchingDetections.length > 0) {
+                                if (match.boundingBox) {
+                                    if (match.label) {
+                                        boundingBox = matchingDetections[0].boundingBox;
+                                    } else {
+                                        const [targetX, targetY] = match.boundingBox;
+                                        let closestDetection = matchingDetections[0];
+                                        let minDistance = Infinity;
+
+                                        for (const det of matchingDetections) {
+                                            const [detX, detY] = det.boundingBox;
+                                            const distance = Math.sqrt(Math.pow(detX - targetX, 2) + Math.pow(detY - targetY, 2));
+
+                                            if (distance < minDistance) {
+                                                minDistance = distance;
+                                                closestDetection = det;
+                                            }
+                                        }
+
+                                        boundingBox = closestDetection.boundingBox;
+                                    }
+                                } else {
+                                    boundingBox = matchingDetections[0].boundingBox;
+                                }
+                            }
+                        } else {
+                            logger.log(`Post-processing re-detection didn't find anything, sending full frame. ${JSON.stringify({
+                                detection,
+                                imageSource,
+                                match,
+                            })}`);
+                            shouldResetTimer = true;
+                        }
+                    }
+
+                    if (boundingBox) {
+                        try {
+                            if (rule.imageProcessing === ImagePostProcessing.MarkBoundaries) {
+                                const { newImage, newB64Image } = await addBoundingBoxesToImage({
+                                    image,
+                                    detections: [{
+                                        ...match,
+                                        boundingBox,
+                                    }],
+                                    inputDimensions,
+                                });
+                                b64Image = newB64Image;
+                                image = newImage;
+                            } else if (rule.imageProcessing === ImagePostProcessing.Crop) {
+                                try {
+                                    const { newB64Image, newImage } = await cropImageToDetection({
+                                        image,
+                                        boundingBox,
+                                        inputDimensions,
+                                    });
+
+                                    image = newImage;
+                                    b64Image = newB64Image;
+                                } catch (e) {
+                                    logger.error('Failed to crop image', {
+                                        boundingBox,
+                                        inputDimensions,
+                                        error: e.message
+                                    });
+                                }
+                            }
+                        } catch (e) {
+                            logger.error(`Error during post-processing. Sending full frame`, JSON.stringify({
+                                boundingBox,
+                                inputDimensions,
+                            }), e);
+
+                            shouldResetTimer = true;
+                        }
+                    }
+                }
+            }
+        } else {
+            logger.log(`Post-processing skipping, no image provided, ${JSON.stringify({
+                matchRule,
+            })}`);
+
+            shouldResetTimer = true;
+        }
+
+        if (shouldResetTimer) {
+            const delayKey = this.isDelayPassed({
+                type: DelayType.RuleNotification,
+                matchRule: matchRule as MatchRule,
+            })?.delayKey;
+
+            this.lastDelaySet[delayKey] = undefined;
+        }
+
+        await this.plugin.notifyDetectionEvent({
+            ...props,
+            imageData: {
+                image,
+                b64Image,
+                imageSource
+            }
+        });
     }
 
     isDelayPassed(props: IsDelayPassedProps) {
@@ -2769,6 +2922,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             timePassed,
             lastSetInSeconds,
             minDelayInSeconds,
+            delayKey,
         }
     }
 
@@ -3197,7 +3351,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         }
 
                         if (similarityOk) {
-                            const matchRule = { match, rule, dataToReport };
+                            const matchRule: MatchRule = {
+                                match,
+                                rule,
+                                inputDimensions: detect.inputDimensions,
+                                dataToReport
+                            };
                             matchRules.push(matchRule);
                             if (rule.detectionSource === ScryptedEventSource.RawDetection) {
 
@@ -3211,7 +3370,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             if (matchRules.length) {
                 for (const matchRule of matchRules) {
                     try {
-                        const { match, rule } = matchRule;
+                        const { match, rule, inputDimensions } = matchRule;
                         const isRawDetectionRule = (rule as DetectionRule).detectionSource === ScryptedEventSource.RawDetection;
                         const isNonRawDetection = !isRawDetection && !isRawDetectionRule;
                         const canUpdateMqttImage = isNonRawDetection && this.isDelayPassed({ type: DelayType.RuleImageUpdate, matchRule, eventSource })?.timePassed;
@@ -3229,14 +3388,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             }).catch(logger.log);
                         }
 
-                        if (isNonRawDetection && this.isDelayPassed({ type: DelayType.RuleNotification, matchRule, eventSource })?.timePassed) {
+                        if (isNonRawDetection && this.isDelayPassed({ type: DelayType.RuleNotification, matchRule })?.timePassed) {
                             logger.log(`Starting notifiers for detection rule (${eventSource}) ${getDetectionKey(matchRule)}, b64Image ${getB64ImageLog(b64Image)} from ${imageSource} (Decoder)`);
 
-                            this.plugin.notifyDetectionEvent({
+                            this.preProcessNotificationRule({
                                 triggerDeviceId: this.id,
-                                match,
-                                rule: rule as DetectionRule,
-                                image,
+                                matchRule,
+                                imageData: {
+                                    image,
+                                    b64Image,
+                                    imageSource,
+                                },
                                 eventType: detectionClassesDefaultMap[match.className],
                                 triggerTime,
                             }).catch(logger.log);
