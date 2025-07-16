@@ -151,64 +151,29 @@ export const cropImageToDetection = async (props: {
     const { image, boundingBox, inputDimensions } = props;
     const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(image, ScryptedMimeTypes.Image);
 
-    // const [x, y, width, height] = boundingBox;
-    // const [inputWidth, inputHeight] = inputDimensions;
-
-    // if (width <= 0 || height <= 0 || x < 0 || y < 0) {
-    //     throw new Error(`Invalid bounding box: [${x}, ${y}, ${width}, ${height}]`);
-    // }
-
-    // const marginRatio = 0.2;
-    // const marginX = width * marginRatio;
-    // const marginY = height * marginRatio;
-
-    // let cropX = x - marginX;
-    // let cropY = y - marginY;
-    // let cropWidth = width + marginX * 2;
-    // let cropHeight = height + marginY * 2;
-
-    // cropX = Math.max(0, cropX);
-    // cropY = Math.max(0, cropY);
-
-    // cropWidth = Math.min(cropWidth, inputWidth - cropX);
-    // cropHeight = Math.min(cropHeight, inputHeight - cropY);
-
-    // cropWidth = Math.max(1, cropWidth);
-    // cropHeight = Math.max(1, cropHeight);
-
-    // const finalCropX = Math.max(0, Math.round(cropX));
-    // const finalCropY = Math.max(0, Math.round(cropY));
-    // const finalCropWidth = Math.max(1, Math.round(cropWidth));
-    // const finalCropHeight = Math.max(1, Math.round(cropHeight));
-
-    // if (finalCropX + finalCropWidth > inputWidth || finalCropY + finalCropHeight > inputHeight) {
-    //     throw new Error(`Crop area exceeds image boundaries: crop[${finalCropX}, ${finalCropY}, ${finalCropWidth}, ${finalCropHeight}] vs image[${inputWidth}, ${inputHeight}]`);
-    // }
-
-    // const newImage = await convertedImage.toImage({
-    //     crop: {
-    //         width: finalCropWidth,
-    //         height: finalCropHeight,
-    //         left: finalCropX,
-    //         top: finalCropY,
-    //     }
-    // });
-    const crop = getCropResizeOptions({
+    const { crop, boundingBox: newBoundingBox } = getCropResizeOptions({
         inputDimensions,
         aspectRatio: 1,
         boundingBox,
     });
 
     if (crop) {
-        const newImage = await convertedImage.toImage({
-            crop
-        });
-        const newB64Image = await moToB64(newImage);
+        try {
+            const newImage = await convertedImage.toImage({
+                crop
+            });
+            const newB64Image = await moToB64(newImage);
 
-        return {
-            newB64Image,
-            newImage,
-        };
+            return {
+                newB64Image,
+                newImage,
+            };
+        } catch (e) {
+            throw new Error(`${e.message}: ${JSON.stringify({
+                crop,
+                newBoundingBox,
+            })}`)
+        }
     } else {
         const newB64Image = await moToB64(image);
 
@@ -223,7 +188,7 @@ export const getCropResizeOptions = (props: {
     inputDimensions?: [number, number],
     boundingBox: [number, number, number, number],
     aspectRatio?: number
-}): ImageOptions['crop'] => {
+}): { crop: ImageOptions['crop'], boundingBox: [number, number, number, number] } => {
     const {
         inputDimensions,
         boundingBox,
@@ -239,13 +204,14 @@ export const getCropResizeOptions = (props: {
     const sizeIncrease = 1.2;
     const [boundingBoxXTmp, boundingBoxYTmp, boundingBoxWidthTmp, boundingBoxHeightTmp] = boundingBox;
 
-    const newBoundingBox = [
+    const newBoundingBox: [number, number, number, number] = [
         boundingBoxXTmp + boundingBoxWidthTmp / 2 - boundingBoxWidthTmp * sizeIncrease / 2,
         boundingBoxYTmp + boundingBoxHeightTmp / 2 - boundingBoxHeightTmp * sizeIncrease / 2,
         boundingBoxWidthTmp * sizeIncrease,
         boundingBoxHeightTmp * sizeIncrease
     ];
-    const [boundingBoxX, boundingBoxY, boundingBoxWidth, boundingBoxHeight] = newBoundingBox;
+    // const [boundingBoxX, boundingBoxY, boundingBoxWidth, boundingBoxHeight] = newBoundingBox;
+    const [boundingBoxX, boundingBoxY, boundingBoxWidth, boundingBoxHeight] = boundingBox;
 
     const centerY = boundingBoxY + boundingBoxHeight / 2;
 
@@ -281,9 +247,12 @@ export const getCropResizeOptions = (props: {
     const finalHeight = Math.min(inputDimensions[1], cropHeight);
 
     return {
-        left: cropLeft,
-        top: cropTop,
-        width: finalWidth,
-        height: finalHeight
+        crop: {
+            left: cropLeft,
+            top: cropTop,
+            width: finalWidth,
+            height: finalHeight
+        },
+        boundingBox: newBoundingBox
     };
 }

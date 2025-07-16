@@ -2764,7 +2764,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 }
                             }
                         } else {
-                            logger.log(`Post-processing re-detection didn't find anything, sending full frame. ${JSON.stringify({
+                            logger.info(`Post-processing re-detection didn't find anything. ${JSON.stringify({
                                 detection,
                                 imageSource,
                                 match,
@@ -2802,10 +2802,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                         inputDimensions,
                                         error: e.message
                                     });
+
+                                    shouldResetTimer = true;
                                 }
                             }
                         } catch (e) {
-                            logger.error(`Error during post-processing. Sending full frame`, JSON.stringify({
+                            logger.error(`Error during post-processing`, JSON.stringify({
                                 boundingBox,
                                 inputDimensions,
                             }), e);
@@ -2824,22 +2826,25 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
 
         if (shouldResetTimer) {
+            logger.info(`Post-processing failed. Skipping notification and resetting delay to allow new detections to come through`);
             const delayKey = this.isDelayPassed({
                 type: DelayType.RuleNotification,
                 matchRule: matchRule as MatchRule,
             })?.delayKey;
 
             this.lastDelaySet[delayKey] = undefined;
-        }
 
-        await this.plugin.notifyDetectionEvent({
-            ...props,
-            imageData: {
-                image,
-                b64Image,
-                imageSource
-            }
-        });
+            return;
+        } else {
+            await this.plugin.notifyDetectionEvent({
+                ...props,
+                imageData: {
+                    image,
+                    b64Image,
+                    imageSource
+                }
+            });
+        }
     }
 
     isDelayPassed(props: IsDelayPassedProps) {
