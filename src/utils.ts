@@ -92,7 +92,7 @@ export const getAssetSource = (props: { videoUrl?: string, sourceId?: string }) 
     }
 }
 
-export enum NotifyDetectionSource {
+export enum NotifyRuleSource {
     AccumulatedDetection = 'AccumulatedDetection',
     Decoder = 'Decoder',
     Test = 'Test',
@@ -105,7 +105,7 @@ export interface NotifyDetectionProps {
     triggerTime: number,
     forceAi?: boolean,
     matchRule: Partial<MatchRule>;
-    eventSource: NotifyDetectionSource;
+    eventSource: NotifyRuleSource;
     imageData?: {
         image: MediaObject,
         b64Image: string,

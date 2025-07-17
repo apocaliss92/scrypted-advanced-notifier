@@ -172,6 +172,7 @@ export const licensePlateClasses = [
     'motorcycle_plate',
     'temporary_plate',
     'dealer_plate',
+    'licensePlate',
 
     // Plate Components
     'plate_number',

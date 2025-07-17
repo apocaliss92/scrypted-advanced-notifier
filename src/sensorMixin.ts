@@ -6,7 +6,7 @@ import { getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, reportSensorValues, setupSensorAutodiscovery, subscribeToSensorMqttTopics } from "./mqtt-utils";
-import { BinarySensorMetadata, binarySensorMetadataMap, cameraFilter, convertSettingsToStorageSettings, DetectionRule, DeviceInterface, getActiveRules, getDetectionRulesSettings, GetImageReason, getMixinBaseSettings, getRuleKeys, MixinBaseSettingKey, NotifyDetectionSource, RuleSource, RuleType, ScryptedEventSource, splitRules, SupportedSensorType } from "./utils";
+import { BinarySensorMetadata, binarySensorMetadataMap, cameraFilter, convertSettingsToStorageSettings, DetectionRule, DeviceInterface, getActiveRules, getDetectionRulesSettings, GetImageReason, getMixinBaseSettings, getRuleKeys, MixinBaseSettingKey, NotifyRuleSource, RuleSource, RuleType, ScryptedEventSource, splitRules, SupportedSensorType } from "./utils";
 import { DetectionClass } from "./detectionClasses";
 
 const { systemManager } = sdk;
@@ -377,7 +377,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
 
                     this.plugin.notifyDetectionEvent({
                         triggerDeviceId: this.id,
-                        eventSource: NotifyDetectionSource.Sensor,
+                        eventSource: NotifyRuleSource.Sensor,
                         eventType: this.supportedSensorType,
                         triggerTime,
                         matchRule: {
