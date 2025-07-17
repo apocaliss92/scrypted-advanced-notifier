@@ -909,7 +909,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 }
             }
         } catch (e) {
-            logger.log(`Error in onRequest`, e.message);
+            logger.log(`Error in onRequest`, e.message, JSON.stringify(request));
             response.send(`${JSON.stringify(e)}, ${e.message}`, {
                 code: 400,
             });
