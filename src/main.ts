@@ -1323,8 +1323,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     let hardCap = camerasHardCap + sensorsHardCap + notifiersHardCap;
                     let softCap = camerasSoftCap + sensorsSoftCap + notifiersSoftCap;
 
-                    hardCap = max([hardCap, SOFT_MIN_RPC_OBJECTS]);
-                    softCap = max([softCap, HARD_MIN_RPC_OBJECTS]);
+                    hardCap = max([hardCap, HARD_MIN_RPC_OBJECTS]);
+                    softCap = max([softCap, SOFT_MIN_RPC_OBJECTS]);
 
                     const maxActiveMotion = Math.floor(activeCameras / 15);
                     if (pluginRpcObjects > softCap && ((now - this.connectionTime) > (1000 * 60 * 60 * 2)) && this.cameraMotionActive.size <= maxActiveMotion) {
