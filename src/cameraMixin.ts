@@ -14,7 +14,7 @@ import { Deferred } from "../../scrypted/server/src/deferred";
 import { checkObjectsOccupancy } from "./aiUtils";
 import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, isFaceClassname, isMotionClassname, isObjectClassname, isPlateClassname, levenshteinDistance } from "./detectionClasses";
 import { addBoundingBoxesToImage, addZoneClipPathToImage, cropImageToDetection } from "./drawingUtils";
-import HomeAssistantUtilitiesProvider from "./main";
+import AdvancedNotifierPlugin from "./main";
 import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DETECTION_CLIP_PREFIX, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyDetectionSource, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
@@ -326,7 +326,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
-        public plugin: HomeAssistantUtilitiesProvider
+        public plugin: AdvancedNotifierPlugin
     ) {
         super(options);
         const logger = this.getLogger();
@@ -1626,6 +1626,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             GetImageReason.ObjectUpdate,
         ].includes(reason);
         const tryDetector = !!detectionId && !!eventId;
+        const onlyDetector = reason === GetImageReason.QuickNotification;
         const snapshotTimeout =
             reason === GetImageReason.RulesRefresh ? 10000 : this.currentSnapshotTimeout;
         const decoderRunning = !this.framesGeneratorSignal.finished;
@@ -1647,15 +1648,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const findFromDetector = () => async () => {
             try {
                 const detectImage = await this.cameraDevice.getDetectionInput(detectionId, eventId);
-                const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(detectImage, ScryptedMimeTypes.Image);
-                image = await convertedImage.toImage({
-                    resize: {
-                        width: SNAPSHOT_WIDTH,
-                    },
-                });
+
+                if (onlyDetector) {
+                    image = detectImage;
+                } else {
+                    const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(detectImage, ScryptedMimeTypes.Image);
+                    image = await convertedImage.toImage({
+                        resize: {
+                            width: SNAPSHOT_WIDTH,
+                        },
+                    });
+                }
                 imageSource = ImageSource.Detector;
             } catch (e) {
-                logger.log(`Error finding the ${reason} image from the detector (${e.message})`);
+                logger.log(`Error finding the ${reason} image from the detector for detectionId ${detectionId} and eventId ${eventId} (${e.message})`);
             }
         }
 
@@ -1771,6 +1777,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         checkLatest,
                         checkSnapshot,
                     ];
+                } else if (onlyDetector) {
+                    if (tryDetector) {
+                        runners = [
+                            checkDetector,
+                        ];
+                    }
                 } else if (tryDetector) {
                     runners = [
                         checkDetector,
@@ -2699,6 +2711,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         });
 
         if (timePassed) {
+            const shouldReDetect = !imageData || imageData.imageSource !== ImageSource.Decoder;
+
             let image: MediaObject;
             let b64Image: string;
             let imageSource: ImageSource;
@@ -2720,16 +2734,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             let shouldResetTimer = false;
 
             if (image) {
-                logger.log(`Post-processing set to ${rule.imageProcessing}, objectDetector is set to ${objectDetector ? objectDetector.name : 'NOT_DEFINED'}`);
+                logger.info(`Post-processing set to ${rule.imageProcessing}, objectDetector is set to ${objectDetector ? objectDetector.name : 'NOT_DEFINED'}`);
                 let inputDimensions = inputDimensionsParent;
 
                 if (match && objectDetector && image) {
                     if (rule.imageProcessing !== ImagePostProcessing.None) {
-                        let boundingBox: BoundingBoxResult['boundingBox'];
+                        let boundingBox = match.boundingBox;
 
-                        if (imageSource === ImageSource.Detector) {
-                            boundingBox = match.boundingBox;
-                        } else {
+                        if (shouldReDetect) {
                             const detection = await sdk.connectRPCObject(
                                 await objectDetector.detectObjects(image)
                             );
@@ -2785,6 +2797,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                             boundingBox,
                                         }],
                                         inputDimensions,
+                                        plugin: this.plugin
                                     });
                                     b64Image = newB64Image;
                                     image = newImage;
@@ -2796,17 +2809,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                             image,
                                             boundingBox,
                                             inputDimensions,
+                                            plugin: this.plugin
                                         });
 
                                         image = newImage;
                                         b64Image = newB64Image;
                                         logger.log(`Post-processing ${rule.imageProcessing} successful`);
                                     } catch (e) {
-                                        logger.error('Failed to crop image', {
+                                        logger.error('Failed to crop image', JSON.stringify({
                                             boundingBox,
                                             inputDimensions,
-                                            error: e.message
-                                        });
+                                            error: e.message,
+                                            imageSource,
+                                            matchRule,
+                                        }));
 
                                         shouldResetTimer = true;
                                     }
@@ -2917,12 +2933,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         } else if (type === DelayType.EventStore) {
             const { identifiers } = props;
 
-            delayKey += `-${identifiers.join('_')}`;
-
+            // delayKey += `-${identifiers.join('_')}`;
             if (identifiers.length === 1 && isMotionClassname(identifiers[0])) {
+                delayKey = `${DelayType.EventStore}_motion`;
                 minDelayInSeconds = 30;
             } else {
-                minDelayInSeconds = 15;
+                delayKey = `${DelayType.EventStore}`;
+                minDelayInSeconds = 6;
             }
         }
 
@@ -3032,12 +3049,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         });
         const originalCandidates = cloneDeep(candidates);
 
-        const canPickImageRightAway = !isRawDetection || (isAudioEvent && isFromFrigate);
+        const canPickImageRightAway = !isRawDetection || isAudioEvent;
         const canUpdateMqttImage = canPickImageRightAway && detectionSourceForMqtt === eventSource;
         const canUpdateMqttClasses =
             eventSource === detectionSourceForMqtt ||
-            hasNonStandardClasses ||
-            isAudioEvent;
+            hasNonStandardClasses
 
         if (eventDetails && this.processDetectionsInterval) {
             this.accumulatedDetections.push({
@@ -3053,6 +3069,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let image: MediaObject;
         let b64Image: string;
         let imageSource: ImageSource;
+
+        let decoderImage: MediaObject;
+        let decoderB64Image: string;
 
         try {
             if (canPickImageRightAway) {
@@ -3174,10 +3193,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const { b64Image: b64ImageToStore, image: imageToStore } = await this.getImage({
                     eventId: eventDetails?.eventId,
                     detectionId: detect?.detectionId,
-                    reason: GetImageReason.StoreRawEvent
+                    reason: GetImageReason.QuickNotification
                 });
 
                 if (b64ImageToStore && imageToStore) {
+                    decoderB64Image = b64ImageToStore;
+                    decoderImage = imageToStore;
+
                     const logger = this.getLogger();
                     logger.info(`Starting ${eventSource} storeEventImage: ${JSON.stringify({
                         detections,
@@ -3233,8 +3255,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     clipConfidence,
                     audioLabels,
                 } = rule;
-                const isFromFrigate = detectionSource === ScryptedEventSource.Frigate;
-                const isRawDetection = detectionSource === ScryptedEventSource.RawDetection;
+                const isRuleFromFrigate = detectionSource === ScryptedEventSource.Frigate;
+                const isRuleRawDetection = detectionSource === ScryptedEventSource.RawDetection;
 
                 if (!detectionClasses.length || !rule.currentlyActive) {
                     continue;
@@ -3283,7 +3305,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         }
                     }
 
-                    if (isFromFrigate && label) {
+                    if (isRuleFromFrigate && label) {
                         if (!frigateLabels?.length || !frigateLabels.includes(label)) {
                             logger.debug(`Frigate label ${label} not whitelisted ${frigateLabels}`);
                             return false;
@@ -3345,7 +3367,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         if (clipDescription && clipDevice) {
                             // For now just go ahead if it's a raw detection and it has already embedding from NVR, 
                             // or if it's an NVR notification. Could add a configuration to always calculate embedding on clipped images
-                            const canCheckSimilarity = (isRawDetection && match.embedding) || isFromNvr;
+                            const canCheckSimilarity = (isRuleRawDetection && match.embedding) || isFromNvr;
                             if (canCheckSimilarity) {
                                 try {
                                     const similarityScore = await this.getEmbeddingSimilarityScore({
@@ -3378,9 +3400,24 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 dataToReport
                             };
                             matchRules.push(matchRule);
-                            if (rule.detectionSource === ScryptedEventSource.RawDetection) {
 
-                                this.accumulatedRules.push(matchRule);
+                            if (isRuleRawDetection && decoderImage) {
+                                // if (decoderImage) {
+                                this.preProcessNotificationRule({
+                                    triggerDeviceId: this.id,
+                                    eventSource: NotifyDetectionSource.Decoder,
+                                    matchRule,
+                                    imageData: {
+                                        image: decoderImage,
+                                        b64Image: decoderB64Image,
+                                        imageSource: ImageSource.Decoder,
+                                    },
+                                    eventType: detectionClassesDefaultMap[match.className],
+                                    triggerTime,
+                                }).catch(logger.log);
+                                // } else {
+                                //     this.accumulatedRules.push(matchRule);
+                                // }
                             }
                         }
                     }
@@ -3409,7 +3446,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         }
 
                         if (isNonRawDetection) {
-                            this.preProcessNotificationRule({
+                            this.plugin.notifyDetectionEvent({
                                 triggerDeviceId: this.id,
                                 eventSource: NotifyDetectionSource.Decoder,
                                 matchRule,
@@ -3421,6 +3458,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 eventType: detectionClassesDefaultMap[match.className],
                                 triggerTime,
                             }).catch(logger.log);
+                            // this.preProcessNotificationRule({
+                            //     triggerDeviceId: this.id,
+                            //     eventSource: NotifyDetectionSource.Decoder,
+                            //     matchRule,
+                            //     imageData: {
+                            //         image,
+                            //         b64Image,
+                            //         imageSource,
+                            //     },
+                            //     eventType: detectionClassesDefaultMap[match.className],
+                            //     triggerTime,
+                            // }).catch(logger.log);
                         }
                     } catch (e) {
                         logger.log(`Error processing matchRule ${JSON.stringify(matchRule)}`, e);

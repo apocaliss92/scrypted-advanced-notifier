@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.3.44
+- Add customizations for post-processing actions
+- Quick notifications implemented, delay should be reduced on notifications
+
 ### 4.3.41
 - Publish per-zone detection entities to MQTT
 

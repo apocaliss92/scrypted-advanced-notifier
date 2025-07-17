@@ -2,41 +2,52 @@ import sdk, { Image, ObjectDetectionResult, MediaObject, ScryptedMimeTypes, Imag
 import sharp from "sharp";
 import { DetectionClass, detectionClassesDefaultMap } from "./detectionClasses";
 import { moToB64 } from "./utils";
+import AdvancedNotifierPlugin, { PluginSettingKey } from "./main";
 
-const fontSize = 20;
-const thickness = 4;
-
-const detectionClassClorMap: Partial<Record<string, string>> = {
-    [DetectionClass.Animal]: '#2ECC40',
-    [DetectionClass.Vehicle]: '#0074D9',
-    [DetectionClass.Person]: '#FF4136',
-    [DetectionClass.Face]: '#FF851B',
-    [DetectionClass.Plate]: '#B10DC9',
-    Other: '#AAAAAA',
+const detectionClassClorMap: Partial<Record<string, PluginSettingKey>> = {
+    [DetectionClass.Animal]: 'postProcessingAnimalBoundingColor',
+    [DetectionClass.Vehicle]: 'postProcessingVehicleBoundingColor',
+    [DetectionClass.Person]: 'postProcessingPersonBoundingColor',
+    [DetectionClass.Face]: 'postProcessingFaceBoundingColor',
+    [DetectionClass.Plate]: 'postProcessingPlateBoundingColor',
+    Other: 'postProcessingOtherBoundingColor',
 };
 
 export const addBoundingBoxesToImage = async (props: {
     inputDimensions?: [number, number],
     detections?: ObjectDetectionResult[],
     image: MediaObject;
-    withScores?: boolean
+    plugin: AdvancedNotifierPlugin;
 }) => {
-    const { detections, inputDimensions, image, withScores } = props;
+    const { detections, inputDimensions, image, plugin } = props;
     const bufferImage = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg');
 
+    const {
+        postProcessingMarkingSizeIncrease,
+        postProcessingLineThickness: thickness,
+        postProcessingFontSize: fontSize,
+        postProcessingShowScore: showScore
+    } = plugin.storageSettings.values;
     const svgRectsAndTexts = detections.map(({ boundingBox, label, className, score }) => {
         let labelText = `${label || className}`;
-        if (withScores) {
+        if (showScore) {
             labelText += `: ${Math.floor(score * 100)}%`
         }
-        const [x, y, width, height] = boundingBox;
+        const { crop } = getCropResizeOptions({
+            inputDimensions,
+            sizeIncrease: postProcessingMarkingSizeIncrease,
+            boundingBox,
+        });
+        // const [x, y, width, height] = boundingBox;
+        const { left: x, top: y, width, height } = crop;
         const classNameParsed = detectionClassesDefaultMap[className] ?? 'Other';
         const padding = 4;
         const textWidth = labelText.length * (fontSize * 0.6);
         const labelX = x;
         const labelY = y - fontSize - 4;
 
-        const color = detectionClassClorMap[classNameParsed];
+        const colorSettingKey = detectionClassClorMap[classNameParsed];
+        const color = plugin.storageSettings.values[colorSettingKey];
 
         return `
             <rect 
@@ -147,13 +158,16 @@ export const cropImageToDetection = async (props: {
     inputDimensions: [number, number],
     boundingBox: [number, number, number, number],
     image: MediaObject;
+    plugin: AdvancedNotifierPlugin;
 }) => {
-    const { image, boundingBox, inputDimensions } = props;
+    const { image, boundingBox, inputDimensions, plugin } = props;
     const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(image, ScryptedMimeTypes.Image);
 
+    const { postProcessingCropSizeIncrease, postProcessingAspectRatio } = plugin.storageSettings.values;
     const { crop, boundingBox: newBoundingBox } = getCropResizeOptions({
         inputDimensions,
-        aspectRatio: 1,
+        aspectRatio: postProcessingAspectRatio,
+        sizeIncrease: postProcessingCropSizeIncrease,
         boundingBox,
     });
 
@@ -278,6 +292,16 @@ export const getCropResizeOptions = (props: {
     const targetAspectRatio = aspectRatio || (inputWidth / inputHeight);
 
     const [originalX, originalY, originalWidth, originalHeight] = boundingBox;
+
+    // return {
+    //     crop: {
+    //         left: Math.round(originalX),
+    //         top: Math.round(originalY),
+    //         width: Math.round(originalWidth),
+    //         height: Math.round(originalHeight)
+    //     },
+    //     boundingBox,
+    // };
 
     const centerX = originalX + originalWidth / 2;
     const centerY = originalY + originalHeight / 2;

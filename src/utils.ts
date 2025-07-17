@@ -169,10 +169,10 @@ export enum GetImageReason {
     MotionUpdate = 'MotionUpdate',
     ObjectUpdate = 'ObjectUpdate',
     FromNvr = 'FromNvr',
+    QuickNotification = 'QuickNotification',
     FromFrigate = 'FromFrigate',
     Notification = 'Notification',
     AccumulatedDetections = 'AccumulatedDetections',
-    StoreRawEvent = 'StoreRawEvent',
     Test = 'Test',
 }
 

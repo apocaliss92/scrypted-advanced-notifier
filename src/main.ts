@@ -68,6 +68,18 @@ export type PluginSettingKey =
     | 'enableDecoder'
     | 'privateKey'
     | 'cloudEndpointInternal'
+    | 'postProcessingCropSizeIncrease'
+    | 'postProcessingMarkingSizeIncrease'
+    | 'postProcessingVehicleBoundingColor'
+    | 'postProcessingPersonBoundingColor'
+    | 'postProcessingAnimalBoundingColor'
+    | 'postProcessingFaceBoundingColor'
+    | 'postProcessingPlateBoundingColor'
+    | 'postProcessingOtherBoundingColor'
+    | 'postProcessingFontSize'
+    | 'postProcessingLineThickness'
+    | 'postProcessingShowScore'
+    | 'postProcessingAspectRatio'
     | BaseSettingsKey
     | TextSettingKey;
 
@@ -386,6 +398,100 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             description: 'How many days to keep the generated clips',
             type: 'number',
             defaultValue: 30,
+        },
+        postProcessingCropSizeIncrease: {
+            title: 'Size increase',
+            group: 'Post-Processing',
+            subgroup: 'Crop',
+            description: 'Factor to increse the padding of the cropped thumbnails, higher the number more space around the detected object',
+            type: 'number',
+            defaultValue: 1.2,
+        },
+        postProcessingAspectRatio: {
+            title: 'Aspect ratio',
+            group: 'Post-Processing',
+            subgroup: 'Crop',
+            description: 'Aspect ratio of the cropped thumbnail. Leave blank to use the camera aspect ratio',
+            type: 'number',
+            defaultValue: 1,
+        },
+        postProcessingMarkingSizeIncrease: {
+            title: 'Size increase',
+            group: 'Post-Processing',
+            subgroup: 'Marking boundaries',
+            description: 'Factor to increse the padding of the boundaries, higher the number more space around the detected object',
+            type: 'number',
+            defaultValue: 1.1,
+        },
+        postProcessingFontSize: {
+            title: 'Texts font size',
+            group: 'Post-Processing',
+            subgroup: 'Marking boundaries',
+            type: 'number',
+            defaultValue: 40,
+        },
+        postProcessingLineThickness: {
+            title: 'Lines thickness',
+            group: 'Post-Processing',
+            subgroup: 'Marking boundaries',
+            type: 'number',
+            defaultValue: 8,
+        },
+        postProcessingShowScore: {
+            title: 'Show score',
+            group: 'Post-Processing',
+            subgroup: 'Marking boundaries',
+            type: 'boolean',
+            defaultValue: true,
+            immediate: true,
+        },
+        postProcessingAnimalBoundingColor: {
+            title: 'Animal marking color',
+            group: 'Post-Processing',
+            subgroup: 'Marking boundaries',
+            description: 'Color to use for the marking boundaries around animal objects',
+            type: 'string',
+            defaultValue: '#2ECC40',
+        },
+        postProcessingVehicleBoundingColor: {
+            title: 'Vehicle marking color',
+            group: 'Post-Processing',
+            subgroup: 'Marking boundaries',
+            description: 'Color to use for the marking boundaries around animal objects',
+            type: 'string',
+            defaultValue: '#0074D9',
+        },
+        postProcessingPersonBoundingColor: {
+            title: 'Person marking color',
+            group: 'Post-Processing',
+            subgroup: 'Marking boundaries',
+            description: 'Color to use for the marking boundaries around person objects',
+            type: 'string',
+            defaultValue: '#FF4136',
+        },
+        postProcessingPlateBoundingColor: {
+            title: 'Plate marking color',
+            group: 'Post-Processing',
+            subgroup: 'Marking boundaries',
+            description: 'Color to use for the marking boundaries around plate objects',
+            type: 'string',
+            defaultValue: '#B10DC9',
+        },
+        postProcessingFaceBoundingColor: {
+            title: 'Face marking color',
+            group: 'Post-Processing',
+            subgroup: 'Marking boundaries',
+            description: 'Color to use for the marking boundaries around face objects',
+            type: 'string',
+            defaultValue: '#FF851B',
+        },
+        postProcessingOtherBoundingColor: {
+            title: 'Unclassified marking color',
+            group: 'Post-Processing',
+            subgroup: 'Marking boundaries',
+            description: 'Color to use for the marking boundaries around unclassified objects',
+            type: 'string',
+            defaultValue: '#AAAAAA',
         },
     };
     storageSettings = new StorageSettings(this, this.initStorage);
