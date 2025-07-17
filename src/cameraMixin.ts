@@ -3402,22 +3402,22 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             matchRules.push(matchRule);
 
                             if (isRuleRawDetection && decoderImage) {
-                                // if (decoderImage) {
-                                this.preProcessNotificationRule({
-                                    triggerDeviceId: this.id,
-                                    eventSource: NotifyDetectionSource.Decoder,
-                                    matchRule,
-                                    imageData: {
-                                        image: decoderImage,
-                                        b64Image: decoderB64Image,
-                                        imageSource: ImageSource.Decoder,
-                                    },
-                                    eventType: detectionClassesDefaultMap[match.className],
-                                    triggerTime,
-                                }).catch(logger.log);
-                                // } else {
-                                //     this.accumulatedRules.push(matchRule);
-                                // }
+                                if (decoderImage) {
+                                    this.preProcessNotificationRule({
+                                        triggerDeviceId: this.id,
+                                        eventSource: NotifyDetectionSource.Decoder,
+                                        matchRule,
+                                        imageData: {
+                                            image: decoderImage,
+                                            b64Image: decoderB64Image,
+                                            imageSource: ImageSource.Decoder,
+                                        },
+                                        eventType: detectionClassesDefaultMap[match.className],
+                                        triggerTime,
+                                    }).catch(logger.log);
+                                } else {
+                                    this.accumulatedRules.push(matchRule);
+                                }
                             }
                         }
                     }

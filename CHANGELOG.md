@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.3.45
+- StoreEvents flag default to false
+
 ### 4.3.44
 - Add customizations for post-processing actions
 - Quick notifications implemented, delay should be reduced on notifications

@@ -115,18 +115,24 @@ export const cleanupDatabases = async (props: {
 }) => {
   const { days, logger } = props;
 
-  const allDays = await fs.promises.readdir(eventDbsPath);
+  try {
+    await fs.promises.access(eventDbsPath);
 
-  const todayLessNDays = moment().subtract(days, 'days');
-  const dbsToDelete = allDays.filter(dataStr => {
-    const data = moment(dataStr.replace('.json', ''), dbFileFormat);
-    return data.isSameOrBefore(todayLessNDays);
-  });
+    const allDays = await fs.promises.readdir(eventDbsPath);
 
-  for (const db of dbsToDelete) {
-    const pathToDb = path.join(eventDbsPath, db);
-    await fs.promises.rm(pathToDb, { recursive: true, force: true, maxRetries: 10 });
+    const todayLessNDays = moment().subtract(days, 'days');
+    const dbsToDelete = allDays.filter(dataStr => {
+      const data = moment(dataStr.replace('.json', ''), dbFileFormat);
+      return data.isSameOrBefore(todayLessNDays);
+    });
+
+    for (const db of dbsToDelete) {
+      const pathToDb = path.join(eventDbsPath, db);
+      await fs.promises.rm(pathToDb, { recursive: true, force: true, maxRetries: 10 });
+    }
+
+    logger.log(`DBs cleanup completed: ${dbsToDelete.length} removed (${dbsToDelete.join(', ')})`);
+  } catch {
+    logger.log(`Skipping DB cleanup. path not existing`);
   }
-
-  logger.log(`DBs cleanup completed: ${dbsToDelete.length} removed (${dbsToDelete.join(', ')})`);
 }

@@ -384,7 +384,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             group: 'Storage',
             type: 'boolean',
             immediate: true,
-            defaultValue: true,
+            defaultValue: false,
         },
         cleanupEvents: {
             title: 'Cleanup events data',
