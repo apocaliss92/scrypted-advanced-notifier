@@ -261,7 +261,7 @@ export const getCropResizeOptions = (props: {
     inputDimensions?: [number, number],
     boundingBox: [number, number, number, number],
     aspectRatio?: number,
-    sizeIncrease?: number // Aggiungo questo parametro configurabile
+    sizeIncrease?: number
 }): { crop: ImageOptions['crop'], boundingBox: [number, number, number, number] } => {
     const {
         inputDimensions,

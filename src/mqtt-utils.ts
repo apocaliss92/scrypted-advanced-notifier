@@ -3,7 +3,7 @@ import { cloneDeep, uniq } from 'lodash';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 import { OccupancyRuleData } from './cameraMixin';
 import { DetectionClass, detectionClassesDefaultMap, getParentDetectionClass, isAudioClassname, isLabelDetection } from './detectionClasses';
-import { BaseRule, DeviceInterface, ImageSource, isDetectionRule, RuleSource, RuleType, safeParseJson, toKebabCase, toSnakeCase, toTitleCase } from './utils';
+import { BaseRule, DetectionsPerZone, DeviceInterface, ImageSource, isDetectionRule, RuleSource, RuleType, safeParseJson, toKebabCase, toSnakeCase, toTitleCase } from './utils';
 
 export enum MqttEntityIdentifier {
     Triggered = 'Triggered',
@@ -1141,14 +1141,115 @@ const getCameraClassEntities = async (props: {
     return getDetectionClassMqttEntities(uniq(enabledClasses));
 }
 
+const getDetectionZoneEntities = (zones: string[]) => {
+    const entries: MqttEntity[] = []
+
+    for (const zone of zones) {
+        const entityZoneName = toSnakeCase(zone);
+
+        for (const className of detectionClassForObjectsReporting) {
+            const friendlyClassName = toTitleCase(className);
+            entries.push(
+                {
+                    entity: `${entityZoneName}_${className}_detected`,
+                    name: `${zone} - ${friendlyClassName} detected`,
+                    domain: 'binary_sensor',
+                    className,
+                    valueToDispatch: PAYLOAD_OFF,
+                    deviceClass: 'motion',
+                    identifier: MqttEntityIdentifier.Detected
+                },
+                {
+                    entity: `${entityZoneName}_${className}${lastImageSuffix}`,
+                    name: `${zone} - ${friendlyClassName} last image`,
+                    domain: 'image',
+                    className,
+                    retain: true,
+                    identifier: MqttEntityIdentifier.LastImage
+                },
+                {
+                    entity: `${entityZoneName}_${className}${lastDetectionSuffix}`,
+                    name: `${zone} - ${friendlyClassName} last detection`,
+                    domain: 'sensor',
+                    className,
+                    icon: 'mdi:clock',
+                    deviceClass: 'timestamp',
+                    retain: true,
+                    disabled: true,
+                    identifier: MqttEntityIdentifier.LastDetection
+                },
+            );
+        }
+    }
+
+    return entries;
+}
+
+//     zones.flatMap(zone => {
+//     const parsedClassName = toTitleCase(zone);
+//     const entries: MqttEntity[] = [
+//         {
+//             entity: `${className}_detected`,
+//             name: `${parsedClassName} detected`,
+//             domain: 'binary_sensor',
+//             className,
+//             valueToDispatch: PAYLOAD_OFF,
+//             deviceClass: isAudio ? 'sound' : 'motion',
+//             identifier: MqttEntityIdentifier.Detected
+//         },
+//         {
+//             entity: `${className}${lastImageSuffix}`,
+//             name: `${parsedClassName} last image `,
+//             domain: 'image',
+//             className,
+//             retain: true,
+//             identifier: MqttEntityIdentifier.LastImage
+//         },
+//         {
+//             entity: `${className}${lastDetectionSuffix}`,
+//             name: `${parsedClassName} last detection`,
+//             domain: 'sensor',
+//             className,
+//             icon: 'mdi:clock',
+//             deviceClass: 'timestamp',
+//             retain: true,
+//             disabled: true,
+//             identifier: MqttEntityIdentifier.LastDetection
+//         },
+//     ];
+
+//     if (!isAudio && isLabelDetection(className)) {
+//         entries.push({
+//             entity: `${className}_last_recognized`,
+//             name: `${parsedClassName} last recognized`,
+//             domain: 'sensor',
+//             className,
+//             identifier: MqttEntityIdentifier.LastLabel
+//         });
+//     }
+
+//     if (detectionClassForObjectsReporting.includes(className as DetectionClass)) {
+//         entries.push({
+//             entity: `${className}_objects`,
+//             name: `${parsedClassName} objects`,
+//             domain: 'sensor',
+//             className,
+//             identifier: MqttEntityIdentifier.Object
+//         });
+//     }
+
+//     return entries;
+// });
+
 export const setupCameraAutodiscovery = async (props: {
     mqttClient?: MqttClient,
     device: ScryptedDeviceBase & ObjectDetector,
     console: Console,
     rules: BaseRule[],
+    zones: string[],
     occupancyEnabled: boolean,
 }) => {
-    const { device, mqttClient, rules, console, occupancyEnabled } = props;
+    const { device, mqttClient, rules, console, occupancyEnabled, zones } = props;
 
     if (!mqttClient) {
         return;
@@ -1239,6 +1340,8 @@ export const setupCameraAutodiscovery = async (props: {
         }
     }
 
+    mqttEntities.push(...getDetectionZoneEntities(zones));
+
     return await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, device, console });
 }
 
@@ -1309,19 +1412,23 @@ export const publishResetDetectionsEntities = async (props: {
     device: ScryptedDeviceBase & ObjectDetector,
     console: Console,
     classnames?: string[],
+    zones: string[],
 }) => {
-    const { device, mqttClient, console, classnames } = props;
+    const { device, mqttClient, console, classnames, zones } = props;
 
     if (!mqttClient) {
         return;
     }
 
-    const mqttEntities: MqttEntity[] = [
-        ...(await getCameraClassEntities({ device, console })).filter(item =>
-            item.identifier === MqttEntityIdentifier.Detected &&
-            (classnames ? classnames.includes(item.className) : true)
-        ),
+    let mqttEntities: MqttEntity[] = [
+        ...(await getCameraClassEntities({ device, console })),
+        ...getDetectionZoneEntities(zones)
     ];
+
+    mqttEntities = mqttEntities.filter(item =>
+        item.identifier === MqttEntityIdentifier.Detected &&
+        (classnames ? classnames.includes(item.className) : true)
+    );
 
     console.info(`Resetting detection entities: ${mqttEntities.map(item => item.className).join(', ')}`);
 
@@ -1385,6 +1492,7 @@ export const publishBasicDetectionData = async (props: {
     device: DeviceInterface,
     console: Console,
     detection?: ObjectDetectionResult,
+    detectionsPerZone: DetectionsPerZone,
     triggerTime: number,
 }) => {
     const {
@@ -1393,6 +1501,7 @@ export const publishBasicDetectionData = async (props: {
         detection,
         triggerTime,
         console,
+        detectionsPerZone,
     } = props;
 
     if (!mqttClient) {
@@ -1404,6 +1513,8 @@ export const publishBasicDetectionData = async (props: {
             detection,
             device
         });
+
+        classEntries.push(...getZoneEntities(detectionsPerZone));
 
         console.debug(`Relevant detections to publish: ${JSON.stringify({ detection, classEntries })}`);
 
@@ -1482,6 +1593,20 @@ export const publishPeopleData = async (props: {
     }
 }
 
+const getZoneEntities = (detectionsPerZone: DetectionsPerZone) => {
+    const entries: MqttEntity[] = [];
+
+    const zones = detectionsPerZone.keys();
+    for (const zone of zones) {
+        const zoneEntities = getDetectionZoneEntities([zone]);
+        const classesInZone: string[] = Array.from(detectionsPerZone.get(zone).values());
+
+        entries.push(...zoneEntities.filter(item => classesInZone.includes(item.className)));
+    }
+
+    return entries;
+}
+
 export const publishClassnameImages = async (props: {
     mqttClient?: MqttClient,
     device: DeviceInterface,
@@ -1490,23 +1615,37 @@ export const publishClassnameImages = async (props: {
     detections?: ObjectDetectionResult[],
     b64Image?: string,
     imageUrl?: string,
+    detectionsPerZone: DetectionsPerZone,
 }) => {
-    const { mqttClient, device, detections = [], console, b64Image } = props;
+    const {
+        mqttClient,
+        device,
+        detections = [],
+        console,
+        b64Image,
+        detectionsPerZone
+    } = props;
 
     if (!mqttClient) {
         return;
     }
     console.info(`Publishing image for classnames: ${detections.map(data => data.className).join(', ')}`);
 
+    const entries = getZoneEntities(detectionsPerZone)
+        .filter(item => item.identifier === MqttEntityIdentifier.LastImage);
+
     try {
         for (const detection of detections) {
-
             const classEntries = await getClassnameEntities({
                 detection,
                 device
             });
 
             const mqttEntity = classEntries.find(entry => entry.identifier === MqttEntityIdentifier.LastImage);
+            entries.push(mqttEntity);
+        }
+
+        for (const mqttEntity of entries) {
             const { stateTopic } = getMqttTopics({ mqttEntity, device });
             await mqttClient.publish(stateTopic, b64Image, false);
         }

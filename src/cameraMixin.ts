@@ -17,7 +17,7 @@ import { addBoundingBoxesToImage, addZoneClipPathToImage, cropImageToDetection }
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DETECTION_CLIP_PREFIX, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyDetectionSource, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DETECTION_CLIP_PREFIX, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyDetectionSource, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -798,6 +798,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         // Every 60 minutes repeat the autodiscovery
                         if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
                             this.lastAutoDiscovery = now;
+                            const zones = (await this.getObserveZones()).map(item => item.name);;
 
                             logger.log('Starting MQTT autodiscovery');
                             setupCameraAutodiscovery({
@@ -806,6 +807,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 console: logger,
                                 rules: allAvailableRules,
                                 occupancyEnabled: checkOccupancy,
+                                zones
                             }).then(async (activeTopics) => {
                                 await this.mqttClient.cleanupAutodiscoveryTopics(activeTopics);
                             }).catch(logger.error);
@@ -2584,20 +2586,22 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     if (mqttClient) {
                         logger.info(`Updating classname images ${classnamesString} with image source ${imageSource}`);
 
-                        const allowedClassnames = detections.filter(classname => this.isDelayPassed({
-                            classname: classname.className,
-                            label: classname.label,
+                        const allowedDetections = detections.filter(detection => this.isDelayPassed({
+                            classname: detection.className,
+                            label: detection.label,
                             type: DelayType.BasicDetectionImage,
                             eventSource: ScryptedEventSource.RawDetection
                         })?.timePassed);
+                        const detectionsPerZone = getDetectionsPerZone(allowedDetections);
 
-                        allowedClassnames.length && await publishClassnameImages({
+                        allowedDetections.length && await publishClassnameImages({
                             mqttClient,
                             console: logger,
-                            detections: allowedClassnames,
+                            detections: allowedDetections,
                             device: this.cameraDevice,
                             b64Image,
                             triggerTime,
+                            detectionsPerZone
                         }).catch(logger.error);
                     }
                 }
@@ -3088,8 +3092,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         );
 
                         if (spamBlockedDetections.length) {
-                            const isOnlyMotion = spamBlockedDetections?.length === 1 && spamBlockedDetections[0].className === DetectionClass.Motion;
                             logger.info(`Triggering basic detections ${getDetectionsLog(spamBlockedDetections)}`);
+                            const detectionsPerZone = getDetectionsPerZone(spamBlockedDetections);
 
                             for (const detection of spamBlockedDetections) {
                                 const { className, label } = detection;
@@ -3098,6 +3102,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                     mqttClient,
                                     console: logger,
                                     detection,
+                                    detectionsPerZone,
                                     device: this.cameraDevice,
                                     triggerTime,
                                 }).catch(logger.error);
@@ -3112,6 +3117,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                                     if (timePassed) {
                                         logger.info(`Updating image for classname ${className} source: ${eventSource ? 'NVR' : 'Decoder'}`);
+                                        const detectionsPerZone = getDetectionsPerZone([detection]);
 
                                         publishClassnameImages({
                                             mqttClient,
@@ -3120,6 +3126,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                             device: this.cameraDevice,
                                             b64Image,
                                             triggerTime,
+                                            detectionsPerZone,
                                         }).catch(logger.error);
                                     }
                                 }
@@ -3618,14 +3625,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
 
         const funct = async () => {
-            const isOnlyMotion = classnames?.length === 1 && classnames[0] === DetectionClass.Motion;
             logger.info(`Resetting basic detections ${classnames ?? 'All'}, signal coming from ${resetSource}`);
+            const zones = (await this.getObserveZones()).map(item => item.name);;
 
             await publishResetDetectionsEntities({
                 mqttClient,
                 device: this.cameraDevice,
                 console: logger,
-                classnames
+                classnames,
+                zones
             });
         };
 

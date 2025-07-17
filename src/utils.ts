@@ -10,6 +10,7 @@ import { loginScryptedClient } from "../../scrypted/packages/client/src";
 import { name, scrypted } from '../package.json';
 import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection } from "./detectionClasses";
 import AdvancedNotifierPlugin, { PluginSettingKey } from "./main";
+import { detectionClassForObjectsReporting } from "./mqtt-utils";
 const { endpointManager } = sdk;
 
 export type DeviceInterface = ScryptedDevice & Camera & ScryptedDeviceBase & Notifier & Settings & ObjectDetector & VideoCamera & EntrySensor & Lock & BinarySensor & Reboot & PanTiltZoom & OnOff;
@@ -510,6 +511,28 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
     }
 }
 
+export type DetectionsPerZone = Map<string, Set<DetectionClass>>;
+
+export const getDetectionsPerZone = (detections: ObjectDetectionResult[]) => {
+    const zoneDetections: DetectionsPerZone = new Map();
+
+    for (const detection of detections ?? []) {
+        const { className, score, zones = [] } = detection;
+        const detectionClass = detectionClassesDefaultMap[className];
+
+        if (detectionClass && detectionClassForObjectsReporting.includes(detectionClass) && score > 0.6) {
+            for (const zone of zones) {
+                if (!zoneDetections.has(zone)) {
+                    zoneDetections.set(zone, new Set<DetectionClass>());
+                }
+                zoneDetections.get(zone).add(detectionClass);
+            }
+        }
+    }
+
+    return zoneDetections;
+}
+
 export const filterAndSortValidDetections = (props: {
     detect: ObjectsDetected,
     logger: Console,
@@ -526,6 +549,7 @@ export const filterAndSortValidDetections = (props: {
     let hasNonStandardClasses = false;
     const faces = new Set<string>();
     const uniqueByClassName = uniqBy(sortedByPriorityAndScore, det => det.className);
+
     const candidates = uniqueByClassName.filter(det => {
         const { className, label, movement, id } = det;
         const detId = id ? `${className}-${id}` : undefined;

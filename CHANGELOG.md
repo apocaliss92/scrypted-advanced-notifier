@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.3.41
+- Publish per-zone detection entities to MQTT
+
 ### 4.3.27
 - Publish audio entities to MQTT
 
