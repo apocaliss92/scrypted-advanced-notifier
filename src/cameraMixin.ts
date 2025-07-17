@@ -2042,7 +2042,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     height = Math.min(height, convertedImage.height - top);
 
                     if (!Number.isNaN(left) && !Number.isNaN(top) && !Number.isNaN(width) && !Number.isNaN(height)) {
-                        image = await convertedImage.toImage({
+                        const croppedImage = await convertedImage.toImage({
                             crop: {
                                 left,
                                 top,
@@ -2051,7 +2051,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             },
                         });
                         detectedResult = await sdk.connectRPCObject(
-                            await objectDetector.detectObjects(image)
+                            await objectDetector.detectObjects(croppedImage)
                         );
                     }
 
