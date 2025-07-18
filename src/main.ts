@@ -1977,10 +1977,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
 
         if (isCamera) {
-            logger.info(JSON.stringify({ allDetections, cameraName, options }));
+            logger.log(`NVR detections incoming: ${JSON.stringify({ allDetections, cameraName, options })}`);
             if (isDetectionClass(eventType)) {
                 await (foundDevice as AdvancedNotifierCameraMixin)?.processDetections({
-                    detect: { timestamp: triggerTime, detections: allDetections },
+                    detect: { ...options.recordedEvent.data, detections: allDetections },
                     image,
                     eventSource: ScryptedEventSource.NVR,
                 });
@@ -2005,14 +2005,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 }
             }
         }
-        // else {
-        //     await (foundDevice as AdvancedNotifierSensorMixin)?.processEvent({
-        //         image,
-        //         triggerTime,
-        //         triggered: true,
-        //         eventSource: ScryptedEventSource.NVR
-        //     });
-        // }
     }
 
     public getLinkedCamera = async (deviceId: string) => {
@@ -2045,6 +2037,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if (rule.activationType === DetectionRuleActivation.AdvancedSecuritySystem) {
             this.alarmSystem.onEventTrigger({ triggerDevice }).catch(logger.log);
         }
+
         let image: MediaObject;
         let b64Image: string;
         let imageSource: ImageSource;
@@ -2059,7 +2052,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             imageSource = newImageSource;
         } else {
             image = imageData.image;
-            b64Image = await moToB64(image);
+            b64Image = image ? await moToB64(image) : undefined;
             imageSource = imageData.imageSource;
         }
 

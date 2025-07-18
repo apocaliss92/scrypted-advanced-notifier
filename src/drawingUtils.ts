@@ -28,28 +28,40 @@ export const addBoundingBoxesToImage = async (props: {
         postProcessingFontSize: fontSize,
         postProcessingShowScore: showScore
     } = plugin.storageSettings.values;
-    const svgRectsAndTexts = detections.map(({ boundingBox, label, className, score }) => {
-        let labelText = `${label || className}`;
-        if (showScore) {
-            labelText += `: ${Math.floor(score * 100)}%`
-        }
-        const { crop } = getCropResizeOptions({
-            inputDimensions,
-            sizeIncrease: postProcessingMarkingSizeIncrease,
-            boundingBox,
-        });
-        // const [x, y, width, height] = boundingBox;
-        const { left: x, top: y, width, height } = crop;
-        const classNameParsed = detectionClassesDefaultMap[className] ?? 'Other';
-        const padding = 4;
-        const textWidth = labelText.length * (fontSize * 0.6);
-        const labelX = x;
-        const labelY = y - fontSize - 4;
 
-        const colorSettingKey = detectionClassClorMap[classNameParsed];
-        const color = plugin.storageSettings.values[colorSettingKey];
+    try {
+        const svgRectsAndTexts = detections.map(({ boundingBox, label, className, score }) => {
+            let labelText = `${label || className}`;
+            if (showScore) {
+                labelText += `: ${Math.floor(score * 100)}%`
+            }
+            const cropResult = getCropResizeOptions({
+                inputDimensions,
+                sizeIncrease: postProcessingMarkingSizeIncrease,
+                boundingBox,
+            });
 
-        return `
+            if (!cropResult) {
+                throw new Error(`Fail on getCropResizeOptions: ${JSON.stringify({
+                    inputDimensions,
+                    sizeIncrease: postProcessingMarkingSizeIncrease,
+                    boundingBox
+                })}`);
+            }
+
+            const { crop } = cropResult;
+            // const [x, y, width, height] = boundingBox;
+            const { left: x, top: y, width, height } = crop;
+            const classNameParsed = detectionClassesDefaultMap[className] ?? 'Other';
+            const padding = 4;
+            const textWidth = labelText.length * (fontSize * 0.6);
+            const labelX = x;
+            const labelY = y - fontSize - 4;
+
+            const colorSettingKey = detectionClassClorMap[classNameParsed];
+            const color = plugin.storageSettings.values[colorSettingKey];
+
+            return `
             <rect 
                 x="${x}" 
                 y="${y}" 
@@ -77,32 +89,38 @@ export const addBoundingBoxesToImage = async (props: {
                 ${labelText}
             </text>
         `;
-    }).join('\n');
+        }).join('\n');
 
-    const svgOverlay = `
+        const svgOverlay = `
         <svg width="${inputDimensions[0]}" height="${inputDimensions[1]}" xmlns="http://www.w3.org/2000/svg">
           ${svgRectsAndTexts}
         </svg>
       `;
 
-    const outputBuffer = await sharp(bufferImage)
-        .composite([
-            {
-                input: Buffer.from(svgOverlay),
-                top: 0,
-                left: 0,
-                blend: 'over',
-            }
-        ])
-        .toBuffer();
+        const outputBuffer = await sharp(bufferImage)
+            .composite([
+                {
+                    input: Buffer.from(svgOverlay),
+                    top: 0,
+                    left: 0,
+                    blend: 'over',
+                }
+            ])
+            .toBuffer();
 
-    const newB64Image = outputBuffer.toString('base64');
-    const newImage = await sdk.mediaManager.createMediaObject(outputBuffer, 'image/jpeg');
+        const newB64Image = outputBuffer.toString('base64');
+        const newImage = await sdk.mediaManager.createMediaObject(outputBuffer, 'image/jpeg');
 
-    return {
-        newB64Image,
-        newImage,
-    };
+        return {
+            newB64Image,
+            newImage,
+        };
+    } catch (e) {
+        throw new Error(`Error in marking boundaries add :${JSON.stringify({
+            error: e.message,
+            inputDimensions,
+        })}`);
+    }
 }
 
 export const addZoneClipPathToImage = async (props: {

@@ -107,7 +107,8 @@ export interface NotifyDetectionProps {
     matchRule: Partial<MatchRule>;
     eventSource: NotifyRuleSource;
     imageData?: {
-        decoderImage?: MediaObject,
+        fullFrameImage?: MediaObject,
+        croppedImage?: MediaObject,
         image?: MediaObject,
         imageSource: ImageSource,
     }
@@ -538,9 +539,9 @@ export const getDetectionsPerZone = (detections: ObjectDetectionResult[]) => {
 export const filterAndSortValidDetections = (props: {
     detect: ObjectsDetected,
     logger: Console,
-    consumedDetectionIdsSet: Set<string>
+    objectIdLastReport: Map<string, number>
 }) => {
-    const { detect, logger, consumedDetectionIdsSet } = props;
+    const { detect, logger, objectIdLastReport } = props;
     const { detections = [] } = detect ?? {};
     const sortedByPriorityAndScore = sortBy(detections,
         (detection) => [detection?.className ? classnamePrio[detection.className] : 100,
@@ -553,9 +554,12 @@ export const filterAndSortValidDetections = (props: {
 
     const candidates = uniqueByClassName.filter(det => {
         const { className, label, movement, id } = det;
-        const detId = id ? `${className}-${id}` : undefined;
-        if (detId && consumedDetectionIdsSet && consumedDetectionIdsSet.has(detId)) {
-            return false;
+        if (id) {
+            const lastNotify = objectIdLastReport.get(id);
+
+            if (lastNotify && Date.now() - lastNotify < (1000 * 20)) {
+                return false;
+            }
         }
 
         if (className.startsWith('debug-')) {
@@ -574,8 +578,6 @@ export const filterAndSortValidDetections = (props: {
             logger.debug(`Movement data ${JSON.stringify(movement)} not valid: ${JSON.stringify(det)}`);
             return false;
         }
-
-        detId && consumedDetectionIdsSet.add(detId);
 
         if (
             !isSensorEvent &&
@@ -3560,7 +3562,7 @@ export const haSnoozeAutomation = {
     "condition": [
         {
             "condition": "template",
-            "value_template": "{{ trigger.event.data.action_name is match('scrypted_an_snooze_.*') or trigger.event.data.action is match('scrypted_an_snooze_.*') }}"
+            "value_template": "{{ (trigger.event.data.action_name is defined and trigger.event.data.action_name is match('scrypted_ansnooze.')) or (trigger.event.data.action is defined and trigger.event.data.action is match('scrypted_ansnooze.')) }}"
         }
     ],
     "action": [

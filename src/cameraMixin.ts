@@ -323,6 +323,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     currentSnapshotTimeout = 4000;
 
     clipGenerationTimeout: Record<string, NodeJS.Timeout> = {};
+    detectionIdEventIdMap = new Map<string, string>();
+    objectIdLastReport = new Map<string, number>();
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -1596,9 +1598,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         detectionId?: string,
         eventId?: string,
         image?: MediaObject,
-        reason: GetImageReason
+        reason: GetImageReason,
+        skipResize?: boolean
     }) {
-        const { reason, detectionId, eventId, image: imageParent } = props ?? {};
+        const { reason, detectionId, eventId, image: imageParent, skipResize } = props ?? {};
         const logger = this.getLogger();
         const now = Date.now();
         const { minSnapshotDelay } = this.storageSettings.values;
@@ -1649,7 +1652,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             try {
                 const detectImage = await this.cameraDevice.getDetectionInput(detectionId, eventId);
 
-                if (onlyDetector) {
+                if (skipResize) {
                     image = detectImage;
                 } else {
                     const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(detectImage, ScryptedMimeTypes.Image);
@@ -1673,7 +1676,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     image = await this.cameraDevice.takePicture({
                         reason: 'event',
                         timeout,
-                        picture: {
+                        picture: skipResize ? undefined : {
                             width: SNAPSHOT_WIDTH,
                         },
                     });
@@ -1700,7 +1703,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             if (this.lastFrame && (forceDecoder || (decoderRunning && isRecent))) {
                 const mo = await sdk.mediaManager.createMediaObject(this.lastFrame, 'image/jpeg');
-                if (this.decoderResize) {
+                if (this.decoderResize && !skipResize) {
                     const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(mo, ScryptedMimeTypes.Image);
                     image = await convertedImage.toImage({
                         resize: {
@@ -2564,6 +2567,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     detectionId,
                     eventId,
                     reason: GetImageReason.QuickNotification,
+                    skipResize: true,
                 });
 
                 if (imageData.imageSource === ImageSource.Detector) {
@@ -2702,10 +2706,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     public async executeImagePostProcessing(props: {
         image: MediaObject,
+        imageSource: ImageSource,
         matchRule: Partial<MatchRule>,
         shouldReDetect: boolean,
     }) {
-        const { matchRule, image, shouldReDetect } = props;
+        const { matchRule, image, shouldReDetect, imageSource } = props;
         const { rule: ruleParent, match, inputDimensions: inputDimensionsParent } = matchRule;
         const rule = ruleParent as DetectionRule;
         const logger = this.getLogger(); const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
@@ -2716,7 +2721,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         if (image) {
             logger.info(`Post-processing set to ${rule.imageProcessing}, objectDetector is set to ${objectDetector ? objectDetector.name : 'NOT_DEFINED'}`);
-            let inputDimensions = inputDimensionsParent;
 
             if (match && objectDetector && image) {
                 let boundingBox = match.boundingBox;
@@ -2725,7 +2729,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     const detection = await sdk.connectRPCObject(
                         await objectDetector.detectObjects(image)
                     );
-                    inputDimensions = detection.inputDimensions;
                     if (detection.detections.length) {
                         const matchingDetections = detection.detections.filter(det =>
                             det.className === match.className &&
@@ -2766,7 +2769,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
                 }
 
-                if (boundingBox) {
+                if (boundingBox && image) {
+                    const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(image, ScryptedMimeTypes.Image);
+                    const inputDimensions: [number, number] = [convertedImage.width, convertedImage.height];
+
                     try {
                         if (rule.imageProcessing === ImagePostProcessing.MarkBoundaries) {
                             const { newImage, newB64Image } = await addBoundingBoxesToImage({
@@ -2807,7 +2813,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         logger.error(`Error during post-processing`, JSON.stringify({
                             boundingBox,
                             inputDimensions,
-                            error
+                            shouldReDetect,
+                            error,
+                            image: !!image,
+                            imageSource
                         }), e);
                     }
                 }
@@ -2820,10 +2829,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             error = 'No image provided';
         }
 
-        if (error) {
-            logger.log(`Error during post-processing ${rule.imageProcessing}: ${error}`);
-        }
-
         return {
             processedImage,
             processedB64Image,
@@ -2834,7 +2839,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     public async notifyDetectionRule(props: NotifyDetectionProps) {
         const { matchRule, imageData, eventSource } = props;
         const logger = this.getLogger();
-        const { rule } = matchRule;
+        const { rule, match } = matchRule;
         const { detectionSource, imageProcessing } = rule as DetectionRule;
 
         const { timePassed, lastSetInSeconds, minDelayInSeconds } = this.isDelayPassed({
@@ -2843,23 +2848,22 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         });
 
         if (timePassed) {
-            const shouldReDetect = !imageData || imageData.imageSource !== ImageSource.Decoder;
-
-            let decoderImage: MediaObject;
+            let croppedImage = imageData?.croppedImage;
+            let fullFrameImage = imageData?.fullFrameImage;
+            let imageSource = imageData?.imageSource;
             let image: MediaObject;
-            let imageSource: ImageSource;
+            let shouldReDetect = false;
 
-            if (!imageData) {
+            if (!imageData || !imageData.fullFrameImage) {
                 let { image: newImage, imageSource: newImageSource } = await this.getImage({
-                    reason: GetImageReason.Notification
+                    reason: GetImageReason.Notification,
+                    skipResize: imageProcessing === ImagePostProcessing.Crop
                 });
 
-                image = newImage;
+                fullFrameImage = newImage;
                 imageSource = newImageSource;
-            } else {
-                image = imageData.image;
-                imageSource = imageData.imageSource;
-                decoderImage = imageData.decoderImage;
+
+                shouldReDetect = true;
             }
 
             let processingFailed = false;
@@ -2867,21 +2871,30 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             if (detectionSource === ScryptedEventSource.NVR) {
                 if (imageProcessing === ImagePostProcessing.MarkBoundaries) {
-                    imageToProcess = decoderImage;
+                    imageToProcess = fullFrameImage;
+
+                    if (!imageData?.fullFrameImage) {
+                        shouldReDetect = true;
+                    }
                 } else if (imageProcessing === ImagePostProcessing.FullFrame) {
-                    image = decoderImage;
+                    image = fullFrameImage;
+                } else {
+                    image = croppedImage;
                 }
             } else if (detectionSource === ScryptedEventSource.RawDetection) {
                 if ([ImagePostProcessing.Crop, ImagePostProcessing.MarkBoundaries].includes(imageProcessing)) {
-                    imageToProcess = image;
+                    imageToProcess = fullFrameImage;
+                } else {
+                    image = fullFrameImage;
                 }
             }
 
             if (imageToProcess) {
                 const { error, processedImage } = await this.executeImagePostProcessing({
-                    image,
+                    image: imageToProcess,
                     matchRule,
                     shouldReDetect,
+                    imageSource,
                 });
 
                 image = processedImage;
@@ -2889,7 +2902,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }
 
             if (processingFailed) {
-                logger.log(`Post-processing failed. Skipping notification and resetting delay to allow new detections to come through`);
+                logger.info(`Post-processing failed. Skipping notification and resetting delay to allow new detections to come through`);
                 const delayKey = this.isDelayPassed({
                     type: DelayType.RuleNotification,
                     matchRule: matchRule as MatchRule,
@@ -2899,8 +2912,21 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 return;
             } else {
-                logger.log(`Post-processing ${rule.imageProcessing} successful`);
+                logger.log(`Post-processing ${imageProcessing} successful. ${JSON.stringify({
+                    detectionSource,
+                    image: !!image,
+                    imageSource,
+                    shouldReDetect,
+                    imageProcessing,
+                    fullFrameImage: !!imageData?.fullFrameImage,
+                    croppedImage: !!imageData?.croppedImage,
+                    srcImageSource: imageData?.imageSource,
+                })}`);
                 logger.log(`Starting notifiers for detection rule (${eventSource}) ${getDetectionKey(matchRule as MatchRule)}, image from ${imageSource}, last check ${lastSetInSeconds ? lastSetInSeconds + 's ago' : '-'} with delay ${minDelayInSeconds}s`);
+
+                if (match.id) {
+                    this.objectIdLastReport.set(match.id, Date.now());
+                }
 
                 await this.plugin.notifyDetectionEvent({
                     ...props,
@@ -3037,9 +3063,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         } = filterAndSortValidDetections({
             detect,
             logger,
-            consumedDetectionIdsSet: new Set(),
+            objectIdLastReport: this.objectIdLastReport,
         });
         const originalCandidates = cloneDeep(candidates);
+
+        let detectionId: string = detect?.detectionId;
+        let eventId: string = eventDetails?.eventId ?? (detectionId ? this.detectionIdEventIdMap.get(detectionId) : undefined);
 
         if (eventDetails && this.processDetectionsInterval) {
             this.accumulatedDetections.push({
@@ -3047,7 +3076,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     ...detect,
                     detections: cloneDeep(candidates)
                 },
-                eventId: eventDetails.eventId,
+                eventId,
                 eventSource,
             });
         }
@@ -3056,24 +3085,37 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let croppedNvrB64Image: string;
         let decoderImage: MediaObject;
         let decoderB64Image: string;
+        let imageSource: ImageSource;
 
         if (parentImage && isDetectionFromNvr) {
             croppedNvrImage = parentImage;
             croppedNvrB64Image = await moToB64(parentImage);
         }
 
-        if (eventDetails?.eventId && detect?.detectionId) {
+        if (isDetectionFromNvr) {
+            logger.log(`NVR events result: ${JSON.stringify({
+                eventId,
+                detectionId,
+                detect,
+                eventDetails,
+            })}`)
+        }
+
+        if (eventId && detectionId) {
+            this.detectionIdEventIdMap.set(detectionId, eventId);
             const classnamesLog = getDetectionsLog(detections);
             const withEmbeddings = detect.detections.filter(det => !!det.embedding);
 
-            const { b64Image: decoderB64ImagFound, image: decoderImageFound } = await this.getImage({
-                eventId: eventDetails?.eventId,
-                detectionId: detect?.detectionId,
-                reason: GetImageReason.QuickNotification
+            const { b64Image: decoderB64ImagFound, image: decoderImageFound, imageSource: newImageSource } = await this.getImage({
+                eventId,
+                detectionId,
+                reason: GetImageReason.QuickNotification,
+                skipResize: true
             });
 
             decoderB64Image = decoderB64ImagFound;
             decoderImage = decoderImageFound;
+            imageSource = newImageSource;
 
             logger.info(`${eventSource} detections received, classnames ${classnamesLog}, with embedding: ${withEmbeddings.length ? getDetectionsLog(withEmbeddings) : 'None'}`);
         }
@@ -3206,7 +3248,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     candidates,
                 })}`);
 
-                const eventId = getDetectionEventKey({ detectionId: detect?.detectionId, eventId: eventDetails?.eventId });
+                const storeEventId = getDetectionEventKey({ detectionId, eventId });
 
                 this.plugin.storeEventImage({
                     b64Image: decoderB64Image,
@@ -3216,7 +3258,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     logger,
                     timestamp: triggerTime,
                     image: decoderImage,
-                    eventId,
+                    eventId: storeEventId,
                 }).catch(logger.error);
             }
         } catch (e) {
@@ -3270,9 +3312,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 eventSource: NotifyRuleSource.Decoder,
                                 matchRule,
                                 imageData: {
-                                    image: ruleImage,
-                                    decoderImage,
-                                    imageSource: ImageSource.Decoder,
+                                    croppedImage: croppedNvrImage,
+                                    fullFrameImage: decoderImage,
+                                    imageSource,
                                 },
                                 eventType: detectionClassesDefaultMap[matchRule.match.className],
                                 triggerTime,
@@ -3464,6 +3506,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 } else {
                     this.plugin.cameraMotionActive.delete(this.id);
                     this.consumedDetectionIdsSet = new Set();
+                    this.detectionIdEventIdMap = new Map();
+                    this.objectIdLastReport = new Map();
                     this.lastMotionEnd = now;
                     this.resetDetectionEntities({
                         resetSource: 'MotionSensor'
