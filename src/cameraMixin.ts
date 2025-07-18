@@ -2901,6 +2901,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 processingFailed = !!error;
             }
 
+            if (!image) {
+                logger.log(`Skipping notification, image not provided`);
+                return;
+            }
+
             if (processingFailed) {
                 logger.info(`Post-processing failed. Skipping notification and resetting delay to allow new detections to come through`);
                 const delayKey = this.isDelayPassed({
@@ -2912,16 +2917,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 return;
             } else {
-                logger.log(`Post-processing ${imageProcessing} successful. ${JSON.stringify({
-                    detectionSource,
-                    image: !!image,
-                    imageSource,
-                    shouldReDetect,
-                    imageProcessing,
-                    fullFrameImage: !!imageData?.fullFrameImage,
-                    croppedImage: !!imageData?.croppedImage,
-                    srcImageSource: imageData?.imageSource,
-                })}`);
+                if (imageToProcess) {
+                    logger.log(`Post-processing ${imageProcessing} successful. ${JSON.stringify({
+                        detectionSource,
+                        image: !!image,
+                        imageSource,
+                        shouldReDetect,
+                        imageProcessing,
+                        fullFrameImage: !!imageData?.fullFrameImage,
+                        croppedImage: !!imageData?.croppedImage,
+                        imageToProcess: !!imageToProcess,
+                        srcImageSource: imageData?.imageSource,
+                    })}`);
+                }
+
                 logger.log(`Starting notifiers for detection rule (${eventSource}) ${getDetectionKey(matchRule as MatchRule)}, image from ${imageSource}, last check ${lastSetInSeconds ? lastSetInSeconds + 's ago' : '-'} with delay ${minDelayInSeconds}s`);
 
                 if (match.id) {
@@ -3092,19 +3101,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             croppedNvrB64Image = await moToB64(parentImage);
         }
 
-        if (isDetectionFromNvr) {
-            logger.log(`NVR events result: ${JSON.stringify({
-                eventId,
-                detectionId,
-                detect,
-                eventDetails,
-            })}`)
-        }
-
         if (eventId && detectionId) {
             this.detectionIdEventIdMap.set(detectionId, eventId);
             const classnamesLog = getDetectionsLog(detections);
-            const withEmbeddings = detect.detections.filter(det => !!det.embedding);
 
             const { b64Image: decoderB64ImagFound, image: decoderImageFound, imageSource: newImageSource } = await this.getImage({
                 eventId,
@@ -3117,7 +3116,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             decoderImage = decoderImageFound;
             imageSource = newImageSource;
 
-            logger.info(`${eventSource} detections received, classnames ${classnamesLog}, with embedding: ${withEmbeddings.length ? getDetectionsLog(withEmbeddings) : 'None'}`);
+            logger.info(`${eventSource} detections received, classnames ${classnamesLog}}`);
         }
 
         try {

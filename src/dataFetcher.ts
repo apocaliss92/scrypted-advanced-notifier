@@ -115,37 +115,41 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
         }
 
         if (this.plugin.frigateApi) {
-            const frigateEvents = await axios.get<FrigateEvent[]>(`${this.plugin.frigateApi}/events?limit=99999999&has_snapshot=1&after=${startTime / 1000}&before=${endTime / 1000}`);
-            const eventsPerCamera = groupBy(frigateEvents.data, e => e.camera);
+            try {
+                const frigateEvents = await axios.get<FrigateEvent[]>(`${this.plugin.frigateApi}/events?limit=99999999&has_snapshot=1&after=${startTime / 1000}&before=${endTime / 1000}`);
+                const eventsPerCamera = groupBy(frigateEvents.data, e => e.camera);
 
-            for (const cameraMixin of Object.values(this.plugin.currentCameraMixinsMap)) {
-                const { cameraName } = await cameraMixin.getFrigateData();
-                if (cameraName) {
-                    const frigateEvents = eventsPerCamera[cameraName] ?? [];
+                for (const cameraMixin of Object.values(this.plugin.currentCameraMixinsMap)) {
+                    const { cameraName } = await cameraMixin.getFrigateData();
+                    if (cameraName) {
+                        const frigateEvents = eventsPerCamera[cameraName] ?? [];
 
-                    for (const event of frigateEvents) {
-                        const label = event.label;
-                        const subLabel = event.sub_label;
-                        const isAudioEvent = event.data.type === 'audio';
-                        const timestamp = Math.trunc(event.start_time * 1000);
-                        events.push({
-                            details: {
-                                eventId: event.id,
-                                eventTime: timestamp
-                            },
-                            data: {
-                                source: ScryptedEventSource.Frigate,
-                                classes: isAudioEvent ? ['audio'] : ['motion', label],
-                                label: isAudioEvent ? label : subLabel?.[0],
-                                id: event.id,
-                                deviceName: cameraMixin.name,
-                                timestamp,
-                                thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${cameraMixin.id}/${event.id}/${ScryptedEventSource.Frigate}`,
-                                imageUrl: `${privatePathnamePrefix}/${eventImage}/${cameraMixin.id}/${event.id}/${ScryptedEventSource.Frigate}`,
-                            } as DbDetectionEvent,
-                        });
+                        for (const event of frigateEvents) {
+                            const label = event.label;
+                            const subLabel = event.sub_label;
+                            const isAudioEvent = event.data.type === 'audio';
+                            const timestamp = Math.trunc(event.start_time * 1000);
+                            events.push({
+                                details: {
+                                    eventId: event.id,
+                                    eventTime: timestamp
+                                },
+                                data: {
+                                    source: ScryptedEventSource.Frigate,
+                                    classes: isAudioEvent ? ['audio'] : ['motion', label],
+                                    label: isAudioEvent ? label : subLabel?.[0],
+                                    id: event.id,
+                                    deviceName: cameraMixin.name,
+                                    timestamp,
+                                    thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${cameraMixin.id}/${event.id}/${ScryptedEventSource.Frigate}`,
+                                    imageUrl: `${privatePathnamePrefix}/${eventImage}/${cameraMixin.id}/${event.id}/${ScryptedEventSource.Frigate}`,
+                                } as DbDetectionEvent,
+                            });
+                        }
                     }
                 }
+            } catch (e) {
+                logger.info(`Frigate fetching error`, e);
             }
         }
 
