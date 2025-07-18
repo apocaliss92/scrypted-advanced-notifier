@@ -3562,7 +3562,7 @@ export const haSnoozeAutomation = {
     "condition": [
         {
             "condition": "template",
-            "value_template": "{{ (trigger.event.data.action_name is defined and trigger.event.data.action_name is match('scrypted_ansnooze.')) or (trigger.event.data.action is defined and trigger.event.data.action is match('scrypted_ansnooze.')) }}"
+            "value_template": "{{ (trigger.event.data.action_name is defined and trigger.event.data.action_name is match('scrypted_an_snooze_.*')) or (trigger.event.data.action is defined and trigger.event.data.action is match('scrypted_an_snooze_.*')) }}"
         }
     ],
     "action": [
