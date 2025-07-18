@@ -166,7 +166,7 @@ export const cropImageToDetection = async (props: {
     const { postProcessingCropSizeIncrease, postProcessingAspectRatio } = plugin.storageSettings.values;
     const { crop, boundingBox: newBoundingBox } = getCropResizeOptions({
         inputDimensions,
-        aspectRatio: postProcessingAspectRatio,
+        aspectRatio: postProcessingAspectRatio || 'camera',
         sizeIncrease: postProcessingCropSizeIncrease,
         boundingBox,
     });
@@ -274,7 +274,7 @@ export const getCropResizeOptionsOld = (props: {
 export const getCropResizeOptions = (props: {
     inputDimensions?: [number, number],
     boundingBox: [number, number, number, number],
-    aspectRatio?: number,
+    aspectRatio?: 'camera' | number,
     sizeIncrease?: number
 }): { crop: ImageOptions['crop'], boundingBox: [number, number, number, number] } => {
     const {
@@ -289,19 +289,9 @@ export const getCropResizeOptions = (props: {
     }
 
     const [inputWidth, inputHeight] = inputDimensions;
-    const targetAspectRatio = aspectRatio || (inputWidth / inputHeight);
+    const targetAspectRatio = aspectRatio === 'camera' ? (inputWidth / inputHeight) : aspectRatio;
 
     const [originalX, originalY, originalWidth, originalHeight] = boundingBox;
-
-    // return {
-    //     crop: {
-    //         left: Math.round(originalX),
-    //         top: Math.round(originalY),
-    //         width: Math.round(originalWidth),
-    //         height: Math.round(originalHeight)
-    //     },
-    //     boundingBox,
-    // };
 
     const centerX = originalX + originalWidth / 2;
     const centerY = originalY + originalHeight / 2;
@@ -317,11 +307,15 @@ export const getCropResizeOptions = (props: {
     ];
 
     let cropWidth = newWidth;
-    let cropHeight = cropWidth / targetAspectRatio;
+    let cropHeight = newHeight;
 
-    if (cropHeight < newHeight) {
-        cropHeight = newHeight;
-        cropWidth = cropHeight * targetAspectRatio;
+    if (targetAspectRatio) {
+        cropHeight = cropWidth / targetAspectRatio;
+
+        if (cropHeight < newHeight) {
+            cropHeight = newHeight;
+            cropWidth = cropHeight * targetAspectRatio;
+        }
     }
 
     let cropLeft = centerX - cropWidth / 2;

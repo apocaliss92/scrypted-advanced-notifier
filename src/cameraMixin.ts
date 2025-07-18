@@ -2712,7 +2712,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         let processedImage: MediaObject;
         let processedB64Image: string;
-        let failed = false;
+        let error: string;
 
         if (image) {
             logger.info(`Post-processing set to ${rule.imageProcessing}, objectDetector is set to ${objectDetector ? objectDetector.name : 'NOT_DEFINED'}`);
@@ -2762,7 +2762,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             detection,
                             match,
                         })}`);
-                        failed = true;
+                        error = 'No detections re-detected';
                     }
                 }
 
@@ -2792,23 +2792,23 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 processedImage = newImage;
                                 processedB64Image = newB64Image;
                             } catch (e) {
+                                error = e.message;
                                 logger.error('Failed to crop image', JSON.stringify({
                                     boundingBox,
                                     inputDimensions,
-                                    error: e.message,
+                                    error,
                                     matchRule,
                                 }));
 
-                                failed = true;
                             }
                         }
                     } catch (e) {
+                        error = e.message;
                         logger.error(`Error during post-processing`, JSON.stringify({
                             boundingBox,
                             inputDimensions,
+                            error
                         }), e);
-
-                        failed = true;
                     }
                 }
             }
@@ -2817,13 +2817,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 matchRule,
             })}`);
 
-            failed = true;
+            error = 'No image provided';
+        }
+
+        if (error) {
+            logger.log(`Error during post-processing ${rule.imageProcessing}: ${error}`);
         }
 
         return {
             processedImage,
             processedB64Image,
-            failed
+            error
         };
     }
 
@@ -2843,20 +2847,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             let decoderImage: MediaObject;
             let image: MediaObject;
-            let b64Image: string;
             let imageSource: ImageSource;
 
             if (!imageData) {
-                let { b64Image: newB64Image, image: newImage, imageSource: newImageSource } = await this.getImage({
+                let { image: newImage, imageSource: newImageSource } = await this.getImage({
                     reason: GetImageReason.Notification
                 });
 
                 image = newImage;
-                b64Image = newB64Image;
                 imageSource = newImageSource;
             } else {
                 image = imageData.image;
-                b64Image = await moToB64(image);
                 imageSource = imageData.imageSource;
                 decoderImage = imageData.decoderImage;
             }
@@ -2877,15 +2878,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }
 
             if (imageToProcess) {
-                const { failed, processedB64Image, processedImage } = await this.executeImagePostProcessing({
+                const { error, processedImage } = await this.executeImagePostProcessing({
                     image,
                     matchRule,
                     shouldReDetect,
                 });
 
                 image = processedImage;
-                b64Image = processedB64Image;
-                processingFailed = failed;
+                processingFailed = !!error;
             }
 
             if (processingFailed) {
@@ -2900,7 +2900,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 return;
             } else {
                 logger.log(`Post-processing ${rule.imageProcessing} successful`);
-                logger.log(`Starting notifiers for detection rule (${eventSource}) ${getDetectionKey(matchRule as MatchRule)}, b64Image ${getB64ImageLog(b64Image)} from ${imageSource}, last check ${lastSetInSeconds ? lastSetInSeconds + 's ago' : '-'} with delay ${minDelayInSeconds}s`);
+                logger.log(`Starting notifiers for detection rule (${eventSource}) ${getDetectionKey(matchRule as MatchRule)}, image from ${imageSource}, last check ${lastSetInSeconds ? lastSetInSeconds + 's ago' : '-'} with delay ${minDelayInSeconds}s`);
 
                 await this.plugin.notifyDetectionEvent({
                     ...props,

@@ -240,6 +240,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             immediate: true,
             type: 'device',
             deviceFilter: deviceFilter,
+            onPut: async () => await this.refreshSettings()
         },
         testNotifier: {
             group: 'Test',
@@ -421,7 +422,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             subgroup: 'Marking boundaries',
             description: 'Factor to increse the padding of the boundaries, higher the number more space around the detected object',
             type: 'number',
-            defaultValue: 1.1,
         },
         postProcessingFontSize: {
             title: 'Texts font size',
@@ -2816,6 +2816,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                             source: RuleSource.Plugin,
                             isEnabled: true,
                             name: 'Test rule',
+                            detectionSource: ScryptedEventSource.RawDetection,
                             notifiers: [testNotifier?.id]
                         } as DetectionRule
                     },
