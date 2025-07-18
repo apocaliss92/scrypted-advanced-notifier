@@ -1,4 +1,4 @@
-import sdk, { Image, BinarySensor, Camera, DeviceBase, EntrySensor, HttpRequest, LockState, MediaObject, Notifier, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, OnOff, PanTiltZoom, Point, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, VideoCamera } from "@scrypted/sdk";
+import sdk, { Image, BinarySensor, Camera, DeviceBase, EntrySensor, HttpRequest, LockState, MediaObject, Notifier, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, OnOff, PanTiltZoom, Point, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, VideoCamera, TextEmbedding, ImageEmbedding } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDevice, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import crypto from 'crypto';
@@ -8,7 +8,7 @@ import { logLevelSetting } from "../../scrypted-apocaliss-base/src/basePlugin";
 import { FRIGATE_OBJECT_DETECTOR_INTERFACE } from '../../scrypted-frigate-bridge/src/utils';
 import { loginScryptedClient } from "../../scrypted/packages/client/src";
 import { name, scrypted } from '../package.json';
-import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection } from "./detectionClasses";
+import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, isPlateClassname, levenshteinDistance } from "./detectionClasses";
 import AdvancedNotifierPlugin, { PluginSettingKey } from "./main";
 import { detectionClassForObjectsReporting } from "./mqtt-utils";
 const { endpointManager } = sdk;
@@ -107,8 +107,8 @@ export interface NotifyDetectionProps {
     matchRule: Partial<MatchRule>;
     eventSource: NotifyRuleSource;
     imageData?: {
-        image: MediaObject,
-        b64Image: string,
+        decoderImage?: MediaObject,
+        image?: MediaObject,
         imageSource: ImageSource,
     }
 }
@@ -155,6 +155,7 @@ export enum DelayType {
     BasicDetectionTrigger = 'BasicDetectionTrigger',
     RuleImageUpdate = 'RuleImageUpdate',
     RuleNotification = 'RuleNotification',
+    RuleMinCheck = 'RuleMinCh',
     OccupancyNotification = 'OccupancyNotification',
     FsImageUpdate = 'FsImageUpdate',
     EventStore = 'EventStore',
@@ -212,7 +213,8 @@ export type IsDelayPassedProps =
     { type: DelayType.OccupancyNotification, matchRule: MatchRule, eventSource: ScryptedEventSource } |
     { type: DelayType.PostWebhookImage, classname: string, eventSource: ScryptedEventSource } |
     { type: DelayType.RuleImageUpdate, matchRule: MatchRule, eventSource: ScryptedEventSource } |
-    { type: DelayType.RuleNotification, matchRule: MatchRule };
+    { type: DelayType.RuleNotification, matchRule: MatchRule } |
+    { type: DelayType.RuleMinCheck, rule: BaseRule };
 
 export const getElegibleDevices = (isFrigate?: boolean) => {
     const allDevices = Object.keys(sdk.systemManager.getSystemState()).map(deviceId => sdk.systemManager.getDeviceById<DeviceInterface>(deviceId));
@@ -546,7 +548,6 @@ export const filterAndSortValidDetections = (props: {
     );
     let isSensorEvent = false;
     let isAudioEvent = false;
-    let hasNonStandardClasses = false;
     const faces = new Set<string>();
     const uniqueByClassName = uniqBy(sortedByPriorityAndScore, det => det.className);
 
@@ -588,10 +589,6 @@ export const filterAndSortValidDetections = (props: {
             isAudioEvent = true;
         }
 
-        if (!hasNonStandardClasses && className !== groupClass) {
-            hasNonStandardClasses = true;
-        }
-
         return true;
     });
 
@@ -600,7 +597,6 @@ export const filterAndSortValidDetections = (props: {
         isSensorEvent,
         facesFound: Array.from(faces),
         isAudioEvent,
-        hasNonStandardClasses
     };
 }
 
@@ -1174,7 +1170,8 @@ export enum DetectionRuleActivation {
 }
 
 export enum ImagePostProcessing {
-    None = 'None',
+    Default = 'Default',
+    FullFrame = 'FullFrame',
     Crop = 'Crop',
     MarkBoundaries = 'MarkBoundaries'
 }
@@ -1215,6 +1212,7 @@ export const getRuleKeys = (props: {
     const generateClipKey = `${prefix}:${ruleName}:generateClip`;
     const generateClipSpeedKey = `${prefix}:${ruleName}:generateClipSpeed`;
     const generateClipPostSecondsKey = `${prefix}:${ruleName}:generateClipPostSeconds`;
+    const imageProcessingKey = `${prefix}:${ruleName}:imageProcessing`;
 
     // Specific for detection rules
     const detectionClassesKey = `${prefix}:${ruleName}:detecionClasses`;
@@ -1225,7 +1223,6 @@ export const getRuleKeys = (props: {
     const detectionSourceKey = `${prefix}:${ruleName}:detectionSource`;
     const whitelistedZonesKey = `${prefix}:${ruleName}:whitelistedZones`;
     const blacklistedZonesKey = `${prefix}:${ruleName}:blacklistedZones`;
-    const imageProcessingKey = `${prefix}:${ruleName}:imageProcessing`;
     const recordingTriggerSecondsKey = `${prefix}:${ruleName}:recordingTriggerSeconds`;
     const peopleKey = `${prefix}:${ruleName}:people`;
     const platesKey = `${prefix}:${ruleName}:plates`;
@@ -1285,6 +1282,7 @@ export const getRuleKeys = (props: {
             generateClipKey,
             generateClipSpeedKey,
             generateClipPostSecondsKey,
+            imageProcessingKey,
         },
         detection: {
             useNvrDetectionsKey,
@@ -1297,7 +1295,6 @@ export const getRuleKeys = (props: {
             audioLabelsKey,
             devicesKey,
             detectionClassesKey,
-            imageProcessingKey,
             peopleKey,
             platesKey,
             plateMaxDistanceKey,
@@ -1607,6 +1604,7 @@ export const getRuleSettings = (props: {
                 generateClipKey,
                 generateClipSpeedKey,
                 generateClipPostSecondsKey,
+                imageProcessingKey,
             }
         } = getRuleKeys({ ruleName, ruleType });
 
@@ -1657,6 +1655,17 @@ export const getRuleSettings = (props: {
                     subgroup,
                     immediate: true,
                     onPut: async () => await refreshSettings(),
+                },
+                {
+                    key: imageProcessingKey,
+                    title: 'Image post processing',
+                    description: 'Set the post processing of the image. Default depends on the detection source, Crop for NVR and FullFrame for RawDetections',
+                    type: 'string',
+                    choices: Object.keys(ImagePostProcessing),
+                    immediate: true,
+                    defaultValue: ImagePostProcessing.Default,
+                    group,
+                    subgroup,
                 }
             );
 
@@ -1922,7 +1931,6 @@ export const getDetectionRulesSettings = async (props: {
             labelScoreKey,
             clipDescriptionKey,
             clipConfidenceKey,
-            imageProcessingKey,
         } = detection;
 
         const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean ?? false;
@@ -2079,22 +2087,6 @@ export const getDetectionRulesSettings = async (props: {
                     hide: !showMore
                 },
             );
-
-            if (isRawDetection) {
-                settings.push(
-                    {
-                        key: imageProcessingKey,
-                        title: 'Image post processing',
-                        description: 'Crop or add box around the detected object',
-                        type: 'string',
-                        choices: Object.keys(ImagePostProcessing),
-                        immediate: true,
-                        defaultValue: isNvr ? ImagePostProcessing.Crop : ImagePostProcessing.None,
-                        group,
-                        subgroup,
-                    }
-                );
-            }
 
             const hasFace = detectionClasses.includes(DetectionClass.Face);
             const hasPlate = detectionClasses.includes(DetectionClass.Plate);
@@ -2668,6 +2660,7 @@ export interface BaseRule {
     generateClip: boolean;
     generateClipSpeed: VideoclipSpeed;
     generateClipPostSeconds: number;
+    imageProcessing: ImagePostProcessing;
     notifierData: Record<string, {
         actions: ExtendedNotificationAction[],
         priority: NotificationPriority,
@@ -2679,7 +2672,6 @@ export interface BaseRule {
 }
 
 export interface DetectionRule extends BaseRule {
-    imageProcessing: ImagePostProcessing;
     detectionClasses?: RuleDetectionClass[];
     nvrEvents?: NvrEvent[];
     frigateLabels?: string[];
@@ -2695,7 +2687,6 @@ export interface DetectionRule extends BaseRule {
     plateMaxDistance?: number;
     disableNvrRecordingSeconds?: number;
     detectionSource?: ScryptedEventSource;
-    imageSource?: ScryptedEventSource;
 }
 
 export const getMinutes = (date: Moment) => date.minutes() + (date.hours() * 60);
@@ -2751,6 +2742,7 @@ const initBasicRule = (props: {
         generateClipKey,
         generateClipSpeedKey,
         generateClipPostSecondsKey,
+        imageProcessingKey,
     } } = getRuleKeys({
         ruleType,
         ruleName,
@@ -2766,9 +2758,11 @@ const initBasicRule = (props: {
     const notifiers = storage.getItem(notifiersKey) as string[] ?? [];
     const generateClip = storage.getItem(generateClipKey) as boolean ?? false;
     const generateClipPostSeconds = safeParseJson<number>(storage.getItem(generateClipPostSecondsKey)) ?? 3;
+    const imageProcessing = ScryptedEventSource.RawDetection ? storage.getItem(imageProcessingKey) as ImagePostProcessing : ImagePostProcessing.Default;
 
     const rule: BaseRule = {
         isEnabled,
+        imageProcessing,
         ruleType,
         useAi,
         currentlyActive,
@@ -2939,7 +2933,6 @@ export const getDetectionRules = (props: {
                     labelScoreKey,
                     clipDescriptionKey,
                     clipConfidenceKey,
-                    imageProcessingKey,
                 } } = getRuleKeys({
                     ruleType: RuleType.Detection,
                     ruleName: detectionRuleName,
@@ -2968,8 +2961,6 @@ export const getDetectionRules = (props: {
             const clipConfidence = storage.getItem(clipConfidenceKey) as SimilarityConfidence;
             const minMqttPublishDelay = storage.getItem(minMqttPublishDelayKey) as number || 15;
             const disableNvrRecordingSeconds = storage.getItem(recordingTriggerSecondsKey) as number;
-            const imageProcessing = detectionSource === ScryptedEventSource.RawDetection ? storage.getItem(imageProcessingKey) as ImagePostProcessing : undefined;
-
 
             const { rule, basicRuleAllowed, ...restCriterias } = initBasicRule({
                 ruleName: detectionRuleName,
@@ -2983,7 +2974,6 @@ export const getDetectionRules = (props: {
                 ...rule,
                 scoreThreshold,
                 detectionClasses,
-                imageProcessing,
                 nvrEvents,
                 devices: devicesToUse,
                 customText,
@@ -3689,4 +3679,257 @@ export const isSecretValid = (props: {
 
     const expectedPublicKey = generatePublicKey({ hours, secret });
     return publicKey === expectedPublicKey;
+}
+
+const getEmbeddingSimilarityScore = async (props: {
+    deviceId: string,
+    image?: MediaObject,
+    imageEmbedding?: string,
+    text: string,
+    detId: string,
+    plugin: AdvancedNotifierPlugin
+}) => {
+    const { plugin, image, imageEmbedding, text, deviceId, detId } = props;
+    const clipDevice = sdk.systemManager.getDeviceById<TextEmbedding & ImageEmbedding>(deviceId);
+
+    let imageEmbeddingBuffer: Buffer;
+    let textEmbeddingBuffer: Buffer;
+    if (imageEmbedding) {
+        imageEmbeddingBuffer = Buffer.from(imageEmbedding, "base64");
+    } else if (image) {
+        if (detId && plugin.imageEmbeddingCache.has(detId)) {
+            imageEmbeddingBuffer = plugin.imageEmbeddingCache.get(detId);
+        } else {
+            imageEmbeddingBuffer = await clipDevice.getImageEmbedding(image);
+            plugin.imageEmbeddingCache.set(detId, imageEmbeddingBuffer);
+        }
+    }
+
+    if (imageEmbeddingBuffer) {
+        const imageEmbedding = new Float32Array(
+            imageEmbeddingBuffer.buffer,
+            imageEmbeddingBuffer.byteOffset,
+            imageEmbeddingBuffer.length / Float32Array.BYTES_PER_ELEMENT
+        );
+
+        if (plugin.textEmbeddingCache.has(text)) {
+            textEmbeddingBuffer = plugin.textEmbeddingCache.get(text);
+        } else {
+            textEmbeddingBuffer = await clipDevice.getTextEmbedding(text);
+            plugin.textEmbeddingCache.set(text, textEmbeddingBuffer);
+        }
+
+        const textEmbedding = new Float32Array(
+            textEmbeddingBuffer.buffer,
+            textEmbeddingBuffer.byteOffset,
+            textEmbeddingBuffer.length / Float32Array.BYTES_PER_ELEMENT
+        );
+
+        let dotProduct = 0;
+        for (let i = 0; i < imageEmbedding.length; i++) {
+            dotProduct += imageEmbedding[i] * textEmbedding[i];
+        }
+
+        return dotProduct;
+    } else {
+        return 0;
+    }
+}
+
+export const checkDetectionRuleMatches = async (props: {
+    logger: Console,
+    candidates: ObjectDetectionResult[],
+    rule: DetectionRule,
+    isAudioEvent: boolean,
+    ignoreCameraDetections: boolean,
+    eventSource: ScryptedEventSource,
+    plugin: AdvancedNotifierPlugin,
+    image: MediaObject,
+    detect: ObjectsDetected,
+}) => {
+    const {
+        plugin,
+        eventSource,
+        rule,
+        candidates,
+        logger,
+        isAudioEvent,
+        image,
+        ignoreCameraDetections,
+        detect,
+    } = props;
+
+    const {
+        detectionClasses,
+        scoreThreshold,
+        whitelistedZones,
+        blacklistedZones,
+        people,
+        plates,
+        plateMaxDistance,
+        labelScoreThreshold,
+        frigateLabels,
+        audioLabels,
+        detectionSource,
+        clipDescription,
+        clipConfidence,
+    } = rule;
+    const isRuleFromFrigate = detectionSource === ScryptedEventSource.Frigate;
+    const isRuleRawDetection = detectionSource === ScryptedEventSource.RawDetection;
+    const isDetectionFromNvr = eventSource === ScryptedEventSource.NVR;
+
+    const { clipDevice } = plugin.storageSettings.values;
+
+    let dataToReport: any = {};
+    const matchRules: MatchRule[] = [];
+
+    for (const d of candidates) {
+        if (ignoreCameraDetections && !d.boundingBox) {
+            continue;
+        }
+
+        const { className: classnameRaw, score, zones, label, labelScore, embedding, id } = d;
+
+        const className = detectionClassesDefaultMap[classnameRaw];
+
+        if (!className) {
+            logger.log(`Classname ${classnameRaw} not mapped. Candidates ${JSON.stringify(candidates)}`);
+
+            continue;
+        }
+
+        if (!detectionClasses.includes(className)) {
+            logger.debug(`Classname ${className} not contained in ${detectionClasses}`);
+
+            continue;
+        }
+
+        if (people?.length && isFaceClassname(className) && (!label || !people.includes(label))) {
+            logger.debug(`Face ${label} not contained in ${people}`);
+
+            continue;
+        }
+
+        if (plates?.length && isPlateClassname(className)) {
+            const anyValidPlate = plates.some(plate => levenshteinDistance(plate, label) > plateMaxDistance);
+
+            if (!anyValidPlate) {
+                logger.debug(`Plate ${label} not contained in ${plates}`);
+
+                continue;
+            }
+        }
+
+        if (isPlateClassname(className) || isFaceClassname(className)) {
+            const labelScoreOk = !labelScore || labelScore > labelScoreThreshold;
+
+            if (!labelScoreOk) {
+                logger.debug(`Label score ${labelScore} not ok ${labelScoreThreshold}`);
+
+                continue;
+            }
+        }
+
+        if (isRuleFromFrigate && label) {
+            if (!frigateLabels?.length || !frigateLabels.includes(label)) {
+                logger.debug(`Frigate label ${label} not whitelisted ${frigateLabels}`);
+
+                continue;
+            }
+        }
+
+        if (audioLabels && isAudioEvent) {
+            if (audioLabels.length && !audioLabels.includes(label)) {
+                logger.debug(`Audio label ${label} not whitelisted ${frigateLabels}`);
+
+                continue;
+            }
+        }
+
+        const scoreOk = !score || score > scoreThreshold;
+
+        if (!scoreOk) {
+            logger.debug(`Score ${score} not ok ${scoreThreshold}`);
+
+            continue;
+        }
+
+        dataToReport = {
+            zones,
+
+            score,
+            scoreThreshold,
+            scoreOk,
+
+            className,
+            detectionClasses
+        };
+
+        let zonesOk = true;
+        if (rule.source === RuleSource.Device) {
+            const isIncluded = whitelistedZones?.length ? zones?.some(zone => whitelistedZones.includes(zone)) : true;
+            const isExcluded = blacklistedZones?.length ? zones?.some(zone => blacklistedZones.includes(zone)) : false;
+
+            zonesOk = isIncluded && !isExcluded;
+
+            dataToReport = {
+                ...dataToReport,
+                zonesOk,
+                isIncluded,
+                isExcluded,
+            }
+        }
+
+        if (!zonesOk) {
+            logger.debug(`Zones ${zones} not ok`);
+
+            continue;
+        }
+
+        let similarityOk = true;
+        if (clipDescription && clipDevice) {
+            // For now just go ahead if it's a raw detection and it has already embedding from NVR, 
+            // or if it's an NVR notification. Could add a configuration to always calculate embedding on clipped images
+            const canCheckSimilarity = (isRuleRawDetection && embedding) || isDetectionFromNvr;
+            if (canCheckSimilarity) {
+                try {
+                    const similarityScore = await getEmbeddingSimilarityScore({
+                        deviceId: clipDevice?.id,
+                        text: clipDescription,
+                        image,
+                        imageEmbedding: embedding,
+                        detId: id,
+                        plugin
+                    });
+
+                    const threshold = similarityConcidenceThresholdMap[clipConfidence] ?? 0.25;
+                    if (similarityScore < threshold) {
+                        similarityOk = false;
+                    }
+
+                    logger.info(`Embedding similarity score for rule ${rule.name} (${clipDescription}): ${similarityScore} -> ${threshold}`);
+                } catch (e) {
+                    logger.error('Error calculating similarity', e);
+                }
+            } else {
+                similarityOk = false;
+            }
+        }
+
+
+        if (similarityOk) {
+            const matchRule: MatchRule = {
+                match: d,
+                rule,
+                inputDimensions: detect.inputDimensions,
+                dataToReport
+            };
+            matchRules.push(matchRule);
+        }
+    }
+
+    return {
+        matchRules,
+        dataToReport
+    }
 }

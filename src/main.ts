@@ -204,7 +204,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         },
         objectDetectionDevice: {
             title: 'Object Detector',
-            group: pluginRulesGroup,
+            subgroup: 'Advanced',
             description: 'Select the object detection device to use for detecting objects.',
             type: 'device',
             deviceFilter: `interfaces.includes('ObjectDetectionPreview') && id !== '${nvrAcceleratedMotionSensorId}'`,
@@ -212,7 +212,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         },
         clipDevice: {
             title: 'Clip device',
-            group: pluginRulesGroup,
+            subgroup: 'Advanced',
             description: 'Select the clip device plugin to execute text embedding.',
             type: 'device',
             deviceFilter: `interfaces.includes('TextEmbedding') && interfaces.includes('ImageEmbedding')`,
@@ -228,7 +228,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         },
         enableDecoder: {
             title: 'Enable decoder',
-            group: pluginRulesGroup,
+            subgroup: 'Advanced',
             description: 'Master controller to allow decoder usage.',
             type: 'boolean',
             defaultValue: true,
@@ -278,7 +278,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             type: 'string',
             immediate: true,
             choices: Object.keys(ImagePostProcessing),
-            defaultValue: ImagePostProcessing.None
+            defaultValue: ImagePostProcessing.Default
         },
         testGenerateClip: {
             group: 'Test',
@@ -1972,7 +1972,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const foundDevice = this.currentCameraMixinsMap[triggerDevice.id] || this.currentSensorMixinsMap[triggerDevice.id];
 
         if (!foundDevice) {
-            logger.log(`Device not found for NVR notification: ${cameraName} ${eventType} ${triggerDevice?.name}`);
+            logger.info(`Device not found for NVR notification: ${cameraName} ${eventType} ${triggerDevice?.name}`);
             return;
         }
 
@@ -2059,7 +2059,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             imageSource = newImageSource;
         } else {
             image = imageData.image;
-            b64Image = imageData.b64Image;
+            b64Image = await moToB64(image);
             imageSource = imageData.imageSource;
         }
 

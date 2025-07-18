@@ -385,7 +385,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                         },
                         imageData: {
                             image,
-                            b64Image,
                             imageSource
                         }
                     }).catch(logger.error);
