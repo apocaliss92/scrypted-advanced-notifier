@@ -12,7 +12,7 @@ import { filterOverlappedDetections } from '../../scrypted-basic-object-detector
 import { objectDetectorNativeId } from '../../scrypted-frigate-bridge/src/utils';
 import { Deferred } from "../../scrypted/server/src/deferred";
 import { checkObjectsOccupancy } from "./aiUtils";
-import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, isMotionClassname, isObjectClassname } from "./detectionClasses";
+import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, isAudioClassname, isMotionClassname, isObjectClassname } from "./detectionClasses";
 import { addBoundingBoxesToImage, addZoneClipPathToImage, cropImageToDetection } from "./drawingUtils";
 import AdvancedNotifierPlugin from "./main";
 import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
@@ -2722,14 +2722,25 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     const detection = await sdk.connectRPCObject(
                         await objectDetector.detectObjects(image)
                     );
+                    const isAudio = isAudioClassname(match.className);
+
                     if (detection.detections.length) {
-                        const matchingDetections = detection.detections.filter(det =>
-                            det.className === match.className &&
-                            (match.label ? det.label === match.label : true)
-                        );
+                        let matchingDetections: ObjectDetectionResult[] = [];
+                        if (isAudio) {
+                            matchingDetections = detection.detections.filter(det =>
+                                det.className === DetectionClass.Person
+                            );
+                        } else {
+                            matchingDetections = detection.detections.filter(det =>
+                                det.className === match.className &&
+                                (match.label ? det.label === match.label : true)
+                            );
+                        }
 
                         if (matchingDetections.length > 0) {
-                            if (match.boundingBox) {
+                            if (isAudio) {
+                                boundingBox = matchingDetections[0].boundingBox;
+                            } else if (match.boundingBox) {
                                 if (match.label) {
                                     boundingBox = matchingDetections[0].boundingBox;
                                 } else {
@@ -2917,6 +2928,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         imageSource,
                         shouldReDetect,
                         imageProcessing,
+                        matchRule,
                         fullFrameImage: !!imageData?.fullFrameImage,
                         croppedImage: !!imageData?.croppedImage,
                         imageToProcess: !!imageToProcess,
