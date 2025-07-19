@@ -1185,62 +1185,6 @@ const getDetectionZoneEntities = (zones: string[]) => {
     return entries;
 }
 
-//     zones.flatMap(zone => {
-//     const parsedClassName = toTitleCase(zone);
-//     const entries: MqttEntity[] = [
-//         {
-//             entity: `${className}_detected`,
-//             name: `${parsedClassName} detected`,
-//             domain: 'binary_sensor',
-//             className,
-//             valueToDispatch: PAYLOAD_OFF,
-//             deviceClass: isAudio ? 'sound' : 'motion',
-//             identifier: MqttEntityIdentifier.Detected
-//         },
-//         {
-//             entity: `${className}${lastImageSuffix}`,
-//             name: `${parsedClassName} last image `,
-//             domain: 'image',
-//             className,
-//             retain: true,
-//             identifier: MqttEntityIdentifier.LastImage
-//         },
-//         {
-//             entity: `${className}${lastDetectionSuffix}`,
-//             name: `${parsedClassName} last detection`,
-//             domain: 'sensor',
-//             className,
-//             icon: 'mdi:clock',
-//             deviceClass: 'timestamp',
-//             retain: true,
-//             disabled: true,
-//             identifier: MqttEntityIdentifier.LastDetection
-//         },
-//     ];
-
-//     if (!isAudio && isLabelDetection(className)) {
-//         entries.push({
-//             entity: `${className}_last_recognized`,
-//             name: `${parsedClassName} last recognized`,
-//             domain: 'sensor',
-//             className,
-//             identifier: MqttEntityIdentifier.LastLabel
-//         });
-//     }
-
-//     if (detectionClassForObjectsReporting.includes(className as DetectionClass)) {
-//         entries.push({
-//             entity: `${className}_objects`,
-//             name: `${parsedClassName} objects`,
-//             domain: 'sensor',
-//             className,
-//             identifier: MqttEntityIdentifier.Object
-//         });
-//     }
-
-//     return entries;
-// });
-
 export const setupCameraAutodiscovery = async (props: {
     mqttClient?: MqttClient,
     device: ScryptedDeviceBase & ObjectDetector,

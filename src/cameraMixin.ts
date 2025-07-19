@@ -1412,7 +1412,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async getFrigateData() {
         try {
-            const logger = this.getLogger();
             const now = new Date().getTime();
             const frigateObjectDetector = systemManager.getDeviceById('@apocaliss92/scrypted-frigate-bridge', objectDetectorNativeId)?.id;
 
@@ -1424,11 +1423,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             let zones: string[] = [];
             let cameraName: string;
             const isUpdated = this.lastFrigateDataFetched && (now - this.lastFrigateDataFetched) <= (1000 * 60);
+            const settings = await this.mixinDevice.getSettings();
 
             if (this.frigateLabels && isUpdated) {
                 labels = this.frigateLabels;
             } else {
-                const settings = await this.mixinDevice.getSettings();
                 const labelsResponse = (settings.find((setting: { key: string; }) => setting.key === 'frigateObjectDetector:labels')?.value ?? []) as string[];
                 labels = labelsResponse.filter(label => label !== 'person');
                 this.frigateLabels = labels;
@@ -1438,19 +1437,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 zones = this.frigateZones;
                 cameraName = this.frigateCameraName;
             } else {
-                const settings = await this.mixinDevice.getSettings();
                 cameraName = settings.find((setting: { key: string; }) => setting.key === 'frigateObjectDetector:cameraName')?.value as string;
-                if (!cameraName) {
-                    logger.log(`Camera name not set on the frigate object detector settings of this camera`);
-                } else {
-                    const response = await axios.get<any>(`${this.plugin.frigateApi}/config`);
-                    const zonesData = response.data?.cameras?.[cameraName]?.zones ?? {};
-                    zones = Object.keys(zonesData);
-                    this.frigateZones = zones;
-                }
+                zones = settings.find((setting: { key: string; }) => setting.key === 'frigateObjectDetector:zones')?.value as string[] ?? [];
             }
 
             this.lastFrigateDataFetched = now;
+            this.frigateCameraName = cameraName;
+            this.frigateZones = zones;
 
             return { frigateLabels: labels, frigateZones: zones, cameraName };
         } catch (e) {
@@ -3491,7 +3484,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 if (data) {
                     this.plugin.cameraMotionActive.add(this.id);
-                    this.consumedDetectionIdsSet = new Set();
                     const timestamp = now;
                     const detections: ObjectDetectionResult[] = [{
                         className: 'motion',
@@ -3504,9 +3496,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
                 } else {
                     this.plugin.cameraMotionActive.delete(this.id);
-                    this.consumedDetectionIdsSet = new Set();
-                    this.detectionIdEventIdMap = new Map();
-                    this.objectIdLastReport = new Map();
+                    this.consumedDetectionIdsSet.clear()
+                    this.detectionIdEventIdMap.clear();
+                    this.objectIdLastReport.clear();
                     this.lastMotionEnd = now;
                     this.resetDetectionEntities({
                         resetSource: 'MotionSensor'

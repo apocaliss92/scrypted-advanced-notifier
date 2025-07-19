@@ -577,10 +577,19 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const settings = await frigatePlugin.getSettings();
             const serverUrl = settings.find(setting => setting.key === 'serverUrl')?.value as string;
             logger.log(`Frigate API found ${serverUrl}`);
-            this.frigateApi = serverUrl;
-            const { frigateLabels, frigateCameras } = await this.getFrigateData();
-            logger.log(`Frigate labels found ${frigateLabels}`);
-            logger.log(`Frigate cameras found ${frigateCameras}`);
+
+            try {
+                await axios.get(`${serverUrl}/api/config`, { timeout: 5000 });
+                logger.log(`Frigate server is reachable`);
+                this.frigateApi = serverUrl;
+
+                const { frigateLabels, frigateCameras } = await this.getFrigateData();
+                logger.log(`Frigate labels found ${frigateLabels}`);
+                logger.log(`Frigate cameras found ${frigateCameras}`);
+            } catch (e) {
+                logger.log(`Frigate server not reachable: ${e.message}`);
+                this.frigateApi = undefined;
+            }
         }
 
         // const [major, minor, patch] = version.split('.').map(num => parseInt(num, 10));
