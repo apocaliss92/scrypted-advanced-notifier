@@ -1554,6 +1554,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 eventSource,
             }).catch(logger.log);
 
+            this.storeImagesOnFs({
+                b64Image,
+                device: this.cameraDevice,
+                triggerTime,
+                prefix: `rule-${rule.name}`,
+                eventSource,
+            }).catch(logger.log);
+
             if (rule.ruleType === RuleType.Detection && !skipTrigger) {
                 const { disableNvrRecordingSeconds, name } = rule as DetectionRule;
                 if (disableNvrRecordingSeconds !== undefined) {
@@ -2587,45 +2595,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         if (image && b64Image) {
             try {
-                // if (this.isActiveForMqttReporting) {
-                //     const mqttClient = await this.getMqttClient();
-
-                //     if (mqttClient) {
-                //         const allowedDetections = detections.filter(detection => this.isDelayPassed({
-                //             classname: detection.className,
-                //             label: detection.label,
-                //             type: DelayType.BasicDetectionImage,
-                //             eventSource: ScryptedEventSource.RawDetection
-                //         })?.timePassed);
-                //         if (allowedDetections.length) {
-                //             const classnamesString = getDetectionsLog(detections);
-
-                //             logger.info(`Updating classname images ${classnamesString} with image source ${imageSource}`);
-
-                //             const detectionsPerZone = getDetectionsPerZone(allowedDetections);
-                //             await publishClassnameImages({
-                //                 mqttClient,
-                //                 console: logger,
-                //                 detections: allowedDetections,
-                //                 device: this.cameraDevice,
-                //                 b64Image,
-                //                 triggerTime,
-                //                 detectionsPerZone
-                //             }).catch(logger.error);
-                //         }
-
-                //     }
-                // }
-
-                // this.storeImagesOnFs({
-                //     b64Image,
-                //     detections,
-                //     device: this.cameraDevice,
-                //     triggerTime,
-                //     prefix: 'object-detection',
-                //     eventSource: ScryptedEventSource.RawDetection,
-                // }).catch(logger.log);
-
                 if (rulesToUpdate.length) {
                     logger.info(`Updating accumulated rules ${getRulesLog(rulesToUpdate)} with image source ${imageSource}`);
                     for (const matchRule of rulesToUpdate) {
@@ -2704,7 +2673,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         shouldReDetect: boolean,
     }) {
         const { matchRule, image, shouldReDetect, imageSource } = props;
-        const { rule: ruleParent, match, inputDimensions: inputDimensionsParent } = matchRule;
+        const { rule: ruleParent, match } = matchRule;
         const rule = ruleParent as DetectionRule;
         const logger = this.getLogger(); const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
 
@@ -2716,32 +2685,41 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             logger.info(`Post-processing set to ${rule.imageProcessing}, objectDetector is set to ${objectDetector ? objectDetector.name : 'NOT_DEFINED'}`);
 
             if (match && objectDetector && image) {
-                let boundingBox = match.boundingBox;
+                const { className, label } = match;
+                let transformedDetections: ObjectDetectionResult[];
 
+                const isAudio = isAudioClassname(className);
                 if (shouldReDetect) {
                     const detection = await sdk.connectRPCObject(
                         await objectDetector.detectObjects(image)
                     );
-                    const isAudio = isAudioClassname(match.className);
 
                     if (detection.detections.length) {
-                        let matchingDetections: ObjectDetectionResult[] = [];
                         if (isAudio) {
-                            matchingDetections = detection.detections.filter(det =>
-                                det.className === DetectionClass.Person
-                            );
+                            if (label) {
+                                if (['crying', 'yell'].includes(label)) {
+                                    transformedDetections = detection.detections.filter(
+                                        det => det.className === DetectionClass.Person
+                                    )
+                                } else if (['bark'].includes(label)) {
+                                    transformedDetections = detection.detections.filter(
+                                        det => det.className === DetectionClass.Animal
+                                    )
+                                } else {
+                                    transformedDetections = detection.detections.filter(
+                                        det => det.className !== DetectionClass.Motion
+                                    )
+                                }
+                            }
                         } else {
-                            matchingDetections = detection.detections.filter(det =>
-                                det.className === match.className &&
-                                (match.label ? det.label === match.label : true)
+                            let boundingBox = match.boundingBox;
+                            const matchingDetections = detection.detections.filter(det =>
+                                det.className === className &&
+                                (label ? det.label === label : true)
                             );
-                        }
 
-                        if (matchingDetections.length > 0) {
-                            if (isAudio) {
-                                boundingBox = matchingDetections[0].boundingBox;
-                            } else if (match.boundingBox) {
-                                if (match.label) {
+                            if (matchingDetections.length > 0) {
+                                if (label) {
                                     boundingBox = matchingDetections[0].boundingBox;
                                 } else {
                                     const [targetX, targetY] = match.boundingBox;
@@ -2763,6 +2741,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             } else {
                                 boundingBox = matchingDetections[0].boundingBox;
                             }
+
+                            transformedDetections = [{
+                                ...match,
+                                boundingBox,
+                            }];
                         }
                     } else {
                         logger.info(`Post-processing re-detection didn't find anything. ${JSON.stringify({
@@ -2773,7 +2756,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
                 }
 
-                if (boundingBox && image) {
+                if (transformedDetections && image) {
                     const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(image, ScryptedMimeTypes.Image);
                     const inputDimensions: [number, number] = [convertedImage.width, convertedImage.height];
 
@@ -2781,10 +2764,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         if (rule.imageProcessing === ImagePostProcessing.MarkBoundaries) {
                             const { newImage, newB64Image } = await addBoundingBoxesToImage({
                                 image,
-                                detections: [{
-                                    ...match,
-                                    boundingBox,
-                                }],
+                                detections: transformedDetections,
                                 inputDimensions,
                                 plugin: this.plugin
                             });
@@ -2794,7 +2774,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             try {
                                 const { newB64Image, newImage } = await cropImageToDetection({
                                     image,
-                                    boundingBox,
+                                    boundingBox: transformedDetections[0].boundingBox,
                                     inputDimensions,
                                     plugin: this.plugin
                                 });
@@ -2804,7 +2784,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             } catch (e) {
                                 error = e.message;
                                 logger.error('Failed to crop image', JSON.stringify({
-                                    boundingBox,
+                                    transformedDetections,
                                     inputDimensions,
                                     error,
                                     matchRule,
@@ -2815,7 +2795,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     } catch (e) {
                         error = e.message;
                         logger.error(`Error during post-processing`, JSON.stringify({
-                            boundingBox,
+                            transformedDetections,
                             inputDimensions,
                             shouldReDetect,
                             error,
@@ -2841,7 +2821,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     public async notifyDetectionRule(props: NotifyDetectionProps) {
-        const { matchRule, imageData, eventSource } = props;
+        const { matchRule, imageData, eventSource, triggerTime } = props;
         const logger = this.getLogger();
         const { rule, match } = matchRule;
         const { detectionSource, imageProcessing } = rule as DetectionRule;
@@ -2934,6 +2914,36 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         imageToProcess: !!imageToProcess,
                         srcImageSource: imageData?.imageSource,
                     })}`);
+
+                    const processedB64Image = await moToB64(image);
+                    let suffix = detectionSource !== ScryptedEventSource.RawDetection ? `${detectionSource}-` : '';
+                    suffix += `${imageProcessing}`;
+                    this.storeImagesOnFs({
+                        b64Image: processedB64Image,
+                        detections: [match],
+                        device: this.cameraDevice,
+                        triggerTime,
+                        prefix: 'object-detection',
+                        suffix,
+                        eventSource: detectionSource
+                    }).catch(logger.log);
+
+                    this.storeImagesOnFs({
+                        b64Image: processedB64Image,
+                        detections: match ? [match] : undefined,
+                        device: this.cameraDevice,
+                        triggerTime,
+                        prefix: `rule-${rule.name}-${imageProcessing}`,
+                        eventSource: detectionSource
+                    }).catch(logger.log);
+
+                    this.storeImagesOnFs({
+                        b64Image: processedB64Image,
+                        device: this.cameraDevice,
+                        triggerTime,
+                        prefix: `rule-${rule.name}-${imageProcessing}`,
+                        eventSource: detectionSource
+                    }).catch(logger.log);
                 }
 
                 logger.log(`Starting notifiers for detection rule (${eventSource}) ${getDetectionKey(matchRule as MatchRule)}, image from ${imageSource}, last check ${lastSetInSeconds ? lastSetInSeconds + 's ago' : '-'} with delay ${minDelayInSeconds}s`);
@@ -3483,6 +3493,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 if (frigateEvent) {
                     eventSource = ScryptedEventSource.Frigate;
                 }
+
+                logger.debug(JSON.stringify({ _, eventDetails, data }));
 
                 this.processDetections({ detect, eventDetails, eventSource }).catch(logger.log);
             });

@@ -58,7 +58,9 @@ Notifications can be disabled for a specific camera on the camera page, Advanced
 Notifications can be disabled globally on the general tab of the plugin
 
 ### Scrypted NVR notifiers
+
 Plugins supports scripting of the NVR buitin notifiers, following features are available:
+
 - discover to MQTT
 - Notifier notifications disabled: completely disable notifications for a specific notifier
 - Camera notifications disabled: disable notifications for a specific camera
@@ -67,10 +69,12 @@ Plugins supports scripting of the NVR buitin notifiers, following features are a
 - Enable AI to generate descriptions. To make this to work, each camera and notifier should be extended with the Advanced notifier pluign and activate the AI flag on both. Reason is that ai calls can be expensive and needs to be explicitely enabled on both entities
 
 **NVR notifiers can be used both as plugin notifiers, then with rules and everything, or just to enhance the NVR notifications.**
+
 - If you want to use it as plugin notifier, you should keep the notifier enabled (at the very bottom of the page) BUT disable all the detection classes (on the device page of the device, i.e. `Scrypted iPhone App (user)`)
 - If you want the plugin to just enhance the NVR notifications, there is nothing to change to make it work with the plugin. Just extend the notifier with this plugin and use the features you like to use
 
 ## Rules
+
 Rules can be of following types: Detection, Occupancy, Audio, Timelapse. These properties are in common with all, some are hidden until the `Show more configurations` gets activated
 
 - `Activation type`: when the rule shoul be active
@@ -142,6 +146,7 @@ Define a timeframe, the plugin will collect frames from the camera and generate 
 - Use the `Generate now` button to reuse the frames collected the previous session. They will be stored until the following session starts
 
 ### Audio (only on camera)
+
 **Audio rules will activate only if a source of audio measurement is active. These are currently probided by Basic object detector (Audio detector mixin) and Frigate Bridge (Frigate audio detector).**
 Audio rules will monitor the audio received by the camera
 
@@ -166,10 +171,6 @@ The plugin will store on filesystem, if configured, images for every basic detec
 - Set `Minimum notification delay` to debounce further notifications
 - Set `Minimum MQTT publish delay` to debounce the image update on MQTT for this basic detections
 
-## Homeassistant
-
-It's possbile to configure an homeassistant connection (or utilize the one configured in the `Homeassistant` plugin) to fetch configured entity IDs which are identified by one of the `Entity regex patterns`. The entities fetched will be available as selection on each camera/sensor to alias them with an homeassistant entity. This helps the `OnActive` rules to send entityIds instead of Scrypted identifiers.
-
 ## Webhooks
 
 Some basic webhooks are available
@@ -178,11 +179,15 @@ Some basic webhooks are available
 
 Will provide the latest registered image for each type, on the camera settings will be provided the basic url, {IMAGE_NAME} should be replaced with one of the following:
 
-- `object-detection-{ motion | any_object | animal | person | vehicle }` (full frame images)
-- `object-detection-{ motion | any_object | animal | person | vehicle }-NVR` (cropped images from NVR)
-- `object-detection-face-{ known person label }` (full frame images)
-- `object-detection-face-{ known person label }-NVR` (cropped images from NVR)
-- `rule-{ rule name }`
+- `object-detection-{ motion | any_object | animal | person | vehicle }`
+- `object-detection-{ motion | any_object | animal | person | vehicle }-{ Crop | MarkBoundaries}`
+- `object-detection-{ motion | any_object | animal | person | vehicle }-{ NVR | Frigate }`
+- `object-detection-face-{ known person label }`
+- `object-detection-face-{ known person label }-{ NVR | Frigate }`
+- `rule-{ ruleName }`
+- `rule-{ ruleName }-{ motion | any_object | animal | person | vehicle }`
+- `rule-{ ruleName }-{ Crop | MarkBoundaries}`
+- `rule-{ ruleName }-{ Crop | MarkBoundaries}-{ motion | any_object | animal | person | vehicle }`
 
 ### POST detection images
 
@@ -192,6 +197,7 @@ on some classes and define a minimum delay.
 ## Adanced Alarm System
 
 The plugin provides a security system hooked into the plugin detection rules. To use it this will be required:
+
 - Create 1 or more detection rule on the plugin page with activation type `AdvancedSecuritySystem` and set 1 or more modes to activate the rule
 - Setup the provided `Advanced security system` device with preferred preferences, such as texts or devices that can be bypassed during the activation
 

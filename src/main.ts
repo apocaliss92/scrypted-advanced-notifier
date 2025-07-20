@@ -1986,7 +1986,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
 
         if (isCamera) {
-            logger.log(`NVR detections incoming: ${JSON.stringify({ allDetections, cameraName, options })}`);
+            logger.info(`NVR detections incoming: ${JSON.stringify({ allDetections, cameraName, options })}`);
             if (isDetectionClass(eventType)) {
                 await (foundDevice as AdvancedNotifierCameraMixin)?.processDetections({
                     detect: { ...options.recordedEvent.data, detections: allDetections },

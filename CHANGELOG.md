@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.3.55
+- Enable FS/Webhook images for post-processed images
+
 ### 4.3.45
 - StoreEvents flag default to false
 
