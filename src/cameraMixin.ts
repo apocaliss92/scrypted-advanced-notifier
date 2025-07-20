@@ -3252,18 +3252,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         let aiFilterMatches = true;
         if (aiFilter) {
-            if (!image) {
+            if (image) {
+                const b64Image = await moToB64(image);
+                const confirmationFromAi = await confirmDetection({
+                    b64Image,
+                    logger,
+                    plugin: this.plugin,
+                    prompt: aiFilter,
+                });
+                aiFilterMatches = confirmationFromAi.response === 'yes';
+            } else {
                 aiFilterMatches = false;
             }
-
-            const b64Image = await moToB64(image);
-            const confirmationFromAi = await confirmDetection({
-                b64Image,
-                logger,
-                plugin: this.plugin,
-                prompt: aiFilter,
-            });
-            aiFilterMatches = confirmationFromAi.response === 'yes';
         }
 
         return {
