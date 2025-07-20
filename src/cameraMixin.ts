@@ -11,13 +11,13 @@ import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import { filterOverlappedDetections } from '../../scrypted-basic-object-detector/src/util';
 import { objectDetectorNativeId } from '../../scrypted-frigate-bridge/src/utils';
 import { Deferred } from "../../scrypted/server/src/deferred";
-import { checkObjectsOccupancy } from "./aiUtils";
-import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, isAudioClassname, isMotionClassname, isObjectClassname } from "./detectionClasses";
+import { checkObjectsOccupancy, confirmDetection } from "./aiUtils";
+import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, isAudioClassname, isFaceClassname, isMotionClassname, isObjectClassname, isPlateClassname, levenshteinDistance } from "./detectionClasses";
 import { addBoundingBoxesToImage, addZoneClipPathToImage, cropImageToDetection } from "./drawingUtils";
 import AdvancedNotifierPlugin from "./main";
 import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DETECTION_CLIP_PREFIX, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, checkDetectionRuleMatches, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, splitRules } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DETECTION_CLIP_PREFIX, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -3057,6 +3057,221 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
+    async checkDetectionRuleMatches(props: {
+        candidates: ObjectDetectionResult[],
+        rule: DetectionRule,
+        isAudioEvent: boolean,
+        eventSource: ScryptedEventSource,
+        image: MediaObject,
+        detect: ObjectsDetected,
+    }) {
+        const {
+            eventSource,
+            rule,
+            candidates,
+            isAudioEvent,
+            image,
+            detect,
+        } = props;
+        const logger = this.getLogger();
+        const { ignoreCameraDetections } = this.storageSettings.values;
+
+        const {
+            detectionClasses,
+            scoreThreshold,
+            whitelistedZones,
+            blacklistedZones,
+            people,
+            plates,
+            plateMaxDistance,
+            labelScoreThreshold,
+            frigateLabels,
+            audioLabels,
+            detectionSource,
+            clipDescription,
+            clipConfidence,
+            aiFilter,
+        } = rule;
+        const isRuleFromFrigate = detectionSource === ScryptedEventSource.Frigate;
+        const isRuleRawDetection = detectionSource === ScryptedEventSource.RawDetection;
+        const isDetectionFromNvr = eventSource === ScryptedEventSource.NVR;
+
+        const { clipDevice } = this.plugin.storageSettings.values;
+
+        const matchRules: MatchRule[] = [];
+        const report: any[] = [];
+
+        for (const d of candidates) {
+            let dataToReport: any = {};
+            if (ignoreCameraDetections && !d.boundingBox) {
+                continue;
+            }
+
+            const { className: classnameRaw, score, zones, label, labelScore, embedding, id } = d;
+
+            const className = detectionClassesDefaultMap[classnameRaw];
+
+            if (!className) {
+                logger.log(`Classname ${classnameRaw} not mapped. Candidates ${JSON.stringify(candidates)}`);
+
+                continue;
+            }
+
+            if (!detectionClasses.includes(className)) {
+                logger.debug(`Classname ${className} not contained in ${detectionClasses}`);
+
+                continue;
+            }
+
+            if (people?.length && isFaceClassname(className) && (!label || !people.includes(label))) {
+                logger.debug(`Face ${label} not contained in ${people}`);
+
+                continue;
+            }
+
+            if (plates?.length && isPlateClassname(className)) {
+                const anyValidPlate = plates.some(plate => levenshteinDistance(plate, label) > plateMaxDistance);
+
+                if (!anyValidPlate) {
+                    logger.debug(`Plate ${label} not contained in ${plates}`);
+
+                    continue;
+                }
+            }
+
+            if (isPlateClassname(className) || isFaceClassname(className)) {
+                const labelScoreOk = !labelScore || labelScore > labelScoreThreshold;
+
+                if (!labelScoreOk) {
+                    logger.debug(`Label score ${labelScore} not ok ${labelScoreThreshold}`);
+
+                    continue;
+                }
+            }
+
+            if (isRuleFromFrigate && label) {
+                if (!frigateLabels?.length || !frigateLabels.includes(label)) {
+                    logger.debug(`Frigate label ${label} not whitelisted ${frigateLabels}`);
+
+                    continue;
+                }
+            }
+
+            if (audioLabels && isAudioEvent) {
+                if (audioLabels.length && !audioLabels.includes(label)) {
+                    logger.debug(`Audio label ${label} not whitelisted ${frigateLabels}`);
+
+                    continue;
+                }
+            }
+
+            const scoreOk = !score || score > scoreThreshold;
+
+            if (!scoreOk) {
+                logger.debug(`Score ${score} not ok ${scoreThreshold}`);
+
+                continue;
+            }
+
+            dataToReport = {
+                zones,
+
+                score,
+                scoreThreshold,
+                scoreOk,
+
+                className,
+                detectionClasses
+            };
+
+            let zonesOk = true;
+            if (rule.source === RuleSource.Device) {
+                const isIncluded = whitelistedZones?.length ? zones?.some(zone => whitelistedZones.includes(zone)) : true;
+                const isExcluded = blacklistedZones?.length ? zones?.some(zone => blacklistedZones.includes(zone)) : false;
+
+                zonesOk = isIncluded && !isExcluded;
+
+                dataToReport = {
+                    ...dataToReport,
+                    zonesOk,
+                    isIncluded,
+                    isExcluded,
+                }
+            }
+
+            if (!zonesOk) {
+                logger.debug(`Zones ${zones} not ok`);
+
+                continue;
+            }
+
+            let similarityOk = true;
+            if (clipDescription && clipDevice) {
+                // For now just go ahead if it's a raw detection and it has already embedding from NVR, 
+                // or if it's an NVR notification. Could add a configuration to always calculate embedding on clipped images
+                const canCheckSimilarity = (isRuleRawDetection && embedding) || isDetectionFromNvr;
+                if (canCheckSimilarity) {
+                    try {
+                        const similarityScore = await getEmbeddingSimilarityScore({
+                            deviceId: clipDevice?.id,
+                            text: clipDescription,
+                            image,
+                            imageEmbedding: embedding,
+                            detId: id,
+                            plugin: this.plugin
+                        });
+
+                        const threshold = similarityConcidenceThresholdMap[clipConfidence] ?? 0.25;
+                        if (similarityScore < threshold) {
+                            similarityOk = false;
+                        }
+
+                        logger.info(`Embedding similarity score for rule ${rule.name} (${clipDescription}): ${similarityScore} -> ${threshold}`);
+                    } catch (e) {
+                        logger.error('Error calculating similarity', e);
+                    }
+                } else {
+                    similarityOk = false;
+                }
+            }
+
+            if (!similarityOk) {
+                continue;
+            }
+
+            const matchRule: MatchRule = {
+                match: d,
+                rule,
+                inputDimensions: detect.inputDimensions,
+                dataToReport
+            };
+            matchRules.push(matchRule);
+
+            report.push(dataToReport);
+        }
+
+        let aiFilterMatches = true;
+        if (aiFilter) {
+            if (!image) {
+                aiFilterMatches = false;
+            }
+
+            const b64Image = await moToB64(image);
+            const confirmationFromAi = await confirmDetection({
+                b64Image,
+                logger,
+                plugin: this.plugin,
+                prompt: aiFilter,
+            });
+            aiFilterMatches = confirmationFromAi.response === 'yes';
+        }
+
+        return {
+            matchRules: aiFilterMatches ? matchRules : undefined,
+            report,
+        }
+    }
+
     public async processDetections(props: {
         detect: ObjectsDetected,
         eventDetails?: EventDetails,
@@ -3305,20 +3520,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 //     continue
                 // }
 
-                const { dataToReport, matchRules } = await checkDetectionRuleMatches({
+                const { report, matchRules } = await this.checkDetectionRuleMatches({
                     rule,
                     candidates,
-                    ignoreCameraDetections,
                     isAudioEvent,
-                    logger,
                     detect,
                     eventSource,
                     image: ruleImage,
-                    plugin: this.plugin,
                 });
 
                 if (matchRules.length) {
-                    ruleImage && logger.info(`checkDetectionRuleMatches result ${JSON.stringify(dataToReport)}`);
+                    ruleImage && logger.info(`checkDetectionRuleMatches result ${JSON.stringify(report)}`);
                     for (const matchRule of matchRules) {
                         if (ruleImage) {
                             this.notifyDetectionRule({

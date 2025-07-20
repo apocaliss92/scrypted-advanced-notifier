@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.3.56
+- Add AI filter to detection rules
+
 ### 4.3.55
 - Enable FS/Webhook images for post-processed images
 

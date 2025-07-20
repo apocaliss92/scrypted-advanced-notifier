@@ -630,7 +630,46 @@ export const checkObjectsOccupancy = async (props: {
             }
         }
     } catch (e) {
-        logger.log('Error in getAiMessage', e);
+        logger.log('Error in checkObjectsOccupancy', e);
+    } finally {
+        return {
+            response,
+        }
+    }
+}
+
+export const confirmDetection = async (props: {
+    plugin: AdvancedNotifierPlugin,
+    b64Image: string,
+    logger: Console,
+    prompt: string
+}) => {
+    const { b64Image, logger, plugin, prompt } = props;
+
+    let response: string;
+    const question = `${prompt}. Respond with "yes" or "no" only, with no explanation.`
+
+    try {
+        const { aiSource } = plugin.storageSettings.values;
+        const { llmDeviceKey } = getAiSettingKeys();
+
+        if (aiSource === AiSource.LLMPlugin) {
+            const llmDeviceParent = plugin.storageSettings.getItem(llmDeviceKey as any) as ScryptedDeviceBase;
+
+            if (llmDeviceParent) {
+                const llmDevice = sdk.systemManager.getDeviceById<ChatCompletion>(llmDeviceParent.id);
+                const template = createLlmQuestionTemplate({
+                    b64Image,
+                    question
+                })
+                const res = await llmDevice.getChatCompletion(template);
+                logger.log(`${llmDeviceParent.name} result: ${JSON.stringify({ ...res, question })}`);
+
+                response = res.choices[0]?.message?.content;
+            }
+        }
+    } catch (e) {
+        logger.log('Error in confirmDetection', e);
     } finally {
         return {
             response,

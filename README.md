@@ -106,6 +106,7 @@ These rules can be created for multiple cameras (on the plugin page) or per sing
 - Set a `Custom text` if a specific text should be applied. By default detection rules will use the texts defined in the plugin tab `Texts`, many placeholder are available to enrich the content
 - Check `Enable AI to generate descriptions` if you want to let AI generate a description text out of the image. AI settings are available on the plugin page under the AI, currently supported: GoogleAi, OpenAi, Claude, Groq
 - Set `CLIP Description` to use semantic search and filter out even more detections. It will be applied at the very end of the chain, when all the filters already had effect. Set `CLIP confidence level` to finetune the confidence level of the search
+- Set `AI filter` to send the image to the choosen AI tool to confirm the input prompt
 - Set `Image post processing` to process notification images:
   - MarkBoundaries will drawn a coloured rectangle around the detected object
   - Crop will crop the image around the detected object

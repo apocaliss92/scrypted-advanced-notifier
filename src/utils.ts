@@ -1232,6 +1232,7 @@ export const getRuleKeys = (props: {
     const labelScoreKey = `${prefix}:${ruleName}:labelScore`;
     const clipDescriptionKey = `${prefix}:${ruleName}:clipDescription`;
     const clipConfidenceKey = `${prefix}:${ruleName}:clipConfidence`;
+    const aiFilterKey = `${prefix}:${ruleName}:aiFilter`;
 
     // Specific for timelapse rules
     const regularSnapshotIntervalKey = `${prefix}:${ruleName}:regularSnapshotInterval`;
@@ -1303,6 +1304,7 @@ export const getRuleKeys = (props: {
             labelScoreKey,
             clipDescriptionKey,
             clipConfidenceKey,
+            aiFilterKey,
         },
         timelapse: {
             regularSnapshotIntervalKey,
@@ -1933,6 +1935,7 @@ export const getDetectionRulesSettings = async (props: {
             labelScoreKey,
             clipDescriptionKey,
             clipConfidenceKey,
+            aiFilterKey,
         } = detection;
 
         const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean ?? false;
@@ -2077,6 +2080,21 @@ export const getDetectionRulesSettings = async (props: {
                     },
                 );
             }
+
+            settings.push(
+                {
+                    key: aiFilterKey,
+                    title: 'AI filter',
+                    'description': 'The prompt should be a question. This plugin will force the answer to be yes/no',
+                    placeholder: 'Does the image show a guy with a red hat?',
+                    type: 'string',
+                    group,
+                    subgroup,
+                    onPut: async () => {
+                        await refreshSettings()
+                    },
+                },
+            );
 
             settings.push(
                 {
@@ -2685,6 +2703,7 @@ export interface DetectionRule extends BaseRule {
     people?: string[];
     plates?: string[];
     clipDescription?: string;
+    aiFilter?: string;
     clipConfidence?: SimilarityConfidence;
     plateMaxDistance?: number;
     disableNvrRecordingSeconds?: number;
@@ -2935,6 +2954,7 @@ export const getDetectionRules = (props: {
                     labelScoreKey,
                     clipDescriptionKey,
                     clipConfidenceKey,
+                    aiFilterKey,
                 } } = getRuleKeys({
                     ruleType: RuleType.Detection,
                     ruleName: detectionRuleName,
@@ -2959,6 +2979,7 @@ export const getDetectionRules = (props: {
             const audioLabels = storage.getItem(audioLabelsKey) as string[] ?? [];
             const scoreThreshold = storage.getItem(scoreThresholdKey) as number || (isAudioOnly ? 0.5 : 0.7);
             const minDelay = storage.getItem(minDelayKey) as number;
+            const aiFilter = storage.getItem(aiFilterKey) as string;
             const clipDescription = storage.getItem(clipDescriptionKey) as string;
             const clipConfidence = storage.getItem(clipConfidenceKey) as SimilarityConfidence;
             const minMqttPublishDelay = storage.getItem(minMqttPublishDelayKey) as number || 15;
@@ -2988,6 +3009,7 @@ export const getDetectionRules = (props: {
                 detectionSource,
                 frigateLabels,
                 audioLabels,
+                aiFilter,
             };
 
             if (!isPlugin) {
@@ -3683,7 +3705,7 @@ export const isSecretValid = (props: {
     return publicKey === expectedPublicKey;
 }
 
-const getEmbeddingSimilarityScore = async (props: {
+export const getEmbeddingSimilarityScore = async (props: {
     deviceId: string,
     image?: MediaObject,
     imageEmbedding?: string,
@@ -3735,203 +3757,5 @@ const getEmbeddingSimilarityScore = async (props: {
         return dotProduct;
     } else {
         return 0;
-    }
-}
-
-export const checkDetectionRuleMatches = async (props: {
-    logger: Console,
-    candidates: ObjectDetectionResult[],
-    rule: DetectionRule,
-    isAudioEvent: boolean,
-    ignoreCameraDetections: boolean,
-    eventSource: ScryptedEventSource,
-    plugin: AdvancedNotifierPlugin,
-    image: MediaObject,
-    detect: ObjectsDetected,
-}) => {
-    const {
-        plugin,
-        eventSource,
-        rule,
-        candidates,
-        logger,
-        isAudioEvent,
-        image,
-        ignoreCameraDetections,
-        detect,
-    } = props;
-
-    const {
-        detectionClasses,
-        scoreThreshold,
-        whitelistedZones,
-        blacklistedZones,
-        people,
-        plates,
-        plateMaxDistance,
-        labelScoreThreshold,
-        frigateLabels,
-        audioLabels,
-        detectionSource,
-        clipDescription,
-        clipConfidence,
-    } = rule;
-    const isRuleFromFrigate = detectionSource === ScryptedEventSource.Frigate;
-    const isRuleRawDetection = detectionSource === ScryptedEventSource.RawDetection;
-    const isDetectionFromNvr = eventSource === ScryptedEventSource.NVR;
-
-    const { clipDevice } = plugin.storageSettings.values;
-
-    let dataToReport: any = {};
-    const matchRules: MatchRule[] = [];
-
-    for (const d of candidates) {
-        if (ignoreCameraDetections && !d.boundingBox) {
-            continue;
-        }
-
-        const { className: classnameRaw, score, zones, label, labelScore, embedding, id } = d;
-
-        const className = detectionClassesDefaultMap[classnameRaw];
-
-        if (!className) {
-            logger.log(`Classname ${classnameRaw} not mapped. Candidates ${JSON.stringify(candidates)}`);
-
-            continue;
-        }
-
-        if (!detectionClasses.includes(className)) {
-            logger.debug(`Classname ${className} not contained in ${detectionClasses}`);
-
-            continue;
-        }
-
-        if (people?.length && isFaceClassname(className) && (!label || !people.includes(label))) {
-            logger.debug(`Face ${label} not contained in ${people}`);
-
-            continue;
-        }
-
-        if (plates?.length && isPlateClassname(className)) {
-            const anyValidPlate = plates.some(plate => levenshteinDistance(plate, label) > plateMaxDistance);
-
-            if (!anyValidPlate) {
-                logger.debug(`Plate ${label} not contained in ${plates}`);
-
-                continue;
-            }
-        }
-
-        if (isPlateClassname(className) || isFaceClassname(className)) {
-            const labelScoreOk = !labelScore || labelScore > labelScoreThreshold;
-
-            if (!labelScoreOk) {
-                logger.debug(`Label score ${labelScore} not ok ${labelScoreThreshold}`);
-
-                continue;
-            }
-        }
-
-        if (isRuleFromFrigate && label) {
-            if (!frigateLabels?.length || !frigateLabels.includes(label)) {
-                logger.debug(`Frigate label ${label} not whitelisted ${frigateLabels}`);
-
-                continue;
-            }
-        }
-
-        if (audioLabels && isAudioEvent) {
-            if (audioLabels.length && !audioLabels.includes(label)) {
-                logger.debug(`Audio label ${label} not whitelisted ${frigateLabels}`);
-
-                continue;
-            }
-        }
-
-        const scoreOk = !score || score > scoreThreshold;
-
-        if (!scoreOk) {
-            logger.debug(`Score ${score} not ok ${scoreThreshold}`);
-
-            continue;
-        }
-
-        dataToReport = {
-            zones,
-
-            score,
-            scoreThreshold,
-            scoreOk,
-
-            className,
-            detectionClasses
-        };
-
-        let zonesOk = true;
-        if (rule.source === RuleSource.Device) {
-            const isIncluded = whitelistedZones?.length ? zones?.some(zone => whitelistedZones.includes(zone)) : true;
-            const isExcluded = blacklistedZones?.length ? zones?.some(zone => blacklistedZones.includes(zone)) : false;
-
-            zonesOk = isIncluded && !isExcluded;
-
-            dataToReport = {
-                ...dataToReport,
-                zonesOk,
-                isIncluded,
-                isExcluded,
-            }
-        }
-
-        if (!zonesOk) {
-            logger.debug(`Zones ${zones} not ok`);
-
-            continue;
-        }
-
-        let similarityOk = true;
-        if (clipDescription && clipDevice) {
-            // For now just go ahead if it's a raw detection and it has already embedding from NVR, 
-            // or if it's an NVR notification. Could add a configuration to always calculate embedding on clipped images
-            const canCheckSimilarity = (isRuleRawDetection && embedding) || isDetectionFromNvr;
-            if (canCheckSimilarity) {
-                try {
-                    const similarityScore = await getEmbeddingSimilarityScore({
-                        deviceId: clipDevice?.id,
-                        text: clipDescription,
-                        image,
-                        imageEmbedding: embedding,
-                        detId: id,
-                        plugin
-                    });
-
-                    const threshold = similarityConcidenceThresholdMap[clipConfidence] ?? 0.25;
-                    if (similarityScore < threshold) {
-                        similarityOk = false;
-                    }
-
-                    logger.info(`Embedding similarity score for rule ${rule.name} (${clipDescription}): ${similarityScore} -> ${threshold}`);
-                } catch (e) {
-                    logger.error('Error calculating similarity', e);
-                }
-            } else {
-                similarityOk = false;
-            }
-        }
-
-
-        if (similarityOk) {
-            const matchRule: MatchRule = {
-                match: d,
-                rule,
-                inputDimensions: detect.inputDimensions,
-                dataToReport
-            };
-            matchRules.push(matchRule);
-        }
-    }
-
-    return {
-        matchRules,
-        dataToReport
     }
 }
