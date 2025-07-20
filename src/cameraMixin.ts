@@ -3283,8 +3283,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const isDetectionFromFrigate = eventSource === ScryptedEventSource.Frigate;
         const isDetectionRawDetection = eventSource === ScryptedEventSource.RawDetection;
         const logger = this.getLogger();
-        const { timestamp: triggerTime, detections } = detect;
+        const { timestamp: triggerTimeParent, detections } = detect;
         const detectionSourceForMqtt = this.detectionSourceForMqtt;
+        let triggerTime = triggerTimeParent ?? Date.now();
 
         if (!detections?.length) {
             return;
