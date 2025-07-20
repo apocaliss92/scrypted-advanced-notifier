@@ -1471,7 +1471,9 @@ export const publishBasicDetectionData = async (props: {
             } else if (identifier === MqttEntityIdentifier.LastLabel) {
                 value = detection?.label || null;
             } else if (identifier === MqttEntityIdentifier.LastDetection) {
-                value = new Date(triggerTime).toISOString();
+                if (triggerTime) {
+                    value = new Date(triggerTime).toISOString();
+                }
             }
 
             if (value) {
@@ -1835,7 +1837,7 @@ export const publishRuleData = async (props: {
                 value = triggerValue ?? false;
             }
         } else if (identifier === MqttEntityIdentifier.LastTrigger) {
-            if (triggerValue != undefined) {
+            if (triggerValue != undefined && triggerTime) {
                 value = new Date(triggerTime).toISOString();
             }
         } else if (identifier === MqttEntityIdentifier.LastImage && b64Image) {
