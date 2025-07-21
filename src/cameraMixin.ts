@@ -164,7 +164,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             type: 'string',
             immediate: true,
             combobox: true,
-            defaultValue: 'Default',
+            defaultValue: ScryptedEventSource.Default,
             choices: [],
         },
         motionDuration: {
@@ -1341,7 +1341,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         if (this.storageSettings.settings.detectionSourceForMqtt) {
             this.storageSettings.settings.detectionSourceForMqtt.choices = [
-                'Default',
+                ScryptedEventSource.Default,
                 ...this.plugin.enabledDetectionSources,
             ]
         }
@@ -2657,7 +2657,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { detectionSourceForMqtt: detectionSourceForMqttPlugin } = this.plugin.storageSettings.values;
 
         let source: ScryptedEventSource;
-        if (detectionSourceForMqtt !== 'Default') {
+        if (detectionSourceForMqtt !== ScryptedEventSource.Default) {
             source = detectionSourceForMqtt;
         } else {
             source = detectionSourceForMqttPlugin;

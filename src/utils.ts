@@ -115,6 +115,7 @@ export interface NotifyDetectionProps {
 }
 
 export enum ScryptedEventSource {
+    Default = 'Default',
     RawDetection = 'RawDetection',
     NVR = 'NVR',
     Frigate = 'Frigate'
