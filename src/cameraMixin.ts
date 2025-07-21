@@ -2671,8 +2671,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         imageSource: ImageSource,
         matchRule: Partial<MatchRule>,
         shouldReDetect: boolean,
+        eventSource: NotifyRuleSource,
     }) {
-        const { matchRule, image, shouldReDetect, imageSource } = props;
+        const { matchRule, image, shouldReDetect, imageSource, eventSource } = props;
         const { rule: ruleParent, match } = matchRule;
         const rule = ruleParent as DetectionRule;
         const logger = this.getLogger(); const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
@@ -2682,7 +2683,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let error: string;
 
         if (image) {
-            logger.info(`Post-processing set to ${rule.imageProcessing}, objectDetector is set to ${objectDetector ? objectDetector.name : 'NOT_DEFINED'}`);
+            logger.log(`Post-processing set to ${rule.imageProcessing}, objectDetector is set to ${objectDetector ? objectDetector.name : 'NOT_DEFINED'}`);
 
             if (match && objectDetector && image) {
                 const { className, label } = match;
@@ -2712,7 +2713,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 }
                             }
                         } else {
-                            let boundingBox = match.boundingBox;
                             const matchingDetections = detection.detections.filter(det =>
                                 det.className === className &&
                                 (label ? det.label === label : true)
@@ -2720,7 +2720,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                             if (matchingDetections.length > 0) {
                                 if (label) {
-                                    boundingBox = matchingDetections[0].boundingBox;
+                                    transformedDetections = [matchingDetections[0]];
                                 } else if (match.boundingBox) {
                                     const [targetX, targetY] = match.boundingBox;
                                     let closestDetection = matchingDetections[0];
@@ -2736,34 +2736,32 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                         }
                                     }
 
-                                    boundingBox = closestDetection.boundingBox;
+                                    transformedDetections = [closestDetection];
                                 }
                             } else {
-                                boundingBox = matchingDetections[0].boundingBox;
+                                transformedDetections = detection.detections;
                             }
-
-                            transformedDetections = [{
-                                ...match,
-                                boundingBox,
-                            }];
                         }
                     } else {
-                        logger.info(`Post-processing re-detection didn't find anything. ${JSON.stringify({
+                        logger.log(`Post-processing re-detection didn't find anything. ${JSON.stringify({
                             detection,
                             match,
                         })}`);
                         error = 'No detections re-detected';
+                        transformedDetections = [];
                     }
                 } else {
                     transformedDetections = [match];
                 }
 
-                logger.info(`Post-processing starting with: ${JSON.stringify({
+                logger.log(`Post-processing starting with: ${JSON.stringify({
                     transformedDetections,
                     image: !!image,
+                    shouldReDetect,
                 })}`);
 
-                if (transformedDetections && image) {
+                const canContinue = transformedDetections?.length || eventSource === NotifyRuleSource.Test;
+                if (canContinue && image) {
                     const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(image, ScryptedMimeTypes.Image);
                     const inputDimensions: [number, number] = [convertedImage.width, convertedImage.height];
                     logger.info(`Post-processing starting with: inputDimensions ${inputDimensions}`);
@@ -2858,7 +2856,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 shouldReDetect = true;
             }
 
-            let processingFailed = false;
+            let processingError: string;
             let imageToProcess: MediaObject;
 
             if (detectionSource === ScryptedEventSource.NVR) {
@@ -2887,14 +2885,22 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     matchRule,
                     shouldReDetect,
                     imageSource,
+                    eventSource,
                 });
 
-                image = processedImage;
-                processingFailed = !!error;
+                if (error) {
+                    if (rule.imageProcessing !== ImagePostProcessing.Crop) {
+                        image = imageToProcess;
+                    } else {
+                        processingError = error;
+                    }
+                } else {
+                    image = processedImage;
+                }
             }
 
-            if (processingFailed) {
-                logger.info(`Post-processing failed. Skipping notification and resetting delay to allow new detections to come through`);
+            if (processingError) {
+                logger.log(`Post-processing failed. Skipping notification and resetting delay to allow new detections to come through: ${processingError}`);
                 const delayKey = this.isDelayPassed({
                     type: DelayType.RuleNotification,
                     matchRule: matchRule as MatchRule,

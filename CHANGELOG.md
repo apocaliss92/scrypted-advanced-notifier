@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.3.65
+- Add clear action to HA actions
+
 ### 4.3.61
 - Add snoozes customization (Plugin => Rules section)
 

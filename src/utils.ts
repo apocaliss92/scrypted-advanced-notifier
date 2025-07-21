@@ -634,6 +634,7 @@ export type TextSettingKey =
     | 'snoozeText'
     | 'minutesText'
     | 'hoursText'
+    | 'discardText'
     | 'streamInterruptedText';
 
 export const getTextSettings = (props: { forMixin: boolean, isNvrNotifier?: boolean }) => {
@@ -750,6 +751,13 @@ export const getTextSettings = (props: { forMixin: boolean, isNvrNotifier?: bool
             type: 'string',
             description: 'Expression used to render the hours text for snoozes',
             defaultValue: !forMixin ? 'hours' : undefined,
+        },
+        discardText: {
+            [groupKey]: 'Texts',
+            title: 'Discard text',
+            type: 'string',
+            description: 'Expression used to render the discard text',
+            defaultValue: !forMixin ? 'Dismiss' : undefined,
         },
         motionText: {
             group: 'Texts',

@@ -2341,8 +2341,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             });
         }
 
-        let allActions: ExtendedNotificationAction[] = [...actionsToUse];
-
         const { snoozeItems } = await this.buildSnoozes({ notifierId });
         const { snoozeActions, endpoint } = await getWebHookUrls({
             console: deviceLogger,
@@ -2354,9 +2352,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         });
 
         const addSnozeActions = withSnoozing && addSnooze;
-        if (addSnozeActions) {
-            allActions = [...snoozeActions, ...actionsToUse];
-        }
         let payload: any = {
             data: {
                 isNotificationFromAnPlugin: true,
@@ -2421,9 +2416,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 sound
             };
 
-            if (allActions.length) {
+            const acts = [...snoozeActions, ...actionsToUse];
+            if (acts.length) {
                 additionalMessageText += '\n';
-                for (const { title, url } of allActions) {
+                for (const { title, url } of acts) {
                     additionalMessageText += `<a href="${url}">${title}</a>\n`;
                 }
             }
@@ -2479,6 +2475,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     destructive,
                 })
             }
+
+            haActions.push({
+                action: 'clear',
+                title: this.getTextKey({ notifierId, textKey: 'discardText' }),
+                icon: "sfsymbols:trash",
+                destructive: true
+            });
+
             payload.data.ha.actions = haActions;
 
             if (priority === NotificationPriority.High) {
