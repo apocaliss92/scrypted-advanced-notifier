@@ -168,7 +168,7 @@ The plugin will store on filesystem, if configured, images for every basic detec
 
 - `Minimum snapshot acquisition delay`, minimum seconds to wait until a new snapshot can be taken from a camera, keep it around 5 seconds for cameras with weak hardware
 - `Off motion duration`, amount of seconds to consider motion as ended for rules/detections affecting the camera. It will override the motion off events
-- `Snapshot from Decoder`, take snapshots from the camera decoded stream. If set to `Always` it will be active only if any detection rule with videoclips, timelapse or occupancy rule is running. If set `OnMotion` it will run only during motion sessions, usefull if your camera gives many snapshot timeout errors
+- `Snapshot from Decoder`, take snapshots from the camera decoded stream. If set to `Always` it will be active only if any detection rule with videoclips, timelapse or occupancy rule is running. If set `OnMotion` it will run only during motion sessions, usefull if your camera gives many snapshot timeout errors. `Auto` will be the default and regulate it when required
 - Set `Minimum notification delay` to debounce further notifications
 - Set `Minimum MQTT publish delay` to debounce the image update on MQTT for this basic detections
 

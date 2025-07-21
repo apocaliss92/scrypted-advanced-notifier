@@ -77,7 +77,6 @@ type CameraSettingKey =
     | 'detectionSourceForMqtt'
     | 'motionDuration'
     | 'checkOccupancy'
-    | 'useDecoder'
     | 'decoderType'
     | 'lastSnapshotWebhook'
     | 'lastSnapshotWebhookCloudUrl'
@@ -180,21 +179,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             type: 'boolean',
             immediate: true,
         },
-        useDecoder: {
-            title: 'Snapshot from Decoder',
-            description: '[ATTENTION] Performance intensive and high cpu prone, ONLY use if you see many timeout errors on snapshot for cameras with frequent motion',
-            type: 'boolean',
-            immediate: true,
-        },
         decoderType: {
             title: 'Snapshot from Decoder',
             description: 'Define when to run a decoder to get more frequent snapshots. It will be enabled only if there is any running timelapse rule, occupancy rule or detection rule with videoclips',
             type: 'string',
             immediate: true,
+            defaultValue: DecoderType.Auto,
             choices: [
-                DecoderType.Off,
+                DecoderType.Auto,
                 DecoderType.OnMotion,
                 DecoderType.Always,
+                DecoderType.Off,
             ]
         },
         // WEBHOOKS
@@ -637,28 +632,36 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     get decoderType() {
         const { enableDecoder } = this.plugin.storageSettings.values;
-        const { decoderType } = this.storageSettings.values;
+        const { decoderType: decoderTypeParent } = this.storageSettings.values;
+        let decoderType = decoderTypeParent;
 
-        if (!enableDecoder) {
+        if (decoderType) {
+            decoderType = DecoderType.Auto;
+        }
+
+        if (!enableDecoder || decoderType === DecoderType.Off) {
             return DecoderType.Off;
         }
 
-        const hasRunningTimelapseRules = !!this.runningTimelapseRules.length;
-        const hasRunningOccupancyRules = !!this.runningOccupancyRules.length;
-
-        const hasVideoclipRules = this.runningDetectionRules.some(rule => rule?.generateClip);
-
         if (decoderType === DecoderType.Always) {
+            return DecoderType.Always;
+        }
+
+        if (decoderType === DecoderType.OnMotion) {
+            return DecoderType.OnMotion;
+        }
+
+        if (decoderType === DecoderType.Auto) {
+            const hasRunningTimelapseRules = !!this.runningTimelapseRules.length;
+            const hasRunningOccupancyRules = !!this.runningOccupancyRules.length;
+            const hasVideoclipRules = this.runningDetectionRules.some(rule => rule?.generateClip);
+
             if (hasRunningOccupancyRules || hasRunningTimelapseRules || hasVideoclipRules) {
                 return DecoderType.Always
             } else {
                 return DecoderType.OnMotion;
             }
-        } else if (hasVideoclipRules) {
-            return DecoderType.OnMotion;
         }
-
-        return decoderType;
     }
 
     async startCheckInterval() {
@@ -1303,7 +1306,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             postDetectionImageWebhook,
             enabledToMqtt,
             schedulerEnabled,
-            useDecoder,
         } = this.storageSettings.values;
 
         if (this.storageSettings.settings.lastSnapshotWebhookCloudUrl) {
@@ -1336,11 +1338,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         if (this.storageSettings.settings.endTime) {
             this.storageSettings.settings.endTime.hide = !schedulerEnabled;
         }
-
-        if (this.storageSettings.settings.decoderType) {
-            this.storageSettings.settings.decoderType.defaultValue = useDecoder ? DecoderType.OnMotion : DecoderType.Off;
-        }
-        this.storageSettings.settings.useDecoder.hide = true;
 
         if (this.storageSettings.settings.detectionSourceForMqtt) {
             this.storageSettings.settings.detectionSourceForMqtt.choices = [
@@ -1630,9 +1627,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             GetImageReason.ObjectUpdate,
         ].includes(reason);
         const tryDetector = !!detectionId && !!eventId;
-        const onlyDetector = reason === GetImageReason.QuickNotification;
+        const isQuickNotification = reason === GetImageReason.QuickNotification;
         const snapshotTimeout =
-            reason === GetImageReason.RulesRefresh ? 10000 : this.currentSnapshotTimeout;
+            reason === GetImageReason.RulesRefresh ? 10000 :
+                isQuickNotification ? 2000 :
+                    this.currentSnapshotTimeout;
         const decoderRunning = !this.framesGeneratorSignal.finished;
         const forceDecoder = reason === GetImageReason.RulesRefresh;
 
@@ -1781,10 +1780,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         checkLatest,
                         checkSnapshot,
                     ];
-                } else if (onlyDetector) {
+                } else if (isQuickNotification) {
                     if (tryDetector) {
                         runners = [
                             checkDetector,
+                            checkDecoder
                         ];
                     }
                 } else if (tryDetector) {
@@ -2754,11 +2754,19 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         })}`);
                         error = 'No detections re-detected';
                     }
+                } else {
+                    transformedDetections = [match];
                 }
+
+                logger.info(`Post-processing starting with: ${JSON.stringify({
+                    transformedDetections,
+                    image: !!image,
+                })}`);
 
                 if (transformedDetections && image) {
                     const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(image, ScryptedMimeTypes.Image);
                     const inputDimensions: [number, number] = [convertedImage.width, convertedImage.height];
+                    logger.info(`Post-processing starting with: inputDimensions ${inputDimensions}`);
 
                     try {
                         if (rule.imageProcessing === ImagePostProcessing.MarkBoundaries) {
@@ -2885,11 +2893,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 processingFailed = !!error;
             }
 
-            if (!image) {
-                logger.log(`Skipping notification, image not provided`);
-                return;
-            }
-
             if (processingFailed) {
                 logger.info(`Post-processing failed. Skipping notification and resetting delay to allow new detections to come through`);
                 const delayKey = this.isDelayPassed({
@@ -2901,7 +2904,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 return;
             } else {
-                if (imageToProcess) {
+                if (!image) {
+                    logger.log(`Skipping notification, image was not provided: ${JSON.stringify({
+                        imageToProcess: !!imageToProcess,
+                        matchRule,
+                        shouldReDetect,
+                        imageSource,
+                        image: !!image,
+                        fullFrameImage: !!fullFrameImage,
+                        croppedImage: !!croppedImage
+                    })}`);
+                    return;
+                } else if (imageToProcess) {
                     logger.log(`Post-processing ${imageProcessing} successful. ${JSON.stringify({
                         detectionSource,
                         image: !!image,
@@ -3347,7 +3361,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             decoderImage = decoderImageFound;
             imageSource = newImageSource;
 
-            logger.info(`${eventSource} detections received, classnames ${classnamesLog}}`);
+            logger.info(`${eventSource} detections received, classnames ${classnamesLog}`);
         }
 
         try {

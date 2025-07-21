@@ -133,6 +133,7 @@ export interface MatchRule {
 }
 
 export enum DecoderType {
+    Auto = 'Auto',
     Off = 'Off',
     OnMotion = 'OnMotion',
     Always = 'Always',
@@ -1525,7 +1526,7 @@ const getNotifierSettings = (props: {
     };
     const openInAppSetting: StorageSetting = {
         key: openInAppKey,
-        title: `Open in the onboarded Scrypted App`,
+        title: `Open in the Homeassistant's Scrypted component`,
         type: 'boolean',
         group,
         subgroup,
