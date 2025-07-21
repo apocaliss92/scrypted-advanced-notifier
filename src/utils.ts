@@ -98,6 +98,12 @@ export enum NotifyRuleSource {
     Test = 'Test',
     Sensor = 'Sensor',
 }
+
+export interface SnoozeItem {
+    text: string,
+    minutes: number,
+}
+
 export interface NotifyDetectionProps {
     eventType: DetectionEvent,
     triggerDeviceId: string,
@@ -288,9 +294,8 @@ export const getWebHookUrls = async (props: {
     cameraIdOrAction?: string,
     console?: Console,
     device?: ScryptedDeviceBase,
-    snoozes?: number[],
     snoozeId?: string,
-    snoozePlaceholder?: string,
+    snoozeItems?: SnoozeItem[],
     fileId?: string,
     cloudEndpoint: string,
     secret: string,
@@ -299,12 +304,11 @@ export const getWebHookUrls = async (props: {
         cameraIdOrAction,
         console,
         device,
-        snoozes,
         snoozeId,
-        snoozePlaceholder,
         fileId,
         cloudEndpoint,
         secret,
+        snoozeItems
     } = props;
 
     let lastSnapshotCloudUrl: string;
@@ -360,15 +364,15 @@ export const getWebHookUrls = async (props: {
         eventImageUrl = `${privatePathnamePrefix}/${eventImage}/${device?.id}/${fileId}`;
         eventVideoclipUrl = `${privatePathnamePrefix}/${eventVideoclip}/${device?.id}/${fileId}`;
 
-        if (snoozes) {
-            for (const snooze of snoozes) {
-                const text = snoozePlaceholder?.replaceAll('${snoozeTime}', String(snooze));
+        if (snoozeId && snoozeItems) {
+            for (const snooze of snoozeItems) {
+                const { minutes, text } = snooze;
 
                 snoozeActions.push({
-                    url: `${cloudEndpoint}${publicPathnamePrefix}${snoozeNotification}/${encodedId}/${snoozeId}/${snooze}${paramString}`,
+                    url: `${cloudEndpoint}${publicPathnamePrefix}${snoozeNotification}/${encodedId}/${snoozeId}/${minutes}${paramString}`,
                     title: text,
-                    action: `snooze${snooze}`,
-                    data: snooze,
+                    action: `snooze${minutes}`,
+                    data: minutes,
                 });
             }
         }
@@ -628,6 +632,8 @@ export type TextSettingKey =
     | 'entrySensorText'
     | 'offlineText'
     | 'snoozeText'
+    | 'minutesText'
+    | 'hoursText'
     | 'streamInterruptedText';
 
 export const getTextSettings = (props: { forMixin: boolean, isNvrNotifier?: boolean }) => {
@@ -727,9 +733,23 @@ export const getTextSettings = (props: { forMixin: boolean, isNvrNotifier?: bool
             [groupKey]: 'Texts',
             title: 'Snooze text',
             type: 'string',
-            description: 'Expression used to render the snooze texts. Available arguments ${snoozeTime}',
-            defaultValue: !forMixin ? 'Snooze: ${snoozeTime} minutes' : undefined,
-            placeholder: !forMixin ? 'Snooze: ${snoozeTime} minutes' : undefined,
+            description: 'Expression used to render the snooze texts. Available arguments ${timeText}',
+            defaultValue: !forMixin ? 'Snooze: ${timeText}' : undefined,
+            placeholder: !forMixin ? 'Snooze: ${timeText}' : undefined,
+        },
+        minutesText: {
+            [groupKey]: 'Texts',
+            title: 'Minutes text',
+            type: 'string',
+            description: 'Expression used to render the minutes text for snoozes',
+            defaultValue: !forMixin ? 'minutes' : undefined,
+        },
+        hoursText: {
+            [groupKey]: 'Texts',
+            title: 'Hours text',
+            type: 'string',
+            description: 'Expression used to render the hours text for snoozes',
+            defaultValue: !forMixin ? 'hours' : undefined,
         },
         motionText: {
             group: 'Texts',
@@ -888,6 +908,7 @@ export interface ExtendedNotificationAction {
     url: string;
     icon?: string;
     data?: any;
+    destructive?: boolean;
 }
 
 export const getMixinBaseSettings = (props: {
@@ -1217,6 +1238,7 @@ export const getRuleKeys = (props: {
     const generateClipSpeedKey = `${prefix}:${ruleName}:generateClipSpeed`;
     const generateClipPostSecondsKey = `${prefix}:${ruleName}:generateClipPostSeconds`;
     const imageProcessingKey = `${prefix}:${ruleName}:imageProcessing`;
+    const totalSnoozeKey = `${prefix}:${ruleName}:totalSnooze`;
 
     // Specific for detection rules
     const detectionClassesKey = `${prefix}:${ruleName}:detecionClasses`;
@@ -1288,6 +1310,7 @@ export const getRuleKeys = (props: {
             generateClipSpeedKey,
             generateClipPostSecondsKey,
             imageProcessingKey,
+            totalSnoozeKey,
         },
         detection: {
             useNvrDetectionsKey,
@@ -1611,6 +1634,7 @@ export const getRuleSettings = (props: {
                 generateClipSpeedKey,
                 generateClipPostSecondsKey,
                 imageProcessingKey,
+                totalSnoozeKey
             }
         } = getRuleKeys({ ruleName, ruleType });
 
@@ -1869,6 +1893,19 @@ export const getRuleSettings = (props: {
                 }
             );
         }
+
+        settings.push(
+            {
+                key: totalSnoozeKey,
+                title: 'Snooze per rule',
+                description: 'If enabled, snooze actions will act for any notifier of the rule, rather then per used device',
+                type: 'boolean',
+                group,
+                subgroup,
+                immediate: true,
+                defaultValue: false,
+            }
+        );
 
         for (const notifierId of notifiers) {
             const notifierSettings = getNotifierSettings({
@@ -2680,6 +2717,7 @@ export interface BaseRule {
     startRuleText?: string;
     endRuleText?: string;
     generateClip: boolean;
+    totalSnooze: boolean;
     generateClipSpeed: VideoclipSpeed;
     generateClipPostSeconds: number;
     imageProcessing: ImagePostProcessing;
@@ -2766,6 +2804,7 @@ const initBasicRule = (props: {
         generateClipSpeedKey,
         generateClipPostSecondsKey,
         imageProcessingKey,
+        totalSnoozeKey,
     } } = getRuleKeys({
         ruleType,
         ruleName,
@@ -2780,6 +2819,7 @@ const initBasicRule = (props: {
     const securitySystemModes = storage.getItem(securitySystemModesKey) as SecuritySystemMode[] ?? [];
     const notifiers = storage.getItem(notifiersKey) as string[] ?? [];
     const generateClip = storage.getItem(generateClipKey) as boolean ?? false;
+    const totalSnooze = storage.getItem(totalSnoozeKey) as boolean ?? false;
     const generateClipPostSeconds = safeParseJson<number>(storage.getItem(generateClipPostSecondsKey)) ?? 3;
     const imageProcessing = ScryptedEventSource.RawDetection ? storage.getItem(imageProcessingKey) as ImagePostProcessing : ImagePostProcessing.Default;
 
@@ -2792,6 +2832,7 @@ const initBasicRule = (props: {
         name: ruleName,
         notifiers,
         customText,
+        totalSnooze,
         activationType,
         source: ruleSource,
         securitySystemModes,
@@ -3547,7 +3588,11 @@ export const getSnoozeId = (props: {
         specificIdentifier = rule.name;
     }
 
-    return `${cameraId}_${notifierId}_${specificIdentifier}_${priority}`;
+    if (rule.totalSnooze) {
+        return `${cameraId}_${specificIdentifier}_${priority}`;
+    } else {
+        return `${cameraId}_${notifierId}_${specificIdentifier}_${priority}`;
+    }
 }
 
 export const getDetectionKey = (matchRule: MatchRule) => {

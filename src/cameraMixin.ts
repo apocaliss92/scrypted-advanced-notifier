@@ -2721,7 +2721,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             if (matchingDetections.length > 0) {
                                 if (label) {
                                     boundingBox = matchingDetections[0].boundingBox;
-                                } else {
+                                } else if (match.boundingBox) {
                                     const [targetX, targetY] = match.boundingBox;
                                     let closestDetection = matchingDetections[0];
                                     let minDistance = Infinity;
@@ -3544,7 +3544,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     image: ruleImage,
                 });
 
-                if (matchRules.length) {
+                if (matchRules?.length) {
                     ruleImage && logger.info(`checkDetectionRuleMatches result ${JSON.stringify(report)}`);
                     for (const matchRule of matchRules) {
                         if (ruleImage) {

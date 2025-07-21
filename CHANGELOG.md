@@ -1,6 +1,12 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.3.61
+- Add snoozes customization (Plugin => Rules section)
+
+### 4.3.60
+- Add rule configuration to snoose any notifier of the rule, instead only the single one
+
 ### 4.3.56
 - Add AI filter to detection rules
 

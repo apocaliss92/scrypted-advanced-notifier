@@ -23,7 +23,7 @@ import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodisco
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllDevices, getAssetSource, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllDevices, getAssetSource, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier } from "./utils";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -44,6 +44,7 @@ export type PluginSettingKey =
     | 'objectDetectionDevice'
     | 'clipDevice'
     | 'securitySystem'
+    | 'snoozes'
     | 'testDevice'
     | 'testNotifier'
     | 'testEventType'
@@ -225,6 +226,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             type: 'device',
             deviceFilter: `type === '${ScryptedDeviceType.SecuritySystem}' && !interfaces.includes('${ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE}')`,
             immediate: true,
+        },
+        snoozes: {
+            title: 'Default snoozes',
+            group: pluginRulesGroup,
+            description: 'Snoozes (In minutes) to use on notifications. Do not apply for Scrypted App notifiers. If multiple of 60 will be shown as hours, otherwise minutes',
+            type: 'string',
+            multiple: true,
+            defaultValue: ['10', '30', '60'],
         },
         enableDecoder: {
             title: 'Enable decoder',
@@ -2214,6 +2223,31 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             .replace('${room}', roomName ?? '');
     }
 
+    async buildSnoozes(props: { notifierId: string }) {
+        const { notifierId } = props;
+        const { snoozes } = this.storageSettings.values;
+
+        const snoozePlaceholder = this.getTextKey({ notifierId, textKey: 'snoozeText' });
+        const minutesPlaceholder = this.getTextKey({ notifierId, textKey: 'minutesText' });
+        const hoursPlaceholder = this.getTextKey({ notifierId, textKey: 'hoursText' });
+
+        const snoozeItems: SnoozeItem[] = [];
+
+        for (const minutesText of snoozes) {
+            const minutes = Number(minutesText);
+            const isHours = minutes % 60 === 0;
+            const time = isHours ? minutes / 60 : minutes;
+            const timeString = `${time} ${isHours ? hoursPlaceholder : minutesPlaceholder}`;
+
+            const text = snoozePlaceholder
+                ?.replaceAll('${timeText}', timeString);
+
+            snoozeItems.push({ text, minutes });
+        }
+
+        return { snoozeItems };
+    }
+
     async getNotificationContent(props: {
         notifier: DeviceBase & Notifier,
         rule?: DetectionRule | OccupancyRule | TimelapseRule,
@@ -2272,7 +2306,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             [];
         const actionsToUse: ExtendedNotificationAction[] = [];
 
-        for (const { action, title, icon, url } of actionsToUseTmp) {
+        for (const { action, title, icon, url, destructive } of actionsToUseTmp) {
             let urlToUse = url;
 
             // Assuming every action without url is an HA action
@@ -2291,7 +2325,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 action,
                 title,
                 icon,
-                url: urlToUse
+                url: urlToUse,
+                destructive,
             });
         }
 
@@ -2308,15 +2343,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         let allActions: ExtendedNotificationAction[] = [...actionsToUse];
 
-        const snoozePlaceholder = this.getTextKey({ notifierId, textKey: 'snoozeText' });
-        const snoozes = [10, 30, 60];
+        const { snoozeItems } = await this.buildSnoozes({ notifierId });
         const { snoozeActions, endpoint } = await getWebHookUrls({
             console: deviceLogger,
             device,
-            snoozes,
             snoozeId,
-            snoozePlaceholder,
             cloudEndpoint: this.cloudEndpoint,
+            snoozeItems,
             secret: this.storageSettings.values.privateKey
         });
 
@@ -2429,13 +2462,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     uri: videoUrl,
                 });
             }
-            for (const { action, icon, title } of actionsToUse) {
-                haActions.push({
-                    action,
-                    icon,
-                    title,
-                })
-            }
             if (addSnozeActions) {
                 for (const { data, title, } of snoozeActions) {
                     haActions.push({
@@ -2444,6 +2470,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         title,
                     });
                 }
+            }
+            for (const { action, icon, title, destructive } of actionsToUse) {
+                haActions.push({
+                    action,
+                    icon,
+                    title,
+                    destructive,
+                })
             }
             payload.data.ha.actions = haActions;
 
