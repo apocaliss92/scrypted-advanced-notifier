@@ -2694,6 +2694,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     const detection = await sdk.connectRPCObject(
                         await objectDetector.detectObjects(image)
                     );
+                    logger.log(`Post-processing redetection results: ${JSON.stringify({
+                        detection,
+                        match,
+                    })}`);
 
                     if (detection.detections.length) {
                         if (isAudio) {
@@ -2739,7 +2743,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                     transformedDetections = [closestDetection];
                                 }
                             } else {
-                                transformedDetections = detection.detections;
+                                transformedDetections = [];
                             }
                         }
                     } else {
