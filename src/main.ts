@@ -2416,7 +2416,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 sound
             };
 
-            const acts = [...snoozeActions, ...actionsToUse];
+            const acts: ExtendedNotificationAction[] = [];
+            if (addSnozeActions) {
+                acts.push(...snoozeActions);
+            }
+            acts.push(...actionsToUse);
             if (acts.length) {
                 additionalMessageText += '\n';
                 for (const { title, url } of acts) {
