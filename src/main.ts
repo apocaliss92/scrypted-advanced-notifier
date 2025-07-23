@@ -1430,9 +1430,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 const activeDevices = activeCameras + activeSensors + activeNotifiers;
 
                 if (!!activeDevices) {
-                    const { pendingResults, rpcObjects } = await getRpcData();
-                    const pluginPendingResults = pendingResults.find(elem => elem.name === pluginName)?.count;
-                    const pluginRpcObjects = rpcObjects.find(elem => elem.name === pluginName)?.count;
+                    const { stats } = await getRpcData();
+                    const pluginStats = stats[pluginName];
+                    const pluginPendingResults = pluginStats?.pendingResults;
+                    const pluginRpcObjects = pluginStats?.rpcObjects;
 
                     logger.info(`PLUGIN-STUCK-CHECK: active devices ${activeDevices}, pending results ${pluginPendingResults} RPC objects ${pluginRpcObjects}`);
 
@@ -1459,7 +1460,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         pluginPendingResults > (MAX_PENDING_RESULT_PER_CAMERA * activeDevices) ||
                         pluginRpcObjects > hardCap
                     ) {
-                        logger.error(`Advanced notifier plugin seems stuck, ${pluginPendingResults} pending results and ${pluginRpcObjects} (> ${hardCap}) RPC objects. Restarting`);
+                        logger.error(`High resources detected, ${pluginPendingResults} pending results and ${pluginRpcObjects} (> ${hardCap}) RPC objects. Restarting`);
                         this.restartRequested = true;
                         await sdk.deviceManager.requestRestart();
                     }
@@ -1468,6 +1469,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             if (this.accumulatedTimelapsesToGenerate) {
                 const timelapsesToRun = [...this.accumulatedTimelapsesToGenerate];
+                this.accumulatedTimelapsesToGenerate = undefined;
                 this.accumulatedTimelapsesToGenerate = [];
 
                 for (const timelapse of timelapsesToRun) {

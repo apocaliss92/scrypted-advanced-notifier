@@ -1,7 +1,6 @@
 import sdk, { EventDetails, EventListenerRegister, Image, MediaObject, MediaStreamDestination, Notifier, ObjectDetection, ObjectDetectionResult, ObjectsDetected, PanTiltZoomCommand, ResponseMediaStreamOptions, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoClip, VideoClipOptions, VideoClipThumbnailOptions, VideoClips, VideoFrame, VideoFrameGenerator } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
-import axios from "axios";
 import fs from 'fs';
 import { cloneDeep, sortBy, uniqBy } from "lodash";
 import moment from "moment";
@@ -312,7 +311,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     clientId: string;
 
     snoozeUntilDic: Record<string, number> = {};
-    consumedDetectionIdsSet: Set<string> = new Set();
 
     lastMotionEnd: number;
     currentSnapshotTimeout = 4000;
@@ -643,12 +641,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             return DecoderType.Off;
         }
 
-        if (decoderType === DecoderType.Always) {
-            return DecoderType.Always;
-        }
-
-        if (decoderType === DecoderType.OnMotion) {
-            return DecoderType.OnMotion;
+        if ([DecoderType.Always, DecoderType.OnMotion].includes(decoderType)) {
+            return decoderType;
         }
 
         if (decoderType === DecoderType.Auto) {
@@ -656,10 +650,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const hasRunningOccupancyRules = !!this.runningOccupancyRules.length;
             const hasVideoclipRules = this.runningDetectionRules.some(rule => rule?.generateClip);
 
-            if (hasRunningOccupancyRules || hasRunningTimelapseRules || hasVideoclipRules) {
+            if (hasRunningTimelapseRules || hasVideoclipRules) {
                 return DecoderType.Always
-            } else {
+            } else if (hasRunningOccupancyRules) {
                 return DecoderType.OnMotion;
+            } else {
+                return DecoderType.Off;
             }
         }
     }
@@ -939,11 +935,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 } else if (decoderType === DecoderType.Off && !this.framesGeneratorSignal.finished) {
                     this.stopDecoder('EndClipRules');
                 }
-                // Restart decoder every 60 seconds
+                // Restart decoder every 5 minutes
                 if (
                     decoderType === DecoderType.Always &&
                     this.frameGenerationStartTime &&
-                    (now - this.frameGenerationStartTime) >= 1000 * 60
+                    (now - this.frameGenerationStartTime) >= 1000 * 60 * 5
                 ) {
                     logger.log(`Restarting decoder`);
                     this.stopDecoder('Restart');
@@ -1038,13 +1034,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 this.lastFrame = await frame.image.toBuffer({
                     format: 'jpg',
                 });
-                // const jpeg = await frame.image.toBuffer({
-                //     format: 'jpg',
-                // });
-                // this.lastFrame = await sdk.mediaManager.createMediaObject(jpeg, 'image/jpeg');
-                // this.lastFrame = await frame.image.toImage({
-                //     format: 'jpg',
-                // })
                 this.lastFrameAcquired = now;
 
                 const decoderType = this.decoderType;
@@ -1120,6 +1109,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     resetAudioRule(ruleName: string) {
+        this.audioRuleSamples[ruleName] = undefined;
         this.audioRuleSamples[ruleName] = [];
     }
 
@@ -2005,9 +1995,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 return;
             }
 
-            const detectedResultParent = await sdk.connectRPCObject(
-                await objectDetector.detectObjects(imageParent)
-            );
+            const detectedResultParent = await this.executeDetection(imageParent);
 
             if (!objectDetector.interfaces.includes(ScryptedInterface.ObjectDetectionGenerator)) {
                 detectedResultParent.detections = filterOverlappedDetections(detectedResultParent.detections);
@@ -2066,9 +2054,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 height,
                             },
                         });
-                        detectedResult = await sdk.connectRPCObject(
-                            await objectDetector.detectObjects(croppedImage)
-                        );
+                        detectedResult = await this.executeDetection(croppedImage);
                     }
 
                     if (!objectDetector.interfaces.includes(ScryptedInterface.ObjectDetectionGenerator)) {
@@ -2548,7 +2534,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const rulesToUpdate = uniqBy(cloneDeep(this.accumulatedRules), getDetectionKey);
 
         // Clearing the buckets right away to not lose too many detections
+        this.accumulatedDetections = undefined
         this.accumulatedDetections = [];
+        this.accumulatedRules = undefined;
         this.accumulatedRules = [];
 
         const triggerTime = dataToAnalyze[0]?.triggerTime;
@@ -2666,6 +2654,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         return source ?? ScryptedEventSource.RawDetection;
     }
 
+    async executeDetection(image: MediaObject) {
+        const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
+
+        const detection = await sdk.connectRPCObject(
+            await objectDetector.detectObjects(image)
+        );
+
+        return detection;
+    }
+
     public async executeImagePostProcessing(props: {
         image: MediaObject,
         imageSource: ImageSource,
@@ -2676,7 +2674,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { matchRule, image, shouldReDetect, imageSource, eventSource } = props;
         const { rule: ruleParent, match } = matchRule;
         const rule = ruleParent as DetectionRule;
-        const logger = this.getLogger(); const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
+        const logger = this.getLogger();
+        const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
 
         let processedImage: MediaObject;
         let processedB64Image: string;
@@ -2691,9 +2690,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 const isAudio = isAudioClassname(className);
                 if (shouldReDetect) {
-                    const detection = await sdk.connectRPCObject(
-                        await objectDetector.detectObjects(image)
-                    );
+                    const detection = await this.executeDetection(image);
                     logger.log(`Post-processing redetection results: ${JSON.stringify({
                         detection,
                         match,
@@ -3757,7 +3754,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
                 } else {
                     this.plugin.cameraMotionActive.delete(this.id);
-                    this.consumedDetectionIdsSet.clear()
                     this.detectionIdEventIdMap.clear();
                     this.objectIdLastReport.clear();
                     this.lastMotionEnd = now;
