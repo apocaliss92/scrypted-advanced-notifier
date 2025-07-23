@@ -45,7 +45,7 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
             title: 'Translations',
             description: 'Use the plugin configured Texts to provide notifications text',
             type: 'boolean',
-            defaultValue: true,
+            defaultValue: false,
             immediate: true,
         },
         postNotificationWebhook: {
