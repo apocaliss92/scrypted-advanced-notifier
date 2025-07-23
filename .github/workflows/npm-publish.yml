@@ -15,12 +15,6 @@ jobs:
           node-version: "20"
       - name: Install dependencies
         run: npm install
-      - name: Bump minor version
-        run: |
-          npm version minor
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git push --follow-tags
       - name: Build project
         run: npm run build
       - uses: JS-DevTools/npm-publish@v3
