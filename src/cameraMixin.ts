@@ -17,6 +17,7 @@ import AdvancedNotifierPlugin from "./main";
 import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DETECTION_CLIP_PREFIX, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
+import { FFmpegRTSPDecoder } from "./ffmpegDecoder";
 
 const { systemManager } = sdk;
 
@@ -84,6 +85,7 @@ type CameraSettingKey =
     | 'postDetectionImageUrls'
     | 'postDetectionImageClasses'
     | 'postDetectionImageMinDelay'
+    | 'decoderProcessId'
     | MixinBaseSettingKey;
 
 export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> implements Settings, VideoClips {
@@ -242,6 +244,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             type: 'number',
             defaultValue: 15,
         },
+        decoderProcessId: {
+            hide: true,
+            type: 'string'
+        }
     };
     storageSettings = new StorageSettings(this, this.initStorage);
 
@@ -264,8 +270,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     lastFramesCleanup: number;
     logger: Console;
     killed: boolean;
-    framesGeneratorSignal = new Deferred<void>().resolve();
-    frameGenerationStartTime: number;
     runningOccupancyRules: OccupancyRule[] = [];
     runningDetectionRules: DetectionRule[] = [];
     runningTimelapseRules: TimelapseRule[] = [];
@@ -318,6 +322,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     clipGenerationTimeout: Record<string, NodeJS.Timeout> = {};
     detectionIdEventIdMap = new Map<string, string>();
     objectIdLastReport = new Map<string, number>();
+
+    framesGeneratorSignal = new Deferred<void>().resolve();
+    frameGenerationStartTime: number;
+    decoder: FFmpegRTSPDecoder;
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -648,7 +656,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         if (decoderType === DecoderType.Auto) {
             const hasRunningTimelapseRules = !!this.runningTimelapseRules.length;
             const hasRunningOccupancyRules = !!this.runningOccupancyRules.length;
-            const hasVideoclipRules = this.runningDetectionRules.some(rule => rule?.generateClip);
+            const hasVideoclipRules =
+                [
+                    ...this.runningDetectionRules,
+                    ...this.runningOccupancyRules
+                ].some(rule => rule?.generateClip);
 
             if (hasRunningTimelapseRules || hasVideoclipRules) {
                 return DecoderType.Always
@@ -1642,17 +1654,19 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             try {
                 const detectImage = await this.cameraDevice.getDetectionInput(detectionId, eventId);
 
-                if (skipResize) {
-                    image = detectImage;
-                } else {
-                    const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(detectImage, ScryptedMimeTypes.Image);
-                    image = await convertedImage.toImage({
-                        resize: {
-                            width: SNAPSHOT_WIDTH,
-                        },
-                    });
+                if (detectImage) {
+                    if (skipResize) {
+                        image = detectImage;
+                    } else {
+                        const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(detectImage, ScryptedMimeTypes.Image);
+                        image = await convertedImage.toImage({
+                            resize: {
+                                width: SNAPSHOT_WIDTH,
+                            },
+                        });
+                    }
+                    imageSource = ImageSource.Detector;
                 }
-                imageSource = ImageSource.Detector;
             } catch (e) {
                 logger.log(`Error finding the ${reason} image from the detector for detectionId ${detectionId} and eventId ${eventId} (${e.message})`);
             }
@@ -3650,6 +3664,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     async startAudioVolumesListener() {
         try {
             const logger = this.getLogger();
+            this.stopAudioVolumesListener();
 
             this.audioVolumesListener = systemManager.listenDevice(this.id, {
                 event: ScryptedInterface.AudioVolumeControl,
@@ -3671,6 +3686,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     async startAudioSensorListener() {
         try {
             const logger = this.getLogger();
+            this.stopAudioSensorListener();
 
             this.audioSensorListener = systemManager.listenDevice(this.id, {
                 event: ScryptedInterface.AudioSensor,

@@ -1956,8 +1956,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             rule.detectionSource === ScryptedEventSource.NVR &&
             rule.nvrEvents.includes(eventType as NvrEvent)
         );
+        const logger = this.getLogger();
 
         for (const rule of rules) {
+            if (rules.length) {
+                logger.log(`Starting notifiers for NVR event rule (${eventType}): ${JSON.stringify({ rule })}`);
+            }
+
             const notifiers = rule.notifiers
             for (const notifierId of notifiers) {
                 const notifier = systemManager.getDeviceById<DeviceInterface>(notifierId);
