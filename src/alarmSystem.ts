@@ -299,10 +299,10 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                                 mqttClient,
                                 console: logger,
                                 modeSwitchCb: async (mode) => {
-                                    logger.log(`Setting mode to ${mode} (currently ${this.securitySystemState.mode})`);
-
                                     const now = Date.now();
                                     if (!this.lastMqttCommandReceived || (now - this.lastMqttCommandReceived) > (1000 * 2)) {
+                                        logger.log(`Setting mode to ${mode} (currently ${this.securitySystemState.mode})`);
+
                                         this.lastMqttCommandReceived = now;
                                         await this.armSecuritySystem(mode);
                                     }
@@ -330,42 +330,6 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
         }, 1000 * 2);
     }
 
-    async trigger(deviceName: string) {
-        await this.putSetting('triggered', true);
-        this.securitySystemState = {
-            ...this.securitySystemState,
-            triggered: true
-        };
-
-        await this.updateMqtt({
-            mode: 'triggered',
-        });
-
-        await this.sendNotification({
-            mode: this.securitySystemState.mode,
-            event: AlarmEvent.Trigger,
-            triggerDevices: [deviceName]
-        });
-    }
-
-    async defuse(event: AlarmEvent) {
-        if (this.securitySystemState.triggered) {
-            await this.putSetting('triggered', false);
-            this.securitySystemState = {
-                ...this.securitySystemState,
-                triggered: false
-            };
-            await this.sendNotification({
-                mode: this.securitySystemState.mode,
-                event,
-            });
-        }
-
-        if ([AlarmEvent.DefuseAuto, AlarmEvent.DefuseManual].includes(event)) {
-            await this.disarmSecuritySystemInternal(true);
-        }
-    }
-
     async onEventTrigger(props: {
         triggerDevice: DeviceInterface,
     }) {
@@ -380,22 +344,39 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
 
         if (currentlyActiveDevices.includes(triggerDevice.name)) {
             logger.log(`Alarm triggered by ${triggerDevice.name}`);
-            const { autoDisarmTime, autoRiarmTime } = getModeEntity({ mode: this.securitySystemState.mode, storage: this.storageSettings });
 
             if (!this.securitySystemState.triggered) {
-                await this.trigger(triggerDevice.name);
-            }
+                await this.putSetting('triggered', true);
+                this.securitySystemState = {
+                    ...this.securitySystemState,
+                    triggered: true
+                };
 
-            if (autoRiarmTime) {
-                this.resetDisarmListener();
-                this.disarmListener = setTimeout(async () => {
-                    await this.defuse(AlarmEvent.RiarmAuto);
-                }, 1000 * autoRiarmTime);
-            } else if (autoDisarmTime) {
-                this.resetDisarmListener();
-                this.disarmListener = setTimeout(async () => {
-                    await this.defuse(AlarmEvent.DefuseAuto);
-                }, 1000 * autoDisarmTime);
+                await this.updateMqtt({
+                    mode: 'triggered',
+                });
+
+                await this.sendNotification({
+                    event: AlarmEvent.Trigger,
+                    triggerDevices: [triggerDevice?.name]
+                });
+
+                const { autoDisarmTime, autoRiarmTime } = getModeEntity({
+                    mode: this.securitySystemState.mode,
+                    storage: this.storageSettings
+                });
+
+                if (autoRiarmTime) {
+                    this.resetDisarmListener();
+                    this.disarmListener = setTimeout(async () => {
+                        await this.disarmSecuritySystemInternal(AlarmEvent.RiarmAuto);
+                    }, 1000 * autoRiarmTime);
+                } else if (autoDisarmTime) {
+                    this.resetDisarmListener();
+                    this.disarmListener = setTimeout(async () => {
+                        await this.disarmSecuritySystemInternal(AlarmEvent.DefuseAuto);
+                    }, 1000 * autoDisarmTime);
+                }
             }
         }
     }
@@ -483,8 +464,6 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
     }
 
     async refreshSettings() {
-        const logger = this.getLogger();
-
         const dynamicSettings: StorageSetting[] = [];
         for (const mode of supportedAlarmModes) {
             const modeSettings = getAlarmSettings({ mode });
@@ -527,8 +506,8 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
     }
 
     async sendNotification(props: {
-        mode: SecuritySystemMode,
-        event: AlarmEvent,
+        mode?: SecuritySystemMode,
+        event?: AlarmEvent,
         preactivationSeconds?: number,
         autoDefuseSeconds?: number,
         bypassedDevices?: string[],
@@ -539,13 +518,12 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
         const logger = this.getLogger();
 
         try {
-            const { triggered } = this.securitySystemState;
             const {
                 blockingDevices = [],
                 event,
                 activeDevices = [],
                 bypassedDevices = [],
-                mode,
+                mode = this.securitySystemState.mode,
                 preactivationSeconds,
                 autoDefuseSeconds,
                 triggerDevices = []
@@ -571,34 +549,29 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                 triggerCriticalNotifications,
             } = this.storageSettings.values;
 
-            if (mode === SecuritySystemMode.Disarmed) {
-                message = triggered ?
-                    (event === 'DefuseManual' ? defuseMessage : defuseMessageAutomatic) :
-                    disarmingMessage;
-            } else {
-                switch (event) {
-                    case AlarmEvent.Preactivation:
-                        message = preActivationStartMessage;
-                        break;
-                    case AlarmEvent.Blocked:
-                        message = armingErrorMessage;
-                        break;
-                    case AlarmEvent.Activate:
-                        message = armingMessage;
-                        break;
-                    case AlarmEvent.Trigger:
-                        message = triggerMessage;
-                        break;
-                    case AlarmEvent.DefuseAuto:
-                        message = defuseMessageAutomatic;
-                        break;
-                    case AlarmEvent.DefuseManual:
-                        message = defuseMessage;
-                        break;
-                    case AlarmEvent.RiarmAuto:
-                        message = armingMessage;
-                        break;
-                }
+            switch (event) {
+                case AlarmEvent.Activate:
+                case AlarmEvent.RiarmAuto:
+                    message = armingMessage;
+                    break;
+                case AlarmEvent.Preactivation:
+                    message = preActivationStartMessage;
+                    break;
+                case AlarmEvent.Disarm:
+                    message = disarmingMessage;
+                    break;
+                case AlarmEvent.Blocked:
+                    message = armingErrorMessage;
+                    break;
+                case AlarmEvent.Trigger:
+                    message = triggerMessage;
+                    break;
+                case AlarmEvent.DefuseAuto:
+                    message = defuseMessageAutomatic;
+                    break;
+                case AlarmEvent.DefuseManual:
+                    message = defuseMessage;
+                    break;
             }
 
             const modeText = mode === SecuritySystemMode.AwayArmed ?
@@ -743,207 +716,210 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
     async armSecuritySystem(mode: SecuritySystemMode): Promise<void> {
         const logger = this.getLogger();
 
-        this.resetActivationListener();
-
         if (mode === this.securitySystemState.mode) {
             return;
         }
 
+        this.resetActivationListener();
         this.resetDisarmListener();
-        if (this.securitySystemState.triggered) {
-            this.defuse(AlarmEvent.DefuseManual);
-        }
 
         if (mode === SecuritySystemMode.Disarmed) {
             return await this.disarmSecuritySystem();
-        }
+        } else {
+            try {
+                const { autoCloseLocks } = this.storageSettings.values;
 
-        try {
-            const { autoCloseLocks } = this.storageSettings.values;
+                const entity = getModeEntity({ mode, storage: this.storageSettings });
+                logger.log(`Trying to arm into ${mode} mode:`, JSON.stringify(entity));
 
-            const entity = getModeEntity({ mode, storage: this.storageSettings });
-            logger.log(`Trying to arm into ${mode} mode:`, JSON.stringify(entity));
+                const activeRules = this.plugin.allAvailableRules
+                    .filter(item => item.securitySystemModes?.includes(mode));
 
-            const activeRules = this.plugin.allAvailableRules
-                .filter(item => item.securitySystemModes?.includes(mode));
+                const activeRuleNames = activeRules.map(rule => rule.name);
+                logger.log(`${activeRules.length} rules found ${activeRuleNames.join(', ')}`);
+                await this.putSetting('activeRules', activeRuleNames);
+                this.activeRules = activeRules;
 
-            const activeRuleNames = activeRules.map(rule => rule.name);
-            logger.log(`${activeRules.length} rules found ${activeRuleNames.join(', ')}`);
-            await this.putSetting('activeRules', activeRuleNames);
-            this.activeRules = activeRules;
-
-            const activeNotifiers = new Set<string>();
-            for (const rule of activeRules) {
-                for (const notifierId of rule.notifiers) {
-                    const notifier = sdk.systemManager.getDeviceById(notifierId);
-                    activeNotifiers.add(notifier.name);
+                const activeNotifiers = new Set<string>();
+                for (const rule of activeRules) {
+                    for (const notifierId of rule.notifiers) {
+                        const notifier = sdk.systemManager.getDeviceById(notifierId);
+                        activeNotifiers.add(notifier.name);
+                    }
                 }
-            }
-            await this.putSetting('activeNotifiers', Array.from(activeNotifiers));
+                await this.putSetting('activeNotifiers', Array.from(activeNotifiers));
 
-            const activeDevicesSet = new Set<string>();
-            const bypassedDevicesSet = new Set<string>();
-            const blockingDevicesSet = new Set<string>();
-            const locksToLockSet = new Set<string>();
+                const activeDevicesSet = new Set<string>();
+                const bypassedDevicesSet = new Set<string>();
+                const blockingDevicesSet = new Set<string>();
+                const locksToLockSet = new Set<string>();
 
-            for (const rule of activeRules) {
-                try {
-                    for (const deviceId of rule.devices) {
-                        const device = sdk.systemManager.getDeviceById<DeviceInterface>(deviceId);
+                for (const rule of activeRules) {
+                    try {
+                        for (const deviceId of rule.devices) {
+                            const device = sdk.systemManager.getDeviceById<DeviceInterface>(deviceId);
 
-                        const { sensorType, isLock } = isDeviceSupported(device);
-                        if (sensorType) {
-                            const { isActiveFn } = binarySensorMetadataMap[sensorType];
-                            const isActive = isActiveFn(device);
+                            const { sensorType, isLock } = isDeviceSupported(device);
+                            if (sensorType) {
+                                const { isActiveFn } = binarySensorMetadataMap[sensorType];
+                                const isActive = isActiveFn(device);
 
-                            if (isActive) {
-                                if (isLock && autoCloseLocks) {
-                                    locksToLockSet.add(deviceId);
-                                    activeDevicesSet.add(deviceId);
-                                } else {
-                                    if (entity.bypassableDevices.includes(deviceId)) {
-                                        bypassedDevicesSet.add(deviceId);
+                                if (isActive) {
+                                    if (isLock && autoCloseLocks) {
+                                        locksToLockSet.add(deviceId);
                                         activeDevicesSet.add(deviceId);
                                     } else {
-                                        blockingDevicesSet.add(deviceId);
+                                        if (entity.bypassableDevices.includes(deviceId)) {
+                                            bypassedDevicesSet.add(deviceId);
+                                            activeDevicesSet.add(deviceId);
+                                        } else {
+                                            blockingDevicesSet.add(deviceId);
+                                        }
                                     }
+                                } else {
+                                    activeDevicesSet.add(deviceId);
                                 }
                             } else {
                                 activeDevicesSet.add(deviceId);
                             }
-                        } else {
-                            activeDevicesSet.add(deviceId);
                         }
+                    } catch (e) {
+                        logger.log(`Error in checking rule ${rule.name}`, e.message);
                     }
-                } catch (e) {
-                    logger.log(`Error in checking rule ${rule.name}`, e.message);
                 }
-            }
 
-            const activeDevices = Array.from(activeDevicesSet)
-                .map(deviceId => sdk.systemManager.getDeviceById(deviceId)?.name);
-            const bypassedDevices = Array.from(bypassedDevicesSet)
-                .map(deviceId => sdk.systemManager.getDeviceById(deviceId)?.name);
-            const blockingDevices = Array.from(blockingDevicesSet)
-                .map(deviceId => sdk.systemManager.getDeviceById(deviceId)?.name);
-            const locksToLock = Array.from(locksToLockSet)
-                .map(deviceId => sdk.systemManager.getDeviceById(deviceId)?.name);
+                const activeDevices = Array.from(activeDevicesSet)
+                    .map(deviceId => sdk.systemManager.getDeviceById(deviceId)?.name);
+                const bypassedDevices = Array.from(bypassedDevicesSet)
+                    .map(deviceId => sdk.systemManager.getDeviceById(deviceId)?.name);
+                const blockingDevices = Array.from(blockingDevicesSet)
+                    .map(deviceId => sdk.systemManager.getDeviceById(deviceId)?.name);
+                const locksToLock = Array.from(locksToLockSet)
+                    .map(deviceId => sdk.systemManager.getDeviceById(deviceId)?.name);
 
-            const anyBlockers = !!blockingDevices.length;
+                const anyBlockers = !!blockingDevices.length;
 
-            logger.log(JSON.stringify({
-                activeDevices,
-                bypassedDevices,
-                blockingDevices,
-                locksToLock,
-                anyBlockers,
-            }));
-
-            if (anyBlockers) {
-                await this.putSetting('activeMode', this.securitySystemState.mode);
-                this.securitySystemState = {
-                    ...this.securitySystemState,
-                    obstruction: SecuritySystemObstruction.Sensor,
-                    triggered: false,
-                };
-                await this.sendNotification({
-                    mode,
+                logger.log(JSON.stringify({
+                    activeDevices,
+                    bypassedDevices,
                     blockingDevices,
-                    event: AlarmEvent.Blocked,
-                });
-            } else {
-                const activate = async () => {
-                    logger.log(`New mode set to ${mode}`);
+                    locksToLock,
+                    anyBlockers,
+                }));
+
+                if (anyBlockers) {
+                    await this.putSetting('activeMode', this.securitySystemState.mode);
                     this.securitySystemState = {
                         ...this.securitySystemState,
-                        obstruction: undefined,
+                        obstruction: SecuritySystemObstruction.Sensor,
                         triggered: false,
-                        mode,
                     };
-                    await this.putSetting('currentlyActiveDevices', activeDevices);
-                    await this.putSetting('currentlyBypassedDevices', bypassedDevices);
-                    await this.putSetting('activeMode', mode);
-                    await this.putSetting('arming', false);
-                    await this.updateMqtt({
-                        mode: scryptedToHaStateMap[mode],
-                        info: {
-                            activeDevices,
-                            bypassedDevices,
-                        }
-                    });
                     await this.sendNotification({
                         mode,
-                        bypassedDevices,
-                        activeDevices,
-                        event: AlarmEvent.Activate,
-                    });
-
-                    for (const lockName of locksToLock) {
-                        const lockDevice = sdk.systemManager.getDeviceByName<Lock>(lockName);
-                        await lockDevice.lock();
-                    }
-                };
-
-                if (entity.preActivationTime) {
-                    logger.log(`New mode will be set in ${entity.preActivationTime}`);
-                    this.activationListener = setTimeout(async () =>
-                        await activate(),
-                        entity.preActivationTime * 1000
-                    );
-                    await this.putSetting('arming', true);
-                    await this.updateMqtt({
-                        mode: 'arming', info: {
-                            activeDevices: [],
-                            bypassedDevices: [],
-                        }
-                    });
-
-                    await this.sendNotification({
-                        mode,
-                        bypassedDevices,
-                        activeDevices,
-                        event: AlarmEvent.Preactivation,
-                        preactivationSeconds: entity.preActivationTime,
+                        blockingDevices,
+                        event: AlarmEvent.Blocked,
                     });
                 } else {
-                    await activate();
+                    const activate = async () => {
+                        logger.log(`New mode set to ${mode}`);
+                        this.securitySystemState = {
+                            ...this.securitySystemState,
+                            obstruction: undefined,
+                            triggered: false,
+                            mode,
+                        };
+                        await this.putSetting('currentlyActiveDevices', activeDevices);
+                        await this.putSetting('currentlyBypassedDevices', bypassedDevices);
+                        await this.putSetting('activeMode', mode);
+                        await this.putSetting('arming', false);
+                        await this.updateMqtt({
+                            mode: scryptedToHaStateMap[mode],
+                            info: {
+                                activeDevices,
+                                bypassedDevices,
+                            }
+                        });
+                        await this.sendNotification({
+                            mode,
+                            bypassedDevices,
+                            activeDevices,
+                            event: AlarmEvent.Activate,
+                        });
+
+                        for (const lockName of locksToLock) {
+                            const lockDevice = sdk.systemManager.getDeviceByName<Lock>(lockName);
+                            await lockDevice.lock();
+                        }
+                    };
+
+                    if (entity.preActivationTime) {
+                        logger.log(`New mode will be set in ${entity.preActivationTime}`);
+                        this.activationListener = setTimeout(async () =>
+                            await activate(),
+                            entity.preActivationTime * 1000
+                        );
+                        await this.putSetting('arming', true);
+                        await this.updateMqtt({
+                            mode: 'arming',
+                            info: {
+                                activeDevices: [],
+                                bypassedDevices: [],
+                            }
+                        });
+
+                        await this.sendNotification({
+                            mode,
+                            bypassedDevices,
+                            activeDevices,
+                            event: AlarmEvent.Preactivation,
+                            preactivationSeconds: entity.preActivationTime,
+                        });
+                    } else {
+                        await activate();
+                    }
                 }
+            } catch (e) {
+                logger.log(`Error in armSecuritySystem`, e);
             }
-        } catch (e) {
-            logger.log(`Error in armSecuritySystem`, e);
         }
     }
 
-    async disarmSecuritySystem(): Promise<void> {
-        await this.disarmSecuritySystemInternal();
-    }
-
-    async disarmSecuritySystemInternal(suppressLog?: boolean): Promise<void> {
+    async disarmSecuritySystemInternal(event: AlarmEvent) {
         this.resetActivationListener();
         const logger = this.getLogger();
-        !suppressLog && logger.log(`Disarmed`);
+        logger.log(`Disarmed from event ${event}`);
+
         await this.sendNotification({
             mode: SecuritySystemMode.Disarmed,
-            event: AlarmEvent.Activate,
+            event,
         });
-        await this.putSetting('currentlyActiveDevices', []);
-        await this.putSetting('currentlyBypassedDevices', []);
-        await this.putSetting('activeRules', []);
+
         this.activeRules = [];
-        await this.putSetting('arming', false);
+
         await this.updateMqtt({
-            mode: scryptedToHaStateMap[SecuritySystemMode.Disarmed], info: {
+            mode: scryptedToHaStateMap[SecuritySystemMode.Disarmed],
+            info: {
                 activeDevices: [],
                 bypassedDevices: []
             }
         });
+
         this.securitySystemState = {
             ...this.securitySystemState,
             triggered: false,
             obstruction: undefined,
             mode: SecuritySystemMode.Disarmed
         };
+
+        await this.putSetting('currentlyActiveDevices', []);
+        await this.putSetting('currentlyBypassedDevices', []);
+        await this.putSetting('activeRules', []);
+        await this.putSetting('arming', false);
         await this.putSetting('activeMode', SecuritySystemMode.Disarmed);
+        await this.putSetting('triggered', false);
     }
 
+    async disarmSecuritySystem(): Promise<void> {
+        await this.disarmSecuritySystemInternal(AlarmEvent.Disarm);
+    }
 }

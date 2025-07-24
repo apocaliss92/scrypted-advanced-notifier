@@ -16,6 +16,7 @@ export enum AlarmEvent {
     DefuseAuto = 'DefuseAuto',
     DefuseManual = 'DefuseManual',
     RiarmAuto = 'RiarmAuto',
+    Disarm = 'Disarm',
 }
 
 export const getAlarmKeys = (props: {

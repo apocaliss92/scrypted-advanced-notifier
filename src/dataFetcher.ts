@@ -21,7 +21,6 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
 
     constructor(nativeId: string, private plugin: AdvancedNotifierPlugin) {
         super(nativeId);
-        const logger = this.getLogger();
     }
 
     async getRecordedEvents(options: RecordedEventOptions): Promise<RecordedEvent[]> {
