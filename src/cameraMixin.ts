@@ -790,7 +790,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const { checkOccupancy, notificationsEnabled } = this.storageSettings.values;
                 const decoderType = this.decoderType;
 
-                if (decoderType !== DecoderType.Off) {
+                if ([DecoderType.Always, DecoderType.OnMotion].includes(decoderType)) {
                     const { videoclipsRetention } = this.plugin.storageSettings.values;
                     const framesThreshold = now - (1000 * 60 * 5);
                     const videoclipsThreshold = now - (1000 * 60 * 60 * 24 * videoclipsRetention);
@@ -947,11 +947,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 } else if (decoderType === DecoderType.Off && !this.framesGeneratorSignal.finished) {
                     this.stopDecoder('EndClipRules');
                 }
-                // Restart decoder every 5 minutes
+
+                // Restart decoder every 1 minute
                 if (
                     decoderType === DecoderType.Always &&
                     this.frameGenerationStartTime &&
-                    (now - this.frameGenerationStartTime) >= 1000 * 60 * 5
+                    (now - this.frameGenerationStartTime) >= 1000 * 60 * 1
                 ) {
                     logger.log(`Restarting decoder`);
                     this.stopDecoder('Restart');

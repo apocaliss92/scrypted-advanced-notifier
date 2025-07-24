@@ -131,7 +131,9 @@ export const cleanupDatabases = async (props: {
       await fs.promises.rm(pathToDb, { recursive: true, force: true, maxRetries: 10 });
     }
 
-    logger.log(`DBs cleanup completed: ${dbsToDelete.length} removed (${dbsToDelete.join(', ')})`);
+    if (dbsToDelete.length) {
+      logger.log(`DBs cleanup completed: ${dbsToDelete.length} removed (${dbsToDelete.join(', ')})`);
+    }
   } catch {
     logger.log(`Skipping DB cleanup. path not existing`);
   }
