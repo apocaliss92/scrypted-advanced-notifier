@@ -267,7 +267,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     isActiveForAudioSensorDetections: boolean;
     initializingMqtt: boolean;
     lastAutoDiscovery: number;
-    lastFramesCleanup: number;
+    lastFsCleanup: number;
     logger: Console;
     killed: boolean;
     runningOccupancyRules: OccupancyRule[] = [];
@@ -654,6 +654,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
 
         if (decoderType === DecoderType.Auto) {
+            if (this.cameraDevice.interfaces.includes(ScryptedInterface.Battery)) {
+                return DecoderType.OnMotion;
+            }
+
             const hasRunningTimelapseRules = !!this.runningTimelapseRules.length;
             const hasRunningOccupancyRules = !!this.runningOccupancyRules.length;
             const hasVideoclipRules =
@@ -794,8 +798,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     const { videoclipsRetention } = this.plugin.storageSettings.values;
                     const framesThreshold = now - (1000 * 60 * 5);
                     const videoclipsThreshold = now - (1000 * 60 * 60 * 24 * videoclipsRetention);
-                    if (!this.lastFramesCleanup || this.lastFramesCleanup < framesThreshold) {
-                        this.lastFramesCleanup = now;
+                    if (!this.lastFsCleanup || this.lastFsCleanup < framesThreshold) {
+                        this.lastFsCleanup = now;
                         this.plugin.clearVideoclipsData({
                             device: this.cameraDevice,
                             logger,

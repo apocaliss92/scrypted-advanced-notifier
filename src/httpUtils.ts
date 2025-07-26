@@ -2,8 +2,6 @@ import sdk, { HttpRequest, HttpResponse } from "@scrypted/sdk";
 import AdvancedNotifierPlugin from "./main";
 import fs from 'fs';
 
-
-
 export const servePluginGeneratedThumbnail = async (props: {
     fileId: string,
     request: HttpRequest,
