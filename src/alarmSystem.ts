@@ -369,7 +369,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                 if (autoRiarmTime) {
                     this.resetDisarmListener();
                     this.disarmListener = setTimeout(async () => {
-                        await this.disarmSecuritySystemInternal(AlarmEvent.RiarmAuto);
+                        await this.riarm();
                     }, 1000 * autoRiarmTime);
                 } else if (autoDisarmTime) {
                     this.resetDisarmListener();
@@ -882,6 +882,27 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                 logger.log(`Error in armSecuritySystem`, e);
             }
         }
+    }
+
+    async riarm() {
+        const logger = this.getLogger();
+        const mode = this.securitySystemState.mode;
+        logger.log(`Riarming alarm in mode ${mode}`);
+
+        await this.sendNotification({
+            event: AlarmEvent.RiarmAuto,
+        });
+
+        await this.updateMqtt({
+            mode: scryptedToHaStateMap[mode],
+        });
+
+        this.securitySystemState = {
+            ...this.securitySystemState,
+            triggered: false,
+            obstruction: undefined,
+            mode
+        };
     }
 
     async disarmSecuritySystemInternal(event: AlarmEvent) {
