@@ -1,15 +1,15 @@
 
-import sdk, { Camera, MediaObject, PictureOptions, RequestPictureOptions, ResponsePictureOptions, ScryptedDeviceBase, VideoCamera, VideoClip, VideoClipOptions, VideoClips, VideoClipThumbnailOptions } from '@scrypted/sdk';
+import sdk, { Camera, MediaObject, PictureOptions, RequestPictureOptions, ResponsePictureOptions, Setting, SettingValue, VideoCamera, VideoClip, VideoClipOptions, VideoClips, VideoClipThumbnailOptions } from '@scrypted/sdk';
+import { StorageSettings, StorageSettingsDict } from '@scrypted/sdk/storage-settings';
 import fs from 'fs';
+import { sortBy } from 'lodash';
 import path from 'path';
+import { logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { CameraBase } from '../../scrypted/plugins/ffmpeg-camera/src/common';
 import { UrlMediaStreamOptions } from '../../scrypted/plugins/rtsp/src/rtsp';
 import { ffmpegFilterImageBuffer } from '../../scrypted/plugins/snapshot/src/ffmpeg-image-filter';
 import AdvancedNotifierPlugin from './main';
-import { BaseRule, DETECTION_CLIP_PREFIX, getWebHookUrls, TIMELAPSE_CLIP_PREFIX } from './utils';
-import { StorageSettings, StorageSettingsDict } from '@scrypted/sdk/storage-settings';
-import { logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
-import { sortBy } from 'lodash';
+import { DETECTION_CLIP_PREFIX, TIMELAPSE_CLIP_PREFIX } from './utils';
 
 type StorageKeys = 'logeLevel';
 
@@ -25,6 +25,26 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
 
     constructor(nativeId: string, private plugin: AdvancedNotifierPlugin) {
         super(nativeId, null);
+
+        this.init().catch(this.getLogger().error);
+    }
+
+    async getSettings(): Promise<Setting[]> {
+        const settings = await this.storageSettings.getSettings();
+
+        return settings;
+    }
+
+    async putSetting(key: string, value: SettingValue): Promise<void> {
+        return this.storageSettings.putSetting(key, value);
+    }
+
+    async init() {
+        const webRtcPlugin = sdk.systemManager.getDeviceByName('WebRTC Plugin');
+        setTimeout(() => {
+            const dev = sdk.systemManager.getDeviceById(this.id);
+            dev.setMixins(webRtcPlugin ? [webRtcPlugin.id] : []);
+        }, 10000);
     }
 
     public getLogger() {
