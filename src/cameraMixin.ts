@@ -16,7 +16,7 @@ import { addBoundingBoxesToImage, addZoneClipPathToImage, cropImageToDetection }
 import AdvancedNotifierPlugin from "./main";
 import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
-import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DETECTION_CLIP_PREFIX, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, DETECTION_CLIP_PREFIX, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
 import { FFmpegRTSPDecoder } from "./ffmpegDecoder";
 import { sleep } from "../../scrypted/server/src/sleep";
 
@@ -77,6 +77,7 @@ type CameraSettingKey =
     | 'minMqttPublishDelay'
     | 'detectionSourceForMqtt'
     | 'motionDuration'
+    | 'decoderFrequency'
     | 'checkOccupancy'
     | 'decoderType'
     | 'lastSnapshotWebhook'
@@ -173,6 +174,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             title: 'Off motion duration',
             type: 'number',
             defaultValue: 10,
+            subgroup: 'Advanced',
+        },
+        decoderFrequency: {
+            title: 'Decoder frames frequency',
+            description: 'How frequent to store frames (used for clips/GIFs) in milliseconds. Increase this in case of errors on notifiers',
+            type: 'number',
+            defaultValue: 100,
             subgroup: 'Advanced',
         },
         checkOccupancy: {
@@ -2373,7 +2381,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 if (!rulesToNotNotify.includes(rule.name) && timePassed) {
                     const image = b64Image ? await b64ToMo(b64Image) : imageParent;
-                    const triggerTime = (occupancyRuleData?.triggerTime ?? now) - 10 * 1000;
+                    const triggerTime = (occupancyRuleData?.triggerTime ?? now);
 
                     await this.plugin.notifyOccupancyEvent({
                         cameraDevice: this.cameraDevice,
@@ -3082,7 +3090,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             delayKey += `-${filename}`;
             minDelayInSeconds = 5;
         } else if (type === DelayType.DecoderFrameOnStorage) {
-            minDelayInSeconds = DECODER_FRAME_MIN_TIME / 1000;
+            minDelayInSeconds = this.storageSettings.values.decoderFrequency / 1000;
         } else if (type === DelayType.OccupancyRegularCheck) {
             minDelayInSeconds = !!this.runningOccupancyRules.length || this.storageSettings.values.checkOccupancy ? 0.3 : 0;
         } else if (type === DelayType.EventStore) {

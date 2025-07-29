@@ -23,7 +23,7 @@ import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodisco
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DECODER_FRAME_MIN_TIME, DecoderType, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllDevices, getAssetSource, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, defaultClipPostSeconds, defaultClipPreSeconds, defaultOccupancyClipPreSeconds, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllDevices, getAssetSource, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType } from "./utils";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -1821,19 +1821,21 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         device: ScryptedDeviceBase,
         logger: Console,
         triggerTime: number,
-        pastMs?: number,
     }) {
-        const { cb, rule, device, logger, triggerTime, pastMs: pastMsParent } = props;
+        const { cb, rule, device, logger, triggerTime } = props;
         const deviceMixin = this.currentCameraMixinsMap[device.id];
 
-        let pastMs = pastMsParent;
-        if (pastMs === undefined) {
-            const pastSeconds = rule.generateClipPreSeconds;
-            if (pastSeconds !== undefined) {
-                pastMs = pastSeconds * 1000;
-            } else {
-                pastMs = 3000;
-            }
+        let pastMs: number;
+
+        const pastSeconds = rule.generateClipPreSeconds;
+        if (pastSeconds !== undefined) {
+            pastMs = pastSeconds * 1000;
+        } else {
+            pastMs = (
+                rule.ruleType === RuleType.Occupancy ?
+                    defaultOccupancyClipPreSeconds :
+                    defaultClipPreSeconds
+            ) * 1000;
         }
 
         const prepareClip = async () => {
@@ -1941,7 +1943,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger,
             rule,
             triggerTime,
-            pastMs: 0,
         }).catch(logger.error);
 
     }
@@ -2354,7 +2355,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             snoozeId: snoozeIdParent,
             forceAi,
             videoSize = 0,
-            gifUrl,
+            gifUrl: giftUrlParent,
         } = props;
         if (!notifier) {
             return {};
@@ -2380,6 +2381,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             ...((notifierActions || []).map(action => safeParseJson(action)) ?? [])] :
             [];
         const actionsToUse: ExtendedNotificationAction[] = [];
+
+        let gifUrl = giftUrlParent;
+        if (gifUrl) {
+            const actualUrl = new URL(gifUrl);
+            gifUrl = `${actualUrl.origin}${actualUrl.pathname}.gif${actualUrl.search}`;
+        }
 
         for (const { action, title, icon, url, destructive } of actionsToUseTmp) {
             let urlToUse = url;
@@ -2620,8 +2627,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             payload.data.ntfy.priority = priorityToUse;
             if (gifUrl) {
-                const actualUrl = new URL(gifUrl);
-                payload.data.ntfy.attach = `${actualUrl.origin}${actualUrl.pathname}.gif${actualUrl.search}`;
+                payload.data.ntfy.attach = gifUrl;
             }
         } else if (notifier.pluginId === NVR_PLUGIN_ID) {
             const localAddresses = safeParseJson(this.storageSettings.getItem('localAddresses'));
@@ -2954,7 +2960,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                             generateClipSpeed: testGenerateClipSpeed,
                             generateClipType: testGenerateClipType,
                             generateClip: testGenerateClip,
-                            generateClipPostSeconds: 3,
+                            generateClipPreSeconds: defaultClipPreSeconds,
+                            generateClipPostSeconds: defaultClipPostSeconds,
                             useAi: testUseAi,
                             ruleType: RuleType.Detection,
                             activationType: DetectionRuleActivation.Always,
@@ -3471,6 +3478,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }) => {
         const { triggerTime, device, pastMs, rule } = props;
         const minTime = triggerTime - pastMs;
+        const cameraMixin = this.currentCameraMixinsMap[device.id];
 
         const fileName = String(triggerTime);
         const {
@@ -3522,7 +3530,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const framesAmount = filteredFiles.length;
 
         if (framesAmount) {
-            const inputFps = 1000 / DECODER_FRAME_MIN_TIME;
+            const inputFps = 1000 / cameraMixin.storageSettings.values.decoderFrequency;
             const fpsMultiplier = videoclipSpeedMultiplier[rule.generateClipSpeed ?? VideoclipSpeed.Fast];
             const fps = inputFps * fpsMultiplier;
             const fileListContent = filteredFiles.join('\n');
@@ -3589,7 +3597,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     '-y',
                     videoclipPath
                 ];
-                logger.log(`Start detection clip generation ${rule.name} ${triggerTime} ${inputFps} fps with ${framesAmount} total frames (${preTriggerFrames} pre and ${postTriggerFrames} post) and arguments: ${ffmpegArgs}`);
+                logger.log(`Start detection MP4 clip generation ${rule.name} ${triggerTime} ${inputFps} fps with ${framesAmount} total frames (${preTriggerFrames} pre and ${postTriggerFrames} post) and arguments: ${ffmpegArgs}`);
 
                 const cp = child_process.spawn(await sdk.mediaManager.getFFmpegPath(), ffmpegArgs, {
                     stdio: 'inherit',
@@ -3660,15 +3668,18 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     '-safe', '0',
                     '-r', `${fps}`,
                     '-i', listPath,
+                    // '-filter_complex',
+                    // "[0:v] scale='if(gt(iw,1280),240,iw*240/1280)':-2:flags=lanczos, pad=ceil(iw/2)*2:ceil(ih/2)*2, palettegen=stats_mode=diff:max_colors=64 [p]; " +
+                    // "[0:v] scale='if(gt(iw,1280),240,iw*240/1280)':-2:flags=lanczos, pad=ceil(iw/2)*2:ceil(ih/2)*2 [scaled]; " +
+                    // "[scaled][p] paletteuse",
                     '-filter_complex',
                     "[0:v] scale='min(1280,iw)':-2, pad=ceil(iw/2)*2:ceil(ih/2)*2, palettegen=stats_mode=diff [p];" +
                     "[0:v] scale='min(1280,iw)':-2, pad=ceil(iw/2)*2:ceil(ih/2)*2 [scaled];" +
                     "[scaled][p] paletteuse",
-                    // '-filter_complex', '[0:v] palettegen=stats_mode=diff [p];[0:v][p] paletteuse',
                     '-y',
                     gifPath
                 ];
-                logger.log(`Start GIF generation ${rule.name} ${triggerTime} ${inputFps} fps with ${framesAmount} total frames (${preTriggerFrames} pre and ${postTriggerFrames} post) and arguments: ${ffmpegArgs}`);
+                logger.log(`Start detection GIF generation ${rule.name} ${triggerTime} ${inputFps} fps with ${framesAmount} total frames (${preTriggerFrames} pre and ${postTriggerFrames} post) and arguments: ${ffmpegArgs}`);
 
                 const cp = child_process.spawn(await sdk.mediaManager.getFFmpegPath(), ffmpegArgs, {
                     stdio: 'inherit',

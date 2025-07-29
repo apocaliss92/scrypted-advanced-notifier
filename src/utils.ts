@@ -46,7 +46,6 @@ export const SOFT_MIN_RPC_OBJECTS = 200;
 export const HARD_MIN_RPC_OBJECTS = 300;
 export const FRIGATE_BRIDGE_PLUGIN_NAME = 'Frigate bridge';
 export const EVENTS_RECORDER_PLUGIN_NAME = 'Events recorder';
-export const DECODER_FRAME_MIN_TIME = 100;
 export const TIMELAPSE_CLIP_PREFIX = 'TIMELAPSE';
 export const DETECTION_CLIP_PREFIX = 'DETECTION';
 export const ADVANCED_NOTIFIER_PLUGIN_NAME = scrypted.name;
@@ -211,6 +210,9 @@ export enum VideoclipType {
     GIF = 'GIF',
 }
 const defaultVideoclipType = VideoclipType.GIF;
+export const defaultClipPreSeconds = 5;
+export const defaultOccupancyClipPreSeconds = 12;
+export const defaultClipPostSeconds = 5;
 
 export const videoclipSpeedMultiplier: Record<VideoclipSpeed, number> = {
     [VideoclipSpeed.SuperSlow]: 0.25,
@@ -1741,7 +1743,9 @@ export const getRuleSettings = (props: {
                         group,
                         subgroup,
                         type: 'number',
-                        defaultValue: 5,
+                        defaultValue: isOccupancyRule ?
+                            defaultOccupancyClipPreSeconds :
+                            defaultClipPreSeconds,
                     },
                     {
                         key: generateClipPostSecondsKey,
@@ -1750,7 +1754,7 @@ export const getRuleSettings = (props: {
                         group,
                         subgroup,
                         type: 'number',
-                        defaultValue: 3,
+                        defaultValue: defaultClipPostSeconds
                     },
                     {
                         key: generateClipTypeKey,
@@ -2874,8 +2878,8 @@ const initBasicRule = (props: {
     const notifiers = storage.getItem(notifiersKey) as string[] ?? [];
     const generateClip = storage.getItem(generateClipKey) as boolean ?? false;
     const totalSnooze = storage.getItem(totalSnoozeKey) as boolean ?? false;
-    const generateClipPostSeconds = safeParseJson<number>(storage.getItem(generateClipPostSecondsKey)) ?? 3;
-    const generateClipPreSeconds = safeParseJson<number>(storage.getItem(generateClipPreSecondsKey)) ?? 3;
+    const generateClipPostSeconds = safeParseJson<number>(storage.getItem(generateClipPostSecondsKey)) ?? (ruleType === RuleType.Occupancy ? defaultOccupancyClipPreSeconds : defaultClipPreSeconds);
+    const generateClipPreSeconds = safeParseJson<number>(storage.getItem(generateClipPreSecondsKey)) ?? defaultClipPostSeconds;
     const generateClipType = storage.getItem(generateClipTypeKey) ?? defaultVideoclipType;
     const imageProcessing = ScryptedEventSource.RawDetection ? storage.getItem(imageProcessingKey) as ImagePostProcessing : ImagePostProcessing.Default;
 
