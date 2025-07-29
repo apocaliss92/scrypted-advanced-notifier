@@ -18,6 +18,7 @@ import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassn
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, DECODER_FRAME_MIN_TIME, DETECTION_CLIP_PREFIX, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
 import { FFmpegRTSPDecoder } from "./ffmpegDecoder";
+import { sleep } from "../../scrypted/server/src/sleep";
 
 const { systemManager } = sdk;
 
@@ -326,6 +327,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     framesGeneratorSignal = new Deferred<void>().resolve();
     frameGenerationStartTime: number;
     decoder: FFmpegRTSPDecoder;
+    decoderEnablementLogged = false;
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -641,21 +643,23 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { decoderType: decoderTypeParent } = this.storageSettings.values;
         let decoderType = decoderTypeParent;
 
-        if (decoderType) {
+        if (!decoderType) {
             decoderType = DecoderType.Auto;
         }
 
+        let finalType: DecoderType;
+
         if (!enableDecoder || decoderType === DecoderType.Off) {
-            return DecoderType.Off;
+            finalType = DecoderType.Off;
         }
 
         if ([DecoderType.Always, DecoderType.OnMotion].includes(decoderType)) {
-            return decoderType;
+            finalType = decoderType;
         }
 
         if (decoderType === DecoderType.Auto) {
             if (this.cameraDevice.interfaces.includes(ScryptedInterface.Battery)) {
-                return DecoderType.OnMotion;
+                finalType = DecoderType.OnMotion;
             }
 
             const hasRunningTimelapseRules = !!this.runningTimelapseRules.length;
@@ -667,13 +671,26 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 ].some(rule => rule?.generateClip);
 
             if (hasRunningTimelapseRules || hasVideoclipRules) {
-                return DecoderType.Always
+                finalType = DecoderType.Always
             } else if (hasRunningOccupancyRules) {
-                return DecoderType.OnMotion;
+                finalType = DecoderType.OnMotion;
             } else {
-                return DecoderType.Off;
+                finalType = DecoderType.Off;
             }
         }
+
+        if (!this.decoderEnablementLogged) {
+            this.getLogger().log(`Decoder settings: ${JSON.stringify({
+                enabledOnPlugin: enableDecoder,
+                typeOnCamera: decoderTypeParent,
+                inputType: decoderType,
+                typeToUse: finalType,
+            })}`);
+
+            this.decoderEnablementLogged = true;
+        }
+
+        return finalType;
     }
 
     async startCheckInterval() {
@@ -1046,19 +1063,21 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             this.framesGeneratorSignal = new Deferred();
 
             const exec = async (frame: VideoFrame) => {
-                const now = Date.now();
+                if (
+                    this.decoderType !== DecoderType.Off &&
+                    this.isDelayPassed({
+                        type: DelayType.DecoderFrameOnStorage,
+                        eventSource: ScryptedEventSource.RawDetection,
+                        timestamp: frame.timestamp
+                    })?.timePassed
+                ) {
+                    const now = Date.now();
 
-                this.lastFrame = await frame.image.toBuffer({
-                    format: 'jpg',
-                });
-                this.lastFrameAcquired = now;
+                    this.lastFrame = await frame.image.toBuffer({
+                        format: 'jpg',
+                    });
+                    this.lastFrameAcquired = now;
 
-                const decoderType = this.decoderType;
-                if (decoderType !== DecoderType.Off && this.isDelayPassed({
-                    type: DelayType.DecoderFrameOnStorage,
-                    eventSource: ScryptedEventSource.RawDetection,
-                    timestamp: frame.timestamp
-                })?.timePassed) {
                     this.plugin.storeDetectionFrame({
                         device: this.cameraDevice,
                         imageBuffer: this.lastFrame,
@@ -1066,7 +1085,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }).catch(logger.log);
                 }
             }
-
 
             try {
                 for await (const frame of
@@ -2986,7 +3004,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }).catch(logger.log);
                 }
 
-                logger.log(`Starting notifiers for detection rule (${eventSource}) ${getDetectionKey(matchRule as MatchRule)}, image from ${imageSource}, last check ${lastSetInSeconds ? lastSetInSeconds + 's ago' : '-'} with delay ${minDelayInSeconds}s`);
+                logger.log(`Starting notifiers for detection rule (${eventSource}) ${getDetectionKey(matchRule as MatchRule)}, decoder ${this.decoderType} image from ${imageSource}, last check ${lastSetInSeconds ? lastSetInSeconds + 's ago' : '-'} with delay ${minDelayInSeconds}s`);
 
                 if (match.id) {
                     this.objectIdLastReport.set(match.id, Date.now());

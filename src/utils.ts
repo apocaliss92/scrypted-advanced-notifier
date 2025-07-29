@@ -1259,6 +1259,7 @@ export const getRuleKeys = (props: {
     const generateClipKey = `${prefix}:${ruleName}:generateClip`;
     const generateClipSpeedKey = `${prefix}:${ruleName}:generateClipSpeed`;
     const generateClipPostSecondsKey = `${prefix}:${ruleName}:generateClipPostSeconds`;
+    const generateClipPreSecondsKey = `${prefix}:${ruleName}:generateClipPreSeconds`;
     const generateClipTypeKey = `${prefix}:${ruleName}:generateClipType`;
     const imageProcessingKey = `${prefix}:${ruleName}:imageProcessing`;
     const totalSnoozeKey = `${prefix}:${ruleName}:totalSnooze`;
@@ -1332,6 +1333,7 @@ export const getRuleKeys = (props: {
             generateClipKey,
             generateClipSpeedKey,
             generateClipPostSecondsKey,
+            generateClipPreSecondsKey,
             generateClipTypeKey,
             imageProcessingKey,
             totalSnoozeKey,
@@ -1657,6 +1659,7 @@ export const getRuleSettings = (props: {
                 generateClipKey,
                 generateClipSpeedKey,
                 generateClipPostSecondsKey,
+                generateClipPreSecondsKey,
                 generateClipTypeKey,
                 imageProcessingKey,
                 totalSnoozeKey
@@ -1704,23 +1707,11 @@ export const getRuleSettings = (props: {
                 {
                     key: generateClipKey,
                     title: 'Notify with a clip',
-                    description: 'Currently supported only by HA notifiers',
                     type: 'boolean',
                     group,
                     subgroup,
                     immediate: true,
                     onPut: async () => await refreshSettings(),
-                },
-                {
-                    key: imageProcessingKey,
-                    title: 'Image post processing',
-                    description: 'Set the post processing of the image. Default depends on the detection source, Crop for NVR and FullFrame for RawDetections',
-                    type: 'string',
-                    choices: Object.keys(ImagePostProcessing),
-                    immediate: true,
-                    defaultValue: ImagePostProcessing.Default,
-                    group,
-                    subgroup,
                 }
             );
 
@@ -1744,6 +1735,15 @@ export const getRuleSettings = (props: {
                         defaultValue: VideoclipSpeed.Fast,
                     },
                     {
+                        key: generateClipPreSecondsKey,
+                        title: 'Clip pre event duration',
+                        description: 'How many seconds to record pre event',
+                        group,
+                        subgroup,
+                        type: 'number',
+                        defaultValue: 5,
+                    },
+                    {
                         key: generateClipPostSecondsKey,
                         title: 'Clip post duration',
                         description: 'How many seconds to record post event',
@@ -1755,14 +1755,29 @@ export const getRuleSettings = (props: {
                     {
                         key: generateClipTypeKey,
                         title: 'Clip type',
-                        description: 'GIFs are more compatible along most of the notifiers',
+                        description: 'MP4 supported only by HA notifiers, GIF supported mostly by everything',
                         group,
                         subgroup,
+                        immediate: true,
                         type: 'string',
                         choices: [VideoclipType.GIF, VideoclipType.MP4],
                         defaultValue: defaultVideoclipType,
                     },
                 );
+            } else {
+                settings.push(
+                    {
+                        key: imageProcessingKey,
+                        title: 'Image post processing',
+                        description: 'Set the post processing of the image. Default depends on the detection source, Crop for NVR and FullFrame for RawDetections',
+                        type: 'string',
+                        choices: Object.keys(ImagePostProcessing),
+                        immediate: true,
+                        defaultValue: ImagePostProcessing.Default,
+                        group,
+                        subgroup,
+                    }
+                )
             }
         }
 
@@ -2756,6 +2771,7 @@ export interface BaseRule {
     generateClipSpeed: VideoclipSpeed;
     generateClipType: VideoclipType;
     generateClipPostSeconds: number;
+    generateClipPreSeconds: number;
     imageProcessing: ImagePostProcessing;
     notifierData: Record<string, {
         actions: ExtendedNotificationAction[],
@@ -2839,6 +2855,7 @@ const initBasicRule = (props: {
         generateClipKey,
         generateClipSpeedKey,
         generateClipPostSecondsKey,
+        generateClipPreSecondsKey,
         generateClipTypeKey,
         imageProcessingKey,
         totalSnoozeKey,
@@ -2858,6 +2875,7 @@ const initBasicRule = (props: {
     const generateClip = storage.getItem(generateClipKey) as boolean ?? false;
     const totalSnooze = storage.getItem(totalSnoozeKey) as boolean ?? false;
     const generateClipPostSeconds = safeParseJson<number>(storage.getItem(generateClipPostSecondsKey)) ?? 3;
+    const generateClipPreSeconds = safeParseJson<number>(storage.getItem(generateClipPreSecondsKey)) ?? 3;
     const generateClipType = storage.getItem(generateClipTypeKey) ?? defaultVideoclipType;
     const imageProcessing = ScryptedEventSource.RawDetection ? storage.getItem(imageProcessingKey) as ImagePostProcessing : ImagePostProcessing.Default;
 
@@ -2878,6 +2896,7 @@ const initBasicRule = (props: {
         generateClipType,
         generateClipSpeed: generateClip ? generateClipSpeed : undefined,
         generateClipPostSeconds: generateClip ? generateClipPostSeconds : undefined,
+        generateClipPreSeconds: generateClip ? generateClipPreSeconds : undefined,
         notifierData: {},
     };
 

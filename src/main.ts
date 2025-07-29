@@ -1821,10 +1821,20 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         device: ScryptedDeviceBase,
         logger: Console,
         triggerTime: number,
-        pastMs: number,
+        pastMs?: number,
     }) {
-        const { cb, rule, device, logger, triggerTime, pastMs } = props;
+        const { cb, rule, device, logger, triggerTime, pastMs: pastMsParent } = props;
         const deviceMixin = this.currentCameraMixinsMap[device.id];
+
+        let pastMs = pastMsParent;
+        if (pastMs === undefined) {
+            const pastSeconds = rule.generateClipPreSeconds;
+            if (pastSeconds !== undefined) {
+                pastMs = pastSeconds * 1000;
+            } else {
+                pastMs = 3000;
+            }
+        }
 
         const prepareClip = async () => {
             if (rule.generateClipType === VideoclipType.MP4) {
@@ -2174,7 +2184,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger,
             rule,
             triggerTime,
-            pastMs: 3000
         }).catch(logger.error);
     };
 
@@ -3574,6 +3583,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     '-r', `${fps}`,
                     '-i', listPath,
                     '-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2',
+                    // '-vf', 'scale=-2:480',
                     '-c:v', 'libx264',
                     '-pix_fmt', 'yuv420p',
                     '-y',
@@ -3634,7 +3644,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 fps,
                 framesAmount,
                 listPath,
-                eventFrameName,
                 preTriggerFrames,
                 postTriggerFrames,
                 filteredFiles,
@@ -3651,7 +3660,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     '-safe', '0',
                     '-r', `${fps}`,
                     '-i', listPath,
-                    '-filter_complex', '[0:v] palettegen=stats_mode=diff [p];[0:v][p] paletteuse',
+                    '-filter_complex',
+                    "[0:v] scale='min(1280,iw)':-2, pad=ceil(iw/2)*2:ceil(ih/2)*2, palettegen=stats_mode=diff [p];" +
+                    "[0:v] scale='min(1280,iw)':-2, pad=ceil(iw/2)*2:ceil(ih/2)*2 [scaled];" +
+                    "[scaled][p] paletteuse",
+                    // '-filter_complex', '[0:v] palettegen=stats_mode=diff [p];[0:v][p] paletteuse',
                     '-y',
                     gifPath
                 ];
