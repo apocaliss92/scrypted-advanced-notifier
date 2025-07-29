@@ -206,6 +206,12 @@ export enum VideoclipSpeed {
     SuperFast = 'SuperFast',
 }
 
+export enum VideoclipType {
+    MP4 = 'MP4',
+    GIF = 'GIF',
+}
+const defaultVideoclipType = VideoclipType.GIF;
+
 export const videoclipSpeedMultiplier: Record<VideoclipSpeed, number> = {
     [VideoclipSpeed.SuperSlow]: 0.25,
     [VideoclipSpeed.Slow]: 0.5,
@@ -266,6 +272,7 @@ export const getWebhooks = async () => {
     const postNotification = 'postNotification';
     const setAlarm = 'setAlarm';
     const videoclipStream = 'videoclipStream';
+    const gif = 'gif';
     const videoclipThumbnail = 'videoclipThumbnail';
     const eventThumbnail = 'eventThumbnail';
     const eventImage = 'eventImage';
@@ -279,6 +286,7 @@ export const getWebhooks = async () => {
         postNotification,
         setAlarm,
         videoclipStream,
+        gif,
         videoclipThumbnail,
         eventThumbnail,
         eventImage,
@@ -320,6 +328,7 @@ export const getWebHookUrls = async (props: {
     let endpoint: string;
     let videoclipThumbnailUrl: string;
     let videoclipStreamUrl: string;
+    let gifUrl: string;
     let eventThumbnailUrl: string;
     let eventImageUrl: string;
     let eventVideoclipUrl: string;
@@ -334,6 +343,7 @@ export const getWebHookUrls = async (props: {
         snoozeNotification,
         postNotification,
         videoclipStream,
+        gif,
         videoclipThumbnail,
         eventThumbnail,
         eventImage,
@@ -359,6 +369,7 @@ export const getWebHookUrls = async (props: {
         postNotificationUrl = `${cloudEndpoint}${publicPathnamePrefix}${postNotification}/${encodedId}${paramString}`;
 
         videoclipStreamUrl = `${cloudEndpoint}${publicPathnamePrefix}${videoclipStream}/${fileId}${paramString}`;
+        gifUrl = `${cloudEndpoint}${publicPathnamePrefix}${gif}/${fileId}${paramString}`;
         videoclipThumbnailUrl = `${cloudEndpoint}${publicPathnamePrefix}${videoclipThumbnail}/${fileId}${paramString}`;
 
         privatePathnamePrefix = `${privatePathname}${eventsApp}`;
@@ -396,6 +407,7 @@ export const getWebHookUrls = async (props: {
         eventVideoclipUrl,
         privatePathnamePrefix,
         publicPathnamePrefix,
+        gifUrl
     };
 }
 
@@ -1247,6 +1259,7 @@ export const getRuleKeys = (props: {
     const generateClipKey = `${prefix}:${ruleName}:generateClip`;
     const generateClipSpeedKey = `${prefix}:${ruleName}:generateClipSpeed`;
     const generateClipPostSecondsKey = `${prefix}:${ruleName}:generateClipPostSeconds`;
+    const generateClipTypeKey = `${prefix}:${ruleName}:generateClipType`;
     const imageProcessingKey = `${prefix}:${ruleName}:imageProcessing`;
     const totalSnoozeKey = `${prefix}:${ruleName}:totalSnooze`;
 
@@ -1319,6 +1332,7 @@ export const getRuleKeys = (props: {
             generateClipKey,
             generateClipSpeedKey,
             generateClipPostSecondsKey,
+            generateClipTypeKey,
             imageProcessingKey,
             totalSnoozeKey,
         },
@@ -1643,6 +1657,7 @@ export const getRuleSettings = (props: {
                 generateClipKey,
                 generateClipSpeedKey,
                 generateClipPostSecondsKey,
+                generateClipTypeKey,
                 imageProcessingKey,
                 totalSnoozeKey
             }
@@ -1736,6 +1751,16 @@ export const getRuleSettings = (props: {
                         subgroup,
                         type: 'number',
                         defaultValue: 3,
+                    },
+                    {
+                        key: generateClipTypeKey,
+                        title: 'Clip type',
+                        description: 'GIFs are more compatible along most of the notifiers',
+                        group,
+                        subgroup,
+                        type: 'string',
+                        choices: [VideoclipType.GIF, VideoclipType.MP4],
+                        defaultValue: defaultVideoclipType,
                     },
                 );
             }
@@ -2729,6 +2754,7 @@ export interface BaseRule {
     generateClip: boolean;
     totalSnooze: boolean;
     generateClipSpeed: VideoclipSpeed;
+    generateClipType: VideoclipType;
     generateClipPostSeconds: number;
     imageProcessing: ImagePostProcessing;
     notifierData: Record<string, {
@@ -2813,6 +2839,7 @@ const initBasicRule = (props: {
         generateClipKey,
         generateClipSpeedKey,
         generateClipPostSecondsKey,
+        generateClipTypeKey,
         imageProcessingKey,
         totalSnoozeKey,
     } } = getRuleKeys({
@@ -2831,6 +2858,7 @@ const initBasicRule = (props: {
     const generateClip = storage.getItem(generateClipKey) as boolean ?? false;
     const totalSnooze = storage.getItem(totalSnoozeKey) as boolean ?? false;
     const generateClipPostSeconds = safeParseJson<number>(storage.getItem(generateClipPostSecondsKey)) ?? 3;
+    const generateClipType = storage.getItem(generateClipTypeKey) ?? defaultVideoclipType;
     const imageProcessing = ScryptedEventSource.RawDetection ? storage.getItem(imageProcessingKey) as ImagePostProcessing : ImagePostProcessing.Default;
 
     const rule: BaseRule = {
@@ -2847,6 +2875,7 @@ const initBasicRule = (props: {
         source: ruleSource,
         securitySystemModes,
         generateClip,
+        generateClipType,
         generateClipSpeed: generateClip ? generateClipSpeed : undefined,
         generateClipPostSeconds: generateClip ? generateClipPostSeconds : undefined,
         notifierData: {},

@@ -8,7 +8,7 @@ export const servePluginGeneratedThumbnail = async (props: {
     response: HttpResponse,
     plugin: AdvancedNotifierPlugin
 }) => {
-    const { fileId, request, response, plugin } = props;
+    const { fileId, response, plugin } = props;
 
     const logger = plugin.getLogger();
 
@@ -20,6 +20,29 @@ export const servePluginGeneratedThumbnail = async (props: {
     response.send(jpeg, {
         headers: {
             'Content-Type': 'image/jpeg'
+        }
+    });
+    return;
+}
+
+export const serveGif = async (props: {
+    fileId: string,
+    request: HttpRequest,
+    response: HttpResponse,
+    plugin: AdvancedNotifierPlugin
+}) => {
+    const { fileId, response, plugin } = props;
+
+    const logger = plugin.getLogger();
+
+    logger.info(JSON.stringify({ fileId }));
+
+    const { gifPath } = plugin.camera.getFilePath({ fileId: fileId.replace('.gif', '') });
+    const gifBuf = await fs.promises.readFile(gifPath);
+
+    response.send(gifBuf, {
+        headers: {
+            'Content-Type': 'image/gif'
         }
     });
     return;

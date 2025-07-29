@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.4.5
+- Add videoclip GIF support, this adds clips support to Pushover, NTFY and Telegram, besides the already supported Homeassistant
+
 ### 4.3.65
 - Add clear action to HA actions
 

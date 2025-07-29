@@ -87,7 +87,9 @@ Rules can be of following types: Detection, Occupancy, Audio, Timelapse. These p
 - `Open sensors` which sensors should be open to enable the rule
 - `Closed sensors` which sensors should be closed to enable the rule
 - `Alarm modes` which alarm states should enable the rule. The alarm system device can be defined in the plugin page under Rules => `Security system`
-- `Notify with a clip` available only for detection and occupancy rules, the plugin will activate a decoder to save the last frames of the camera. On the trigger of a rule, a short GIF will be generated and sent instead of a simple snapshot. This works beautifully with homeassistant notifiers, since it will preview the clip in the notification preview
+- `Notify with a clip` available only for detection and occupancy rules, the plugin will activate a decoder to save the last frames of the camera. On the trigger of a rule, a short clip will be generated and sent instead of a simple snapshot. It supports 2 types:
+  - MP4: supported only by homeassistant and partially the others
+  - GIF: supported by homeassistant, pushover
 
 ### Detection
 
