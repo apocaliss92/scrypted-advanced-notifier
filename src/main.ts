@@ -3662,20 +3662,30 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const { gifPath } = this.getShortClipPaths({ cameraName: device.name, fileName });
 
             if (framesAmount) {
+                // const ffmpegArgs = [
+                //     '-loglevel', 'error',
+                //     '-f', 'concat',
+                //     '-safe', '0',
+                //     '-r', `${fps}`,
+                //     '-i', listPath,
+                //     // '-filter_complex',
+                //     // "[0:v] scale='if(gt(iw,1280),240,iw*240/1280)':-2:flags=lanczos, pad=ceil(iw/2)*2:ceil(ih/2)*2, palettegen=stats_mode=diff:max_colors=64 [p]; " +
+                //     // "[0:v] scale='if(gt(iw,1280),240,iw*240/1280)':-2:flags=lanczos, pad=ceil(iw/2)*2:ceil(ih/2)*2 [scaled]; " +
+                //     // "[scaled][p] paletteuse",
+                //     '-filter_complex',
+                //     "[0:v] scale='min(1280,iw)':-2, pad=ceil(iw/2)*2:ceil(ih/2)*2, palettegen=stats_mode=diff [p];" +
+                //     "[0:v] scale='min(1280,iw)':-2, pad=ceil(iw/2)*2:ceil(ih/2)*2 [scaled];" +
+                //     "[scaled][p] paletteuse",
+                //     '-y',
+                //     gifPath
+                // ];
                 const ffmpegArgs = [
                     '-loglevel', 'error',
                     '-f', 'concat',
                     '-safe', '0',
                     '-r', `${fps}`,
                     '-i', listPath,
-                    // '-filter_complex',
-                    // "[0:v] scale='if(gt(iw,1280),240,iw*240/1280)':-2:flags=lanczos, pad=ceil(iw/2)*2:ceil(ih/2)*2, palettegen=stats_mode=diff:max_colors=64 [p]; " +
-                    // "[0:v] scale='if(gt(iw,1280),240,iw*240/1280)':-2:flags=lanczos, pad=ceil(iw/2)*2:ceil(ih/2)*2 [scaled]; " +
-                    // "[scaled][p] paletteuse",
-                    '-filter_complex',
-                    "[0:v] scale='min(1280,iw)':-2, pad=ceil(iw/2)*2:ceil(ih/2)*2, palettegen=stats_mode=diff [p];" +
-                    "[0:v] scale='min(1280,iw)':-2, pad=ceil(iw/2)*2:ceil(ih/2)*2 [scaled];" +
-                    "[scaled][p] paletteuse",
+                    '-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2',
                     '-y',
                     gifPath
                 ];
