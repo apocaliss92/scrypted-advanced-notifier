@@ -367,10 +367,12 @@ export const getWebHookUrls = async (props: {
 
         const { privateKey } = plugin.storageSettings.values;
         const encodedId = encodeURIComponent(cameraIdOrAction ?? device?.id);
-        let paramString = `?secret=${privateKey}`;
+        const searchParams = new URLSearchParams();
+        searchParams.set('secret', privateKey);
         if (userToken) {
-            paramString += `&user_token=${userToken}`;
+            searchParams.set('user_token', userToken);
         }
+        const paramString = `&${searchParams.toString()}`;
 
         lastSnapshotCloudUrl = `${cloudEndpoint}${publicPathnamePrefix}${lastSnapshot}/${encodedId}/{IMAGE_NAME}${paramString}`;
         lastSnapshotLocalUrl = `${localEndpoint}${lastSnapshot}/${encodedId}/{IMAGE_NAME}${paramString}`;

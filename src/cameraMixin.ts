@@ -3419,17 +3419,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             let mqttFsB64Image: string;
             let mqttFsImageSource = ImageSource.NotFound;
 
-            if (this.isActiveForMqttReporting && canUpdateMqtt) {
-                if (eventSource === ScryptedEventSource.NVR) {
-                    mqttFsImage = croppedNvrImage;
-                    mqttFsB64Image = croppedNvrB64Image;
-                    mqttFsImageSource = ImageSource.Input;
-                } else if (decoderImage) {
-                    mqttFsImage = decoderImage;
-                    mqttFsB64Image = decoderB64Image;
-                    mqttFsImageSource = ImageSource.Decoder;
-                }
+            if (isDetectionFromNvr) {
+                mqttFsImage = croppedNvrImage;
+                mqttFsB64Image = croppedNvrB64Image;
+                mqttFsImageSource = ImageSource.Input;
+            } else if (decoderImage) {
+                mqttFsImage = decoderImage;
+                mqttFsB64Image = decoderB64Image;
+                mqttFsImageSource = ImageSource.Decoder;
+            }
 
+            if (this.isActiveForMqttReporting && canUpdateMqtt) {
                 const mqttClient = await this.getMqttClient();
 
                 if (mqttClient) {
