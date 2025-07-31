@@ -30,7 +30,6 @@ const { systemManager, mediaManager } = sdk;
 export type PluginSettingKey =
     | 'pluginEnabled'
     | 'mqttEnabled'
-    | 'overridePublicDomain'
     | 'notificationsEnabled'
     | 'sendDevNotifications'
     | 'serverId'
@@ -69,7 +68,6 @@ export type PluginSettingKey =
     | 'cleanupEvents'
     | 'enableDecoder'
     | 'privateKey'
-    | 'cloudEndpointInternal'
     | 'postProcessingCropSizeIncrease'
     | 'postProcessingMarkingSizeIncrease'
     | 'postProcessingVehicleBoundingColor'
@@ -95,12 +93,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             hideHa: false,
             baseGroupName: '',
         }),
-        overridePublicDomain: {
-            title: 'Override public address',
-            type: 'string',
-            placeholder: 'https://scrypted.yourdomain.net',
-            subgroup: 'Advanced',
-        },
         pluginEnabled: {
             title: 'Plugin enabled',
             type: 'boolean',
@@ -383,10 +375,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             defaultValue: AiSource.Disabled,
             onPut: async () => await this.refreshSettings()
         },
-        cloudEndpointInternal: {
-            type: 'string',
-            hide: true,
-        },
         imagesPath: {
             title: 'Storage path',
             group: 'Storage',
@@ -569,25 +557,21 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         this.startStop(this.storageSettings.values.pluginEnabled).then().catch(this.getLogger().log);
     }
 
-    get cloudEndpoint() {
-        return this.storageSettings.values.overridePublicDomain || this.storageSettings.getItem('cloudEndpointInternal');
-    }
-
     async init() {
         const logger = this.getLogger();
 
         const cloudPlugin = systemManager.getDeviceByName<Settings>('Scrypted Cloud');
         if (cloudPlugin) {
             this.hasCloudPlugin = true;
-            try {
-                const cloudEndpoint = await sdk.endpointManager.getCloudEndpoint(undefined, { public: false });
-                const cloudUrl = new URL(cloudEndpoint).origin;
-                await this.storageSettings.putSetting('cloudEndpointInternal', cloudUrl);
+            // try {
+            //     const cloudEndpoint = await sdk.endpointManager.getCloudEndpoint(undefined, { public: false });
+            //     const cloudUrl = new URL(cloudEndpoint).origin;
+            //     await this.storageSettings.putSetting('cloudEndpointInternal', cloudUrl);
 
-                logger.log(`Cloud endpoint found ${cloudUrl}`);
-            } catch (e) {
-                logger.error(`Error finding a public endpoint. Set the override domain property with your public address`, e);
-            }
+            //     logger.log(`Cloud endpoint found ${cloudUrl}`);
+            // } catch (e) {
+            //     logger.error(`Error finding a public endpoint. Set the override domain property with your public address`, e);
+            // }
         } else {
             logger.log('Cloud plugin not found');
             this.hasCloudPlugin = false;
@@ -800,7 +784,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         const urlEntity = new URL(videoUrl);
                         videoUrl = `${urlEntity.pathname}${urlEntity.search}`;
                     }
-                    videoUrl = `${this.cloudEndpoint}${videoUrl}`;
+                    const cloudEndpoint = await sdk.endpointManager.getCloudEndpoint(undefined, { public: false });
+                    videoUrl = `${cloudEndpoint}${videoUrl}`;
 
                     const isIos = /iPhone|iPad|iPod/i.test(request.headers['user-agent']);
                     const { isNvr } = getAssetSource({ videoUrl });
@@ -862,7 +847,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                     if (imageSource === ScryptedEventSource.NVR) {
                         const path = url.searchParams.get('path');
-                        const imageUrl = `${this.cloudEndpoint}/${decodeURIComponent(path)}`;
+                        const cloudEndpoint = await sdk.endpointManager.getCloudEndpoint(undefined, { public: false });
+                        const imageUrl = `${cloudEndpoint}/${decodeURIComponent(path)}`;
                         const jpeg = await axios.get<Buffer>(imageUrl, {
                             responseType: "arraybuffer",
                             headers: {
@@ -1853,8 +1839,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     const { videoclipStreamUrl } = await getWebHookUrls({
                         console: logger,
                         fileId: fileId,
-                        cloudEndpoint: this.cloudEndpoint,
-                        secret: this.storageSettings.values.privateKey
+                        plugin: this
                     });
 
                     await cb({ videoUrl: videoclipStreamUrl });
@@ -1875,8 +1860,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     const { gifUrl } = await getWebHookUrls({
                         console: logger,
                         fileId: fileId,
-                        cloudEndpoint: this.cloudEndpoint,
-                        secret: this.storageSettings.values.privateKey
+                        plugin: this
                     });
 
                     await cb({ gifUrl });
@@ -1986,8 +1970,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { videoclipStreamUrl } = await getWebHookUrls({
             console: logger,
             fileId: fileId,
-            cloudEndpoint: this.cloudEndpoint,
-            secret: this.storageSettings.values.privateKey
+            plugin: this
         });
 
         const { videoclipPath, snapshotPath } = this.getRulePaths({
@@ -2397,8 +2380,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     cameraIdOrAction: action,
                     console: deviceLogger,
                     device,
-                    cloudEndpoint: this.cloudEndpoint,
-                    secret: this.storageSettings.values.privateKey
+                    plugin: this
                 });
                 urlToUse = haActionUrl;
             }
@@ -2428,9 +2410,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             console: deviceLogger,
             device,
             snoozeId,
-            cloudEndpoint: this.cloudEndpoint,
             snoozeItems,
-            secret: this.storageSettings.values.privateKey
+            plugin: this
         });
 
         const addSnozeActions = withSnoozing && addSnooze;

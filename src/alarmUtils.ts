@@ -1,6 +1,7 @@
 import sdk, { SecuritySystemMode } from "@scrypted/sdk";
 import { StorageSetting, StorageSettings } from "@scrypted/sdk/storage-settings";
 import { ExtendedNotificationAction, getWebhooks, sensorsFilter } from "./utils";
+import AdvancedNotifierPlugin from "./main";
 
 export const supportedAlarmModes = [
     SecuritySystemMode.AwayArmed,
@@ -172,8 +173,7 @@ export const getAlarmWebhookUrls = async (props: {
     modeHomeText: string,
     modeNightText: string,
     modeAwayText: string,
-    cloudEndpoint: string,
-    secret: string,
+    plugin: AdvancedNotifierPlugin
 }) => {
     const {
         deactivateMessage,
@@ -181,8 +181,7 @@ export const getAlarmWebhookUrls = async (props: {
         modeHomeText,
         modeNightText,
         setModeMessage,
-        cloudEndpoint,
-        secret
+        plugin
     } = props;
     const publicPathnamePrefix = await sdk.endpointManager.getPath(undefined, { public: true });
 
@@ -191,7 +190,16 @@ export const getAlarmWebhookUrls = async (props: {
     const { setAlarm } = await getWebhooks();
 
     try {
-        const paramString = `?secret=${secret}`;
+        const cloudEndpointRaw = await sdk.endpointManager.getCloudEndpoint(undefined, { public: false });
+        const cloudEndpointUrl = new URL(cloudEndpointRaw);
+        const cloudEndpoint = cloudEndpointUrl.origin;
+        const userToken = cloudEndpointUrl.searchParams.get('user_token');
+
+        const { privateKey } = plugin.storageSettings.values;
+        let paramString = `?secret=${privateKey}`;
+        if (userToken) {
+            paramString += `&user_token=${userToken}`;
+        }
 
         for (const alarmMode of [
             SecuritySystemMode.Disarmed,

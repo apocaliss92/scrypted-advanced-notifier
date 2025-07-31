@@ -595,8 +595,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                 modeHomeText,
                 modeNightText,
                 setModeMessage,
-                cloudEndpoint: this.plugin.cloudEndpoint,
-                secret: this.plugin.storageSettings.values.privateKey
+                plugin: this.plugin
             });
 
             const notifierPriority: Record<string, NotificationPriority> = {};

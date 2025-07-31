@@ -309,8 +309,7 @@ export const getWebHookUrls = async (props: {
     snoozeId?: string,
     snoozeItems?: SnoozeItem[],
     fileId?: string,
-    cloudEndpoint: string,
-    secret: string,
+    plugin: AdvancedNotifierPlugin
 }) => {
     const {
         cameraIdOrAction,
@@ -318,9 +317,8 @@ export const getWebHookUrls = async (props: {
         device,
         snoozeId,
         fileId,
-        cloudEndpoint,
-        secret,
-        snoozeItems
+        snoozeItems,
+        plugin
     } = props;
 
     let lastSnapshotCloudUrl: string;
@@ -357,13 +355,22 @@ export const getWebHookUrls = async (props: {
         let privatePathname: string;
         let localEndpoint: string;
         try {
-            localEndpoint = await endpointManager.getPublicLocalEndpoint();
+            localEndpoint = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true });
             privatePathname = await endpointManager.getPath(undefined, { public: false });
             publicPathnamePrefix = await endpointManager.getPath(undefined, { public: true });
         } catch { }
 
+        const cloudEndpointRaw = await sdk.endpointManager.getCloudEndpoint(undefined, { public: false });
+        const cloudEndpointUrl = new URL(cloudEndpointRaw);
+        const cloudEndpoint = cloudEndpointUrl.origin;
+        const userToken = cloudEndpointUrl.searchParams.get('user_token');
+
+        const { privateKey } = plugin.storageSettings.values;
         const encodedId = encodeURIComponent(cameraIdOrAction ?? device?.id);
-        const paramString = `?secret=${secret}`;
+        let paramString = `?secret=${privateKey}`;
+        if (userToken) {
+            paramString += `&user_token=${userToken}`;
+        }
 
         lastSnapshotCloudUrl = `${cloudEndpoint}${publicPathnamePrefix}${lastSnapshot}/${encodedId}/{IMAGE_NAME}${paramString}`;
         lastSnapshotLocalUrl = `${localEndpoint}${lastSnapshot}/${encodedId}/{IMAGE_NAME}${paramString}`;
