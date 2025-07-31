@@ -63,10 +63,10 @@ export type PluginSettingKey =
     | 'aiSource'
     | 'imagesPath'
     | 'videoclipsRetention'
-    | 'imagesRegex'
     | 'storeEvents'
     | 'cleanupEvents'
     | 'enableDecoder'
+    | 'serveAssetsFromLocal'
     | 'privateKey'
     | 'postProcessingCropSizeIncrease'
     | 'postProcessingMarkingSizeIncrease'
@@ -236,6 +236,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             defaultValue: true,
             immediate: true,
         },
+        serveAssetsFromLocal: {
+            title: 'Assets from local',
+            subgroup: 'Advanced',
+            description: 'Serve assets (images, videos, GIFs, alarm actions) from local IP instead of cloud',
+            type: 'boolean',
+            defaultValue: false,
+            immediate: true,
+        },
         testDevice: {
             title: 'Device',
             group: 'Test',
@@ -380,14 +388,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             group: 'Storage',
             description: 'Disk path where to save images and clips. Default will be the plugin folder',
             type: 'string',
-        },
-        imagesRegex: {
-            title: 'Images name',
-            description: 'Filename for the images. Possible values to be used are: ${name} ${timestamp}. Using only ${name} will ensure to have only 1 image per type',
-            group: 'Storage',
-            type: 'string',
-            defaultValue: '${name}',
-            placeholder: '${name}',
         },
         storeEvents: {
             title: 'Store event images',
@@ -3094,7 +3094,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         eventSource: ScryptedEventSource
     }) => {
         const { device, name, timestamp, b64Image, detection, eventSource } = props;
-        const { imagesRegex } = this.storageSettings.values;
         const logger = this.getLogger(device);
         const mixin = this.currentCameraMixinsMap[device.id];
         const { className, label } = detection ?? {};
@@ -3109,12 +3108,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     await fs.promises.mkdir(cameraPath, { recursive: true });
                 }
 
-                const filename = imagesRegex
-                    .replace('${name}', name)
-                    .replace('${timestamp}', timestamp);
-
                 const latestImage = `${name}${LATEST_IMAGE_SUFFIX}`;
-                const { filePath: imagePath } = this.getDetectionImagePaths({ device, imageIdentifier: filename });
+                const { filePath: imagePath } = this.getDetectionImagePaths({ device, imageIdentifier: name });
                 const { filePath: latestPath } = this.getDetectionImagePaths({ device, imageIdentifier: latestImage });
 
                 const base64Data = b64Image.replace(/^data:image\/png;base64,/, "");

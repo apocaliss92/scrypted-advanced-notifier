@@ -164,7 +164,6 @@ Audio rules will monitor the audio received by the camera
 The plugin will store on filesystem, if configured, images for every basic detection and rule. Set the following configurations on the plugin page under the Storage tab
 
 - `Storage path`: If set, the images used to populate MQTT topic will be also stored on the drive path
-- `Images name`: The name pattern to use to generate image files. The placeholders ${name} and ${timestamp} will be available. Using only ${name} will ensure the image to be overriden on every detection instead of saving one additional copy
 
 ## Additional camera settings
 
