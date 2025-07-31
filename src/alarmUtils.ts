@@ -212,7 +212,7 @@ export const getAlarmWebhookUrls = async (props: {
                 title = setModeMessage.replace('${mode}', modeText);
             }
             actions.push({
-                url: `${assetsEndpoint}${publicPathnamePrefix}${setAlarm}/${alarmMode}&${paramString}`,
+                url: `${assetsEndpoint}${publicPathnamePrefix}${setAlarm}/${alarmMode}?${paramString}`,
                 title,
                 action: `scrypted_an_alarm_${alarmMode}`,
             });
