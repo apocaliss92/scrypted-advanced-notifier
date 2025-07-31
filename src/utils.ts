@@ -315,7 +315,7 @@ export const getAssetsParams = async (props: {
             localEndpoint :
             cloudEndpoint;
         const endpointUrl = new URL(endpointRaw);
-        const assetsEndpoint = endpointUrl.origin;
+        const assetsOrigin = endpointUrl.origin;
         const userToken = endpointUrl.searchParams.get('user_token');
 
         const { privateKey } = plugin.storageSettings.values;
@@ -331,7 +331,7 @@ export const getAssetsParams = async (props: {
 
         return {
             paramString,
-            assetsEndpoint,
+            assetsOrigin,
             localEndpoint,
             cloudEndpoint,
             privatePathname,
@@ -394,7 +394,7 @@ export const getWebHookUrls = async (props: {
         const encodedId = encodeURIComponent(cameraIdOrAction ?? device?.id);
 
         const {
-            assetsEndpoint,
+            assetsOrigin,
             cloudEndpoint,
             paramString,
             localEndpoint,
@@ -404,12 +404,12 @@ export const getWebHookUrls = async (props: {
 
         lastSnapshotCloudUrl = `${cloudEndpoint}${publicPathnamePrefix}${lastSnapshot}/${encodedId}/{IMAGE_NAME}?${paramString}`;
         lastSnapshotLocalUrl = `${localEndpoint}${lastSnapshot}/${encodedId}/{IMAGE_NAME}?${paramString}`;
-        haActionUrl = `${assetsEndpoint}${publicPathnamePrefix}${haAction}/${encodedId}?${paramString}`;
-        postNotificationUrl = `${assetsEndpoint}${publicPathnamePrefix}${postNotification}/${encodedId}?${paramString}`;
+        haActionUrl = `${assetsOrigin}${publicPathnamePrefix}${haAction}/${encodedId}?${paramString}`;
+        postNotificationUrl = `${assetsOrigin}${publicPathnamePrefix}${postNotification}/${encodedId}?${paramString}`;
 
-        videoclipStreamUrl = `${assetsEndpoint}${publicPathnamePrefix}${videoclipStream}/${fileId}?${paramString}`;
-        gifUrl = `${assetsEndpoint}${publicPathnamePrefix}${gif}/${fileId}?${paramString}`;
-        videoclipThumbnailUrl = `${assetsEndpoint}${publicPathnamePrefix}${videoclipThumbnail}/${fileId}?${paramString}`;
+        videoclipStreamUrl = `${assetsOrigin}${publicPathnamePrefix}${videoclipStream}/${fileId}?${paramString}`;
+        gifUrl = `${assetsOrigin}${publicPathnamePrefix}${gif}/${fileId}?${paramString}`;
+        videoclipThumbnailUrl = `${assetsOrigin}${publicPathnamePrefix}${videoclipThumbnail}/${fileId}?${paramString}`;
 
         privatePathnamePrefix = `${privatePathname}${eventsApp}`;
         eventThumbnailUrl = `${privatePathnamePrefix}/${eventThumbnail}/${device?.id}/${fileId}`;
@@ -421,7 +421,7 @@ export const getWebHookUrls = async (props: {
                 const { minutes, text } = snooze;
 
                 snoozeActions.push({
-                    url: `${assetsEndpoint}${publicPathnamePrefix}${snoozeNotification}/${encodedId}/${snoozeId}/${minutes}?${paramString}`,
+                    url: `${assetsOrigin}${publicPathnamePrefix}${snoozeNotification}/${encodedId}/${snoozeId}/${minutes}?${paramString}`,
                     title: text,
                     action: `snooze${minutes}`,
                     data: minutes,

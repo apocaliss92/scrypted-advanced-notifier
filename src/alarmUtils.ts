@@ -193,7 +193,7 @@ export const getAlarmWebhookUrls = async (props: {
         const {
             paramString,
             publicPathnamePrefix,
-            assetsEndpoint,
+            assetsOrigin,
         } = await getAssetsParams({ plugin });
 
         for (const alarmMode of [
@@ -212,7 +212,7 @@ export const getAlarmWebhookUrls = async (props: {
                 title = setModeMessage.replace('${mode}', modeText);
             }
             actions.push({
-                url: `${assetsEndpoint}${publicPathnamePrefix}${setAlarm}/${alarmMode}?${paramString}`,
+                url: `${assetsOrigin}${publicPathnamePrefix}${setAlarm}/${alarmMode}?${paramString}`,
                 title,
                 action: `scrypted_an_alarm_${alarmMode}`,
             });
