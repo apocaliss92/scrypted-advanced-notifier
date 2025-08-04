@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.4.28
+- Add camera setting to resize decoder frames (advanced section)
+- Change `serveAssetsFromLocal` with `assetsOriginSource` 
+
 ### 4.4.22
 - Images name setting removed. Only latest images will be persisted
 - Added `serveAssetsFromLocal` under Plugin General -> advanced, will serve all the assets links through local IP and not cloud. Useful if cloud plugin is not available or preferred local connections 

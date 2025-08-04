@@ -78,6 +78,7 @@ type CameraSettingKey =
     | 'detectionSourceForMqtt'
     | 'motionDuration'
     | 'decoderFrequency'
+    | 'resizeDecoderFrames'
     | 'checkOccupancy'
     | 'decoderType'
     | 'lastSnapshotWebhook'
@@ -181,6 +182,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             description: 'How frequent to store frames (used for clips/GIFs) in milliseconds. Increase this in case of errors on notifiers',
             type: 'number',
             defaultValue: 100,
+            subgroup: 'Advanced',
+        },
+        resizeDecoderFrames: {
+            title: 'Resize decoder frames',
+            description: 'Check this if you get GIFs/clips too big to be shipped on notifiers',
+            type: 'boolean',
+            defaultValue: false,
             subgroup: 'Advanced',
         },
         checkOccupancy: {
@@ -1080,6 +1088,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                     this.lastFrame = await frame.image.toBuffer({
                         format: 'jpg',
+                        resize: this.storageSettings.values.resizeDecoderFrames ?
+                            { width: SNAPSHOT_WIDTH } :
+                            undefined
                     });
                     this.lastFrameAcquired = now;
 
@@ -1736,11 +1747,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const mo = await sdk.mediaManager.createMediaObject(this.lastFrame, 'image/jpeg');
                 if (this.decoderResize && !skipResize) {
                     const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(mo, ScryptedMimeTypes.Image);
-                    image = await convertedImage.toImage({
-                        resize: {
-                            width: SNAPSHOT_WIDTH,
-                        },
-                    });
+                    image = await convertedImage.toImage(
+                        !this.storageSettings.values.resizeDecoderFrames ? {
+                            format: 'jpeg',
+                            resize: {
+                                width: SNAPSHOT_WIDTH,
+                            },
+                        } :
+                            undefined
+                    );
                 } else {
                     image = mo;
                 }

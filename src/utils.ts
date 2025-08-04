@@ -128,6 +128,12 @@ export enum ScryptedEventSource {
     Frigate = 'Frigate'
 }
 
+export enum AssetOriginSource {
+    CloudSecure = 'CloudSecure',
+    LocalSecure = 'LocalSecure',
+    LocalInsecure = 'LocalInsecure',
+}
+
 export interface ObserveZoneData {
     name: string;
     path: Point[]
@@ -307,13 +313,19 @@ export const getAssetsParams = async (props: {
 }) => {
     try {
         const { plugin } = props;
-        const { serveAssetsFromLocal } = plugin.storageSettings.values;
+        const { assetsOriginSource } = plugin.storageSettings.values;
         const localEndpoint = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true });
         const cloudEndpoint = await sdk.endpointManager.getCloudEndpoint(undefined, { public: true });
 
-        const endpointRaw = serveAssetsFromLocal || !plugin.hasCloudPlugin ?
-            localEndpoint :
-            cloudEndpoint;
+        let endpointRaw: string;
+
+        if (assetsOriginSource === AssetOriginSource.CloudSecure && plugin.hasCloudPlugin) {
+            endpointRaw = await sdk.endpointManager.getCloudEndpoint(undefined, { public: true });
+        } else if (assetsOriginSource === AssetOriginSource.LocalInsecure) {
+            endpointRaw = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true, insecure: true });
+        } else {
+            endpointRaw = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true });
+        }
         const endpointUrl = new URL(endpointRaw);
         const assetsOrigin = endpointUrl.origin;
         const userToken = endpointUrl.searchParams.get('user_token');
