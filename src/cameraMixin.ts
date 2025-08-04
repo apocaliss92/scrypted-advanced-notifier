@@ -189,6 +189,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             description: 'Check this if you get GIFs/clips too big to be shipped on notifiers',
             type: 'boolean',
             defaultValue: false,
+            immediate: true,
             subgroup: 'Advanced',
         },
         checkOccupancy: {
