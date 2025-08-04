@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.4.29
+- Add support for homeassistant channels
+
 ### 4.4.28
 - Add camera setting to resize decoder frames (advanced section)
 - Change `serveAssetsFromLocal` with `assetsOriginSource` 

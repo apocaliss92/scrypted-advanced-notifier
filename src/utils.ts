@@ -1495,6 +1495,7 @@ export const getNotifierData = (props: {
     const withSnoozing = isDetectionRule || isAudioRule;
     const withSound = [PUSHOVER_PLUGIN_ID, HOMEASSISTANT_PLUGIN_ID].includes(pluginId);
     const withOpenInApp = [HOMEASSISTANT_PLUGIN_ID].includes(pluginId);
+    const withChannel = [HOMEASSISTANT_PLUGIN_ID].includes(pluginId);
 
     if (pluginId === HOMEASSISTANT_PLUGIN_ID) {
         priorityChoices.push(
@@ -1537,6 +1538,7 @@ export const getNotifierData = (props: {
         addCameraActionsDefault,
         withSound,
         withOpenInApp,
+        withChannel,
         openInAppDefault,
     };
 };
@@ -1556,6 +1558,7 @@ export const getNotifierKeys = (props: {
     const addCameraActionsKey = `${prefix}:${ruleName}:${notifierId}:addCameraActions`;
     const soundKey = `${prefix}:${ruleName}:${notifierId}:sound`;
     const openInAppKey = `${prefix}:${ruleName}:${notifierId}:openInApp`;
+    const channelKey = `${prefix}:${ruleName}:${notifierId}:channel`;
 
     return {
         actionsKey,
@@ -1565,6 +1568,7 @@ export const getNotifierKeys = (props: {
         titleKey,
         soundKey,
         openInAppKey,
+        channelKey,
     };
 };
 
@@ -1578,9 +1582,28 @@ const getNotifierSettings = (props: {
 }) => {
     const { notifierId, ruleName, ruleType, group, subgroup, showMoreConfigurations } = props;
     const notifier = sdk.systemManager.getDeviceById(notifierId);
-    const { actionsKey, priorityKey, addSnoozeKey, addCameraActionsKey, titleKey, soundKey, openInAppKey } = getNotifierKeys({ notifierId, ruleName, ruleType });
+    const {
+        actionsKey,
+        priorityKey,
+        addSnoozeKey,
+        addCameraActionsKey,
+        titleKey,
+        soundKey,
+        openInAppKey,
+        channelKey
+     } = getNotifierKeys({ notifierId, ruleName, ruleType });
 
-    const { priorityChoices, snoozingDefault, openInAppDefault, withActions, withSnoozing, addCameraActionsDefault, withSound, withOpenInApp } = getNotifierData({ notifierId, ruleType });
+    const {
+        priorityChoices,
+        snoozingDefault,
+        openInAppDefault,
+        withActions,
+        withChannel,
+        withSnoozing,
+        addCameraActionsDefault,
+        withSound,
+        withOpenInApp
+    } = getNotifierData({ notifierId, ruleType });
 
     const titleSetting: StorageSetting = {
         key: titleKey,
@@ -1634,6 +1657,14 @@ const getNotifierSettings = (props: {
         defaultValue: openInAppDefault,
         immediate: true
     };
+    const channelSetting: StorageSetting = {
+        key: channelKey,
+        title: `Notification channel`,
+        type: 'string',
+        group,
+        subgroup,
+        hide: !showMoreConfigurations
+    };
     const addCameraActionsSetting: StorageSetting = {
         key: addCameraActionsKey,
         title: `Add camera actions`,
@@ -1665,6 +1696,9 @@ const getNotifierSettings = (props: {
     }
     if (withOpenInApp) {
         settings.push(openInAppSetting);
+    }
+    if (withChannel) {
+        settings.push(channelSetting);
     }
 
     return settings;
@@ -2832,6 +2866,7 @@ export interface BaseRule {
         addCameraActions: boolean,
         sound: string,
         openInApp?: boolean,
+        channel?: string,
     }>;
 }
 
@@ -2953,13 +2988,31 @@ const initBasicRule = (props: {
     };
 
     for (const notifierId of notifiers) {
-        const { withActions, withSnoozing, snoozingDefault, openInAppDefault, addCameraActionsDefault, withSound, withOpenInApp } = getNotifierData({ notifierId, ruleType });
-        const { actionsKey, priorityKey, addSnoozeKey, addCameraActionsKey, soundKey, openInAppKey } = getNotifierKeys({ notifierId, ruleName, ruleType });
+        const {
+            withActions,
+            withSnoozing,
+            snoozingDefault,
+            openInAppDefault,
+            addCameraActionsDefault,
+            withSound,
+            withOpenInApp,
+            withChannel,
+        } = getNotifierData({ notifierId, ruleType });
+        const {
+            actionsKey,
+            priorityKey,
+            addSnoozeKey,
+            addCameraActionsKey,
+            soundKey,
+            openInAppKey,
+            channelKey,
+        } = getNotifierKeys({ notifierId, ruleName, ruleType });
         const actions = storage.getItem(actionsKey) as string[] ?? [];
         const priority = storage.getItem(priorityKey) as NotificationPriority;
         const addSnooze = withSnoozing ? storage.getItem(addSnoozeKey) ?? snoozingDefault : false;
         const openInApp = withOpenInApp ? storage.getItem(openInAppKey) ?? openInAppDefault : false;
         const sound = withSound ? storage.getItem(soundKey) : undefined;
+        const channel = withChannel ? storage.getItem(channelKey) : undefined;
         const addCameraActions = storage.getItem(addCameraActionsKey) ?? addCameraActionsDefault;
         rule.notifierData[notifierId] = {
             actions: withActions ? actions.map(action => safeParseJson(action)) : [],
@@ -2968,6 +3021,7 @@ const initBasicRule = (props: {
             addCameraActions,
             sound,
             openInApp,
+            channel,
         };
     }
 
