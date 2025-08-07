@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.4.30
+- Add setting to override the decoder stream
+
 ### 4.4.29
 - Add support for homeassistant channels
 

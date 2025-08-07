@@ -13,12 +13,11 @@ import { Deferred } from "../../scrypted/server/src/deferred";
 import { checkObjectsOccupancy, confirmDetection } from "./aiUtils";
 import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, isAudioClassname, isFaceClassname, isMotionClassname, isObjectClassname, isPlateClassname, levenshteinDistance } from "./detectionClasses";
 import { addBoundingBoxesToImage, addZoneClipPathToImage, cropImageToDetection } from "./drawingUtils";
+import { FFmpegRTSPDecoder } from "./ffmpegDecoder";
 import AdvancedNotifierPlugin from "./main";
 import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { ADVANCED_NOTIFIER_INTERFACE, AudioRule, BaseRule, DETECTION_CLIP_PREFIX, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, OccupancyRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
-import { FFmpegRTSPDecoder } from "./ffmpegDecoder";
-import { sleep } from "../../scrypted/server/src/sleep";
 
 const { systemManager } = sdk;
 
@@ -78,6 +77,7 @@ type CameraSettingKey =
     | 'detectionSourceForMqtt'
     | 'motionDuration'
     | 'decoderFrequency'
+    | 'decoderStreamDestination'
     | 'resizeDecoderFrames'
     | 'checkOccupancy'
     | 'decoderType'
@@ -182,6 +182,23 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             description: 'How frequent to store frames (used for clips/GIFs) in milliseconds. Increase this in case of errors on notifiers',
             type: 'number',
             defaultValue: 100,
+            subgroup: 'Advanced',
+        },
+        decoderStreamDestination: {
+            title: 'Decoder stream destination',
+            description: 'Select the stream to use to decode. Default will use the best one for dimensions',
+            type: 'string',
+            defaultValue: 'Default',
+            choices: [
+                'Default',
+                'local',
+                'remote',
+                'medium-resolution',
+                'low-resolution',
+                'local-recorder',
+                'remote-recorder'
+            ],
+            combobox: true,
             subgroup: 'Advanced',
         },
         resizeDecoderFrames: {
@@ -1025,33 +1042,40 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const logger = this.getLogger();
 
-        const streams = await this.cameraDevice.getVideoStreamOptions();
-        let closestStream: ResponseMediaStreamOptions;
-        for (const stream of streams) {
-            logger.info(`Stream ${stream.name} ${JSON.stringify(stream.video)} ${stream.destinations}`);
-            const streamWidth = stream.video?.width;
+        const { decoderStreamDestination } = this.storageSettings.values;
+        if (decoderStreamDestination !== 'Default') {
+            this.decoderStream = decoderStreamDestination;
+            this.decoderResize = false;
+        } else {
+            const streams = await this.cameraDevice.getVideoStreamOptions();
+            let closestStream: ResponseMediaStreamOptions;
+            for (const stream of streams) {
+                logger.info(`Stream ${stream.name} ${JSON.stringify(stream.video)} ${stream.destinations}`);
+                const streamWidth = stream.video?.width;
 
-            if (streamWidth) {
-                const diff = SNAPSHOT_WIDTH - streamWidth;
-                if (!closestStream || diff < Math.abs((SNAPSHOT_WIDTH - closestStream.video.width))) {
-                    closestStream = stream;
+                if (streamWidth) {
+                    const diff = SNAPSHOT_WIDTH - streamWidth;
+                    if (!closestStream || diff < Math.abs((SNAPSHOT_WIDTH - closestStream.video.width))) {
+                        closestStream = stream;
+                    }
                 }
             }
-        }
 
-        if (closestStream?.destinations?.[0]) {
-            this.decoderStream = closestStream.destinations[0];
-            this.decoderResize = ((closestStream.video.width ?? 0) - SNAPSHOT_WIDTH) > 200;
-            const streamName = closestStream?.name;
-            const deviceSettings = await this.cameraDevice.getSettings();
-            const rebroadcastConfig = deviceSettings.find(setting => setting.subgroup === `Stream: ${streamName}` && setting.title === 'RTSP Rebroadcast Url');
-            this.rtspUrl = rebroadcastConfig?.value as string;
-            logger.log(`Stream found ${this.decoderStream} (${this.rtspUrl}), requires resize ${this.decoderResize}`);
-            logger.info(`${JSON.stringify(closestStream)}`);
-        } else {
-            logger.log(`Stream not found, falling back to remote-recorder`);
-            this.decoderStream = 'remote-recorder';
-            this.decoderResize = false;
+            const closestDestination = closestStream?.destinations?.[0];
+            if (closestDestination) {
+                const deviceSettings = await this.cameraDevice.getSettings();
+                this.decoderStream = closestStream.destinations[0];
+                this.decoderResize = ((closestStream.video.width ?? 0) - SNAPSHOT_WIDTH) > 200;
+                const streamName = closestStream?.name;
+                const rebroadcastConfig = deviceSettings.find(setting => setting.subgroup === `Stream: ${streamName}` && setting.title === 'RTSP Rebroadcast Url');
+                this.rtspUrl = rebroadcastConfig?.value as string;
+                logger.log(`Stream found ${this.decoderStream} (${this.rtspUrl}), requires resize ${this.decoderResize}`);
+                logger.info(`${JSON.stringify(closestStream)}`);
+            } else {
+                logger.log(`Stream not found, falling back to remote-recorder`);
+                this.decoderStream = 'remote-recorder';
+                this.decoderResize = false;
+            }
         }
     }
 
@@ -2544,7 +2568,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                     let name = `${prefix}-${className}`;
 
-                    if (label) {
+                    if (label && !isPlateClassname(className)) {
                         name += `-${label}`;
                     }
                     if (suffix) {
