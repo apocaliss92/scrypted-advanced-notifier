@@ -90,6 +90,7 @@ type CameraSettingKey =
     | 'postDetectionImageMinDelay'
     | 'decoderProcessId'
     | 'snoozedData'
+    | 'delayPassedData'
     | MixinBaseSettingKey;
 
 export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> implements Settings, VideoClips {
@@ -287,7 +288,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         snoozedData: {
             hide: true,
             json: true
-        }
+        },
+        delayPassedData: {
+            hide: true,
+            json: true
+        },
     };
     storageSettings = new StorageSettings(this, this.initStorage);
 
@@ -1125,7 +1130,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     });
 
                     this.lastFrame = await image.toBuffer({
-                        format: 'jpeg',
+                        format: 'jpg',
                     });
                     this.lastFrameAcquired = now;
 
@@ -1255,6 +1260,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }
 
             this.snoozeUntilDic = JSON.parse(this.storageSettings.getItem('snoozedData') ?? '{}');
+            logger.log(`Initializing snooze data to ${JSON.stringify(this.snoozeUntilDic)}`);
+
+            this.lastDelaySet = JSON.parse(this.storageSettings.getItem('delayPassedData') ?? '{}');
+            logger.log(`Initializing last delay set data to ${JSON.stringify(this.lastDelaySet)}`);
         } catch { };
 
         await this.refreshSettings();
@@ -3162,6 +3171,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.getLogger().debug(`Is delay passed for ${delayKey}: ${timePassed}, last set ${lastSetInSeconds}. ${JSON.stringify(props)}`);
         if (timePassed) {
             this.lastDelaySet[delayKey] = referenceTime;
+            this.storageSettings.putSetting('delayPassedData', JSON.stringify(this.lastDelaySet));
         }
 
         return {
