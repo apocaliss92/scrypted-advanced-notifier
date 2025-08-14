@@ -1124,7 +1124,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         format: 'jpeg',
                     });
 
-                    this.lastFrame = await image.toBuffer();
+                    this.lastFrame = await image.toBuffer({
+                        format: 'jpeg',
+                    });
                     this.lastFrameAcquired = now;
 
                     this.plugin.storeDetectionFrame({
