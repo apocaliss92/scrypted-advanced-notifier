@@ -1116,16 +1116,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 ) {
                     const now = Date.now();
 
-                    let image = frame.image;
-
-                    if (this.storageSettings.values.resizeDecoderFrames) {
-                        const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(image, ScryptedMimeTypes.Image);
-                        image = await convertedImage.toImage({
-                            resize: {
-                                width: SNAPSHOT_WIDTH,
-                            },
-                        });
-                    }
+                    const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(frame.image, ScryptedMimeTypes.Image);
+                    const image = await convertedImage.toImage({
+                        resize: this.storageSettings.values.resizeDecoderFrames ? {
+                            width: SNAPSHOT_WIDTH,
+                        } : undefined,
+                        format: 'jpeg',
+                    });
 
                     this.lastFrame = await image.toBuffer();
                     this.lastFrameAcquired = now;
