@@ -1,6 +1,11 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.4.31
+- Fix decoder frames resize
+- Persist snoozes through reboots
+- More HA properties added
+
 ### 4.4.30
 - Add setting to override the decoder stream
 

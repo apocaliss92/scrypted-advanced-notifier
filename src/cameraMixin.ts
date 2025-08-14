@@ -89,6 +89,7 @@ type CameraSettingKey =
     | 'postDetectionImageClasses'
     | 'postDetectionImageMinDelay'
     | 'decoderProcessId'
+    | 'snoozedData'
     | MixinBaseSettingKey;
 
 export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> implements Settings, VideoClips {
@@ -282,6 +283,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         decoderProcessId: {
             hide: true,
             type: 'string'
+        },
+        snoozedData: {
+            hide: true,
+            json: true
         }
     };
     storageSettings = new StorageSettings(this, this.initStorage);
@@ -1111,12 +1116,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 ) {
                     const now = Date.now();
 
-                    this.lastFrame = await frame.image.toBuffer({
-                        format: 'jpg',
-                        resize: this.storageSettings.values.resizeDecoderFrames ?
-                            { width: SNAPSHOT_WIDTH } :
-                            undefined
-                    });
+                    let image = frame.image;
+
+                    if (this.storageSettings.values.resizeDecoderFrames) {
+                        const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(image, ScryptedMimeTypes.Image);
+                        image = await convertedImage.toImage({
+                            resize: {
+                                width: SNAPSHOT_WIDTH,
+                            },
+                        });
+                    }
+
+                    this.lastFrame = await image.toBuffer();
                     this.lastFrameAcquired = now;
 
                     this.plugin.storeDetectionFrame({
@@ -1243,6 +1254,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 await this.storageSettings.putSetting('lastSnapshotWebhookCloudUrl', lastSnapshotCloudUrl);
                 await this.storageSettings.putSetting('lastSnapshotWebhookLocalUrl', lastSnapshotLocalUrl);
             }
+
+            this.snoozeUntilDic = JSON.parse(this.storageSettings.getItem('snoozedData') ?? '{}');
         } catch { };
 
         await this.refreshSettings();
@@ -1261,6 +1274,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const snoozedUntil = moment().add(snoozeTime, 'minutes').toDate().getTime();
         this.snoozeUntilDic[snoozeId] = snoozedUntil;
+        this.storageSettings.putSetting('snoozedData', JSON.stringify(this.snoozeUntilDic));
 
         return res;
     }

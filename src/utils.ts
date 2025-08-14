@@ -1496,6 +1496,7 @@ export const getNotifierData = (props: {
     const withSound = [PUSHOVER_PLUGIN_ID, HOMEASSISTANT_PLUGIN_ID].includes(pluginId);
     const withOpenInApp = [HOMEASSISTANT_PLUGIN_ID].includes(pluginId);
     const withChannel = [HOMEASSISTANT_PLUGIN_ID].includes(pluginId);
+    const withNotificationIcon = [HOMEASSISTANT_PLUGIN_ID].includes(pluginId);
 
     if (pluginId === HOMEASSISTANT_PLUGIN_ID) {
         priorityChoices.push(
@@ -1539,6 +1540,7 @@ export const getNotifierData = (props: {
         withSound,
         withOpenInApp,
         withChannel,
+        withNotificationIcon,
         openInAppDefault,
     };
 };
@@ -1559,6 +1561,7 @@ export const getNotifierKeys = (props: {
     const soundKey = `${prefix}:${ruleName}:${notifierId}:sound`;
     const openInAppKey = `${prefix}:${ruleName}:${notifierId}:openInApp`;
     const channelKey = `${prefix}:${ruleName}:${notifierId}:channel`;
+    const notificationIconKey = `${prefix}:${ruleName}:${notifierId}:notificationIcon`;
 
     return {
         actionsKey,
@@ -1569,6 +1572,7 @@ export const getNotifierKeys = (props: {
         soundKey,
         openInAppKey,
         channelKey,
+        notificationIconKey,
     };
 };
 
@@ -1590,7 +1594,8 @@ const getNotifierSettings = (props: {
         titleKey,
         soundKey,
         openInAppKey,
-        channelKey
+        channelKey,
+        notificationIconKey,
      } = getNotifierKeys({ notifierId, ruleName, ruleType });
 
     const {
@@ -1602,7 +1607,8 @@ const getNotifierSettings = (props: {
         withSnoozing,
         addCameraActionsDefault,
         withSound,
-        withOpenInApp
+        withOpenInApp,
+        withNotificationIcon
     } = getNotifierData({ notifierId, ruleType });
 
     const titleSetting: StorageSetting = {
@@ -1657,6 +1663,14 @@ const getNotifierSettings = (props: {
         defaultValue: openInAppDefault,
         immediate: true
     };
+    const notificationIconSetting: StorageSetting = {
+        key: notificationIconKey,
+        title: `Notification icon (i.e. "mdi:webcam")`,
+        type: 'string',
+        group,
+        subgroup,
+        hide: !showMoreConfigurations,
+    };
     const channelSetting: StorageSetting = {
         key: channelKey,
         title: `Notification channel`,
@@ -1699,6 +1713,9 @@ const getNotifierSettings = (props: {
     }
     if (withChannel) {
         settings.push(channelSetting);
+    }
+    if (withNotificationIcon) {
+        settings.push(notificationIconSetting);
     }
 
     return settings;
@@ -2867,6 +2884,7 @@ export interface BaseRule {
         sound: string,
         openInApp?: boolean,
         channel?: string,
+        notificationIcon?: string,
     }>;
 }
 
@@ -2996,6 +3014,7 @@ const initBasicRule = (props: {
             addCameraActionsDefault,
             withSound,
             withOpenInApp,
+            withNotificationIcon,
             withChannel,
         } = getNotifierData({ notifierId, ruleType });
         const {
@@ -3006,6 +3025,7 @@ const initBasicRule = (props: {
             soundKey,
             openInAppKey,
             channelKey,
+            notificationIconKey,
         } = getNotifierKeys({ notifierId, ruleName, ruleType });
         const actions = storage.getItem(actionsKey) as string[] ?? [];
         const priority = storage.getItem(priorityKey) as NotificationPriority;
@@ -3013,6 +3033,7 @@ const initBasicRule = (props: {
         const openInApp = withOpenInApp ? storage.getItem(openInAppKey) ?? openInAppDefault : false;
         const sound = withSound ? storage.getItem(soundKey) : undefined;
         const channel = withChannel ? storage.getItem(channelKey) : undefined;
+        const notificationIcon = withNotificationIcon ? storage.getItem(notificationIconKey) : undefined;
         const addCameraActions = storage.getItem(addCameraActionsKey) ?? addCameraActionsDefault;
         rule.notifierData[notifierId] = {
             actions: withActions ? actions.map(action => safeParseJson(action)) : [],
@@ -3022,6 +3043,7 @@ const initBasicRule = (props: {
             sound,
             openInApp,
             channel,
+            notificationIcon,
         };
     }
 
