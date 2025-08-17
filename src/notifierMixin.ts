@@ -404,7 +404,7 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
                         });
                         const tapToViewText = this.plugin.getTextKey({ notifierId: this.id, textKey: 'tapToViewText' });
 
-                        options.subtitle = message;
+                        options.body = message;
                         options.bodyWithSubtitle = tapToViewText;
 
                         logger.log(`Content modified to ${message} ${tapToViewText}`);
