@@ -3649,6 +3649,12 @@ export enum SupportedSensorType {
     Entry = 'entry'
 };
 
+export enum NotifierPayloadKey {
+    Body = 'Body',
+    Subtitle = 'Subtitle',
+    bodyWithSubtitle = 'BodyWithSubtitle'
+}
+
 export type DetectionEvent = DetectionClass | NvrEvent | SupportedSensorType;
 export type RuleDetectionClass = DetectionClass | SupportedSensorType;
 

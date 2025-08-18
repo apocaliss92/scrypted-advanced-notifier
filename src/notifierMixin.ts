@@ -5,7 +5,7 @@ import { getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, reportNotifierValues, setupNotifierAutodiscovery, subscribeToNotifierMqttTopics } from "./mqtt-utils";
-import { convertSettingsToStorageSettings, DetectionRule, DeviceInterface, GetImageReason, getMixinBaseSettings, getTextSettings, getWebHookUrls, isSchedulerActive, MixinBaseSettingKey, moToB64, NVR_NOTIFIER_INTERFACE, parseNvrNotificationMessage, TextSettingKey } from "./utils";
+import { convertSettingsToStorageSettings, DetectionRule, DeviceInterface, GetImageReason, getMixinBaseSettings, getTextSettings, getWebHookUrls, isSchedulerActive, MixinBaseSettingKey, moToB64, NotifierPayloadKey, NVR_NOTIFIER_INTERFACE, parseNvrNotificationMessage, TextSettingKey } from "./utils";
 
 export type SendNotificationToPluginFn = (notifierId: string, title: string, options?: NotifierOptions, media?: MediaObject, icon?: MediaObject | string) => Promise<void>
 
@@ -17,6 +17,8 @@ type NotifierSettingKey =
     | 'schedulerEnabled'
     | 'startTime'
     | 'endTime'
+    | 'keyToEdit'
+    | 'enableOnAllNotifications'
     | TextSettingKey
     | MixinBaseSettingKey;
 
@@ -32,6 +34,22 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
             type: 'boolean',
             defaultValue: true,
             immediate: true,
+        },
+        enableOnAllNotifications: {
+            title: 'Enable on all notifications',
+            description: 'All the notifications on this notifier will be handled by the plugin. Enable in case of testing',
+            type: 'boolean',
+            defaultValue: false,
+            immediate: true,
+        },
+        keyToEdit: {
+            title: 'Notification key to edit',
+            description: 'Select which key to edit of the payload. This needs to be adjusted based on the target notifier/device and if you do not see the correct text in your notifications',
+            type: 'string',
+            immediate: true,
+            defaultValue: NotifierPayloadKey.Body,
+            choices: Object.values(NotifierPayloadKey),
+            onPut: async () => await this.refreshSettings()
         },
         aiEnabled: {
             title: 'AI descriptions',
@@ -301,19 +319,20 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
 
         const { isNotificationFromAnPlugin, cameraId, snoozeId } = options?.data ?? {};
         const isNotificationFromNvr = options.tag || options.recordedEvent;
+        const {
+            schedulerEnabled,
+            startTime,
+            endTime,
+            enabled,
+            enableTranslations,
+            aiEnabled,
+            keyToEdit,
+            enableOnAllNotifications
+        } = this.storageSettings.values;
 
-        if (isNotificationFromAnPlugin || isNotificationFromNvr) {
+        if (isNotificationFromAnPlugin || isNotificationFromNvr || enableOnAllNotifications) {
             try {
                 let canNotify = true;
-
-                const {
-                    schedulerEnabled,
-                    startTime,
-                    endTime,
-                    enabled,
-                    enableTranslations,
-                    aiEnabled,
-                } = this.storageSettings.values;
 
                 if (!enabled) {
                     canNotify = false;
@@ -404,8 +423,19 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
                         });
                         const tapToViewText = this.plugin.getTextKey({ notifierId: this.id, textKey: 'tapToViewText' });
 
-                        options.body = message;
-                        options.bodyWithSubtitle = tapToViewText;
+                        if (keyToEdit === NotifierPayloadKey.Body) {
+                            options.body = message;
+                            options.bodyWithSubtitle = tapToViewText;
+                            options.subtitle = undefined;
+                        } else if (keyToEdit === NotifierPayloadKey.Subtitle) {
+                            options.subtitle = message;
+                            options.bodyWithSubtitle = tapToViewText;
+                            options.body = undefined;
+                        } else if (keyToEdit === NotifierPayloadKey.bodyWithSubtitle) {
+                            options.bodyWithSubtitle = message;
+                            options.subtitle = tapToViewText;
+                            options.body = undefined;
+                        }
 
                         logger.log(`Content modified to ${message} ${tapToViewText}`);
                     }

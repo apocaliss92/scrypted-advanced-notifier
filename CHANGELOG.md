@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.4.36
+- Add a new setting on the extended notifier to enable the plugin for every notifications (i.e. test ones)
+- Add a new setting on the extended notifier to change the payload key with the modified content, try different keys if the notifications do not contain the AI modifier payload
+
 ### 4.4.31
 - Fix decoder frames resize
 - Persist snoozes through reboots
