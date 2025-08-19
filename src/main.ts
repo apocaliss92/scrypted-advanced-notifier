@@ -24,6 +24,7 @@ import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, defaultClipPostSeconds, defaultClipPreSeconds, defaultOccupancyClipPreSeconds, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType } from "./utils";
+import https from 'https';
 
 const { systemManager, mediaManager } = sdk;
 
@@ -791,6 +792,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     if (isNvr && isIos) {
                         const remoteResponse = await axios.get<Buffer[]>(videoUrl, {
                             headers: request.headers,
+                            httpsAgent: new https.Agent({
+                                rejectUnauthorized: false
+                            }),
                             responseType: 'stream',
                         });
                         const chunks: Buffer[] = [];
@@ -844,14 +848,17 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                     if (imageSource === ScryptedEventSource.NVR) {
                         const path = url.searchParams.get('path');
-                        const { assetsOrigin, } = await getAssetsParams({ plugin: this });
-                        const imageUrl = `${assetsOrigin}/${decodeURIComponent(path)}`;
+                        const { localAssetsOrigin, } = await getAssetsParams({ plugin: this });
+                        const imageUrl = `${localAssetsOrigin}/${decodeURIComponent(path)}`;
                         const jpeg = await axios.get<Buffer>(imageUrl, {
                             responseType: "arraybuffer",
+                            httpsAgent: new https.Agent({
+                                rejectUnauthorized: false
+                            }),
                             headers: {
                                 ...request.headers
                             }
-                        })
+                        });
 
                         response.send(jpeg.data, {
                             code: 200,

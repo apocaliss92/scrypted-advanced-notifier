@@ -317,18 +317,21 @@ export const getAssetsParams = async (props: {
         const localEndpoint = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true });
         const cloudEndpoint = await sdk.endpointManager.getCloudEndpoint(undefined, { public: true });
 
-        let endpointRaw: string;
+        const localEndpointRaw = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true });
+        let endpointRaw = localEndpointRaw;
 
         if (assetsOriginSource === AssetOriginSource.CloudSecure && plugin.hasCloudPlugin) {
             endpointRaw = await sdk.endpointManager.getCloudEndpoint(undefined, { public: true });
         } else if (assetsOriginSource === AssetOriginSource.LocalInsecure) {
             endpointRaw = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true, insecure: true });
-        } else {
-            endpointRaw = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true });
         }
+
         const endpointUrl = new URL(endpointRaw);
         const assetsOrigin = endpointUrl.origin;
         const userToken = endpointUrl.searchParams.get('user_token');
+
+        const localEndpointUrl = new URL(localEndpointRaw);
+        const localAssetsOrigin = localEndpointUrl.origin;
 
         const { privateKey } = plugin.storageSettings.values;
         const searchParams = new URLSearchParams();
@@ -344,6 +347,7 @@ export const getAssetsParams = async (props: {
         return {
             paramString,
             assetsOrigin,
+            localAssetsOrigin,
             localEndpoint,
             cloudEndpoint,
             privatePathname,
@@ -1596,7 +1600,7 @@ const getNotifierSettings = (props: {
         openInAppKey,
         channelKey,
         notificationIconKey,
-     } = getNotifierKeys({ notifierId, ruleName, ruleType });
+    } = getNotifierKeys({ notifierId, ruleName, ruleType });
 
     const {
         priorityChoices,
