@@ -14,28 +14,30 @@ export class AdvancedNotifierNotifier extends ScryptedDeviceBase implements Noti
             if (scryptedNvrUserDevice && !mixins.includes(scryptedNvrUserDevice.id)) {
                 mixins.push(scryptedNvrUserDevice.id);
             }
-            // if (!mixins.includes(this.plugin.id)) {
-            //     mixins.push(this.plugin.id);
-            // }
+            if (!mixins.includes(this.plugin.id)) {
+                mixins.push(this.plugin.id);
+            }
             const plugins = await systemManager.getComponent('plugins');
             await plugins.setMixins(this.id, mixins);
 
-            setTimeout(async () => {
-                const thisDevice = systemManager.getDeviceById<Settings>(this.id);
-                if (thisDevice) {
-                    const settings = await thisDevice.getSettings();
+            if (scryptedNvrUserDevice) {
+                setTimeout(async () => {
+                    const thisDevice = systemManager.getDeviceById<Settings>(this.id);
+                    if (thisDevice) {
+                        const settings = await thisDevice.getSettings();
 
-                    const defaultNotificationsSetting = settings.find(setting => setting.key === 'nvr:defaultNotifications');
-                    await thisDevice.putSetting('nvr:defaultNotifications', defaultNotificationsSetting.choices);
+                        const defaultNotificationsSetting = settings.find(setting => setting.key === 'nvr:defaultNotifications');
+                        await thisDevice.putSetting('nvr:defaultNotifications', defaultNotificationsSetting.choices);
 
-                    const allUsers = Object.keys(sdk.systemManager.getSystemState())
-                        .map(deviceId => sdk.systemManager.getDeviceById<DeviceInterface>(deviceId))
-                        .filter(device => device.interfaces.includes(ScryptedInterface.ScryptedUser));
+                        const allUsers = Object.keys(sdk.systemManager.getSystemState())
+                            .map(deviceId => sdk.systemManager.getDeviceById<DeviceInterface>(deviceId))
+                            .filter(device => device.interfaces.includes(ScryptedInterface.ScryptedUser));
 
-                    await thisDevice.putSetting('nvr:userId', allUsers[0].id);
-                    this.plugin.getLogger().log(`Default notifier initialized to all notification types and user ${allUsers[0].name}. The user should be enabled to all cameras to proxy them on the plugin`);
-                }
-            }, 2000);
+                        await thisDevice.putSetting('nvr:userId', allUsers[0].id);
+                        this.plugin.getLogger().log(`Default notifier initialized to all notification types and user ${allUsers[0].name}. The user should be enabled to all cameras to proxy them on the plugin`);
+                    }
+                }, 2000);
+            }
         })();
     }
 

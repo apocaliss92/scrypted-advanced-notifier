@@ -6,7 +6,7 @@ import { once } from "events";
 import fs from 'fs';
 import { cloneDeep, isEqual, max, sortBy, uniq } from 'lodash';
 import path from 'path';
-import { BasePlugin, BaseSettingsKey, getBaseSettings, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { applySettingsShow, BasePlugin, BaseSettingsKey, getBaseSettings, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { getRpcData } from '../../scrypted-monitor/src/utils';
 import { ffmpegFilterImageBuffer } from "../../scrypted/plugins/snapshot/src/ffmpeg-image-filter";
 import { name as pluginName } from '../package.json';
@@ -601,7 +601,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             {
                 name: 'Advanced notifier NVR notifier',
                 nativeId: NOTIFIER_NATIVE_ID,
-                interfaces: [ScryptedInterface.Notifier, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE],
+                interfaces: [ScryptedInterface.Notifier, ScryptedInterface.Settings, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE],
                 type: ScryptedDeviceType.Notifier,
             },
         );
@@ -1772,7 +1772,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     async getSettings() {
         try {
-            return super.getSettings();
+            // applySettingsShow(this.storageSettings);
+            const settings = await this.storageSettings.getSettings();
+
+            return settings;
+            // return super.getSettings();
         } catch (e) {
             this.getLogger().log('Error in getSettings', e);
             return [];
