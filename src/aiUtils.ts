@@ -485,9 +485,10 @@ export const getAiMessage = async (props: {
     b64Image: string,
     logger: Console,
     timeStamp: number,
-    device: ScryptedDeviceBase
+    device: ScryptedDeviceBase,
+    prompt: string
 }) => {
-    const { device, originalTitle, detection, plugin, logger, b64Image, timeStamp } = props;
+    const { device, originalTitle, detection, plugin, logger, b64Image, timeStamp, prompt: systemPrompt } = props;
 
     const cacheKey = `${device.id}_${timeStamp}`;
     let title = originalTitle;
@@ -497,8 +498,7 @@ export const getAiMessage = async (props: {
     try {
         if (!message) {
             const { aiSource } = plugin.storageSettings.values;
-            const { aiPlatformKey, llmDeviceKey, systemPromptKey } = getAiSettingKeys();
-            const systemPrompt = plugin.storageSettings.getItem(systemPromptKey as any);
+            const { aiPlatformKey, llmDeviceKey } = getAiSettingKeys();
 
             if (aiSource === AiSource.Manual) {
                 const aiPlatform = plugin.storageSettings.getItem(aiPlatformKey as any);

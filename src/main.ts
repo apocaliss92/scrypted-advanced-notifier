@@ -10,7 +10,7 @@ import { applySettingsShow, BasePlugin, BaseSettingsKey, getBaseSettings, getMqt
 import { getRpcData } from '../../scrypted-monitor/src/utils';
 import { ffmpegFilterImageBuffer } from "../../scrypted/plugins/snapshot/src/ffmpeg-image-filter";
 import { name as pluginName } from '../package.json';
-import { AiSource, getAiMessage, getAiSettings } from "./aiUtils";
+import { AiSource, getAiMessage, getAiSettingKeys, getAiSettings } from "./aiUtils";
 import { AdvancedNotifierAlarmSystem } from "./alarmSystem";
 import { haAlarmAutomation, haAlarmAutomationId } from "./alarmUtils";
 import { AdvancedNotifierCamera } from "./camera";
@@ -2687,9 +2687,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     })}`);
                 }
 
-
                 const isAiEnabled = forceAi || rule?.useAi || (!rule && cameraAiEnabled && notifierAiEnabled);
                 if (aiSource !== AiSource.Disabled && isAiEnabled) {
+                    const { systemPromptKey } = getAiSettingKeys();
+
+                    const prompt = rule.aiPrompt || this.storageSettings.getItem(systemPromptKey as any);
                     const aiResponse = await getAiMessage({
                         b64Image,
                         logger,
@@ -2698,6 +2700,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         detection,
                         timeStamp: triggerTime,
                         device,
+                        prompt
                     });
 
                     if (aiResponse.message) {

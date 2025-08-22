@@ -1305,6 +1305,7 @@ export const getRuleKeys = (props: {
     const endTimeKey = `${prefix}:${ruleName}:endTime`;
     const securitySystemModesKey = `${prefix}:${ruleName}:securitySystemModes`;
     const aiEnabledKey = `${prefix}:${ruleName}:aiEnabled`;
+    const aiPromptKey = `${prefix}:${ruleName}:aiPrompt`;
     const showMoreConfigurationsKey = `${prefix}:${ruleName}:showMoreConfigurations`;
     const minDelayKey = `${prefix}:${ruleName}:minDelay`;
     const minMqttPublishDelayKey = `${prefix}:${ruleName}:minMqttPublishDelay`;
@@ -1379,6 +1380,7 @@ export const getRuleKeys = (props: {
             endTimeKey,
             securitySystemModesKey,
             aiEnabledKey,
+            aiPromptKey,
             showMoreConfigurationsKey,
             minDelayKey,
             minMqttPublishDelayKey,
@@ -1761,6 +1763,7 @@ export const getRuleSettings = (props: {
                 disabledSensorsKey,
                 securitySystemModesKey,
                 aiEnabledKey,
+                aiPromptKey,
                 generateClipKey,
                 generateClipSpeedKey,
                 generateClipPostSecondsKey,
@@ -1773,6 +1776,7 @@ export const getRuleSettings = (props: {
 
         const currentActivation = storage.getItem(activationKey as any) as DetectionRuleActivation || DetectionRuleActivation.Always;
         const showMoreConfigurations = safeParseJson<boolean>(storage.getItem(showMoreConfigurationsKey), false);
+        const aiEnabled = safeParseJson<boolean>(storage.getItem(aiEnabledKey), false);
         const generateClip = safeParseJson<boolean>(storage.getItem(generateClipKey), false);
         const notifiers = safeParseJson<string[]>(storage.getItem(notifiersKey), []);
         const advancedSecurityEnabled = ruleType === RuleType.Detection && isPlugin;
@@ -1898,8 +1902,23 @@ export const getRuleSettings = (props: {
                     subgroup,
                     immediate: true,
                     defaultValue: false,
+                    onPut: async () => await refreshSettings(),
                 }
             );
+
+            if (aiEnabled) {
+                settings.push(
+                    {
+                        key: aiPromptKey,
+                        title: 'AI prompt',
+                        description: 'Leave blank to use the general defined in AI section',
+                        type: 'textarea',
+                        group,
+                        subgroup,
+                        immediate: true,
+                    }
+                );
+            }
         }
 
         if (ruleType !== RuleType.Timelapse) {
@@ -2281,7 +2300,7 @@ export const getDetectionRulesSettings = async (props: {
                 {
                     key: aiFilterKey,
                     title: 'AI filter',
-                    'description': 'The prompt should be a question. This plugin will force the answer to be yes/no',
+                    description: 'The prompt should be a question. This plugin will force the answer to be yes/no',
                     placeholder: 'Does the image show a guy with a red hat?',
                     type: 'string',
                     group,
@@ -2862,6 +2881,7 @@ export interface BaseRule {
     isEnabled: boolean;
     currentlyActive?: boolean;
     useAi: boolean;
+    aiPrompt: string;
     ruleType: RuleType;
     name: string;
     deviceId?: string;
@@ -2961,6 +2981,7 @@ const initBasicRule = (props: {
         notifiersKey,
         textKey,
         aiEnabledKey,
+        aiPromptKey,
         generateClipKey,
         generateClipSpeedKey,
         generateClipPostSecondsKey,
@@ -2976,6 +2997,7 @@ const initBasicRule = (props: {
     const isEnabled = storage.getItem(enabledKey);
     const currentlyActive = storage.getItem(currentlyActiveKey);
     const useAi = storage.getItem(aiEnabledKey);
+    const aiPrompt = storage.getItem(aiPromptKey);
     const customText = storage.getItem(textKey);
     const activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
     const generateClipSpeed = storage.getItem(generateClipSpeedKey) as VideoclipSpeed || VideoclipSpeed.Fast;
@@ -2993,6 +3015,7 @@ const initBasicRule = (props: {
         imageProcessing,
         ruleType,
         useAi,
+        aiPrompt,
         currentlyActive,
         name: ruleName,
         notifiers,
