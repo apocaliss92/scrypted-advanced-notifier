@@ -2691,7 +2691,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 if (aiSource !== AiSource.Disabled && isAiEnabled) {
                     const { systemPromptKey } = getAiSettingKeys();
 
-                    const prompt = rule.aiPrompt || this.storageSettings.getItem(systemPromptKey as any);
+                    const prompt = rule?.aiPrompt || this.storageSettings.getItem(systemPromptKey as any);
                     const aiResponse = await getAiMessage({
                         b64Image,
                         logger,
