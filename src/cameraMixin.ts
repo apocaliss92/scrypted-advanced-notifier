@@ -210,6 +210,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             defaultValue: false,
             immediate: true,
             subgroup: 'Advanced',
+            hide: true,
         },
         checkOccupancy: {
             title: 'Check objects occupancy',
@@ -1123,9 +1124,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                     const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(frame.image, ScryptedMimeTypes.Image);
                     const image = await convertedImage.toImage({
-                        resize: this.storageSettings.values.resizeDecoderFrames ? {
-                            width: SNAPSHOT_WIDTH,
-                        } : undefined,
+                        // resize: this.storageSettings.values.resizeDecoderFrames ? {
+                        //     width: SNAPSHOT_WIDTH,
+                        // } : undefined,
                         format: 'jpeg',
                     });
 
@@ -1794,14 +1795,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const mo = await sdk.mediaManager.createMediaObject(this.lastFrame, 'image/jpeg');
                 if (this.decoderResize && !skipResize) {
                     const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(mo, ScryptedMimeTypes.Image);
+                    // image = await convertedImage.toImage(
+                    //     !this.storageSettings.values.resizeDecoderFrames ? {
+                    //         format: 'jpeg',
+                    //         resize: {
+                    //             width: SNAPSHOT_WIDTH,
+                    //         },
+                    //     } :
+                    //         undefined
+                    // );
                     image = await convertedImage.toImage(
-                        !this.storageSettings.values.resizeDecoderFrames ? {
-                            format: 'jpeg',
-                            resize: {
-                                width: SNAPSHOT_WIDTH,
-                            },
-                        } :
-                            undefined
+                        { format: 'jpeg' }
                     );
                 } else {
                     image = mo;
@@ -3171,7 +3175,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.getLogger().debug(`Is delay passed for ${delayKey}: ${timePassed}, last set ${lastSetInSeconds}. ${JSON.stringify(props)}`);
         if (timePassed) {
             this.lastDelaySet[delayKey] = referenceTime;
-            this.storageSettings.putSetting('delayPassedData', JSON.stringify(this.lastDelaySet));
         }
 
         return {
@@ -3180,6 +3183,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             minDelayInSeconds,
             delayKey,
         }
+    }
+
+    async onRestart() {
+        this.storageSettings.putSetting('delayPassedData', JSON.stringify(this.lastDelaySet));
     }
 
     async checkDetectionRuleMatches(props: {
