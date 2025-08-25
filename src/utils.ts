@@ -1592,6 +1592,11 @@ const getNotifierSettings = (props: {
 }) => {
     const { notifierId, ruleName, ruleType, group, subgroup, showMoreConfigurations } = props;
     const notifier = sdk.systemManager.getDeviceById(notifierId);
+
+    if (!notifier) {
+        return []
+    }
+
     const {
         actionsKey,
         priorityKey,
