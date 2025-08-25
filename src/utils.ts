@@ -3105,8 +3105,8 @@ const initBasicRule = (props: {
         if (!!enabledSensors.length) {
             sensorsOk = enabledSensors.every(sensorId => {
                 const sensorDevice = sdk.systemManager.getDeviceById<DeviceInterface>(sensorId);
-                if (sensorDevice) {
-                    return true;
+                if (!sensorDevice) {
+                    return false;
                 }
 
                 const metadata = binarySensorMetadataMap[sensorDevice.type]
@@ -3114,10 +3114,10 @@ const initBasicRule = (props: {
             });
         }
         if (!!disabledSensors.length && sensorsOk) {
-            sensorsOk = enabledSensors.every(sensorId => {
+            sensorsOk = disabledSensors.every(sensorId => {
                 const sensorDevice = sdk.systemManager.getDeviceById<DeviceInterface>(sensorId);
-                if (sensorDevice) {
-                    return true;
+                if (!sensorDevice) {
+                    return false;
                 }
 
                 const metadata = binarySensorMetadataMap[sensorDevice.type]
