@@ -1496,7 +1496,7 @@ export const getNotifierData = (props: {
     const isAudioRule = ruleType === RuleType.Audio;
     const withActions = ![NTFY_PLUGIN_ID, NVR_PLUGIN_ID].includes(pluginId) && isDetectionRule;
     const snoozingDefault = pluginId !== PUSHOVER_PLUGIN_ID;
-    const openInAppDefault = false;
+    const openInAppDefault = true;
     const addCameraActionsDefault = pluginId !== PUSHOVER_PLUGIN_ID;
     const withSnoozing = isDetectionRule || isAudioRule;
     const withSound = [PUSHOVER_PLUGIN_ID, HOMEASSISTANT_PLUGIN_ID].includes(pluginId);
@@ -2970,8 +2970,9 @@ const initBasicRule = (props: {
     ruleName: string,
     ruleSource: RuleSource,
     securitySystem?: ScryptedDeviceBase,
+    logger: Console
 }) => {
-    const { storage, ruleType, ruleName, ruleSource, securitySystem } = props;
+    const { storage, ruleType, ruleName, ruleSource, securitySystem, logger } = props;
 
     const { common: {
         currentlyActiveKey,
@@ -3109,7 +3110,17 @@ const initBasicRule = (props: {
                     return false;
                 }
 
-                const metadata = binarySensorMetadataMap[sensorDevice.type]
+                const { isSupported, sensorType } = isDeviceSupported(sensorDevice);
+                if (!isSupported) {
+                    logger.error(`Sensor ${sensorDevice.name} (${sensorDevice.id}) of type ${sensorDevice.type} not supported`);
+                    return false
+                }
+
+                const metadata = binarySensorMetadataMap[sensorType];
+                if (!metadata) {
+                    logger.error(`Metadata for ${sensorType} not found`);
+                    return false
+                }
                 return metadata.isActiveFn(sensorDevice);
             });
         }
@@ -3119,8 +3130,17 @@ const initBasicRule = (props: {
                 if (!sensorDevice) {
                     return false;
                 }
+                const { isSupported, sensorType } = isDeviceSupported(sensorDevice);
+                if (!isSupported) {
+                    logger.error(`Sensor ${sensorDevice.name} (${sensorDevice.id}) of type ${sensorDevice.type} not supported`);
+                    return false
+                }
 
-                const metadata = binarySensorMetadataMap[sensorDevice.type]
+                const metadata = binarySensorMetadataMap[sensorType];
+                if (!metadata) {
+                    logger.error(`Metadata for ${sensorType} not found`);
+                    return false
+                }
                 return !metadata.isActiveFn(sensorDevice);
             });
         }
@@ -3251,7 +3271,8 @@ export const getDetectionRules = (props: {
                 ruleSource,
                 ruleType: RuleType.Detection,
                 storage,
-                securitySystem
+                securitySystem,
+                logger: console
             });
 
             const detectionRule: DetectionRule = {
@@ -3415,7 +3436,8 @@ export const getDeviceOccupancyRules = (
             ruleSource: RuleSource.Device,
             ruleType: RuleType.Occupancy,
             storage: deviceStorage,
-            securitySystem
+            securitySystem,
+            logger: console
         });
 
         const zoneOccupiedText = deviceStorage.getItem(zoneOccupiedTextKey) as string;
@@ -3515,7 +3537,8 @@ export const getDeviceTimelapseRules = (
             ruleSource: RuleSource.Device,
             ruleType: RuleType.Timelapse,
             storage: deviceStorage,
-            securitySystem
+            securitySystem,
+            logger: console
         });
 
         const customText = deviceStorage.getItem(textKey) as string;
@@ -3591,7 +3614,8 @@ export const getDeviceAudioRules = (
                 ruleSource: RuleSource.Device,
                 ruleType: RuleType.Audio,
                 storage: deviceStorage,
-                securitySystem
+                securitySystem,
+                logger: console
             });
 
             const customText = deviceStorage.getItem(textKey) as string;
