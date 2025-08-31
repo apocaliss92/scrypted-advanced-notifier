@@ -21,6 +21,7 @@ export const ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE = `${ADVANCED_NOTIFIER_INT
 export const PUSHOVER_PLUGIN_ID = '@scrypted/pushover';
 export const NTFY_PLUGIN_ID = '@apocaliss92/ntfy';
 export const TELEGRAM_PLUGIN_ID = '@apocaliss92/scrypted-telegram';
+export const ZENTIK_PLUGIN_ID = '@apocaliss92/scrypted-zentik';
 export const NVR_PLUGIN_ID = '@scrypted/nvr';
 export const VIDEO_ANALYSIS_PLUGIN_ID = '@scrypted/objectdetector';
 export const HOMEASSISTANT_PLUGIN_ID = '@scrypted/homeassistant';
@@ -1494,15 +1495,23 @@ export const getNotifierData = (props: {
     const priorityChoices: NotificationPriority[] = [];
     const isDetectionRule = ruleType === RuleType.Detection;
     const isAudioRule = ruleType === RuleType.Audio;
-    const withActions = ![NTFY_PLUGIN_ID, NVR_PLUGIN_ID].includes(pluginId) && isDetectionRule;
+    const withActions = ![
+        NTFY_PLUGIN_ID, NVR_PLUGIN_ID, ZENTIK_PLUGIN_ID
+    ].includes(pluginId) && isDetectionRule;
     const snoozingDefault = pluginId !== PUSHOVER_PLUGIN_ID;
     const openInAppDefault = true;
     const addCameraActionsDefault = pluginId !== PUSHOVER_PLUGIN_ID;
     const withSnoozing = isDetectionRule || isAudioRule;
-    const withSound = [PUSHOVER_PLUGIN_ID, HOMEASSISTANT_PLUGIN_ID].includes(pluginId);
+    const withSound = [PUSHOVER_PLUGIN_ID, HOMEASSISTANT_PLUGIN_ID, ZENTIK_PLUGIN_ID].includes(pluginId);
     const withOpenInApp = [HOMEASSISTANT_PLUGIN_ID].includes(pluginId);
     const withChannel = [HOMEASSISTANT_PLUGIN_ID].includes(pluginId);
     const withNotificationIcon = [HOMEASSISTANT_PLUGIN_ID].includes(pluginId);
+    const withClearNotification = [HOMEASSISTANT_PLUGIN_ID, ZENTIK_PLUGIN_ID].includes(pluginId);
+    const withDeleteNotification = [ZENTIK_PLUGIN_ID].includes(pluginId);
+    const withOpenNotification = [ZENTIK_PLUGIN_ID].includes(pluginId);
+    const withClearNotificationDefault = true;
+    const withDeleteNotificationDefault = false;
+    const withOpenNotificationDefault = false;
 
     if (pluginId === HOMEASSISTANT_PLUGIN_ID) {
         priorityChoices.push(
@@ -1535,6 +1544,12 @@ export const getNotifierData = (props: {
             NotificationPriority.Low,
             NotificationPriority.Normal,
         );
+    } else if (pluginId === ZENTIK_PLUGIN_ID) {
+        priorityChoices.push(
+            NotificationPriority.Low,
+            NotificationPriority.Normal,
+            NotificationPriority.High,
+        );
     }
 
     return {
@@ -1548,6 +1563,12 @@ export const getNotifierData = (props: {
         withChannel,
         withNotificationIcon,
         openInAppDefault,
+        withClearNotification,
+        withDeleteNotification,
+        withOpenNotification,
+        withClearNotificationDefault,
+        withDeleteNotificationDefault,
+        withOpenNotificationDefault,
     };
 };
 
@@ -1568,6 +1589,9 @@ export const getNotifierKeys = (props: {
     const openInAppKey = `${prefix}:${ruleName}:${notifierId}:openInApp`;
     const channelKey = `${prefix}:${ruleName}:${notifierId}:channel`;
     const notificationIconKey = `${prefix}:${ruleName}:${notifierId}:notificationIcon`;
+    const clearNotificationKey = `${prefix}:${ruleName}:${notifierId}:clearNotification`;
+    const deleteNotificationKey = `${prefix}:${ruleName}:${notifierId}:deleteNotification`;
+    const openNotificationKey = `${prefix}:${ruleName}:${notifierId}:openNotification`;
 
     return {
         actionsKey,
@@ -1579,6 +1603,9 @@ export const getNotifierKeys = (props: {
         openInAppKey,
         channelKey,
         notificationIconKey,
+        clearNotificationKey,
+        openNotificationKey,
+        deleteNotificationKey,
     };
 };
 
@@ -1607,6 +1634,9 @@ const getNotifierSettings = (props: {
         openInAppKey,
         channelKey,
         notificationIconKey,
+        clearNotificationKey,
+        deleteNotificationKey,
+        openNotificationKey,
     } = getNotifierKeys({ notifierId, ruleName, ruleType });
 
     const {
@@ -1619,7 +1649,13 @@ const getNotifierSettings = (props: {
         addCameraActionsDefault,
         withSound,
         withOpenInApp,
-        withNotificationIcon
+        withNotificationIcon,
+        withClearNotification,
+        withDeleteNotification,
+        withOpenNotification,
+        withClearNotificationDefault,
+        withDeleteNotificationDefault,
+        withOpenNotificationDefault
     } = getNotifierData({ notifierId, ruleType });
 
     const titleSetting: StorageSetting = {
@@ -1709,6 +1745,36 @@ const getNotifierSettings = (props: {
         subgroup,
         hide: !showMoreConfigurations,
     };
+    const openNotificationSetting: StorageSetting = {
+        key: openNotificationKey,
+        title: `Add the default open notification action`,
+        type: 'boolean',
+        group,
+        subgroup,
+        hide: !showMoreConfigurations,
+        defaultValue: withOpenNotificationDefault,
+        immediate: true
+    };
+    const deleteNotificationSetting: StorageSetting = {
+        key: deleteNotificationKey,
+        title: `Add the default delete notification action`,
+        type: 'boolean',
+        group,
+        subgroup,
+        hide: !showMoreConfigurations,
+        defaultValue: withDeleteNotificationDefault,
+        immediate: true
+    };
+    const clearNotificationSetting: StorageSetting = {
+        key: clearNotificationKey,
+        title: `Add the default clear notification action`,
+        type: 'boolean',
+        group,
+        subgroup,
+        hide: !showMoreConfigurations,
+        defaultValue: withClearNotificationDefault,
+        immediate: true
+    };
     const settings = [titleSetting, prioritySetting, addCameraActionsSetting];
     if (withSnoozing) {
         settings.push(addSnoozeSetting);
@@ -1727,6 +1793,15 @@ const getNotifierSettings = (props: {
     }
     if (withNotificationIcon) {
         settings.push(notificationIconSetting);
+    }
+    if (withClearNotification) {
+        settings.push(clearNotificationSetting);
+    }
+    if (withOpenNotification) {
+        settings.push(openNotificationSetting);
+    }
+    if (withDeleteNotification) {
+        settings.push(deleteNotificationSetting);
     }
 
     return settings;
@@ -2914,6 +2989,9 @@ export interface BaseRule {
         openInApp?: boolean,
         channel?: string,
         notificationIcon?: string,
+        addDeleteNotificationAction?: boolean,
+        addClearNotificationAction?: boolean,
+        addOpenNotificationAction?: boolean,
     }>;
 }
 
@@ -3049,6 +3127,9 @@ const initBasicRule = (props: {
             withOpenInApp,
             withNotificationIcon,
             withChannel,
+            withClearNotificationDefault,
+            withDeleteNotificationDefault,
+            withOpenNotificationDefault,
         } = getNotifierData({ notifierId, ruleType });
         const {
             actionsKey,
@@ -3059,6 +3140,9 @@ const initBasicRule = (props: {
             openInAppKey,
             channelKey,
             notificationIconKey,
+            clearNotificationKey,
+            deleteNotificationKey,
+            openNotificationKey,
         } = getNotifierKeys({ notifierId, ruleName, ruleType });
         const actions = storage.getItem(actionsKey) as string[] ?? [];
         const priority = storage.getItem(priorityKey) as NotificationPriority;
@@ -3068,6 +3152,9 @@ const initBasicRule = (props: {
         const channel = withChannel ? storage.getItem(channelKey) : undefined;
         const notificationIcon = withNotificationIcon ? storage.getItem(notificationIconKey) : undefined;
         const addCameraActions = storage.getItem(addCameraActionsKey) ?? addCameraActionsDefault;
+        const addDeleteNotificationAction = storage.getItem(deleteNotificationKey) ?? withDeleteNotificationDefault;
+        const addClearNotificationAction = storage.getItem(clearNotificationKey) ?? withClearNotificationDefault;
+        const addOpenNotificationAction = storage.getItem(openNotificationKey) ?? withOpenNotificationDefault;
         rule.notifierData[notifierId] = {
             actions: withActions ? actions.map(action => safeParseJson(action)) : [],
             priority,
@@ -3077,6 +3164,9 @@ const initBasicRule = (props: {
             openInApp,
             channel,
             notificationIcon,
+            addDeleteNotificationAction,
+            addClearNotificationAction,
+            addOpenNotificationAction,
         };
     }
 

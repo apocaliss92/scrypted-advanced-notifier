@@ -23,7 +23,7 @@ import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodisco
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, defaultClipPostSeconds, defaultClipPreSeconds, defaultOccupancyClipPreSeconds, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, defaultClipPostSeconds, defaultClipPreSeconds, defaultOccupancyClipPreSeconds, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ZENTIK_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType } from "./utils";
 import https from 'https';
 
 const { systemManager, mediaManager } = sdk;
@@ -53,6 +53,8 @@ export type PluginSettingKey =
     | 'testPostProcessing'
     | 'testGenerateClip'
     | 'testGenerateClipSpeed'
+    | 'testClipPreSeconds'
+    | 'testClipPostSeconds'
     | 'testGenerateClipType'
     | 'testUseAi'
     | 'testSound'
@@ -307,6 +309,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         },
         testGenerateClipSpeed: {
             group: 'Test',
+            subgroup: 'Clip',
             title: 'Clip speed',
             choices: [
                 VideoclipSpeed.SuperSlow,
@@ -319,8 +322,25 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             immediate: true,
             defaultValue: VideoclipSpeed.Fast,
         },
+        testClipPreSeconds: {
+            title: 'Clip pre event duration',
+            description: 'How many seconds to record pre event',
+            group: 'Test',
+            subgroup: 'Clip',
+            type: 'number',
+            defaultValue: defaultClipPreSeconds,
+        },
+        testClipPostSeconds: {
+            title: 'Clip post duration',
+            description: 'How many seconds to record post event',
+            group: 'Test',
+            subgroup: 'Clip',
+            type: 'number',
+            defaultValue: defaultClipPostSeconds
+        },
         testGenerateClipType: {
             group: 'Test',
+            subgroup: 'Clip',
             title: 'Clip Type',
             choices: [
                 VideoclipType.GIF,
@@ -1760,6 +1780,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         this.storageSettings.settings.testEventType.hide = !isCamera;
         this.storageSettings.settings.testGenerateClipSpeed.hide = !testGenerateClip;
         this.storageSettings.settings.testGenerateClipType.hide = !testGenerateClip;
+        this.storageSettings.settings.testClipPostSeconds.hide = !testGenerateClip;
+        this.storageSettings.settings.testClipPreSeconds.hide = !testGenerateClip;
 
         if (testNotifier) {
             const { priorityChoices } = getNotifierData({ notifierId: testNotifier.id, ruleType: RuleType.Detection });
@@ -2373,7 +2395,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const notifierId = notifier.id;
         const cameraId = device?.id;
         const { actions, priority, addSnooze, addCameraActions, sound, openInApp, channel, notificationIcon } = notifierData?.[notifierId] ?? {};
-        const { withActions, withSnoozing, withSound, withOpenInApp, withChannel, withNotificationIcon } = getNotifierData({ notifierId, ruleType: rule?.ruleType });
+        const { withActions, withSnoozing, withSound, withOpenInApp, withChannel, withNotificationIcon,
+            withClearNotification, withDeleteNotification, withOpenNotification } = getNotifierData({ notifierId, ruleType: rule?.ruleType });
         const cameraMixin = cameraId ? this.currentCameraMixinsMap[cameraId] : undefined;
         const notifierMixin = this.currentNotifierMixinsMap[notifierId];
         const { notifierActions, aiEnabled: cameraAiEnabled } = cameraMixin?.storageSettings.values ?? {}
@@ -2535,6 +2558,51 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 const gifData = await sdk.mediaManager.convertMediaObjectToBuffer(gifMo, 'image/gif');
                 payload.data.pushover.file = { name: 'media.gif', data: gifData };
             }
+        } else if (notifier.pluginId === ZENTIK_PLUGIN_ID) {
+            const zentikActions = [];
+
+            if (addSnozeActions) {
+                for (const { data, url } of snoozeActions) {
+                    zentikActions.push({
+                        title: `${data} mins`,
+                        type: 'BACKGROUND_CALL',
+                        value: `POST::${url}`,
+                        icon: 'sfsymbols:bell',
+                        destructive: false
+                    });
+                }
+            }
+
+            if (actionsToUse.length) {
+                for (const { url, title, icon } of actionsToUse) {
+                    zentikActions.push({
+                        type: 'BACKGROUND_CALL',
+                        value: `POST::${url}`,
+                        title,
+                        icon,
+                        destructive: false
+                    })
+                }
+            }
+
+            const tapAction = {
+                type: 'NAVIGATE',
+                title: 'Live',
+                value: externalUrl,
+            }
+
+            payload.data.zentik = {
+                priority: priority === NotificationPriority.High ? 'CRITICAL' :
+                    priority === NotificationPriority.Low ? 'CRITICAL' : 'NORMAL',
+                addMarkAsReadAction: withClearNotification,
+                addOpenNotificationAction: withOpenNotification,
+                addDeleteAction: withDeleteNotification,
+                gifUrl,
+                videoUrl,
+                actions: zentikActions,
+                tapAction
+            };
+
         } else if (notifier.pluginId === HOMEASSISTANT_PLUGIN_ID) {
             const fileSizeInMegabytes = videoSize / (1024 * 1024);
             const isVideoValid = fileSizeInMegabytes < 50;
@@ -2583,12 +2651,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 })
             }
 
-            haActions.push({
-                action: 'clear',
-                title: this.getTextKey({ notifierId, textKey: 'discardText' }),
-                icon: "sfsymbols:trash",
-                destructive: true
-            });
+            if (withClearNotification) {
+                haActions.push({
+                    action: 'clear',
+                    title: this.getTextKey({ notifierId, textKey: 'discardText' }),
+                    icon: "sfsymbols:trash",
+                    destructive: true
+                });
+            }
 
             payload.data.ha.actions = haActions;
 
@@ -2916,6 +2986,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             testGenerateClip,
             testGenerateClipSpeed,
             testGenerateClipType,
+            testClipPostSeconds,
+            testClipPreSeconds,
             testNotifier,
             testPriority,
             testLabel,
@@ -2943,6 +3015,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     testGenerateClip,
                     testGenerateClipSpeed,
                     testGenerateClipType,
+                    testClipPreSeconds,
+                    testClipPostSeconds,
                     testLabel,
                     testNotifier,
                     testPriority,
@@ -2975,8 +3049,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                             generateClipSpeed: testGenerateClipSpeed,
                             generateClipType: testGenerateClipType,
                             generateClip: testGenerateClip,
-                            generateClipPreSeconds: defaultClipPreSeconds,
-                            generateClipPostSeconds: defaultClipPostSeconds,
+                            generateClipPreSeconds: testClipPreSeconds,
+                            generateClipPostSeconds: testClipPostSeconds,
                             useAi: testUseAi,
                             ruleType: RuleType.Detection,
                             activationType: DetectionRuleActivation.Always,
@@ -3695,6 +3769,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     '-r', `${fps}`,
                     '-i', listPath,
                     '-vf', `scale='min(${SNAPSHOT_WIDTH},iw)':'-2',pad=ceil(iw/2)*2:ceil(ih/2)*2`,
+                    // '-vf', `fps=12,scale='min(${SNAPSHOT_WIDTH},iw)':'-2':flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=64[p];[s1][p]paletteuse=dither=floyd_steinberg`,
                     '-y',
                     gifPath,
                 ];

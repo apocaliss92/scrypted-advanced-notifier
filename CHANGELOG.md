@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.4.48
+- Add support for Zentik, new notifier system soon available for iOS
+
 ### 4.4.36
 - Add a new setting on the extended notifier to enable the plugin for every notifications (i.e. test ones)
 - Add a new setting on the extended notifier to change the payload key with the modified content, try different keys if the notifications do not contain the AI modifier payload
