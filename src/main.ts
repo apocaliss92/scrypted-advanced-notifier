@@ -2584,11 +2584,26 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     })
                 }
             }
-
-            const tapAction = {
+            zentikActions.push({
                 type: 'NAVIGATE',
-                title: 'Live',
+                title: 'NVR',
+                icon: '',
                 value: externalUrl,
+            })
+
+            let tapAction;
+            if (openInApp) {
+                tapAction = {
+                    type: 'NAVIGATE',
+                    title: 'Live',
+                    value: externalUrl,
+                }
+            } else {
+                tapAction = {
+                    type: 'OPEN_NOTIFICATION',
+                    title: 'Open',
+                    value: externalUrl,
+                }
             }
 
             payload.data.zentik = {

@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import { cloneDeep, sortBy, uniq, uniqBy } from "lodash";
 import moment, { Moment } from "moment";
 import { logLevelSetting } from "../../scrypted-apocaliss-base/src/basePlugin";
-import { FRIGATE_OBJECT_DETECTOR_INTERFACE } from '../../scrypted-frigate-bridge/src/utils';
+import { FRIGATE_OBJECT_DETECTOR_INTERFACE, pluginId } from '../../scrypted-frigate-bridge/src/utils';
 import { loginScryptedClient } from "../../scrypted/packages/client/src";
 import { name, scrypted } from '../package.json';
 import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, isPlateClassname, levenshteinDistance } from "./detectionClasses";
@@ -319,10 +319,11 @@ export const getAssetsParams = async (props: {
         const cloudEndpoint = await sdk.endpointManager.getCloudEndpoint(undefined, { public: true });
 
         const localEndpointRaw = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true });
+        const cloudEndpointRaw = await sdk.endpointManager.getCloudEndpoint(undefined, { public: true });
         let endpointRaw = localEndpointRaw;
 
         if (assetsOriginSource === AssetOriginSource.CloudSecure && plugin.hasCloudPlugin) {
-            endpointRaw = await sdk.endpointManager.getCloudEndpoint(undefined, { public: true });
+            endpointRaw = cloudEndpointRaw;
         } else if (assetsOriginSource === AssetOriginSource.LocalInsecure) {
             endpointRaw = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true, insecure: true });
         }
@@ -333,6 +334,9 @@ export const getAssetsParams = async (props: {
 
         const localEndpointUrl = new URL(localEndpointRaw);
         const localAssetsOrigin = localEndpointUrl.origin;
+
+        const cloudEndpointUrl = new URL(cloudEndpointRaw);
+        const cloudAssetsOrigin = cloudEndpointUrl.origin;
 
         const { privateKey } = plugin.storageSettings.values;
         const searchParams = new URLSearchParams();
@@ -348,6 +352,7 @@ export const getAssetsParams = async (props: {
         return {
             paramString,
             assetsOrigin,
+            cloudAssetsOrigin,
             localAssetsOrigin,
             localEndpoint,
             cloudEndpoint,
@@ -417,9 +422,10 @@ export const getWebHookUrls = async (props: {
             localEndpoint,
             privatePathname,
             publicPathnamePrefix,
+            cloudAssetsOrigin,
         } = await getAssetsParams({ plugin });
 
-        lastSnapshotCloudUrl = `${cloudEndpoint}${publicPathnamePrefix}${lastSnapshot}/${encodedId}/{IMAGE_NAME}?${paramString}`;
+        lastSnapshotCloudUrl = `${cloudEndpoint}${lastSnapshot}/${encodedId}/{IMAGE_NAME}?${paramString}`;
         lastSnapshotLocalUrl = `${localEndpoint}${lastSnapshot}/${encodedId}/{IMAGE_NAME}?${paramString}`;
         haActionUrl = `${assetsOrigin}${publicPathnamePrefix}${haAction}/${encodedId}?${paramString}`;
         postNotificationUrl = `${assetsOrigin}${publicPathnamePrefix}${postNotification}/${encodedId}?${paramString}`;
@@ -1503,7 +1509,7 @@ export const getNotifierData = (props: {
     const addCameraActionsDefault = pluginId !== PUSHOVER_PLUGIN_ID;
     const withSnoozing = isDetectionRule || isAudioRule;
     const withSound = [PUSHOVER_PLUGIN_ID, HOMEASSISTANT_PLUGIN_ID, ZENTIK_PLUGIN_ID].includes(pluginId);
-    const withOpenInApp = [HOMEASSISTANT_PLUGIN_ID].includes(pluginId);
+    const withOpenInApp = [HOMEASSISTANT_PLUGIN_ID, ZENTIK_PLUGIN_ID].includes(pluginId);
     const withChannel = [HOMEASSISTANT_PLUGIN_ID].includes(pluginId);
     const withNotificationIcon = [HOMEASSISTANT_PLUGIN_ID].includes(pluginId);
     const withClearNotification = [HOMEASSISTANT_PLUGIN_ID, ZENTIK_PLUGIN_ID].includes(pluginId);
@@ -1702,7 +1708,8 @@ const getNotifierSettings = (props: {
     };
     const openInAppSetting: StorageSetting = {
         key: openInAppKey,
-        title: `Open in the Homeassistant's Scrypted component`,
+        title: pluginId === HOMEASSISTANT_PLUGIN_ID ? `Open in the Homeassistant's Scrypted component` :
+            pluginId === ZENTIK_PLUGIN_ID ? `Tap action opens NVR instead of Zentik` : '',
         type: 'boolean',
         group,
         subgroup,
