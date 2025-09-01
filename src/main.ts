@@ -2602,7 +2602,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 tapAction = {
                     type: 'OPEN_NOTIFICATION',
                     title: 'Open',
-                    value: externalUrl,
+                    value: '',
                 }
             }
 

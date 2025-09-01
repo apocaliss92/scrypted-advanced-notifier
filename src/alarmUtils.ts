@@ -183,8 +183,6 @@ export const getAlarmWebhookUrls = async (props: {
         setModeMessage,
         plugin
     } = props;
-    const publicPathnamePrefix = await sdk.endpointManager.getPath(undefined, { public: true });
-
     const actions: ExtendedNotificationAction[] = [];
 
     const { setAlarm } = await getWebhooks();

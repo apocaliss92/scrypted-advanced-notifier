@@ -7,7 +7,7 @@ import { scryptedToHaStateMap } from '../../scrypted-homeassistant/src/types/sec
 import { AlarmEvent, getAlarmSettings, getAlarmWebhookUrls, getModeEntity, supportedAlarmModes } from './alarmUtils';
 import AdvancedNotifierPlugin from './main';
 import { idPrefix, publishAlarmSystemValues, setupAlarmSystemAutodiscovery, subscribeToAlarmSystemMqttTopics } from './mqtt-utils';
-import { BaseRule, binarySensorMetadataMap, convertSettingsToStorageSettings, DeviceInterface, HOMEASSISTANT_PLUGIN_ID, isDeviceSupported, NotificationPriority, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, PUSHOVER_PLUGIN_ID, TELEGRAM_PLUGIN_ID } from './utils';
+import { BaseRule, binarySensorMetadataMap, convertSettingsToStorageSettings, DeviceInterface, HOMEASSISTANT_PLUGIN_ID, isDeviceSupported, NotificationPriority, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, PUSHOVER_PLUGIN_ID, TELEGRAM_PLUGIN_ID, ZENTIK_PLUGIN_ID } from './utils';
 
 type StorageKeys = 'notifiers' |
     'autoCloseLocks' |
@@ -665,6 +665,41 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                             }
                         };
                     }
+                } else if (notifier.pluginId === ZENTIK_PLUGIN_ID) {
+                    payload.data.zentik = {};
+
+                    const haActions: any[] = [];
+                    for (const { action, icon, title } of alarmActions) {
+                        haActions.push({
+                            action,
+                            icon,
+                            title,
+                        })
+                    }
+                    const zentikActions = [];
+
+                    for (const { url, icon, title } of alarmActions) {
+                        zentikActions.push({
+                            title,
+                            type: 'BACKGROUND_CALL',
+                            value: `POST::${url}`,
+                            icon,
+                        });
+                    }
+
+                    const tapAction = {
+                        type: 'OPEN_NOTIFICATION',
+                        title: 'Open',
+                    }
+
+                    payload.data.zentik = {
+                        priority: isCritical && !isSupPriorityLow ? 'CRITICAL' : 'NORMAL',
+                        addMarkAsReadAction: true,
+                        addOpenNotificationAction: true,
+                        addDeleteAction: true,
+                        actions: zentikActions,
+                        tapAction
+                    };
                 } else if (notifier.pluginId === NTFY_PLUGIN_ID) {
                     const ntfyActions: any[] = [];
 
