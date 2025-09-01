@@ -616,9 +616,8 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                 notifiersToUse = notifiers;
             }
 
-            let additionalMessageText = '';
-
             for (const notifierId of notifiersToUse) {
+                let additionalMessageText = '';
                 const notifier = sdk.systemManager.getDeviceById<Notifier & ScryptedDeviceBase>(notifierId);
 
                 let payload: any = {
@@ -667,15 +666,6 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                     }
                 } else if (notifier.pluginId === ZENTIK_PLUGIN_ID) {
                     payload.data.zentik = {};
-
-                    const haActions: any[] = [];
-                    for (const { action, icon, title } of alarmActions) {
-                        haActions.push({
-                            action,
-                            icon,
-                            title,
-                        })
-                    }
                     const zentikActions = [];
 
                     for (const { url, icon, title } of alarmActions) {
