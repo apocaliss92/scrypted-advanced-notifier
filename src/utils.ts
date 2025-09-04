@@ -1512,6 +1512,7 @@ export const getNotifierData = (props: {
     const withOpenInApp = [HOMEASSISTANT_PLUGIN_ID, ZENTIK_PLUGIN_ID].includes(pluginId);
     const withChannel = [HOMEASSISTANT_PLUGIN_ID].includes(pluginId);
     const withNotificationIcon = [HOMEASSISTANT_PLUGIN_ID].includes(pluginId);
+    const withIconColor = [HOMEASSISTANT_PLUGIN_ID].includes(pluginId);
     const withClearNotification = [HOMEASSISTANT_PLUGIN_ID, ZENTIK_PLUGIN_ID].includes(pluginId);
     const withDeleteNotification = [ZENTIK_PLUGIN_ID].includes(pluginId);
     const withOpenNotification = [ZENTIK_PLUGIN_ID].includes(pluginId);
@@ -1568,6 +1569,7 @@ export const getNotifierData = (props: {
         withOpenInApp,
         withChannel,
         withNotificationIcon,
+        withIconColor,
         openInAppDefault,
         withClearNotification,
         withDeleteNotification,
@@ -1595,6 +1597,7 @@ export const getNotifierKeys = (props: {
     const openInAppKey = `${prefix}:${ruleName}:${notifierId}:openInApp`;
     const channelKey = `${prefix}:${ruleName}:${notifierId}:channel`;
     const notificationIconKey = `${prefix}:${ruleName}:${notifierId}:notificationIcon`;
+    const iconColorKey = `${prefix}:${ruleName}:${notifierId}:iconColor`;
     const clearNotificationKey = `${prefix}:${ruleName}:${notifierId}:clearNotification`;
     const deleteNotificationKey = `${prefix}:${ruleName}:${notifierId}:deleteNotification`;
     const openNotificationKey = `${prefix}:${ruleName}:${notifierId}:openNotification`;
@@ -1609,6 +1612,7 @@ export const getNotifierKeys = (props: {
         openInAppKey,
         channelKey,
         notificationIconKey,
+        iconColorKey,
         clearNotificationKey,
         openNotificationKey,
         deleteNotificationKey,
@@ -1640,6 +1644,7 @@ const getNotifierSettings = (props: {
         openInAppKey,
         channelKey,
         notificationIconKey,
+        iconColorKey,
         clearNotificationKey,
         deleteNotificationKey,
         openNotificationKey,
@@ -1656,6 +1661,7 @@ const getNotifierSettings = (props: {
         withSound,
         withOpenInApp,
         withNotificationIcon,
+        withIconColor,
         withClearNotification,
         withDeleteNotification,
         withOpenNotification,
@@ -1720,6 +1726,14 @@ const getNotifierSettings = (props: {
     const notificationIconSetting: StorageSetting = {
         key: notificationIconKey,
         title: `Notification icon (i.e. "mdi:webcam")`,
+        type: 'string',
+        group,
+        subgroup,
+        hide: !showMoreConfigurations,
+    };
+    const iconColorSetting: StorageSetting = {
+        key: iconColorKey,
+        title: `Icon color (i.e. "#FF0000" or "red")`,
         type: 'string',
         group,
         subgroup,
@@ -1800,6 +1814,9 @@ const getNotifierSettings = (props: {
     }
     if (withNotificationIcon) {
         settings.push(notificationIconSetting);
+    }
+    if (withIconColor) {
+        settings.push(iconColorSetting);
     }
     if (withClearNotification) {
         settings.push(clearNotificationSetting);
@@ -2996,6 +3013,7 @@ export interface BaseRule {
         openInApp?: boolean,
         channel?: string,
         notificationIcon?: string,
+        iconColor?: string,
         addDeleteNotificationAction?: boolean,
         addClearNotificationAction?: boolean,
         addOpenNotificationAction?: boolean,
@@ -3133,6 +3151,7 @@ const initBasicRule = (props: {
             withSound,
             withOpenInApp,
             withNotificationIcon,
+            withIconColor,
             withChannel,
             withClearNotificationDefault,
             withDeleteNotificationDefault,
@@ -3147,6 +3166,7 @@ const initBasicRule = (props: {
             openInAppKey,
             channelKey,
             notificationIconKey,
+            iconColorKey,
             clearNotificationKey,
             deleteNotificationKey,
             openNotificationKey,
@@ -3158,6 +3178,7 @@ const initBasicRule = (props: {
         const sound = withSound ? storage.getItem(soundKey) : undefined;
         const channel = withChannel ? storage.getItem(channelKey) : undefined;
         const notificationIcon = withNotificationIcon ? storage.getItem(notificationIconKey) : undefined;
+        const iconColor = withIconColor ? storage.getItem(iconColorKey) : undefined;
         const addCameraActions = storage.getItem(addCameraActionsKey) ?? addCameraActionsDefault;
         const addDeleteNotificationAction = storage.getItem(deleteNotificationKey) ?? withDeleteNotificationDefault;
         const addClearNotificationAction = storage.getItem(clearNotificationKey) ?? withClearNotificationDefault;
@@ -3171,6 +3192,7 @@ const initBasicRule = (props: {
             openInApp,
             channel,
             notificationIcon,
+            iconColor,
             addDeleteNotificationAction,
             addClearNotificationAction,
             addOpenNotificationAction,

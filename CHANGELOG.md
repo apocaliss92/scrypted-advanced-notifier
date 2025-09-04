@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.4.50
+- Add support HA icon color property
+
 ### 4.4.48
 - Add support for Zentik, new notifier system soon available for iOS
 
