@@ -2591,20 +2591,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 value: externalUrl,
             })
 
-            let tapAction;
-            if (openInApp) {
-                tapAction = {
-                    type: 'NAVIGATE',
-                    title: 'Live',
-                    value: externalUrl,
-                }
-            } else {
-                tapAction = {
-                    type: 'OPEN_NOTIFICATION',
-                    title: 'Open',
-                    value: '',
-                }
-            }
+            const tapUrl = openInApp ? externalUrl : undefined; 
 
             payload.data.zentik = {
                 priority: priority === NotificationPriority.High ? 'CRITICAL' :
@@ -2615,7 +2602,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 gifUrl,
                 videoUrl,
                 actions: zentikActions,
-                tapAction
+                tapUrl
             };
 
         } else if (notifier.pluginId === HOMEASSISTANT_PLUGIN_ID) {
