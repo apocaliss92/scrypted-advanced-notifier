@@ -2594,8 +2594,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const tapUrl = openInApp ? externalUrl : undefined; 
 
             payload.data.zentik = {
-                priority: priority === NotificationPriority.High ? 'CRITICAL' :
-                    priority === NotificationPriority.Low ? 'CRITICAL' : 'NORMAL',
+                deliveryType: priority === NotificationPriority.High ? 'CRITICAL' :
+                    priority === NotificationPriority.Low ? 'SILENT' : 'NORMAL',
                 addMarkAsReadAction: withClearNotification,
                 addOpenNotificationAction: withOpenNotification,
                 addDeleteAction: withDeleteNotification,
