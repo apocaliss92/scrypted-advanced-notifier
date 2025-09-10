@@ -1271,7 +1271,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         await this.refreshSettings();
     }
 
-    snoozeNotification(props: {
+    async snoozeNotification(props: {
         snoozeId: string;
         snoozeTime: number;
     }) {
@@ -1283,7 +1283,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const snoozedUntil = moment().add(snoozeTime, 'minutes').toDate().getTime();
         this.snoozeUntilDic[snoozeId] = snoozedUntil;
-        this.storageSettings.putSetting('snoozedData', JSON.stringify(this.snoozeUntilDic));
+        await this.storageSettings.putSetting('snoozedData', JSON.stringify(this.snoozeUntilDic));
 
         return res;
     }

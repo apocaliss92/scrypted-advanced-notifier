@@ -1031,7 +1031,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         snoozeTime = Number(decodedTimelapseNameOrSnoozeTime);
                     }
 
-                    const message = device?.snoozeNotification({
+                    const message = await device?.snoozeNotification({
                         snoozeId,
                         snoozeTime
                     });
@@ -1932,6 +1932,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const cameraMixin = this.currentCameraMixinsMap[device.id];
             const delay = rule.generateClipPostSeconds ?? 3;
             logger.log(`Starting clip ${rule.generateClipType} recording for rule ${rule.name} in ${delay} seconds (${decoderType})`);
+            cameraMixin.clipGenerationTimeout[rule.name] && clearTimeout(cameraMixin.clipGenerationTimeout[rule.name]);
             cameraMixin.clipGenerationTimeout[rule.name] = setTimeout(async () => {
                 await prepareClip();
             }, 1000 * delay)
@@ -2214,6 +2215,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                 const decoderType = cameraMixin.decoderType;
                 if (rule.generateClip && decoderType !== DecoderType.Off) {
+                    cameraMixin.clipGenerationTimeout[rule.name] && clearTimeout(cameraMixin.clipGenerationTimeout[rule.name]);
                     cameraMixin.clipGenerationTimeout[rule.name] = undefined;
                 }
             }

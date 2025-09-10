@@ -276,7 +276,7 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
 
                                     const deviceMixin = this.plugin.currentCameraMixinsMap[cameraId];
                                     if (deviceMixin) {
-                                        deviceMixin.snoozeNotification({ snoozeId, snoozeTime });
+                                        await deviceMixin.snoozeNotification({ snoozeId, snoozeTime });
                                     }
                                 },
                             }).catch(logger.error);
