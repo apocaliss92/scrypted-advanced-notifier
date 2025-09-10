@@ -2061,6 +2061,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         source: 'Detections' | 'MainFlow'
     }) {
         const { image: imageParent, source } = props;
+
+        const logger = this.getLogger();
+
+        logger.info(`CheckOccupancyData from source ${source}: ${JSON.stringify({ hasImage: !!imageParent, processingOccupanceData: this.processingOccupanceData })}`);
         if (this.processingOccupanceData) {
             return;
         }
@@ -2070,8 +2074,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
 
         const now = Date.now();
-
-        const logger = this.getLogger();
 
         try {
             const shouldRun = !!this.runningOccupancyRules.length || this.storageSettings.values.checkOccupancy;
@@ -2454,10 +2456,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     });
                 }
             }
-            this.processingOccupanceData = false;
         }
         catch (e) {
             logger.log('Error in checkOccupancyData', e);
+        } finally {
+            this.processingOccupanceData = false;
         }
     }
 

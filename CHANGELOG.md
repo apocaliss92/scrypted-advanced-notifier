@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.4.54
+- Add Dev notifications setting (General -> advanced) to opt-in to communications interesting for debug purpooses
+
 ### 4.4.50
 - Add support HA icon color property
 

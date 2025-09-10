@@ -23,7 +23,7 @@ import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodisco
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, defaultClipPostSeconds, defaultClipPreSeconds, defaultOccupancyClipPreSeconds, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ZENTIK_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, defaultClipPostSeconds, defaultClipPreSeconds, defaultOccupancyClipPreSeconds, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ZENTIK_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType, DevNotifications } from "./utils";
 import https from 'https';
 
 const { systemManager, mediaManager } = sdk;
@@ -32,7 +32,7 @@ export type PluginSettingKey =
     | 'pluginEnabled'
     | 'mqttEnabled'
     | 'notificationsEnabled'
-    | 'sendDevNotifications'
+    | 'devNotifications'
     | 'serverId'
     | 'localAddresses'
     | 'scryptedToken'
@@ -114,12 +114,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             defaultValue: true,
             immediate: true,
         },
-        sendDevNotifications: {
-            title: 'Send notifications on config errors',
-            description: 'Uses the devNotifier',
-            type: 'boolean',
-            defaultValue: false,
+        devNotifications: {
+            title: 'Dev notifications',
+            description: 'Enable the notifications you want to receive',
+            type: 'string',
+            multiple: true,
+            combobox: true,
+            choices: Object.keys(DevNotifications),
+            defaultValue: [],
             immediate: true,
+
             subgroup: 'Advanced',
         },
         privateKey: {
@@ -1435,7 +1439,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 });
             }
 
-            const { mqttEnabled, notificationsEnabled } = this.storageSettings.values;
+            const { mqttEnabled, notificationsEnabled, devNotifications, devNotifier } = this.storageSettings.values;
             if (mqttEnabled) {
                 const mqttClient = await this.getMqttClient();
                 if (mqttClient) {
@@ -1502,20 +1506,25 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                     let shouldRestart = false;
                     const maxActiveMotion = Math.floor(activeCameras / 15);
+                    let body: string;
                     if (pluginRpcObjects > softCap && ((now - this.connectionTime) > (1000 * 60 * 60 * 2)) && this.cameraMotionActive.size <= maxActiveMotion) {
-                        logger.log(`${pluginRpcObjects} (> ${softCap}) RPC objects found, soft resetting because not much active motion`)
+                        body = `${pluginRpcObjects} (> ${softCap}) RPC objects found, soft resetting because not much active motion`;
                         shouldRestart = true;
                     } else if (
                         pluginPendingResults > (MAX_PENDING_RESULT_PER_CAMERA * activeDevices) ||
                         pluginRpcObjects > hardCap
                     ) {
                         shouldRestart = true;
-                        logger.error(`High resources detected, ${pluginPendingResults} pending results and ${pluginRpcObjects} (> ${hardCap}) RPC objects. Restarting`);
+                        body = `High resources detected, ${pluginPendingResults} pending results and ${pluginRpcObjects} (> ${hardCap}) RPC objects. Restarting`;
                     }
 
                     if (shouldRestart) {
                         this.restartRequested = true;
                         await sdk.deviceManager.requestRestart();
+                        devNotifications?.includes(DevNotifications.SoftRestart) && (devNotifier as Notifier).sendNotification('Advanced notifier restarted', {
+                            body
+                        });
+                        logger.log(body);
 
                         for (const mixin of Object.values(this.currentCameraMixinsMap)) {
                             await mixin.onRestart();
@@ -1622,7 +1631,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             const {
                 devNotifier,
-                sendDevNotifications,
+                devNotifications,
                 scryptedToken,
                 nvrUrl,
                 objectDetectionDevice,
@@ -1679,7 +1688,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     (alertHaIssues && devicesWithoutRoom.length) ||
                     !!storagePathError
                 ) {
-                    sendDevNotifications && (devNotifier as Notifier).sendNotification('Advanced notifier not correctly configured', {
+                    devNotifications?.includes(DevNotifications.ConfigCheckError) && (devNotifier as Notifier).sendNotification('Advanced notifier not correctly configured', {
                         body
                     });
                 }
@@ -2591,7 +2600,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 value: externalUrl,
             })
 
-            const tapUrl = openInApp ? externalUrl : undefined; 
+            const tapUrl = openInApp ? externalUrl : undefined;
 
             payload.data.zentik = {
                 deliveryType: priority === NotificationPriority.High ? 'CRITICAL' :

@@ -52,6 +52,11 @@ export const DETECTION_CLIP_PREFIX = 'DETECTION';
 export const ADVANCED_NOTIFIER_PLUGIN_NAME = scrypted.name;
 export const SCRYPTED_NVR_OBJECT_DETECTION_NAME = 'Scrypted NVR Object Detection';
 
+export enum DevNotifications {
+    ConfigCheckError = 'ConfigCheckError',
+    SoftRestart = 'SoftRestart',
+}
+
 export const getAssetSource = (props: { videoUrl?: string, sourceId?: string }) => {
     const { sourceId, videoUrl } = props;
 
