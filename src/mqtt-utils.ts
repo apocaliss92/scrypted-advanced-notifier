@@ -224,6 +224,44 @@ const getBasicMqttEntities = () => {
         name: 'Alarm system',
         retain: false,
     };
+    const rpcObjectsEntity: MqttEntity = {
+        domain: 'sensor',
+        entity: 'rpc_objects',
+        name: 'RPC objects',
+        entityCategory: 'diagnostic',
+        icon: 'mdi:code-json',
+        retain: true,
+    };
+    const rssMemoryEntity: MqttEntity = {
+        domain: 'sensor',
+        entity: 'rss_memory',
+        name: 'RSS memory',
+        unitOfMeasurement: 'MB',
+        precision: 0,
+        stateClass: 'measurement',
+        entityCategory: 'diagnostic',
+        icon: 'mdi:memory',
+        retain: true,
+    };
+    const heapMemoryEntity: MqttEntity = {
+        domain: 'sensor',
+        entity: 'heap_memory',
+        name: 'Heap memory',
+        unitOfMeasurement: 'MB',
+        precision: 0,
+        stateClass: 'measurement',
+        entityCategory: 'diagnostic',
+        icon: 'mdi:memory',
+        retain: true,
+    };
+    const pendingResultsEntity: MqttEntity = {
+        domain: 'sensor',
+        entity: 'pending_results',
+        name: 'Pending results',
+        entityCategory: 'diagnostic',
+        icon: 'mdi:progress-clock',
+        retain: true,
+    };
 
     return {
         triggeredEntity,
@@ -244,6 +282,10 @@ const getBasicMqttEntities = () => {
         ptzRightEntity,
         snoozeEntity,
         alarmSystemEntity,
+        rpcObjectsEntity,
+        rssMemoryEntity,
+        heapMemoryEntity,
+        pendingResultsEntity,
     };
 }
 
@@ -534,8 +576,18 @@ const getPersonMqttEntities = (person: string) => {
         retain: true,
         identifier: MqttEntityIdentifier.LastImage
     };
+    const lastTriggerEntity: MqttEntity = {
+        entity: `${personId}${lastDetectionSuffix}`,
+        name: `${personName} last triggered`,
+        domain: 'sensor',
+        icon: 'mdi:clock',
+        deviceClass: 'timestamp',
+        retain: true,
+        disabled: true,
+        identifier: MqttEntityIdentifier.LastTrigger
+    };
 
-    return [personEntity, lastImageEntity];
+    return [personEntity, lastImageEntity, lastTriggerEntity];
 };
 
 // export const deviceClassMqttEntitiesGrouped = groupBy(deviceClassMqttEntities, entry => entry.className);
@@ -636,9 +688,19 @@ export const setupPluginAutodiscovery = async (props: {
 
     const {
         notificationsEnabledEntity,
+        rpcObjectsEntity,
+        rssMemoryEntity,
+        heapMemoryEntity,
+        pendingResultsEntity,
     } = getBasicMqttEntities();
 
-    mqttEntities.push(notificationsEnabledEntity);
+    mqttEntities.push(
+        notificationsEnabledEntity,
+        rpcObjectsEntity,
+        rssMemoryEntity,
+        heapMemoryEntity,
+        pendingResultsEntity,
+    );
 
     const pluginTopics = await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, console, device: pluginId });
     const peopleTopics = await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities: peopleEntities, device: peopleTrackerId, console });
@@ -1495,7 +1557,8 @@ export const publishPeopleData = async (props: {
     faces: string[],
     b64Image?: string,
     room?: string,
-    imageSource: ImageSource
+    imageSource: ImageSource,
+    triggerTime?: number,
 }) => {
     const {
         mqttClient,
@@ -1504,6 +1567,7 @@ export const publishPeopleData = async (props: {
         b64Image,
         faces,
         imageSource,
+        triggerTime,
     } = props;
 
     if (!mqttClient) {
@@ -1524,6 +1588,8 @@ export const publishPeopleData = async (props: {
                     value = b64Image || null;
                 } else if (identifier === MqttEntityIdentifier.PersonRoom && room) {
                     value = room;
+                } else if (identifier === MqttEntityIdentifier.LastTrigger && triggerTime) {
+                    value = new Date(triggerTime).toISOString();
                 }
 
                 if (value) {
@@ -1690,12 +1756,20 @@ export const publishPluginValues = async (props: {
     notificationsEnabled: boolean,
     rulesToEnable: BaseRule[],
     rulesToDisable: BaseRule[],
+    rpcObjects?: number,
+    rssMemoryMB?: number,
+    heapMemoryMB?: number,
+    pendingResults?: number,
 }) => {
     const {
         mqttClient,
         notificationsEnabled,
         rulesToDisable,
         rulesToEnable,
+        rpcObjects,
+        rssMemoryMB,
+        heapMemoryMB,
+        pendingResults,
     } = props;
 
     if (!mqttClient) {
@@ -1704,10 +1778,31 @@ export const publishPluginValues = async (props: {
 
     const {
         notificationsEnabledEntity,
+        rpcObjectsEntity,
+        rssMemoryEntity,
+        heapMemoryEntity,
+        pendingResultsEntity,
     } = getBasicMqttEntities();
 
     const { stateTopic: notificationsEnabledStateTopic } = getMqttTopics({ mqttEntity: notificationsEnabledEntity, device: pluginId });
     await mqttClient.publish(notificationsEnabledStateTopic, notificationsEnabled ? PAYLOAD_ON : PAYLOAD_OFF, notificationsEnabledEntity.retain);
+
+    if (rpcObjects !== undefined) {
+        const { stateTopic } = getMqttTopics({ mqttEntity: rpcObjectsEntity, device: pluginId });
+        await mqttClient.publish(stateTopic, String(rpcObjects), rpcObjectsEntity.retain);
+    }
+    if (rssMemoryMB !== undefined) {
+        const { stateTopic } = getMqttTopics({ mqttEntity: rssMemoryEntity, device: pluginId });
+        await mqttClient.publish(stateTopic, String(rssMemoryMB), rssMemoryEntity.retain);
+    }
+    if (heapMemoryMB !== undefined) {
+        const { stateTopic } = getMqttTopics({ mqttEntity: heapMemoryEntity, device: pluginId });
+        await mqttClient.publish(stateTopic, String(heapMemoryMB), heapMemoryEntity.retain);
+    }
+    if (pendingResults !== undefined) {
+        const { stateTopic } = getMqttTopics({ mqttEntity: pendingResultsEntity, device: pluginId });
+        await mqttClient.publish(stateTopic, String(pendingResults), pendingResultsEntity.retain);
+    }
 
     for (const rule of rulesToEnable) {
         await publishRuleCurrentlyActive({

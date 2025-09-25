@@ -1465,12 +1465,26 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                         await this.setupMqttEntities();
                     }
+                    let pluginRpcObjects: number | undefined;
+                    let pluginPendingResults: number | undefined;
+                    try {
+                        const { stats } = await getRpcData();
+                        const pluginStats = stats[pluginName];
+                        pluginPendingResults = pluginStats?.pendingResults;
+                        pluginRpcObjects = pluginStats?.rpcObjects;
+                    } catch (e) {
+                        logger?.error('Errore recuperando statistiche RPC per publishPluginValues', e);
+                    }
 
                     publishPluginValues({
                         mqttClient,
                         notificationsEnabled,
                         rulesToEnable,
                         rulesToDisable,
+                        rpcObjects: pluginRpcObjects,
+                        pendingResults: pluginPendingResults,
+                        rssMemoryMB: typeof process !== 'undefined' && process.memoryUsage ? Math.round(process.memoryUsage().rss / 1024 / 1024) : undefined,
+                        heapMemoryMB: typeof process !== 'undefined' && process.memoryUsage ? Math.round(process.memoryUsage().heapUsed / 1024 / 1024) : undefined,
                     }).catch(logger.error);
                 }
             }

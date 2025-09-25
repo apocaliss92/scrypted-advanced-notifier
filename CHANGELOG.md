@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.4.58
+- Add last face detection time to MQTT
+- Add diagnostic values to MQTT: rpcObjects, memoryUsed, pendingResults
+
 ### 4.4.56
 - Add source for faces used on people tracker as RawDetections
 

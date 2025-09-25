@@ -2835,6 +2835,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                             b64Image: newB64Image,
                                             room: this.cameraDevice.room,
                                             imageSource,
+                                            triggerTime
                                         }).catch(logger.error);
                                     }
                                 }
@@ -3679,6 +3680,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 b64Image: croppedNvrB64Image,
                                 room: this.cameraDevice.room,
                                 imageSource: ImageSource.Input,
+                                triggerTime,
                             }).catch(logger.error);
                         }
                     }
