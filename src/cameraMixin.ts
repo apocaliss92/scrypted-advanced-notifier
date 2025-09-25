@@ -391,7 +391,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
 
         this.clientId = `scrypted_an_camera_${this.id}`;
-        this.plugin.currentCameraMixinsMap[this.id] = this;
 
         this.cameraDevice = systemManager.getDeviceById<DeviceInterface>(this.id);
 
@@ -1585,7 +1584,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async release() {
         const logger = this.getLogger();
-        logger.log('Releasing mixin');
+        logger.info('Releasing mixin');
         this.killed = true;
         this.mainLoopListener && clearInterval(this.mainLoopListener);
         this.mainLoopListener = undefined;
@@ -1597,8 +1596,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         this.resetListeners();
         this.stopDecoder('Release');
-
-        delete this.plugin.currentCameraMixinsMap[this.id];
     }
 
     public getLogger(forceNew?: boolean) {

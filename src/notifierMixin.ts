@@ -114,7 +114,6 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
             this.interfaces.includes(ScryptedInterface.OnOff);
 
         this.clientId = `scrypted_an_notifier_${this.id}`;
-        this.plugin.currentNotifierMixinsMap[this.id] = this;
 
         this.initValues().then().catch(logger.log);
 
@@ -173,8 +172,6 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
         this.killed = true;
         this.mainLoopListener && clearInterval(this.mainLoopListener);
         this.mainLoopListener = undefined;
-
-        delete this.plugin.currentNotifierMixinsMap[this.id];
     }
 
     public getLogger(forceNew?: boolean) {

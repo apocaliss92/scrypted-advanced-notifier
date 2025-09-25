@@ -1811,7 +1811,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         }
                     }
                 } else {
-                    logger.log(`Mixin not found for device ${device.name}`);
+                    logger.info(`Mixin not found for device ${device.name}`);
                 }
             }
 
@@ -2457,21 +2457,27 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { isCamera, isSensor, isNotifier, sensorType } = isDeviceSupported({ interfaces: mixinDeviceInterfaces } as DeviceBase);
 
         if (isCamera) {
-            return new AdvancedNotifierCameraMixin(
+            const mixin = new AdvancedNotifierCameraMixin(
                 props,
                 this
             );
+            this.currentCameraMixinsMap[mixin.id] = mixin;
+            return mixin;
         } else if (isSensor) {
-            return new AdvancedNotifierSensorMixin(
+            const mixin = new AdvancedNotifierSensorMixin(
                 props,
                 sensorType,
                 this
             );
+            this.currentSensorMixinsMap[mixin.id] = mixin;
+            return mixin;
         } else if (isNotifier) {
-            return new AdvancedNotifierNotifierMixin(
+            const mixin = new AdvancedNotifierNotifierMixin(
                 props,
                 this
             );
+            this.currentNotifierMixinsMap[mixin.id] = mixin;
+            return mixin;
         }
     }
 
@@ -3436,7 +3442,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const mixin = this.currentCameraMixinsMap[device.id];
         const { className, label } = detection ?? {};
 
-        if (b64Image) {
+        if (b64Image && mixin) {
             if (mixin.isDelayPassed({ type: DelayType.FsImageUpdate, filename: name, eventSource })?.timePassed) {
                 const { cameraPath } = this.getFsPaths({ cameraName: device.name });
 

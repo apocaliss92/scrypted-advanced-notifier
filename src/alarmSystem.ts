@@ -388,7 +388,6 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
 
         this.mqttClient && this.mqttClient.disconnect();
         this.resetListeners();
-        delete this.plugin.alarmSystem;
     }
 
     resetActivationListener() {
