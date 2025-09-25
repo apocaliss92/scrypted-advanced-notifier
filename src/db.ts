@@ -34,6 +34,8 @@ export const cleanupEvents = async (props: { logger: Console }) => {
   logger.log(`All DBs pruned`);
 }
 
+const dailyDbCache: Record<string, { db: JsonDB, lastUse: number }> = {};
+
 const getDbForEvent = async (timestamp: number) => {
   const date = new Date(timestamp);
   const dayStr = moment(date).format(dbFileFormat);
@@ -45,8 +47,17 @@ const getDbForEvent = async (timestamp: number) => {
   }
 
   const dbPath = path.join(eventDbsPath, dayStr);
+
+  let cached = dailyDbCache[dbPath];
+  if (!cached) {
+    cached = { db: new JsonDB(new Config(dbPath, true, true, '/')), lastUse: Date.now() };
+    dailyDbCache[dbPath] = cached;
+  } else {
+    cached.lastUse = Date.now();
+  }
+
   return {
-    db: new JsonDB(new Config(dbPath, true, true, '/')),
+    db: cached.db,
     dayStr,
   };
 }
@@ -63,10 +74,31 @@ export const addEvent = async (props: {
   } catch (e) {
     logger.log(`Initializing events DB ${dayStr}`);
   }
+  // try {
+  //   const current = await db.getObject<DbDetectionEvent[]>('/events');
+  //   if (Array.isArray(current) && current.length >= MAX_EVENTS_PER_DAY) {
+  //     // Rimuovo il 10% più vecchio per ridurre frequenza pruning.
+  //     const prune = Math.ceil(MAX_EVENTS_PER_DAY * 0.1);
+  //     const trimmed = current.slice(prune);
+  //     await db.push('/events', trimmed, true); // overwrite
+  //     logger.log(`Pruned ${prune} events from day ${dayStr} (size -> ${trimmed.length})`);
+  //   }
+  // } catch {
+  //   // Ignora: /events non esiste ancora
+  // }
 
   await db.push('/events[]', event);
-  logger.info(`Record ${JSON.stringify(event)} pushed to events DB ${dayStr}`);
+  logger.info(`Record ${JSON.stringify({ id: event.id, ts: event.timestamp, dev: event.deviceId, classes: event.classes })} pushed to events DB ${dayStr}`);
 }
+
+export const cleanupDbCache = (idleMs = 5 * 60 * 1000) => {
+  const now = Date.now();
+  for (const [key, value] of Object.entries(dailyDbCache)) {
+    if ((now - value.lastUse) > idleMs) {
+      delete dailyDbCache[key];
+    }
+  }
+};
 
 export const getEventDays = async () => {
   const folders = await fs.promises.readdir(eventDbsPath);

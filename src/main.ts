@@ -38,8 +38,8 @@ export type PluginSettingKey =
     | 'scryptedToken'
     | 'nvrUrl'
     | 'mqttActiveEntitiesTopic'
-    | 'useNvrDetectionsForMqtt'
     | 'detectionSourceForMqtt'
+    | 'facesSourceForMqtt'
     | 'onActiveDevices'
     | 'objectDetectionDevice'
     | 'clipDevice'
@@ -166,13 +166,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 await this.setupMqttEntities();
             },
         },
-        useNvrDetectionsForMqtt: {
-            subgroup: 'MQTT',
-            title: 'Use NVR detections',
-            description: 'Use NVR detection to publish MQTT state messages for basic detections.',
-            type: 'boolean',
-            immediate: true
-        },
         detectionSourceForMqtt: {
             title: 'Detections source',
             description: 'Which source should be used to update MQTT',
@@ -181,6 +174,17 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             immediate: true,
             combobox: true,
             choices: [],
+            defaultValue: ScryptedEventSource.NVR
+        },
+        facesSourceForMqtt: {
+            title: 'Faces source',
+            description: 'Which source should be used to update the people tracker.',
+            type: 'string',
+            subgroup: 'MQTT',
+            immediate: true,
+            combobox: true,
+            choices: [],
+            defaultValue: ScryptedEventSource.NVR
         },
         ...getTextSettings({ forMixin: false }),
         [ruleTypeMetadataMap[RuleType.Detection].rulesKey]: {
@@ -563,9 +567,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     lastAudioDataFetched: number;
     localEndpointInternal: string;
     connectionTime = Date.now();
+    private lastLeakDebugLog: number;
 
-    imageEmbeddingCache: Map<string, Buffer> = new Map();
-    textEmbeddingCache: Map<string, Buffer> = new Map();
+    imageEmbeddingCache: Record<string, Buffer> = {};
+    textEmbeddingCache: Record<string, Buffer> = {};
 
     accumulatedTimelapsesToGenerate: { ruleName: string, deviceId: string }[] = [];
     mainFlowInProgress = false;
@@ -1520,6 +1525,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                     if (shouldRestart) {
                         this.restartRequested = true;
+                        await this.logLeakDebug('pre-restart');
                         await sdk.deviceManager.requestRestart();
                         devNotifications?.includes(DevNotifications.SoftRestart) && (devNotifier as Notifier).sendNotification('Advanced notifier restarted', {
                             body
@@ -1531,6 +1537,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         }
                     }
                 }
+            }
+
+            // Leak debug logs ogni ora
+            const nowTs = Date.now();
+            const oneHour = 1000 * 60 * 60;
+            const leakDebugEnabled = this.storageSettings.values.devNotifications?.includes(DevNotifications.LeakDebugLogs);
+            if (leakDebugEnabled && (!this.lastLeakDebugLog || (nowTs - this.lastLeakDebugLog) > oneHour)) {
+                this.lastLeakDebugLog = nowTs;
+                await this.logLeakDebug('regular');
             }
 
             if (this.accumulatedTimelapsesToGenerate) {
@@ -1560,6 +1575,156 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger.log('Error in mainFlow', e);
         } finally {
             this.mainFlowInProgress = false;
+        }
+    }
+
+    private async collectLeakMetrics() {
+        const { stats } = await getRpcData();
+        const pluginStats = stats[pluginName] || {};
+        const cameras = Object.values(this.currentCameraMixinsMap);
+        const sensors = Object.values(this.currentSensorMixinsMap);
+        const notifiers = Object.values(this.currentNotifierMixinsMap);
+
+        const cameraMaps = cameras.map(c => {
+            const ruleListeners = c.detectionRuleListeners || {};
+            const perRuleTimeouts = Object.entries(ruleListeners).map(([rule, data]: any) => ({
+                rule,
+                disableNvrRecordingTimeout: !!data?.disableNvrRecordingTimeout,
+                turnOffTimeout: !!data?.turnOffTimeout,
+            }));
+            const activeRuleTimeouts = perRuleTimeouts.reduce((acc, cur) => {
+                if (cur.disableNvrRecordingTimeout) acc.disableNvrRecordingTimeout++;
+                if (cur.turnOffTimeout) acc.turnOffTimeout++;
+                return acc;
+            }, { disableNvrRecordingTimeout: 0, turnOffTimeout: 0 });
+
+            const delayKeys = Object.entries(c.lastDelaySet || {}).filter(([_, v]) => !!v).length;
+            const mixin: any = c;
+            const timers = {
+                clipGenerationTimeouts: Object.keys(mixin.clipGenerationTimeout || {}).length,
+                mqttDetectionMotionTimeout: mixin.mqttDetectionMotionTimeout ? 1 : 0,
+                processDetectionsInterval: mixin.processDetectionsInterval ? 1 : 0,
+                mainLoopListener: mixin.mainLoopListener ? 1 : 0,
+                ruleDisableNvrRecordingTimeouts: activeRuleTimeouts.disableNvrRecordingTimeout,
+                ruleTurnOffTimeouts: activeRuleTimeouts.turnOffTimeout,
+            };
+            return {
+                id: c.id,
+                lastDelaySet: Object.keys(c.lastDelaySet || {}).length,
+                activeDelayKeys: delayKeys,
+                clipGenerationTimeout: Object.keys(c.clipGenerationTimeout || {}).length,
+                detectionRuleListeners: Object.keys(ruleListeners).length,
+                objectIdLastReport: Object.keys(c.objectIdLastReport).length,
+                detectionIdEventIdMap: Object.keys(c.detectionIdEventIdMap).length,
+                ruleTimeouts: activeRuleTimeouts,
+                hasFrameGenerator: !!mixin.currentFrameGenerator,
+                hasProcessDetectionsInterval: !!mixin.processDetectionsInterval,
+                hasMainLoopListener: !!mixin.mainLoopListener,
+                timers,
+            };
+        });
+
+        // Somme aggregate
+        const aggregate = cameraMaps.reduce((acc, cur) => {
+            acc.detectionIdEventIdMap += cur.detectionIdEventIdMap || 0;
+            acc.objectIdLastReport += cur.objectIdLastReport || 0;
+            acc.lastDelaySet += cur.lastDelaySet || 0;
+            acc.activeDelayKeys += cur.activeDelayKeys || 0;
+            acc.clipGenerationTimeout += cur.clipGenerationTimeout || 0;
+            acc.detectionRuleListeners += cur.detectionRuleListeners || 0;
+            acc.ruleTimeouts.disableNvrRecordingTimeout += cur.ruleTimeouts?.disableNvrRecordingTimeout || 0;
+            acc.ruleTimeouts.turnOffTimeout += cur.ruleTimeouts?.turnOffTimeout || 0;
+            acc.frameGenerators += cur.hasFrameGenerator ? 1 : 0;
+            acc.processDetectionsIntervals += cur.hasProcessDetectionsInterval ? 1 : 0;
+            acc.mainLoopListeners += cur.hasMainLoopListener ? 1 : 0;
+            acc.timers.clipGenerationTimeouts += cur.timers?.clipGenerationTimeouts || 0;
+            acc.timers.mqttDetectionMotionTimeout += cur.timers?.mqttDetectionMotionTimeout || 0;
+            acc.timers.processDetectionsInterval += cur.timers?.processDetectionsInterval || 0;
+            acc.timers.mainLoopListener += cur.timers?.mainLoopListener || 0;
+            acc.timers.ruleDisableNvrRecordingTimeouts += cur.timers?.ruleDisableNvrRecordingTimeouts || 0;
+            acc.timers.ruleTurnOffTimeouts += cur.timers?.ruleTurnOffTimeouts || 0;
+            return acc;
+        }, { detectionIdEventIdMap: 0, objectIdLastReport: 0, lastDelaySet: 0, activeDelayKeys: 0, clipGenerationTimeout: 0, detectionRuleListeners: 0, ruleTimeouts: { disableNvrRecordingTimeout: 0, turnOffTimeout: 0 }, frameGenerators: 0, processDetectionsIntervals: 0, mainLoopListeners: 0, timers: { clipGenerationTimeouts: 0, mqttDetectionMotionTimeout: 0, processDetectionsInterval: 0, mainLoopListener: 0, ruleDisableNvrRecordingTimeouts: 0, ruleTurnOffTimeouts: 0 } });
+
+        const mem = process.memoryUsage();
+        return {
+            timestamp: new Date().toISOString(),
+            rpcObjects: (pluginStats as any).rpcObjects,
+            pendingResults: (pluginStats as any).pendingResults,
+            cameras: cameras.length,
+            sensors: sensors.length,
+            notifiers: notifiers.length,
+            memory: {
+                rss: mem.rss,
+                heapUsed: mem.heapUsed,
+                heapTotal: mem.heapTotal,
+                external: mem.external,
+            },
+            aggregateCameraData: aggregate,
+            perCamera: cameraMaps,
+        };
+    }
+
+    // Unified leak debug logger
+    private previousLeakMetrics: any;
+    private async logLeakDebug(reason: 'regular' | 'pre-restart') {
+        const logger = this.getLogger();
+        try {
+            const leakDebugEnabled = this.storageSettings.values.devNotifications?.includes(DevNotifications.LeakDebugLogs);
+            if (!leakDebugEnabled) {
+                return;
+            }
+            const metrics = await this.collectLeakMetrics();
+            let delta: any;
+            if (this.previousLeakMetrics) {
+                delta = {
+                    rpcObjects: metrics.rpcObjects - (this.previousLeakMetrics.rpcObjects || 0),
+                    pendingResults: metrics.pendingResults - (this.previousLeakMetrics.pendingResults || 0),
+                    lastDelaySet: metrics.aggregateCameraData.lastDelaySet - (this.previousLeakMetrics.aggregateCameraData?.lastDelaySet || 0),
+                    activeDelayKeys: metrics.aggregateCameraData.activeDelayKeys - (this.previousLeakMetrics.aggregateCameraData?.activeDelayKeys || 0),
+                    frameGenerators: metrics.aggregateCameraData.frameGenerators - (this.previousLeakMetrics.aggregateCameraData?.frameGenerators || 0),
+                    processDetectionsIntervals: metrics.aggregateCameraData.processDetectionsIntervals - (this.previousLeakMetrics.aggregateCameraData?.processDetectionsIntervals || 0),
+                    mainLoopListeners: metrics.aggregateCameraData.mainLoopListeners - (this.previousLeakMetrics.aggregateCameraData?.mainLoopListeners || 0),
+                    timers: metrics.aggregateCameraData.timers && this.previousLeakMetrics.aggregateCameraData?.timers ? Object.keys(metrics.aggregateCameraData.timers).reduce((acc, k) => { acc[k] = metrics.aggregateCameraData.timers[k] - (this.previousLeakMetrics.aggregateCameraData.timers[k] || 0); return acc; }, {}) : undefined,
+                    memory: {
+                        rss: metrics.memory.rss - (this.previousLeakMetrics.memory?.rss || 0),
+                        heapUsed: metrics.memory.heapUsed - (this.previousLeakMetrics.memory?.heapUsed || 0),
+                        heapTotal: metrics.memory.heapTotal - (this.previousLeakMetrics.memory?.heapTotal || 0),
+                        external: metrics.memory.external - (this.previousLeakMetrics.memory?.external || 0),
+                    }
+                };
+            }
+            this.previousLeakMetrics = metrics;
+            const tag = reason === 'pre-restart' ? 'LEAK-DEBUG-PRE-RESTART' : 'LEAK-DEBUG';
+            logger.log(`${tag}: ${JSON.stringify({ metrics, delta })}`);
+            const { devNotifier } = this.storageSettings.values;
+            if (devNotifier) {
+                const agg = metrics.aggregateCameraData;
+                const mem = metrics.memory;
+                const prefix = reason === 'pre-restart' ? '(pre)' : '';
+
+                const formatDelta = (v?: number) => v === undefined ? '' : ` (${v >= 0 ? '+' : ''}${v})`;
+                const formatDeltaMB = (v?: number) => v === undefined ? '' : ` (${v >= 0 ? '+' : ''}${v}MB)`;
+                const rssMB = Math.round(mem.rss / 1024 / 1024);
+                const heapUsedMB = Math.round(mem.heapUsed / 1024 / 1024);
+                const rssDeltaMB = delta?.memory ? Math.round(delta.memory.rss / 1024 / 1024) : undefined;
+                const heapDeltaMB = delta?.memory ? Math.round(delta.memory.heapUsed / 1024 / 1024) : undefined;
+                const rpcDelta = delta?.rpcObjects;
+                const delaysDelta = delta?.lastDelaySet;
+                const lines: string[] = [
+                    `${prefix} rpcObjects=${metrics.rpcObjects}${formatDelta(rpcDelta)}`,
+                    `${prefix} memoria rss=${rssMB}MB${formatDeltaMB(rssDeltaMB)}`,
+                    `${prefix} memoria heapUsed=${heapUsedMB}MB${formatDeltaMB(heapDeltaMB)}`,
+                    `${prefix} delays total=${agg.lastDelaySet}${formatDelta(delaysDelta)}`,
+                ];
+                const body = lines.join('\n');
+                (devNotifier as Notifier).sendNotification(
+                    reason === 'pre-restart' ? 'Leak debug (pre-restart)' : 'Leak debug',
+                    { body }
+                );
+            }
+        } catch (e) {
+            logger.log(`Error in logLeakDebug (${reason})`, e);
         }
     }
 
@@ -1767,7 +1932,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         const {
             mqttEnabled,
-            useNvrDetectionsForMqtt,
             testDevice,
             testNotifier,
             testGenerateClip,
@@ -1775,14 +1939,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         try {
             if (mqttEnabled) {
-                this.storageSettings.settings.detectionSourceForMqtt.defaultValue =
-                    useNvrDetectionsForMqtt ? ScryptedEventSource.NVR : ScryptedEventSource.RawDetection;
                 this.storageSettings.settings.detectionSourceForMqtt.choices = this.enabledDetectionSources;
+                this.storageSettings.settings.facesSourceForMqtt.choices = this.enabledDetectionSources;
             }
-            this.storageSettings.settings.useNvrDetectionsForMqtt.hide = true;
 
             this.storageSettings.settings.mqttActiveEntitiesTopic.hide = !mqttEnabled;
             this.storageSettings.settings.detectionSourceForMqtt.hide = !mqttEnabled;
+            this.storageSettings.settings.facesSourceForMqtt.hide = !mqttEnabled;
         } catch { }
 
         const { isCamera } = testDevice ? isDeviceSupported(testDevice) : {};
@@ -2602,7 +2765,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 value: externalUrl,
             })
 
-            const tapUrl = openInApp ? externalUrl : undefined;
+            const tapUrl = openInApp && rule.ruleType === RuleType.Detection ?
+                externalUrl :
+                undefined;
 
             payload.data.zentik = {
                 deliveryType: priority === NotificationPriority.High ? 'CRITICAL' :
@@ -3256,15 +3421,17 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             ) {
                 for (const url of postDetectionImageUrls) {
                     logger.log(`Posting ${className} image to ${url}, ${timestamp} ${label}`);
-                    await axios.post(url, {
-                        classname: className,
-                        label,
-                        b64Image,
-                        timestamp,
-                        name
-                    }, { timeout: 5000 }).catch(e => {
+                    try {
+                        await axios.post(url, {
+                            classname: className,
+                            label,
+                            b64Image,
+                            timestamp,
+                            name
+                        }, { timeout: 5000 })
+                    } catch (e) {
                         logger.log(`Error webhook POST ${url}: ${e.message}`);
-                    });
+                    }
                 }
             }
         }

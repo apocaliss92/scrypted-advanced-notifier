@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.4.56
+- Add source for faces used on people tracker as RawDetections
+
 ### 4.4.54
 - Add Dev notifications setting (General -> advanced) to opt-in to communications interesting for debug purpooses
 

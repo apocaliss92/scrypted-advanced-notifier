@@ -55,6 +55,7 @@ export const SCRYPTED_NVR_OBJECT_DETECTION_NAME = 'Scrypted NVR Object Detection
 export enum DevNotifications {
     ConfigCheckError = 'ConfigCheckError',
     SoftRestart = 'SoftRestart',
+    LeakDebugLogs = 'LeakDebugLogs',
 }
 
 export const getAssetSource = (props: { videoUrl?: string, sourceId?: string }) => {
@@ -175,6 +176,7 @@ export enum DelayType {
     DecoderFrameOnStorage = 'DecoderFrameOnStorage',
     BasicDetectionImage = 'BasicDetectionImage',
     BasicDetectionTrigger = 'BasicDetectionTrigger',
+    PeopleTrackerImageUpdate = 'PeopleTrackerImageUpdate',
     RuleImageUpdate = 'RuleImageUpdate',
     RuleNotification = 'RuleNotification',
     RuleMinCheck = 'RuleMinCh',
@@ -238,6 +240,7 @@ export type IsDelayPassedProps =
     { type: DelayType.OccupancyRegularCheck } |
     { type: DelayType.DecoderFrameOnStorage, eventSource: ScryptedEventSource, timestamp: number } |
     { type: DelayType.EventStore, identifiers: string[] } |
+    { type: DelayType.PeopleTrackerImageUpdate, label: string } |
     { type: DelayType.BasicDetectionImage, classname: string, label?: string, eventSource: ScryptedEventSource } |
     { type: DelayType.BasicDetectionTrigger, classname: string, label?: string, eventSource: ScryptedEventSource } |
     { type: DelayType.FsImageUpdate, filename: string, eventSource: ScryptedEventSource } |
@@ -625,7 +628,7 @@ export const getDetectionsPerZone = (detections: ObjectDetectionResult[]) => {
 export const filterAndSortValidDetections = (props: {
     detect: ObjectsDetected,
     logger: Console,
-    objectIdLastReport: Map<string, number>
+    objectIdLastReport: Record<string, number>
 }) => {
     const { detect, logger, objectIdLastReport } = props;
     const { detections = [] } = detect ?? {};
@@ -641,7 +644,7 @@ export const filterAndSortValidDetections = (props: {
     const candidates = uniqueByClassName.filter(det => {
         const { className, label, movement, id } = det;
         if (id) {
-            const lastNotify = objectIdLastReport.get(id);
+            const lastNotify = objectIdLastReport[id];
 
             if (lastNotify && Date.now() - lastNotify < (1000 * 20)) {
                 return false;
@@ -658,7 +661,7 @@ export const filterAndSortValidDetections = (props: {
                 logger.debug(`Label ${label} not valid`);
                 return false;
             } else {
-                isFaceClassname(className) && faces.add(label);
+                return isFaceClassname(className) && faces.add(label);
             }
         } else if (movement && !movement.moving) {
             logger.debug(`Movement data ${JSON.stringify(movement)} not valid: ${JSON.stringify(det)}`);
@@ -3974,7 +3977,7 @@ export const getDetectionKey = (matchRule: MatchRule) => {
         const { label, className } = match;
         const classname = detectionClassesDefaultMap[className];
         key = `${key}-${classname}`;
-        if (label) {
+        if (label && !isPlateClassname(className)) {
             key += `-${label}`;
         }
     }
@@ -4140,11 +4143,11 @@ export const getEmbeddingSimilarityScore = async (props: {
     if (imageEmbedding) {
         imageEmbeddingBuffer = Buffer.from(imageEmbedding, "base64");
     } else if (image) {
-        if (detId && plugin.imageEmbeddingCache.has(detId)) {
-            imageEmbeddingBuffer = plugin.imageEmbeddingCache.get(detId);
+        if (detId && plugin.imageEmbeddingCache[detId]) {
+            imageEmbeddingBuffer = plugin.imageEmbeddingCache[detId];
         } else {
             imageEmbeddingBuffer = await clipDevice.getImageEmbedding(image);
-            plugin.imageEmbeddingCache.set(detId, imageEmbeddingBuffer);
+            plugin.imageEmbeddingCache[detId] = imageEmbeddingBuffer;
         }
     }
 
@@ -4155,11 +4158,11 @@ export const getEmbeddingSimilarityScore = async (props: {
             imageEmbeddingBuffer.length / Float32Array.BYTES_PER_ELEMENT
         );
 
-        if (plugin.textEmbeddingCache.has(text)) {
-            textEmbeddingBuffer = plugin.textEmbeddingCache.get(text);
+        if (plugin.textEmbeddingCache[text]) {
+            textEmbeddingBuffer = plugin.textEmbeddingCache[text];
         } else {
             textEmbeddingBuffer = await clipDevice.getTextEmbedding(text);
-            plugin.textEmbeddingCache.set(text, textEmbeddingBuffer);
+            plugin.textEmbeddingCache[text] = textEmbeddingBuffer;
         }
 
         const textEmbedding = new Float32Array(

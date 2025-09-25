@@ -177,15 +177,17 @@ export const cropImageToDetection = async (props: {
     boundingBox: [number, number, number, number],
     image: MediaObject;
     plugin: AdvancedNotifierPlugin;
+    sizeIncrease?: number;
+    console: Console
 }) => {
-    const { image, boundingBox, inputDimensions, plugin } = props;
+    const { image, boundingBox, inputDimensions, plugin, sizeIncrease, console } = props;
     const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(image, ScryptedMimeTypes.Image);
 
     const { postProcessingCropSizeIncrease, postProcessingAspectRatio } = plugin.storageSettings.values;
     const { crop, boundingBox: newBoundingBox } = getCropResizeOptions({
         inputDimensions,
         aspectRatio: postProcessingAspectRatio || 'camera',
-        sizeIncrease: postProcessingCropSizeIncrease,
+        sizeIncrease: sizeIncrease ?? postProcessingCropSizeIncrease,
         boundingBox,
     });
 
@@ -201,10 +203,11 @@ export const cropImageToDetection = async (props: {
                 newImage,
             };
         } catch (e) {
-            throw new Error(`${e.message}: ${JSON.stringify({
+            console.error(`${e.message}: ${JSON.stringify({
                 crop,
                 newBoundingBox,
-            })}`)
+            })}`);
+            return {};
         }
     } else {
         const newB64Image = await moToB64(image);
