@@ -321,7 +321,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     isActiveForAudioVolumesDetections: boolean;
     isActiveForAudioSensorDetections: boolean;
     initializingMqtt: boolean;
-    lastAutoDiscovery: number;
     lastFsCleanup: number;
     logger: Console;
     killed: boolean;
@@ -341,7 +340,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         turnOffTimeout?: NodeJS.Timeout;
     }> = {};
     lastDelaySet: Record<string, number> = {};
-    lastDelaySetPruneTime: number;
     lastObserveZonesFetched: number;
     lastAudioDataFetched: number;
     observeZoneData: ObserveZoneData[];
@@ -399,7 +397,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         this.initValues().catch(logger.log);
 
-        this.startStop(this.plugin.storageSettings.values.pluginEnabled).catch(logger.log);
+        this.startStop(this.plugin.storageSettings.values.pluginEnabled, 'mixin_init').catch(logger.log);
     }
 
     async getVideoClips(options?: VideoClipOptions): Promise<VideoClip[]> {
@@ -678,11 +676,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         return this.mqttClient;
     }
 
-    public async startStop(enabled: boolean) {
+    public async startStop(enabled: boolean, reason: string) {
+        const logger = this.getLogger();
         if (enabled) {
             await this.startCheckInterval();
             this.ensureMixinsOrder();
         } else {
+            logger.log(`Stopping mixin for reason ${reason}`);
             await this.release();
         }
     }
@@ -888,73 +888,71 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 if (isActiveForMqttReporting) {
                     const mqttClient = await this.getMqttClient();
                     if (mqttClient) {
-                        // Every 60 minutes repeat the autodiscovery
-                        if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
-                            this.lastAutoDiscovery = now;
-                            const zones = (await this.getObserveZones()).map(item => item.name);;
-
-                            logger.log('Starting MQTT autodiscovery');
-                            setupCameraAutodiscovery({
-                                mqttClient,
-                                device: this.cameraDevice,
-                                console: logger,
-                                rules: allAvailableRules,
-                                occupancyEnabled: checkOccupancy,
-                                zones
-                            }).then(async (activeTopics) => {
+                        const lastGlobal = this.plugin.lastCameraAutodiscoveryMap[this.id];
+                        if (!lastGlobal || (now - lastGlobal) > 1000 * 60 * 60) {
+                            this.plugin.enqueueCameraAutodiscovery(this.id, async () => {
+                                const zones = (await this.getObserveZones()).map(item => item.name);
+                                logger.log('Starting MQTT autodiscovery (queued)');
+                                const activeTopics = await setupCameraAutodiscovery({
+                                    mqttClient,
+                                    device: this.cameraDevice,
+                                    console: logger,
+                                    rules: allAvailableRules,
+                                    occupancyEnabled: checkOccupancy,
+                                    zones
+                                });
                                 await this.mqttClient.cleanupAutodiscoveryTopics(activeTopics);
-                            }).catch(logger.error);
 
-                            logger.debug(`Subscribing to mqtt topics`);
-                            subscribeToCameraMqttTopics({
-                                mqttClient,
-                                rules: allAvailableRules,
-                                device: this.cameraDevice,
-                                console: logger,
-                                activationRuleCb: async ({ active, ruleName, ruleType }) => {
-                                    const { common: { enabledKey } } = getRuleKeys({ ruleName, ruleType });
-                                    logger.log(`Setting ${ruleType} rule ${ruleName} to ${active}`);
-                                    await this.storageSettings.putSetting(`${enabledKey}`, active);
-                                },
-                                switchNotificationsEnabledCb: async (active) => {
-                                    logger.log(`Setting notifications active to ${active}`);
-                                    await this.storageSettings.putSetting(`notificationsEnabled`, active);
-                                },
-                                switchOccupancyCheckCb: async (active) => {
-                                    logger.log(`Setting occupancy check to ${active}`);
-                                    await this.storageSettings.putSetting(`checkOccupancy`, active);
-                                },
-                                switchRecordingCb: this.cameraDevice.interfaces.includes(ScryptedInterface.VideoRecorder) ?
-                                    async (active) => {
-                                        logger.log(`Setting NVR privacy mode to ${!active}`);
-                                        await this.toggleRecording(this.cameraDevice, active);
-                                    } :
-                                    undefined,
-                                rebootCb: this.cameraDevice.interfaces.includes(ScryptedInterface.Reboot) ?
-                                    async () => {
-                                        logger.log(`Rebooting camera`);
-                                        await this.cameraDevice.reboot();
-                                    } :
-                                    undefined,
-                                ptzCommandCb: this.cameraDevice.interfaces.includes(ScryptedInterface.PanTiltZoom) ?
-                                    (async (ptzCommand: PanTiltZoomCommand) => {
-                                        logger.log(`Executing ptz command: ${JSON.stringify(ptzCommand)}`);
-
-                                        if (ptzCommand.preset) {
-                                            const presetId = Object.entries(this.cameraDevice.ptzCapabilities?.presets ?? {}).find(([id, name]) => name === ptzCommand.preset)?.[0];
-                                            if (presetId) {
-                                                await this.cameraDevice.ptzCommand({ preset: presetId });
+                                logger.debug(`Subscribing to mqtt topics`);
+                                await subscribeToCameraMqttTopics({
+                                    mqttClient,
+                                    rules: allAvailableRules,
+                                    device: this.cameraDevice,
+                                    console: logger,
+                                    activationRuleCb: async ({ active, ruleName, ruleType }) => {
+                                        const { common: { enabledKey } } = getRuleKeys({ ruleName, ruleType });
+                                        logger.log(`Setting ${ruleType} rule ${ruleName} to ${active}`);
+                                        await this.storageSettings.putSetting(`${enabledKey}`, active);
+                                    },
+                                    switchNotificationsEnabledCb: async (active) => {
+                                        logger.log(`Setting notifications active to ${active}`);
+                                        await this.storageSettings.putSetting(`notificationsEnabled`, active);
+                                    },
+                                    switchOccupancyCheckCb: async (active) => {
+                                        logger.log(`Setting occupancy check to ${active}`);
+                                        await this.storageSettings.putSetting(`checkOccupancy`, active);
+                                    },
+                                    switchRecordingCb: this.cameraDevice.interfaces.includes(ScryptedInterface.VideoRecorder) ?
+                                        async (active) => {
+                                            logger.log(`Setting NVR privacy mode to ${!active}`);
+                                            await this.toggleRecording(this.cameraDevice, active);
+                                        } :
+                                        undefined,
+                                    rebootCb: this.cameraDevice.interfaces.includes(ScryptedInterface.Reboot) ?
+                                        async () => {
+                                            logger.log(`Rebooting camera`);
+                                            await this.cameraDevice.reboot();
+                                        } :
+                                        undefined,
+                                    ptzCommandCb: this.cameraDevice.interfaces.includes(ScryptedInterface.PanTiltZoom) ?
+                                        (async (ptzCommand: PanTiltZoomCommand) => {
+                                            logger.log(`Executing ptz command: ${JSON.stringify(ptzCommand)}`);
+                                            if (ptzCommand.preset) {
+                                                const presetId = Object.entries(this.cameraDevice.ptzCapabilities?.presets ?? {}).find(([id, name]) => name === ptzCommand.preset)?.[0];
+                                                if (presetId) {
+                                                    await this.cameraDevice.ptzCommand({ preset: presetId });
+                                                }
+                                            } else {
+                                                await this.cameraDevice.ptzCommand(ptzCommand);
                                             }
-                                        } else {
-                                            await this.cameraDevice.ptzCommand(ptzCommand);
-                                        }
-                                    }) :
-                                    undefined
-                            }).catch(logger.error);
+                                        }) :
+                                        undefined
+                                });
+                                this.ensureMixinsOrder();
+                                await this.refreshSettings();
 
-                            this.ensureMixinsOrder();
-
-                            this.refreshSettings().catch(logger.error);
+                                logger.log('MQTT autodiscovery completed');
+                            });
                         }
 
                         const settings = await this.mixinDevice.getSettings();
@@ -1055,6 +1053,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.mainLoopListener = setInterval(async () => {
             try {
                 if (this.killed) {
+                    logger.log(`Mixin killed`);
                     await this.release();
                 } else {
                     await funct();
@@ -1245,8 +1244,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     resetListeners() {
+        const logger = this.getLogger();
         if (this.detectionListener || this.motionListener || this.binaryListener || this.audioVolumesListener) {
-            this.getLogger().log('Resetting listeners.');
+            logger.log('Resetting listeners.');
         }
 
         this.detectionListener?.removeListener && this.detectionListener.removeListener();
@@ -1585,14 +1585,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async release() {
         const logger = this.getLogger();
-        logger.info('Releasing mixin');
+        logger.log('Releasing mixin');
         this.killed = true;
         this.mainLoopListener && clearInterval(this.mainLoopListener);
         this.mainLoopListener = undefined;
 
-        this.mqttClient && this.mqttClient.disconnect();
+        if (this.mqttClient) {
+            await this.mqttClient.disconnect();
+            this.mqttClient = undefined;
+        }
+
         this.resetListeners();
         this.stopDecoder('Release');
+
+        delete this.plugin.currentCameraMixinsMap[this.id];
     }
 
     public getLogger(forceNew?: boolean) {
@@ -3215,12 +3221,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const detectionSourceForMqtt = this.detectionSourceForMqtt;
 
-        // const nowPrune = Date.now();
-        // if (!this.lastDelaySetPruneTime || (nowPrune - this.lastDelaySetPruneTime) > 5 * 60 * 1000) {
-        //     this.pruneLastDelaySet();
-        //     this.lastDelaySetPruneTime = nowPrune;
-        // }
-
         let delayKey = `${type}`;
         let referenceTime = Date.now();
         let minDelayInSeconds: number;
@@ -3310,46 +3310,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             minDelayInSeconds,
             delayKey,
         }
-    }
-
-    /**
-     * Remove stale or unused delay entries to prevent memory growth:
-     * - TTL: entries older than 1 hour are removed
-     * - Undefined/invalid entries are removed
-     * - Size cap: if more than 2000 keys remain, oldest are trimmed
-     */
-    pruneLastDelaySet() {
-        try {
-            const logger = this.getLogger();
-            const TTL_MS = 60 * 60 * 1000; // 1 hour
-            const MAX_KEYS = 2000;
-            const now = Date.now();
-            let removed = 0;
-
-            // First pass: remove undefined/expired
-            for (const [k, v] of Object.entries(this.lastDelaySet)) {
-                if (!v || (now - v) > TTL_MS) {
-                    delete this.lastDelaySet[k];
-                    removed++;
-                }
-            }
-
-            // Size cap enforcement
-            const keys = Object.entries(this.lastDelaySet);
-            if (keys.length > MAX_KEYS) {
-                // sort ascending by timestamp (oldest first)
-                keys.sort((a, b) => a[1] - b[1]);
-                const toRemove = keys.length - MAX_KEYS;
-                for (let i = 0; i < toRemove; i++) {
-                    delete this.lastDelaySet[keys[i][0]];
-                }
-                removed += toRemove;
-            }
-
-            if (removed) {
-                logger.debug(`Pruned lastDelaySet: removed ${removed} entries, remaining ${Object.keys(this.lastDelaySet).length}`);
-            }
-        } catch { }
     }
 
     async onRestart() {

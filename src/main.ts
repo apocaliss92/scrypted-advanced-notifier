@@ -90,6 +90,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     initStorage: StorageSettingsDict<PluginSettingKey> = {
         ...getBaseSettings({
             onPluginSwitch: async (_, enabled) => {
+                this.getLogger().log(`Plugin switch set to ${enabled}`);
                 await this.startStop(enabled);
                 await this.startStopMixins(enabled);
             },
@@ -568,6 +569,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     localEndpointInternal: string;
     connectionTime = Date.now();
     private lastLeakDebugLog: number;
+    // Autodiscovery per-camera scheduling
+    private cameraAutodiscoveryQueue: { cameraId: string; task: () => Promise<void> }[] = [];
+    public lastCameraAutodiscoveryMap: Record<string, number> = {};
+    private processingCameraAutodiscovery = false;
 
     imageEmbeddingCache: Record<string, Buffer> = {};
     textEmbeddingCache: Record<string, Buffer> = {};
@@ -590,6 +595,38 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             cloudHref: '/endpoint/@apocaliss92/scrypted-advanced-notifier/public/app',
         }
         this.startStop(this.storageSettings.values.pluginEnabled).then().catch(this.getLogger().log);
+    }
+
+    enqueueCameraAutodiscovery(cameraId: string, task: () => Promise<void>) {
+        if (this.cameraAutodiscoveryQueue.find(e => e.cameraId === cameraId)) {
+            return;
+        }
+        this.cameraAutodiscoveryQueue.push({ cameraId, task });
+        this.processCameraAutodiscoveryQueue();
+    }
+
+    private processCameraAutodiscoveryQueue() {
+        if (this.processingCameraAutodiscovery) {
+            return;
+        }
+        const logger = this.getLogger();
+        this.processingCameraAutodiscovery = true;
+
+        const processNext = () => {
+            const entry = this.cameraAutodiscoveryQueue.shift();
+            if (!entry) {
+                this.processingCameraAutodiscovery = false;
+                return;
+            }
+            const start = Date.now();
+            entry.task().catch(e => logger.error('Camera autodiscovery error', e)).finally(() => {
+                this.lastCameraAutodiscoveryMap[entry.cameraId] = Date.now();
+                const elapsed = Date.now() - start;
+                const delay = Math.max(0, 300 - elapsed);
+                setTimeout(processNext, delay);
+            });
+        };
+        processNext();
     }
 
     async init() {
@@ -706,7 +743,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     async startStopMixins(enabled: boolean) {
         for (const mixin of Object.values(this.currentCameraMixinsMap)) {
-            await mixin.startStop(enabled);
+            await mixin.startStop(enabled, 'from_plugin');
         }
         for (const mixin of Object.values(this.currentSensorMixinsMap)) {
             await mixin.startStop(enabled);
