@@ -997,22 +997,22 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
                 this.isActiveForDoorbelDetections = shouldListenDoorbell;
 
-                // if (shouldListenAudio && !this.isActiveForAudioVolumesDetections) {
-                //     logger.log(`Starting Audio volumes listener`);
-                //     await this.startAudioVolumesListener();
-                // } else if (!shouldListenAudio && this.isActiveForAudioVolumesDetections) {
-                //     logger.log(`Stopping Audio volumes listener`);
-                //     await this.stopAudioVolumesListener();
-                // }
-                // this.isActiveForAudioVolumesDetections = shouldListenAudio;
+                if (shouldListenAudio && !this.isActiveForAudioVolumesDetections) {
+                    logger.log(`Starting Audio volumes listener`);
+                    await this.startAudioVolumesListener();
+                } else if (!shouldListenAudio && this.isActiveForAudioVolumesDetections) {
+                    logger.log(`Stopping Audio volumes listener`);
+                    await this.stopAudioVolumesListener();
+                }
+                this.isActiveForAudioVolumesDetections = shouldListenAudio;
 
-                // if (shouldListenAudioSensor && !this.isActiveForAudioSensorDetections) {
-                //     logger.log(`Starting Audio sensor listener`);
-                //     await this.startAudioSensorListener();
-                // } else if (!shouldListenAudioSensor && this.isActiveForAudioSensorDetections) {
-                //     logger.log(`Stopping Audio sensor listener`);
-                //     await this.stopAudioSensorListener();
-                // }
+                if (shouldListenAudioSensor && !this.isActiveForAudioSensorDetections) {
+                    logger.log(`Starting Audio sensor listener`);
+                    await this.startAudioSensorListener();
+                } else if (!shouldListenAudioSensor && this.isActiveForAudioSensorDetections) {
+                    logger.log(`Stopping Audio sensor listener`);
+                    await this.stopAudioSensorListener();
+                }
                 this.isActiveForAudioSensorDetections = shouldListenAudioSensor;
 
                 if (anyAllowedNvrDetectionRule && !this.isActiveForNvrNotifications) {
