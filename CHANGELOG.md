@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.4.59
+- RPCObjects/pendingResult as measurement entities
+
 ### 4.4.58
 - Add last face detection time to MQTT
 - Add diagnostic values to MQTT: rpcObjects, memoryUsed, pendingResults

@@ -231,6 +231,8 @@ const getBasicMqttEntities = () => {
         entityCategory: 'diagnostic',
         icon: 'mdi:code-json',
         retain: true,
+        stateClass: 'measurement',
+        precision: 0,
     };
     const rssMemoryEntity: MqttEntity = {
         domain: 'sensor',
@@ -261,6 +263,8 @@ const getBasicMqttEntities = () => {
         entityCategory: 'diagnostic',
         icon: 'mdi:progress-clock',
         retain: true,
+        stateClass: 'measurement',
+        precision: 0,
     };
 
     return {
