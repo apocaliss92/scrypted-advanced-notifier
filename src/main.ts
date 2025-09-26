@@ -1276,7 +1276,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             settings = mixin?.storageSettings;
         } else if (this.currentNotifierMixinsMap[id]) {
             mixin = this.currentNotifierMixinsMap[id];
-            settings = mixin?.storageSettings;
+            settings = mixin.storageSettings;
         }
 
         return { mixin, settings };
@@ -1660,7 +1660,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     devicesWithoutRoom.push(device.name);
                 }
 
-                const {mixin, settings} = this.getRealMixin(device.id);
+                const { mixin, settings } = this.getRealMixin(device.id);
                 if (mixin) {
                     const notifiersSettings = (await settings.getSettings())
                         .filter((sett) => sett.key?.match(notifiersRegex));

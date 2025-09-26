@@ -174,8 +174,8 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
         this.mainLoopListener && clearInterval(this.mainLoopListener);
         this.mainLoopListener = undefined;
 
-        delete this.plugin.currentNotifierMixinsMap[this.id];
-        this.plugin.currentNotifierMixinsMap[this.id] = undefined;
+        // delete this.plugin.currentNotifierMixinsMap[this.id];
+        // this.plugin.currentNotifierMixinsMap[this.id] = undefined;
     }
 
     public getLogger(forceNew?: boolean) {

@@ -1504,8 +1504,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.resetListeners();
         this.stopDecoder('Release');
 
-        delete this.plugin.currentCameraMixinsMap[this.id];
-        this.plugin.currentCameraMixinsMap[this.id] = undefined;
+        // delete this.plugin.currentCameraMixinsMap[this.id];
+        // this.plugin.currentCameraMixinsMap[this.id] = undefined;
     }
 
     public getLogger(forceNew?: boolean) {

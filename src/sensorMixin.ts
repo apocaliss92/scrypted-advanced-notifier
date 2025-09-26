@@ -282,8 +282,8 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         this.mainLoopListener = undefined;
         this.resetListeners();
 
-        delete this.plugin.currentSensorMixinsMap[this.id];
-        this.plugin.currentSensorMixinsMap[this.id] = undefined;
+        // delete this.plugin.currentSensorMixinsMap[this.id];
+        // this.plugin.currentSensorMixinsMap[this.id] = undefined;
     }
 
     public getLogger(forceNew?: boolean) {
