@@ -114,6 +114,7 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
             this.interfaces.includes(ScryptedInterface.OnOff);
 
         this.clientId = `scrypted_an_notifier_${this.id}`;
+        this.plugin.currentNotifierMixinsMap[this.id] = this;
 
         this.initValues().then().catch(logger.log);
 
@@ -172,6 +173,9 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
         this.killed = true;
         this.mainLoopListener && clearInterval(this.mainLoopListener);
         this.mainLoopListener = undefined;
+
+        delete this.plugin.currentNotifierMixinsMap[this.id];
+        this.plugin.currentNotifierMixinsMap[this.id] = undefined;
     }
 
     public getLogger(forceNew?: boolean) {
@@ -353,7 +357,7 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
 
                 if (canNotify && cameraDevice) {
                     if (cameraMixin) {
-                        const notificationsEnabled = cameraMixin.storageSettings.values.notificationsEnabled;
+                        const notificationsEnabled = cameraMixin.mixinState.storageSettings.values.notificationsEnabled;
 
                         if (!notificationsEnabled) {
                             canNotify = false;
@@ -363,7 +367,7 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
                             schedulerEnabled,
                             startTime,
                             endTime,
-                        } = cameraMixin.storageSettings.values;
+                        } = cameraMixin.mixinState.storageSettings.values;
 
                         if (schedulerEnabled) {
                             const schedulerActive = isSchedulerActive({ endTime, startTime });
@@ -386,7 +390,7 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
 
                     if (isNotificationFromAnPlugin) {
                         const now = Date.now();
-                        const lastSnoozed = cameraMixin.snoozeUntilDic[snoozeId];
+                        const lastSnoozed = cameraMixin.mixinState.snoozeUntilDic[snoozeId];
                         const isSnoozed = lastSnoozed && now < lastSnoozed;
 
                         if (isSnoozed) {

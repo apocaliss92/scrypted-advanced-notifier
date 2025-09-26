@@ -4,9 +4,10 @@ import axios from "axios";
 import child_process from 'child_process';
 import { once } from "events";
 import fs from 'fs';
+import https from 'https';
 import { cloneDeep, isEqual, max, sortBy, uniq } from 'lodash';
 import path from 'path';
-import { applySettingsShow, BasePlugin, BaseSettingsKey, getBaseSettings, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { BasePlugin, BaseSettingsKey, getBaseSettings, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { getRpcData } from '../../scrypted-monitor/src/utils';
 import { ffmpegFilterImageBuffer } from "../../scrypted/plugins/snapshot/src/ffmpeg-image-filter";
 import { name as pluginName } from '../package.json';
@@ -14,7 +15,7 @@ import { AiSource, getAiMessage, getAiSettingKeys, getAiSettings } from "./aiUti
 import { AdvancedNotifierAlarmSystem } from "./alarmSystem";
 import { haAlarmAutomation, haAlarmAutomationId } from "./alarmUtils";
 import { AdvancedNotifierCamera } from "./camera";
-import { AdvancedNotifierCameraMixin, OccupancyRuleData } from "./cameraMixin";
+import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierDataFetcher } from "./dataFetcher";
 import { addEvent, cleanupDatabases, cleanupEvents } from "./db";
 import { DetectionClass, isLabelDetection, isMotionClassname } from "./detectionClasses";
@@ -23,8 +24,8 @@ import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodisco
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, defaultClipPostSeconds, defaultClipPreSeconds, defaultOccupancyClipPreSeconds, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ZENTIK_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType, DevNotifications } from "./utils";
-import https from 'https';
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, defaultClipPostSeconds, defaultClipPreSeconds, defaultOccupancyClipPreSeconds, DelayType, DETECTION_CLIP_PREFIX, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, DevNotifications, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, LATEST_IMAGE_SUFFIX, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TIMELAPSE_CLIP_PREFIX, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType, ZENTIK_PLUGIN_ID } from "./utils";
+import { CameraMixinState, OccupancyRuleData } from "./states";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -569,7 +570,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     localEndpointInternal: string;
     connectionTime = Date.now();
     private lastLeakDebugLog: number;
-    // Autodiscovery per-camera scheduling
     private cameraAutodiscoveryQueue: { cameraId: string; task: () => Promise<void> }[] = [];
     public lastCameraAutodiscoveryMap: Record<string, number> = {};
     private processingCameraAutodiscovery = false;
@@ -581,6 +581,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     mainFlowInProgress = false;
 
     cameraMotionActive = new Set<string>();
+
+    cameraStates: Record<string, CameraMixinState> = {};
+    // notifierStates: Record<string, CameraMixinState> = {};
+    // sensorStates: Record<string, CameraMixinState> = {};
 
     constructor(nativeId: string) {
         super(nativeId, {
@@ -1031,7 +1035,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     });
                     return;
                 } else if (webhook === lastSnapshot) {
-                    const isWebhookEnabled = device?.storageSettings.values.lastSnapshotWebhook;
+                    const isWebhookEnabled = device?.mixinState.storageSettings.values.lastSnapshotWebhook;
 
                     if (isWebhookEnabled) {
                         const imageIdentifier = `${ruleNameOrSnoozeIdOrSnapshotId}${LATEST_IMAGE_SUFFIX}`;
@@ -1260,17 +1264,36 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         return this.mqttClient;
     }
 
+    getRealMixin(id: string) {
+        let mixin: AdvancedNotifierCameraMixin | AdvancedNotifierSensorMixin | AdvancedNotifierNotifierMixin;
+        let settings;
+
+        if (this.currentCameraMixinsMap[id]) {
+            mixin = this.currentCameraMixinsMap[id];
+            settings = mixin?.mixinState.storageSettings;
+        } else if (this.currentSensorMixinsMap[id]) {
+            mixin = this.currentSensorMixinsMap[id];
+            settings = mixin?.storageSettings;
+        } else if (this.currentNotifierMixinsMap[id]) {
+            mixin = this.currentNotifierMixinsMap[id];
+            settings = mixin?.storageSettings;
+        }
+
+        return { mixin, settings };
+    }
+
     getLogger(device?: ScryptedDeviceBase) {
         if (device) {
-            const mixin = this.currentCameraMixinsMap[device.id] ||
-                this.currentNotifierMixinsMap[device.id] ||
-                this.currentSensorMixinsMap[device.id];
+            const deviceId = device.id;
+
+            const { mixin, settings } = this.getRealMixin(deviceId);
 
             if (mixin) {
                 return super.getLoggerInternal({
                     console: mixin.console,
-                    storage: mixin.storageSettings,
-                    friendlyName: mixin.clientId,
+                    storage: settings,
+                    // TODO: Complete with other mixin states
+                    friendlyName: this.cameraStates[deviceId]?.clientId,
                 });
             }
         }
@@ -1576,7 +1599,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                     if (shouldRestart) {
                         this.restartRequested = true;
-                        await this.logLeakDebug('pre-restart');
                         await sdk.deviceManager.requestRestart();
                         devNotifications?.includes(DevNotifications.SoftRestart) && (devNotifier as Notifier).sendNotification('Advanced notifier restarted', {
                             body
@@ -1590,15 +1612,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 }
             }
 
-            // Leak debug logs ogni ora
-            const nowTs = Date.now();
-            const oneHour = 1000 * 60 * 60;
-            const leakDebugEnabled = this.storageSettings.values.devNotifications?.includes(DevNotifications.LeakDebugLogs);
-            if (leakDebugEnabled && (!this.lastLeakDebugLog || (nowTs - this.lastLeakDebugLog) > oneHour)) {
-                this.lastLeakDebugLog = nowTs;
-                await this.logLeakDebug('regular');
-            }
-
             if (this.accumulatedTimelapsesToGenerate) {
                 const timelapsesToRun = [...this.accumulatedTimelapsesToGenerate];
                 this.accumulatedTimelapsesToGenerate = undefined;
@@ -1606,10 +1619,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                 for (const timelapse of timelapsesToRun) {
                     const { deviceId, ruleName } = timelapse;
-                    const deviceMixin = this.currentCameraMixinsMap[deviceId];
-                    const rule = deviceMixin.allAvailableRules.find(rule => rule.ruleType === RuleType.Timelapse && rule.name === ruleName);
+                    const deviceState = this.cameraStates[deviceId];
+                    const rule = deviceState?.allAvailableRules.find(rule => rule.ruleType === RuleType.Timelapse && rule.name === ruleName);
                     const device = sdk.systemManager.getDeviceById<DeviceInterface>(deviceId);
-                    const deviceLogger = deviceMixin.getLogger();
+                    const deviceLogger = deviceState.logger;
                     const { fileName } = await this.generateTimelapse({
                         rule,
                         device,
@@ -1626,156 +1639,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger.log('Error in mainFlow', e);
         } finally {
             this.mainFlowInProgress = false;
-        }
-    }
-
-    private async collectLeakMetrics() {
-        const { stats } = await getRpcData();
-        const pluginStats = stats[pluginName] || {};
-        const cameras = Object.values(this.currentCameraMixinsMap);
-        const sensors = Object.values(this.currentSensorMixinsMap);
-        const notifiers = Object.values(this.currentNotifierMixinsMap);
-
-        const cameraMaps = cameras.map(c => {
-            const ruleListeners = c.detectionRuleListeners || {};
-            const perRuleTimeouts = Object.entries(ruleListeners).map(([rule, data]: any) => ({
-                rule,
-                disableNvrRecordingTimeout: !!data?.disableNvrRecordingTimeout,
-                turnOffTimeout: !!data?.turnOffTimeout,
-            }));
-            const activeRuleTimeouts = perRuleTimeouts.reduce((acc, cur) => {
-                if (cur.disableNvrRecordingTimeout) acc.disableNvrRecordingTimeout++;
-                if (cur.turnOffTimeout) acc.turnOffTimeout++;
-                return acc;
-            }, { disableNvrRecordingTimeout: 0, turnOffTimeout: 0 });
-
-            const delayKeys = Object.entries(c.lastDelaySet || {}).filter(([_, v]) => !!v).length;
-            const mixin: any = c;
-            const timers = {
-                clipGenerationTimeouts: Object.keys(mixin.clipGenerationTimeout || {}).length,
-                mqttDetectionMotionTimeout: mixin.mqttDetectionMotionTimeout ? 1 : 0,
-                processDetectionsInterval: mixin.processDetectionsInterval ? 1 : 0,
-                mainLoopListener: mixin.mainLoopListener ? 1 : 0,
-                ruleDisableNvrRecordingTimeouts: activeRuleTimeouts.disableNvrRecordingTimeout,
-                ruleTurnOffTimeouts: activeRuleTimeouts.turnOffTimeout,
-            };
-            return {
-                id: c.id,
-                lastDelaySet: Object.keys(c.lastDelaySet || {}).length,
-                activeDelayKeys: delayKeys,
-                clipGenerationTimeout: Object.keys(c.clipGenerationTimeout || {}).length,
-                detectionRuleListeners: Object.keys(ruleListeners).length,
-                objectIdLastReport: Object.keys(c.objectIdLastReport).length,
-                detectionIdEventIdMap: Object.keys(c.detectionIdEventIdMap).length,
-                ruleTimeouts: activeRuleTimeouts,
-                hasFrameGenerator: !!mixin.currentFrameGenerator,
-                hasProcessDetectionsInterval: !!mixin.processDetectionsInterval,
-                hasMainLoopListener: !!mixin.mainLoopListener,
-                timers,
-            };
-        });
-
-        // Somme aggregate
-        const aggregate = cameraMaps.reduce((acc, cur) => {
-            acc.detectionIdEventIdMap += cur.detectionIdEventIdMap || 0;
-            acc.objectIdLastReport += cur.objectIdLastReport || 0;
-            acc.lastDelaySet += cur.lastDelaySet || 0;
-            acc.activeDelayKeys += cur.activeDelayKeys || 0;
-            acc.clipGenerationTimeout += cur.clipGenerationTimeout || 0;
-            acc.detectionRuleListeners += cur.detectionRuleListeners || 0;
-            acc.ruleTimeouts.disableNvrRecordingTimeout += cur.ruleTimeouts?.disableNvrRecordingTimeout || 0;
-            acc.ruleTimeouts.turnOffTimeout += cur.ruleTimeouts?.turnOffTimeout || 0;
-            acc.frameGenerators += cur.hasFrameGenerator ? 1 : 0;
-            acc.processDetectionsIntervals += cur.hasProcessDetectionsInterval ? 1 : 0;
-            acc.mainLoopListeners += cur.hasMainLoopListener ? 1 : 0;
-            acc.timers.clipGenerationTimeouts += cur.timers?.clipGenerationTimeouts || 0;
-            acc.timers.mqttDetectionMotionTimeout += cur.timers?.mqttDetectionMotionTimeout || 0;
-            acc.timers.processDetectionsInterval += cur.timers?.processDetectionsInterval || 0;
-            acc.timers.mainLoopListener += cur.timers?.mainLoopListener || 0;
-            acc.timers.ruleDisableNvrRecordingTimeouts += cur.timers?.ruleDisableNvrRecordingTimeouts || 0;
-            acc.timers.ruleTurnOffTimeouts += cur.timers?.ruleTurnOffTimeouts || 0;
-            return acc;
-        }, { detectionIdEventIdMap: 0, objectIdLastReport: 0, lastDelaySet: 0, activeDelayKeys: 0, clipGenerationTimeout: 0, detectionRuleListeners: 0, ruleTimeouts: { disableNvrRecordingTimeout: 0, turnOffTimeout: 0 }, frameGenerators: 0, processDetectionsIntervals: 0, mainLoopListeners: 0, timers: { clipGenerationTimeouts: 0, mqttDetectionMotionTimeout: 0, processDetectionsInterval: 0, mainLoopListener: 0, ruleDisableNvrRecordingTimeouts: 0, ruleTurnOffTimeouts: 0 } });
-
-        const mem = process.memoryUsage();
-        return {
-            timestamp: new Date().toISOString(),
-            rpcObjects: (pluginStats as any).rpcObjects,
-            pendingResults: (pluginStats as any).pendingResults,
-            cameras: cameras.length,
-            sensors: sensors.length,
-            notifiers: notifiers.length,
-            memory: {
-                rss: mem.rss,
-                heapUsed: mem.heapUsed,
-                heapTotal: mem.heapTotal,
-                external: mem.external,
-            },
-            aggregateCameraData: aggregate,
-            perCamera: cameraMaps,
-        };
-    }
-
-    // Unified leak debug logger
-    private previousLeakMetrics: any;
-    private async logLeakDebug(reason: 'regular' | 'pre-restart') {
-        const logger = this.getLogger();
-        try {
-            const leakDebugEnabled = this.storageSettings.values.devNotifications?.includes(DevNotifications.LeakDebugLogs);
-            if (!leakDebugEnabled) {
-                return;
-            }
-            const metrics = await this.collectLeakMetrics();
-            let delta: any;
-            if (this.previousLeakMetrics) {
-                delta = {
-                    rpcObjects: metrics.rpcObjects - (this.previousLeakMetrics.rpcObjects || 0),
-                    pendingResults: metrics.pendingResults - (this.previousLeakMetrics.pendingResults || 0),
-                    lastDelaySet: metrics.aggregateCameraData.lastDelaySet - (this.previousLeakMetrics.aggregateCameraData?.lastDelaySet || 0),
-                    activeDelayKeys: metrics.aggregateCameraData.activeDelayKeys - (this.previousLeakMetrics.aggregateCameraData?.activeDelayKeys || 0),
-                    frameGenerators: metrics.aggregateCameraData.frameGenerators - (this.previousLeakMetrics.aggregateCameraData?.frameGenerators || 0),
-                    processDetectionsIntervals: metrics.aggregateCameraData.processDetectionsIntervals - (this.previousLeakMetrics.aggregateCameraData?.processDetectionsIntervals || 0),
-                    mainLoopListeners: metrics.aggregateCameraData.mainLoopListeners - (this.previousLeakMetrics.aggregateCameraData?.mainLoopListeners || 0),
-                    timers: metrics.aggregateCameraData.timers && this.previousLeakMetrics.aggregateCameraData?.timers ? Object.keys(metrics.aggregateCameraData.timers).reduce((acc, k) => { acc[k] = metrics.aggregateCameraData.timers[k] - (this.previousLeakMetrics.aggregateCameraData.timers[k] || 0); return acc; }, {}) : undefined,
-                    memory: {
-                        rss: metrics.memory.rss - (this.previousLeakMetrics.memory?.rss || 0),
-                        heapUsed: metrics.memory.heapUsed - (this.previousLeakMetrics.memory?.heapUsed || 0),
-                        heapTotal: metrics.memory.heapTotal - (this.previousLeakMetrics.memory?.heapTotal || 0),
-                        external: metrics.memory.external - (this.previousLeakMetrics.memory?.external || 0),
-                    }
-                };
-            }
-            this.previousLeakMetrics = metrics;
-            const tag = reason === 'pre-restart' ? 'LEAK-DEBUG-PRE-RESTART' : 'LEAK-DEBUG';
-            logger.log(`${tag}: ${JSON.stringify({ metrics, delta })}`);
-            const { devNotifier } = this.storageSettings.values;
-            if (devNotifier) {
-                const agg = metrics.aggregateCameraData;
-                const mem = metrics.memory;
-                const prefix = reason === 'pre-restart' ? '(pre)' : '';
-
-                const formatDelta = (v?: number) => v === undefined ? '' : ` (${v >= 0 ? '+' : ''}${v})`;
-                const formatDeltaMB = (v?: number) => v === undefined ? '' : ` (${v >= 0 ? '+' : ''}${v}MB)`;
-                const rssMB = Math.round(mem.rss / 1024 / 1024);
-                const heapUsedMB = Math.round(mem.heapUsed / 1024 / 1024);
-                const rssDeltaMB = delta?.memory ? Math.round(delta.memory.rss / 1024 / 1024) : undefined;
-                const heapDeltaMB = delta?.memory ? Math.round(delta.memory.heapUsed / 1024 / 1024) : undefined;
-                const rpcDelta = delta?.rpcObjects;
-                const delaysDelta = delta?.lastDelaySet;
-                const lines: string[] = [
-                    `${prefix} rpcObjects=${metrics.rpcObjects}${formatDelta(rpcDelta)}`,
-                    `${prefix} memoria rss=${rssMB}MB${formatDeltaMB(rssDeltaMB)}`,
-                    `${prefix} memoria heapUsed=${heapUsedMB}MB${formatDeltaMB(heapDeltaMB)}`,
-                    `${prefix} delays total=${agg.lastDelaySet}${formatDelta(delaysDelta)}`,
-                ];
-                const body = lines.join('\n');
-                (devNotifier as Notifier).sendNotification(
-                    reason === 'pre-restart' ? 'Leak debug (pre-restart)' : 'Leak debug',
-                    { body }
-                );
-            }
-        } catch (e) {
-            logger.log(`Error in logLeakDebug (${reason})`, e);
         }
     }
 
@@ -1797,10 +1660,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     devicesWithoutRoom.push(device.name);
                 }
 
-                const mixin = this.currentCameraMixinsMap[device.id] || this.currentSensorMixinsMap[device.id];
-
+                const {mixin, settings} = this.getRealMixin(device.id);
                 if (mixin) {
-                    const notifiersSettings = (await mixin.storageSettings.getSettings())
+                    const notifiersSettings = (await settings.getSettings())
                         .filter((sett) => sett.key?.match(notifiersRegex));
 
                     for (const notifiersSetting of notifiersSettings) {
@@ -2143,11 +2005,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         const decoderType = deviceMixin.decoderType;
         if (rule.generateClip && decoderType !== DecoderType.Off) {
-            const cameraMixin = this.currentCameraMixinsMap[device.id];
+            const cameraState = this.cameraStates[device.id];
             const delay = rule.generateClipPostSeconds ?? 3;
             logger.log(`Starting clip ${rule.generateClipType} recording for rule ${rule.name} in ${delay} seconds (${decoderType})`);
-            cameraMixin.clipGenerationTimeout[rule.name] && clearTimeout(cameraMixin.clipGenerationTimeout[rule.name]);
-            cameraMixin.clipGenerationTimeout[rule.name] = setTimeout(async () => {
+            cameraState.clipGenerationTimeout[rule.name] && clearTimeout(cameraState.clipGenerationTimeout[rule.name]);
+            cameraState.clipGenerationTimeout[rule.name] = setTimeout(async () => {
                 await prepareClip();
             }, 1000 * delay)
         } else {
@@ -2429,8 +2291,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                 const decoderType = cameraMixin.decoderType;
                 if (rule.generateClip && decoderType !== DecoderType.Off) {
-                    cameraMixin.clipGenerationTimeout[rule.name] && clearTimeout(cameraMixin.clipGenerationTimeout[rule.name]);
-                    cameraMixin.clipGenerationTimeout[rule.name] = undefined;
+                    cameraMixin.mixinState.clipGenerationTimeout[rule.name] && clearTimeout(cameraMixin.mixinState.clipGenerationTimeout[rule.name]);
+                    cameraMixin.mixinState.clipGenerationTimeout[rule.name] = undefined;
                 }
             }
         }
@@ -2453,31 +2315,33 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             group: 'Advanced notifier',
             groupKey: 'homeassistantMetadata',
         };
+        const logger = this.getLogger();
 
         const { isCamera, isSensor, isNotifier, sensorType } = isDeviceSupported({ interfaces: mixinDeviceInterfaces } as DeviceBase);
 
-        if (isCamera) {
-            const mixin = new AdvancedNotifierCameraMixin(
-                props,
-                this
-            );
-            this.currentCameraMixinsMap[mixin.id] = mixin;
-            return mixin;
-        } else if (isSensor) {
-            const mixin = new AdvancedNotifierSensorMixin(
-                props,
-                sensorType,
-                this
-            );
-            this.currentSensorMixinsMap[mixin.id] = mixin;
-            return mixin;
-        } else if (isNotifier) {
-            const mixin = new AdvancedNotifierNotifierMixin(
-                props,
-                this
-            );
-            this.currentNotifierMixinsMap[mixin.id] = mixin;
-            return mixin;
+        try {
+            if (isCamera) {
+                const mixin = new AdvancedNotifierCameraMixin(
+                    props,
+                    this
+                );
+                return mixin;
+            } else if (isSensor) {
+                const mixin = new AdvancedNotifierSensorMixin(
+                    props,
+                    sensorType,
+                    this
+                );
+                return mixin;
+            } else if (isNotifier) {
+                const mixin = new AdvancedNotifierNotifierMixin(
+                    props,
+                    this
+                );
+                return mixin;
+            }
+        } catch (e) {
+            logger.log(`Error in getMixin for device ${mixinDeviceState.name}`, e);
         }
     }
 
@@ -2630,7 +2494,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             withClearNotification, withDeleteNotification, withOpenNotification } = getNotifierData({ notifierId, ruleType: rule?.ruleType });
         const cameraMixin = cameraId ? this.currentCameraMixinsMap[cameraId] : undefined;
         const notifierMixin = this.currentNotifierMixinsMap[notifierId];
-        const { notifierActions, aiEnabled: cameraAiEnabled } = cameraMixin?.storageSettings.values ?? {}
+        const { notifierActions, aiEnabled: cameraAiEnabled } = cameraMixin?.mixinState.storageSettings.values ?? {}
         const { aiEnabled: notifierAiEnabled } = notifierMixin.storageSettings.values;
         const { haUrl, externalUrl, timelinePart } = this.getUrls(cameraId, triggerTime);
         const deviceLogger = this.getLogger(device);
@@ -3465,7 +3329,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 postDetectionImageUrls,
                 postDetectionImageClasses,
                 postDetectionImageWebhook
-            } = mixin.storageSettings.values;
+            } = mixin.mixinState.storageSettings.values;
 
             if (
                 postDetectionImageWebhook &&
@@ -3852,7 +3716,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const framesAmount = filteredFiles.length;
 
         if (framesAmount) {
-            const inputFps = 1000 / cameraMixin.storageSettings.values.decoderFrequency;
+            const inputFps = 1000 / cameraMixin.mixinState.storageSettings.values.decoderFrequency;
             const fpsMultiplier = videoclipSpeedMultiplier[rule.generateClipSpeed ?? VideoclipSpeed.Fast];
             const fps = inputFps * fpsMultiplier;
             const fileListContent = filteredFiles.join('\n');

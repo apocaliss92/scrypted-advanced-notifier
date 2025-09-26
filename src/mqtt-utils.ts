@@ -1,9 +1,9 @@
 import sdk, { Notifier, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoomCommand, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SecuritySystemMode } from '@scrypted/sdk';
 import { cloneDeep, uniq } from 'lodash';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
-import { OccupancyRuleData } from './cameraMixin';
 import { DetectionClass, detectionClassesDefaultMap, getParentDetectionClass, isAudioClassname, isLabelDetection } from './detectionClasses';
 import { BaseRule, DetectionsPerZone, DeviceInterface, ImageSource, isDetectionRule, RuleSource, RuleType, safeParseJson, toKebabCase, toSnakeCase, toTitleCase } from './utils';
+import { OccupancyRuleData } from './states';
 
 export enum MqttEntityIdentifier {
     Triggered = 'Triggered',

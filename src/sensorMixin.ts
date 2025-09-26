@@ -54,6 +54,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
     ) {
         super(options);
         const logger = this.getLogger();
+        this.plugin.currentSensorMixinsMap[this.id] = this;
         this.sensorDevice = sdk.systemManager.getDeviceById<DeviceInterface>(this.id);
 
         this.supportedSensorType = supportedSensorType;
@@ -280,6 +281,9 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
         this.mainLoopListener && clearInterval(this.mainLoopListener);
         this.mainLoopListener = undefined;
         this.resetListeners();
+
+        delete this.plugin.currentSensorMixinsMap[this.id];
+        this.plugin.currentSensorMixinsMap[this.id] = undefined;
     }
 
     public getLogger(forceNew?: boolean) {

@@ -1,4 +1,4 @@
-import sdk, { Image, BinarySensor, Camera, DeviceBase, EntrySensor, HttpRequest, LockState, MediaObject, Notifier, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, OnOff, PanTiltZoom, Point, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, VideoCamera, TextEmbedding, ImageEmbedding } from "@scrypted/sdk";
+import sdk, { Image, BinarySensor, Camera, DeviceBase, EntrySensor, HttpRequest, LockState, MediaObject, Notifier, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, OnOff, PanTiltZoom, Point, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, VideoCamera, TextEmbedding, ImageEmbedding, MediaStreamDestination } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDevice, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import crypto from 'crypto';
@@ -11,6 +11,7 @@ import { name, scrypted } from '../package.json';
 import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, isPlateClassname, levenshteinDistance } from "./detectionClasses";
 import AdvancedNotifierPlugin, { PluginSettingKey } from "./main";
 import { detectionClassForObjectsReporting } from "./mqtt-utils";
+import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 const { endpointManager } = sdk;
 
 export type DeviceInterface = ScryptedDevice & Camera & ScryptedDeviceBase & Notifier & Settings & ObjectDetector & VideoCamera & EntrySensor & Lock & BinarySensor & Reboot & PanTiltZoom & OnOff;
@@ -55,7 +56,6 @@ export const SCRYPTED_NVR_OBJECT_DETECTION_NAME = 'Scrypted NVR Object Detection
 export enum DevNotifications {
     ConfigCheckError = 'ConfigCheckError',
     SoftRestart = 'SoftRestart',
-    LeakDebugLogs = 'LeakDebugLogs',
 }
 
 export const getAssetSource = (props: { videoUrl?: string, sourceId?: string }) => {
@@ -3443,10 +3443,6 @@ export const getDetectionRules = (props: {
                 detectionRule.plateMaxDistance = storage.getItem(plateMaxDistanceKey) as number ?? 0;
             }
 
-            if (hasAudio && !shouldListenAudioSensor) {
-                shouldListenAudioSensor = true;
-            }
-
             let isSensorEnabled = true;
             if (isPlugin && device) {
                 const { isSensor, sensorType } = isDeviceSupported(device);
@@ -3483,6 +3479,7 @@ export const getDetectionRules = (props: {
                 allowedRules.push(cloneDeep(detectionRule));
                 !anyAllowedNvrRule && (anyAllowedNvrRule = detectionRule.detectionSource === ScryptedEventSource.NVR);
                 !shouldListenDoorbell && (shouldListenDoorbell = detectionClasses.includes(DetectionClass.Doorbell));
+                !shouldListenAudioSensor && hasAudio && (shouldListenAudioSensor = true);
             }
 
         }
