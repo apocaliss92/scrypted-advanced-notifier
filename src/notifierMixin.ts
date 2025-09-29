@@ -408,6 +408,8 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
 
                         const image = typeof media === 'string' ? (await sdk.mediaManager.createMediaObjectFromUrl(media)) : media;
 
+                        logger.log(`NVR notification caught, parsing started: ${JSON.stringify({ enableTranslations, aiEnabled, cameraDevice: cameraDevice?.name, detection, options })}`);
+
                         let b64Image: string;
                         if (cameraMixin) {
                             b64Image = (await cameraMixin.getImage({ image, reason: GetImageReason.FromNvr }))?.b64Image;

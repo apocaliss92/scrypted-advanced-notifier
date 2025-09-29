@@ -3420,6 +3420,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         if (aiFilter) {
             if (image) {
                 const b64Image = await moToB64(image);
+                logger.log(`Sending confirmation question to LLM for filter ${aiFilter}`);
                 const confirmationFromAi = await confirmDetection({
                     b64Image,
                     logger,
@@ -3428,6 +3429,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 });
                 aiFilterMatches = confirmationFromAi.response === 'yes';
             } else {
+                logger.log(`LLM did not confirm the filter ${aiFilter}`);
                 aiFilterMatches = false;
             }
         }

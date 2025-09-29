@@ -663,7 +663,7 @@ export const confirmDetection = async (props: {
                     question
                 })
                 const res = await llmDevice.getChatCompletion(template);
-                logger.log(`${llmDeviceParent.name} result: ${JSON.stringify({ ...res, question })}`);
+                logger.log(`LLM filter response from ${llmDeviceParent.name}. Result: ${JSON.stringify({ ...res, question })}`);
 
                 response = res.choices[0]?.message?.content;
             }
