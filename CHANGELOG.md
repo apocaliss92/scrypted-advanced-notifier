@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.4.66
+- Manual AI settings removed. Use LLM plugin if that was setup before
+
 ### 4.4.59
 - RPCObjects/pendingResult as measurement entities
 
