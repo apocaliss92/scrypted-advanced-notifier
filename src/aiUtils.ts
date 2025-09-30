@@ -11,40 +11,18 @@ import { DetectionClass } from './detectionClasses';
 export enum AiSource {
     Disabled = 'Disabled',
     LLMPlugin = 'LLM plugin',
-    Manual = 'Manual',
-}
-
-export enum AiPlatform {
-    OpenAi = 'OpenAi',
-    GoogleAi = 'GoogleAi',
-    AnthropicClaude = 'AnthropicClaude',
-    Groq = 'Groq',
 }
 
 export const getAiSettingKeys = () => {
     const llmDeviceKey = `llmDevice`;
-    const aiPlatformKey = `aiPlatform`;
     const systemPromptKey = `aiSystemPrompt`;
     const occupancyPromptKey = `aiOccupancyPrompt`;
 
     return {
         llmDeviceKey,
-        aiPlatformKey,
         systemPromptKey,
         occupancyPromptKey
     };
-}
-
-export const getManualAiSettingKeys = (aiPlatform: AiPlatform) => {
-    const apiKeyKey = `${aiPlatform}:aiApiKey`;
-    const apiUrlKey = `${aiPlatform}:aiApiUrl`;
-    const modelKey = `${aiPlatform}:aiModel`;
-
-    return {
-        apiKeyKey,
-        apiUrlKey,
-        modelKey,
-    }
 }
 
 export const getAiSettings = (props: {
@@ -52,15 +30,14 @@ export const getAiSettings = (props: {
     logger: Console,
     onRefresh: () => Promise<void>
 }) => {
-    const { storage, onRefresh } = props;
+    const { storage, onRefresh, logger } = props;
     const { aiSource } = storage.values;
 
-    const { aiPlatformKey, llmDeviceKey, systemPromptKey, occupancyPromptKey } = getAiSettingKeys();
-    const aiPlatform = storage.getItem(aiPlatformKey as any) as AiPlatform ?? AiPlatform.OpenAi;
+    const { llmDeviceKey, systemPromptKey, occupancyPromptKey } = getAiSettingKeys();
 
     const settings: StorageSetting[] = [];
 
-    if (aiSource === AiSource.LLMPlugin) {
+    if (aiSource !== AiSource.Disabled) {
         settings.push(
             {
                 key: llmDeviceKey,
@@ -74,59 +51,6 @@ export const getAiSettings = (props: {
                 onPut: async () => await onRefresh()
             }
         );
-    } else if (aiSource === AiSource.Manual) {
-        settings.push(
-            {
-                key: aiPlatformKey,
-                title: 'AI Platform',
-                type: 'string',
-                group: 'AI',
-                immediate: true,
-                choices: Object.values(AiPlatform),
-                defaultValue: AiPlatform.OpenAi,
-                onPut: async () => await onRefresh()
-            }
-        );
-
-        const { apiKeyKey, apiUrlKey, modelKey } = getManualAiSettingKeys(aiPlatform);
-
-        if ([AiPlatform.OpenAi].includes(aiPlatform)) {
-            settings.push(
-                {
-                    key: apiUrlKey,
-                    group: 'AI',
-                    title: 'API URL',
-                    description: 'The API URL of the OpenAI compatible server.',
-                    defaultValue: 'https://api.openai.com/v1/chat/completions',
-                },
-            );
-        }
-
-        if (
-            [AiPlatform.OpenAi,
-            AiPlatform.GoogleAi,
-            AiPlatform.AnthropicClaude,
-            AiPlatform.Groq,
-            ].includes(aiPlatform)) {
-            settings.push(
-                {
-                    key: apiKeyKey,
-                    title: 'API Key',
-                    description: 'The API Key or token.',
-                    group: 'AI',
-                },
-                {
-                    key: modelKey,
-                    group: 'AI',
-                    title: 'Model',
-                    description: 'The model to use to generate the image description. Must be vision capable.',
-                    defaultValue: defaultModel[aiPlatform],
-                }
-            );
-        }
-    }
-
-    if (aiSource !== AiSource.Disabled) {
         settings.push({
             key: systemPromptKey,
             group: 'AI',
@@ -148,14 +72,6 @@ export const getAiSettings = (props: {
     }
 
     return settings;
-}
-
-// To Remove when LLM is official
-export const defaultModel: Record<AiPlatform, string> = {
-    [AiPlatform.AnthropicClaude]: 'claude-3-opus-20240229',
-    [AiPlatform.OpenAi]: 'gpt-4o',
-    [AiPlatform.GoogleAi]: 'gemini-1.5-flash',
-    [AiPlatform.Groq]: 'llama-3.2-90b-vision-preview',
 }
 
 const createLlmMessageTemplate = (props: {
@@ -333,151 +249,6 @@ export const executeGoogleAi = async (props: {
     }
 };
 
-const executeOpenAi = async (props: {
-    systemPrompt: string,
-    model: string,
-    b64Image: string,
-    originalTitle: string,
-    detection?: ObjectDetectionResult,
-    logger: Console,
-    apiUrl: string,
-    apiKey: string
-}) => {
-    const { b64Image, originalTitle, model, systemPrompt, detection, logger, apiKey, apiUrl } = props;
-    const imageUrl = `data:image/jpeg;base64,${b64Image}`;
-
-    let text = `Original notification message is ${originalTitle}}.`;
-
-    if (detection?.label) {
-        text += ` In the image is present a familiar person with name ${detection.label}`;
-    }
-
-    const schema = "The response must be in JSON format with a message 'title', 'subtitle', and 'body'. The title and subtitle must not be more than 24 characters each. The body must not be more than 130 characters."
-    const template = {
-        model,
-        messages: [
-            {
-                role: "system",
-                content: systemPrompt + ' ' + schema,
-            },
-            {
-                role: "user",
-                content: [
-                    {
-                        type: 'text',
-                        text,
-                    },
-                    {
-                        type: "image_url",
-                        image_url: {
-                            url: imageUrl,
-                        }
-                    }
-                ]
-            }
-        ],
-        response_format: {
-            type: "json_schema",
-            json_schema: {
-                name: "notification_response",
-                strict: true,
-                schema: {
-                    type: "object",
-                    properties: {
-                        title: {
-                            type: "string"
-                        },
-                        subtitle: {
-                            type: "string"
-                        },
-                        body: {
-                            type: "string"
-                        }
-                    },
-                    required: ["title", "subtitle", "body"],
-                    additionalProperties: false
-                }
-            }
-        }
-    };
-
-    const response = await axios.post<any>(apiUrl, template, {
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`
-        },
-    });
-
-    logger.debug(`Response from ${AiPlatform.OpenAi}: ${JSON.stringify(response.data)}`);
-    const jsonMessage = response.data?.choices?.[0]?.message?.content;
-    if (jsonMessage) {
-        const parsedMessage = JSON.parse(jsonMessage);
-        const title = parsedMessage.title;
-        const message = parsedMessage.body;
-
-        return {
-            title,
-            message
-        }
-    }
-
-    return {};
-}
-
-const executeAnthropicClaude = async (props: {
-    systemPrompt: string,
-    model: string,
-    b64Image: string,
-    logger: Console,
-    apiKey: string
-}) => {
-    const { b64Image, model, systemPrompt, logger, apiKey } = props;
-
-    const anthropic = new Anthropic({ apiKey });
-
-    const response = await anthropic.messages.create({
-        model,
-        max_tokens: 1024,
-        messages: [
-            {
-                role: "user", content: [
-                    { type: "text", text: systemPrompt },
-                    { type: "image", source: { type: "base64", data: b64Image, media_type: 'image/jpeg' } }
-                ]
-            }
-        ]
-    });
-
-    logger.debug(`Response from ${AiPlatform.AnthropicClaude}: ${JSON.stringify(response.content)}`);
-    const textResponse = response.content.find(item => item.type === "text");
-    return textResponse?.text;
-}
-
-const executeGroq = async (props: {
-    systemPrompt: string,
-    model: string,
-    b64Image: string,
-    logger: Console,
-    apiKey: string
-}) => {
-    const { b64Image, model, systemPrompt, logger, apiKey } = props;
-
-    const groq = new Groq({ apiKey });
-
-    const response = await groq.chat.completions.create({
-        model,
-        messages: [
-            { role: 'user', content: systemPrompt },
-            { role: 'user', content: `data:image/jpeg;base64,${b64Image}` }
-        ],
-        max_tokens: 1024,
-    });
-
-    const data = response.choices[0].message.content;
-    logger.debug(`Response from ${AiPlatform.Groq}: ${JSON.stringify(data)}`);
-    return data;
-}
-
 export const getAiMessage = async (props: {
     plugin: AdvancedNotifierPlugin,
     originalTitle: string,
@@ -498,71 +269,9 @@ export const getAiMessage = async (props: {
     try {
         if (!message) {
             const { aiSource } = plugin.storageSettings.values;
-            const { aiPlatformKey, llmDeviceKey } = getAiSettingKeys();
+            const { llmDeviceKey } = getAiSettingKeys();
 
-            if (aiSource === AiSource.Manual) {
-                const aiPlatform = plugin.storageSettings.getItem(aiPlatformKey as any);
-                const { apiKeyKey, apiUrlKey, modelKey } = getManualAiSettingKeys(aiPlatform);
-
-                const apiKey = plugin.storageSettings.getItem(apiKeyKey as any);
-                const apiUrl = plugin.storageSettings.getItem(apiUrlKey as any);
-                const model = plugin.storageSettings.getItem(modelKey as any);
-
-                logger.debug(`Calling ${aiPlatform} with ${JSON.stringify({
-                    aiPlatform,
-                    apiKey,
-                    apiUrl,
-                    model,
-                    systemPrompt,
-                    originalTitle,
-                })}`);
-
-                if (aiPlatform === AiPlatform.OpenAi) {
-                    const result = await executeOpenAi({
-                        apiKey,
-                        apiUrl,
-                        b64Image,
-                        logger,
-                        model,
-                        originalTitle,
-                        systemPrompt,
-                        detection,
-                    });
-
-                    title = result.title ?? originalTitle;
-                    message = result.message;
-                } else if (aiPlatform === AiPlatform.GoogleAi) {
-                    const result = await executeGoogleAi({
-                        apiKey,
-                        b64Image,
-                        logger,
-                        model,
-                        systemPrompt,
-                    });
-
-                    message = result;
-                } else if (aiPlatform === AiPlatform.AnthropicClaude) {
-                    const result = await executeAnthropicClaude({
-                        apiKey,
-                        b64Image,
-                        logger,
-                        model,
-                        systemPrompt,
-                    });
-
-                    message = result;
-                } else if (aiPlatform === AiPlatform.Groq) {
-                    const result = await executeGroq({
-                        apiKey,
-                        b64Image,
-                        logger,
-                        model,
-                        systemPrompt,
-                    });
-
-                    message = result;
-                }
-            } else if (aiSource === AiSource.LLMPlugin) {
+            if (aiSource === AiSource.LLMPlugin) {
                 const llmDeviceParent = plugin.storageSettings.getItem(llmDeviceKey as any) as ScryptedDeviceBase;
 
                 if (llmDeviceParent) {
@@ -579,6 +288,8 @@ export const getAiMessage = async (props: {
                     const resJson = safeParseJson(res.choices[0]?.message?.content);
                     message = resJson?.body;
                 }
+            } else {
+                logger.error(`Ai provider Manual is not supported anymore. Install LLM plugin and select it in the AI section`);
             }
         } else {
             fromCache = true
@@ -667,6 +378,8 @@ export const confirmDetection = async (props: {
 
                 response = res.choices[0]?.message?.content;
             }
+        } else {
+            logger.error(`Ai provider Manual is not supported anymore. Install LLM plugin and select it in the AI section`);
         }
     } catch (e) {
         logger.log('Error in confirmDetection', e);
