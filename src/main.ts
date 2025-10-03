@@ -3470,14 +3470,25 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             const ffmpegArgs = [
                 '-loglevel', 'error',
+                '-nostdin',
                 '-f', 'concat',
                 '-safe', '0',
-                '-r', `${rule.timelapseFramerate}`,
                 '-i', listPath,
-                // '-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2',
-                '-vf', "scale='min(1280,iw)':-2,pad=ceil(iw/2)*2:ceil(ih/2)*2",
+                '-r', `${rule.timelapseFramerate}`,
+                '-vf', [
+                    'scale=min(1280\\,iw):-2:force_original_aspect_ratio=decrease',
+                    'pad=ceil(iw/2)*2:ceil(ih/2)*2:(ow-iw)/2:(oh-ih)/2:black',
+                    'format=yuv420p'
+                ].join(','),
                 '-c:v', 'libx264',
+                '-preset', 'faster',
+                '-crf', '28',
+                '-profile:v', 'main',
+                '-level', '4.0',
                 '-pix_fmt', 'yuv420p',
+                '-fps_mode', 'cfr',
+                '-movflags', '+faststart',
+                '-max_muxing_queue_size', '1024',
                 '-y',
                 videoclipPath
             ];
