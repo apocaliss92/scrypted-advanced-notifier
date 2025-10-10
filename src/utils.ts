@@ -1723,8 +1723,8 @@ const getNotifierSettings = (props: {
     };
     const openInAppSetting: StorageSetting = {
         key: openInAppKey,
-        title: pluginId === HOMEASSISTANT_PLUGIN_ID ? `Open in the Homeassistant's Scrypted component` :
-            pluginId === ZENTIK_PLUGIN_ID ? `Tap action opens NVR instead of Zentik` : '',
+        title: pluginId === HOMEASSISTANT_PLUGIN_ID ? `Open in the Homeassistant's Scrypted component`
+            : `Tap action opens NVR instead of Zentik`,
         type: 'boolean',
         group,
         subgroup,

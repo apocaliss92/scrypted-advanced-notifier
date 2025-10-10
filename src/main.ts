@@ -2682,7 +2682,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             zentikActions.push({
                 type: 'NAVIGATE',
                 title: 'NVR',
-                icon: '',
+                icon: 'sfsymbols:video',
                 value: externalUrl,
             })
 
