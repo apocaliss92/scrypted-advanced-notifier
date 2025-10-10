@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.4.70
+- Added links to Zentik
+
 ### 4.4.66
 - Manual AI settings removed. Use LLM plugin if that was setup before
 
