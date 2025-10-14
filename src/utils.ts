@@ -715,6 +715,7 @@ export type TextSettingKey =
     | 'entrySensorText'
     | 'offlineText'
     | 'snoozeText'
+    | 'openNvrText'
     | 'minutesText'
     | 'hoursText'
     | 'discardText'
@@ -820,6 +821,14 @@ export const getTextSettings = (props: { forMixin: boolean, isNvrNotifier?: bool
             description: 'Expression used to render the snooze texts. Available arguments ${timeText}',
             defaultValue: !forMixin ? 'Snooze: ${timeText}' : undefined,
             placeholder: !forMixin ? 'Snooze: ${timeText}' : undefined,
+        },
+        openNvrText: {
+            [groupKey]: 'Texts',
+            title: 'Open NVR text',
+            type: 'string',
+            description: 'Expression used to render the open NVR texts',
+            defaultValue: !forMixin ? 'Open in NVR app' : undefined,
+            placeholder: !forMixin ? 'Open in NVR app' : undefined,
         },
         minutesText: {
             [groupKey]: 'Texts',
@@ -1510,8 +1519,8 @@ export const getNotifierData = (props: {
     const priorityChoices: NotificationPriority[] = [];
     const isDetectionRule = ruleType === RuleType.Detection;
     const isAudioRule = ruleType === RuleType.Audio;
-    const withActions = ![
-        NTFY_PLUGIN_ID, NVR_PLUGIN_ID, ZENTIK_PLUGIN_ID
+    const withActions = [
+        HOMEASSISTANT_PLUGIN_ID, ZENTIK_PLUGIN_ID
     ].includes(pluginId) && isDetectionRule;
     const snoozingDefault = pluginId !== PUSHOVER_PLUGIN_ID;
     const openInAppDefault = true;

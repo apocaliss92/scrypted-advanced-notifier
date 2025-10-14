@@ -2557,6 +2557,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             snoozeItems,
             plugin: this
         });
+        const openNvrText = this.getTextKey({ notifierId, textKey: 'openNvrText' });
 
         const addSnozeActions = withSnoozing && addSnooze;
         let payload: any = {
@@ -2657,9 +2658,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const zentikActions = [];
 
             if (addSnozeActions) {
-                for (const { data, url } of snoozeActions) {
+                for (const { data, url, title } of snoozeActions) {
                     zentikActions.push({
-                        title: `${data} mins`,
+                        title,
+                        // title: `${data} mins`,
                         type: 'BACKGROUND_CALL',
                         value: `POST::${url}`,
                         icon: 'sfsymbols:bell',
@@ -2679,12 +2681,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     })
                 }
             }
-            zentikActions.push({
-                type: 'NAVIGATE',
-                title: 'NVR',
-                icon: 'sfsymbols:video',
-                value: externalUrl,
-            })
+
+            if (!openInApp) {
+                zentikActions.push({
+                    type: 'NAVIGATE',
+                    title: openNvrText,
+                    icon: 'sfsymbols:video',
+                    value: externalUrl,
+                });
+            }
 
             const tapUrl = openInApp && rule.ruleType === RuleType.Detection ?
                 externalUrl :
@@ -2694,7 +2699,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 deliveryType: priority === NotificationPriority.High ? 'CRITICAL' :
                     priority === NotificationPriority.Low ? 'SILENT' : 'NORMAL',
                 addMarkAsReadAction: withClearNotification,
-                addOpenNotificationAction: withOpenNotification,
+                addOpenNotificationAction: !!withOpenNotification && !!openInApp,
                 addDeleteAction: withDeleteNotification,
                 gifUrl,
                 videoUrl,
@@ -2777,7 +2782,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         } else if (notifier.pluginId === NTFY_PLUGIN_ID) {
             const ntfyActions: any[] = [{
                 action: 'view',
-                label: 'NVR',
+                label: openNvrText,
                 url: externalUrl
             }];
 
