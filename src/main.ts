@@ -569,7 +569,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     lastAudioDataFetched: number;
     localEndpointInternal: string;
     connectionTime = Date.now();
-    private lastLeakDebugLog: number;
     private cameraAutodiscoveryQueue: { cameraId: string; task: () => Promise<void> }[] = [];
     public lastCameraAutodiscoveryMap: Record<string, number> = {};
     private processingCameraAutodiscovery = false;
@@ -583,8 +582,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     cameraMotionActive = new Set<string>();
 
     cameraStates: Record<string, CameraMixinState> = {};
-    // notifierStates: Record<string, CameraMixinState> = {};
-    // sensorStates: Record<string, CameraMixinState> = {};
 
     constructor(nativeId: string) {
         super(nativeId, {
@@ -2007,11 +2004,29 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if (rule.generateClip && decoderType !== DecoderType.Off) {
             const cameraState = this.cameraStates[device.id];
             const delay = rule.generateClipPostSeconds ?? 3;
-            logger.log(`Starting clip ${rule.generateClipType} recording for rule ${rule.name} in ${delay} seconds (${decoderType})`);
-            cameraState.clipGenerationTimeout[rule.name] && clearTimeout(cameraState.clipGenerationTimeout[rule.name]);
-            cameraState.clipGenerationTimeout[rule.name] = setTimeout(async () => {
-                await prepareClip();
-            }, 1000 * delay)
+            const key = `${device.id}_${rule.name}`;
+            const now = Date.now();
+            const maxExtensionRange = (rule as any).maxClipExtensionRange || 0;
+            const maxExtensionMs = maxExtensionRange * 1000;
+            const lastGeneration = cameraState.lastClipGenerationTimestamps[key];
+
+            if (lastGeneration && (now - lastGeneration) < maxExtensionMs) {
+                // Extend the existing clip generation by resetting the timeout
+                logger.log(`Extending clip generation for rule ${rule.name} on device ${device.name}, within ${maxExtensionRange}s range`);
+                cameraState.clipGenerationTimeout[rule.name] && clearTimeout(cameraState.clipGenerationTimeout[rule.name]);
+                cameraState.clipGenerationTimeout[rule.name] = setTimeout(async () => {
+                    cameraState.lastClipGenerationTimestamps[key] = Date.now();
+                    await prepareClip();
+                }, 1000 * delay);
+            } else {
+                // Start new clip generation
+                logger.log(`Starting clip ${rule.generateClipType} recording for rule ${rule.name} in ${delay} seconds (${decoderType})`);
+                cameraState.clipGenerationTimeout[rule.name] && clearTimeout(cameraState.clipGenerationTimeout[rule.name]);
+                cameraState.clipGenerationTimeout[rule.name] = setTimeout(async () => {
+                    cameraState.lastClipGenerationTimestamps[key] = Date.now();
+                    await prepareClip();
+                }, 1000 * delay);
+            }
         } else {
             cb({});
         }

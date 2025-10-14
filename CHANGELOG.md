@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.4.72
+- Add setting to allow clip extension on repeated detections in the configured timeframe
+
 ### 4.4.70
 - Added links to Zentik
 

@@ -1340,6 +1340,7 @@ export const getRuleKeys = (props: {
     const generateClipPostSecondsKey = `${prefix}:${ruleName}:generateClipPostSeconds`;
     const generateClipPreSecondsKey = `${prefix}:${ruleName}:generateClipPreSeconds`;
     const generateClipTypeKey = `${prefix}:${ruleName}:generateClipType`;
+    const generateClipMaxExtensionRangeKey = `${prefix}:${ruleName}:generateClipMaxExtensionRange`;
     const imageProcessingKey = `${prefix}:${ruleName}:imageProcessing`;
     const totalSnoozeKey = `${prefix}:${ruleName}:totalSnooze`;
 
@@ -1415,6 +1416,7 @@ export const getRuleKeys = (props: {
             generateClipPostSecondsKey,
             generateClipPreSecondsKey,
             generateClipTypeKey,
+            generateClipMaxExtensionRangeKey,
             imageProcessingKey,
             totalSnoozeKey,
         },
@@ -1891,6 +1893,7 @@ export const getRuleSettings = (props: {
                 generateClipPostSecondsKey,
                 generateClipPreSecondsKey,
                 generateClipTypeKey,
+                generateClipMaxExtensionRangeKey,
                 imageProcessingKey,
                 totalSnoozeKey
             }
@@ -1995,6 +1998,15 @@ export const getRuleSettings = (props: {
                         type: 'string',
                         choices: [VideoclipType.GIF, VideoclipType.MP4],
                         defaultValue: defaultVideoclipType,
+                    },
+                    {
+                        key: generateClipMaxExtensionRangeKey,
+                        title: 'Max clip extension range (seconds)',
+                        description: 'Maximum time to extend existing clips instead of generating new ones',
+                        group,
+                        subgroup,
+                        type: 'number',
+                        defaultValue: 30,
                     },
                 );
             } else {
@@ -3055,6 +3067,7 @@ export interface DetectionRule extends BaseRule {
     plateMaxDistance?: number;
     disableNvrRecordingSeconds?: number;
     detectionSource?: ScryptedEventSource;
+    maxClipExtensionRange?: number;
 }
 
 export const getMinutes = (date: Moment) => date.minutes() + (date.hours() * 60);
@@ -3353,7 +3366,8 @@ export const getDetectionRules = (props: {
                     scoreThresholdKey,
                     textKey,
                     minDelayKey,
-                    minMqttPublishDelayKey
+                    minMqttPublishDelayKey,
+                    generateClipMaxExtensionRangeKey
                 },
                 detection: {
                     useNvrDetectionsKey,
@@ -3402,6 +3416,7 @@ export const getDetectionRules = (props: {
             const clipConfidence = storage.getItem(clipConfidenceKey) as SimilarityConfidence;
             const minMqttPublishDelay = storage.getItem(minMqttPublishDelayKey) as number || 15;
             const disableNvrRecordingSeconds = storage.getItem(recordingTriggerSecondsKey) as number;
+            const maxClipExtensionRange = storage.getItem(generateClipMaxExtensionRangeKey) as number ?? 30;
 
             const { rule, basicRuleAllowed, ...restCriterias } = initBasicRule({
                 ruleName: detectionRuleName,
@@ -3429,6 +3444,7 @@ export const getDetectionRules = (props: {
                 frigateLabels,
                 audioLabels,
                 aiFilter,
+                maxClipExtensionRange,
             };
 
             if (!isPlugin) {

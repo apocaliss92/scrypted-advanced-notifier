@@ -92,6 +92,7 @@ export class CameraMixinState {
     decoderStream: MediaStreamDestination;
     decoderResize: boolean;
     checkingOutatedRules: boolean;
+    lastClipGenerationTimestamps: Record<string, number> = {};
 
     accumulatedDetections: AccumulatedDetection[] = [];
     accumulatedRules: MatchRule[] = [];
