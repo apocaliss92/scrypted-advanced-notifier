@@ -1,4 +1,4 @@
-import sdk, { Image, BinarySensor, Camera, DeviceBase, EntrySensor, HttpRequest, LockState, MediaObject, Notifier, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, OnOff, PanTiltZoom, Point, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, VideoCamera, TextEmbedding, ImageEmbedding, MediaStreamDestination } from "@scrypted/sdk";
+import sdk, { BinarySensor, Camera, DeviceBase, EntrySensor, HttpRequest, ImageEmbedding, LockState, MediaObject, Notifier, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, OnOff, PanTiltZoom, Point, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SecuritySystem, SecuritySystemMode, Settings, TextEmbedding, VideoCamera } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDevice, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import crypto from 'crypto';
@@ -8,10 +8,9 @@ import { logLevelSetting } from "../../scrypted-apocaliss-base/src/basePlugin";
 import { FRIGATE_OBJECT_DETECTOR_INTERFACE, pluginId } from '../../scrypted-frigate-bridge/src/utils';
 import { loginScryptedClient } from "../../scrypted/packages/client/src";
 import { name, scrypted } from '../package.json';
-import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, isPlateClassname, levenshteinDistance } from "./detectionClasses";
+import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, isPlateClassname } from "./detectionClasses";
 import AdvancedNotifierPlugin, { PluginSettingKey } from "./main";
 import { detectionClassForObjectsReporting } from "./mqtt-utils";
-import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 const { endpointManager } = sdk;
 
 export type DeviceInterface = ScryptedDevice & Camera & ScryptedDeviceBase & Notifier & Settings & ObjectDetector & VideoCamera & EntrySensor & Lock & BinarySensor & Reboot & PanTiltZoom & OnOff;
@@ -643,6 +642,12 @@ export const filterAndSortValidDetections = (props: {
 
     const candidates = uniqueByClassName.filter(det => {
         const { className, label, movement, id } = det;
+
+        const groupClass = detectionClassesDefaultMap[className];
+
+        if (!groupClass) {
+            return false;
+        }
         if (id) {
             const lastNotify = objectIdLastReport[id];
 
@@ -675,7 +680,6 @@ export const filterAndSortValidDetections = (props: {
             isSensorEvent = true
         }
 
-        const groupClass = detectionClassesDefaultMap[className];
         if (!isAudioEvent && groupClass === DetectionClass.Audio) {
             isAudioEvent = true;
         }

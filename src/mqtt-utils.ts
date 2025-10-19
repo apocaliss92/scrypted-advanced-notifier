@@ -1,4 +1,4 @@
-import sdk, { Notifier, ObjectDetectionResult, ObjectDetector, ObjectsDetected, PanTiltZoomCommand, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SecuritySystemMode } from '@scrypted/sdk';
+import sdk, { Notifier, ObjectDetectionResult, ObjectDetectionTypes, ObjectDetector, ObjectsDetected, PanTiltZoomCommand, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SecuritySystemMode } from '@scrypted/sdk';
 import { cloneDeep, uniq } from 'lodash';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 import { DetectionClass, detectionClassesDefaultMap, getParentDetectionClass, isAudioClassname, isLabelDetection } from './detectionClasses';
@@ -1186,22 +1186,24 @@ const getCameraClassEntities = async (props: {
     }
 
     if (device.interfaces.includes(ScryptedInterface.ObjectDetector)) {
-        const objectTypes = await device.getObjectTypes();
-        const detectionClassesSet = new Set<string>();
+        try {
+            const objectTypes = await device.getObjectTypes();
+            const detectionClassesSet = new Set<string>();
 
-        for (const supportedClass of objectTypes.classes) {
-            const defaultClass = detectionClassesDefaultMap[supportedClass];
-            if (defaultClass || isAudioClassname(supportedClass)) {
-                detectionClassesSet.add(supportedClass);
-            } else {
-                console.log(`Class ${supportedClass} not supported`);
+            for (const supportedClass of objectTypes.classes) {
+                const defaultClass = detectionClassesDefaultMap[supportedClass];
+                if (defaultClass || isAudioClassname(supportedClass)) {
+                    detectionClassesSet.add(supportedClass);
+                } else {
+                    console.log(`Class ${supportedClass} not supported`);
+                }
             }
-        }
 
-        enabledClasses.push(
-            ...Array.from(detectionClassesSet),
-            DetectionClass.AnyObject,
-        );
+            enabledClasses.push(
+                ...Array.from(detectionClassesSet),
+                DetectionClass.AnyObject,
+            );
+        } catch { }
     }
 
     return getDetectionClassMqttEntities(uniq(enabledClasses));
