@@ -2549,8 +2549,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         detection,
                         eventSource
                     });
-                } else {
-                    console.log(`${className} not found`);
                 }
             }
         } else if (prefix) {

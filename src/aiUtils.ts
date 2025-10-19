@@ -1,8 +1,4 @@
-import { Anthropic } from '@anthropic-ai/sdk';
-import { GoogleGenerativeAI, HarmBlockThreshold, HarmCategory, Part } from "@google/generative-ai";
 import sdk, { ChatCompletion, ChatCompletionCreateParamsNonStreaming, ObjectDetectionResult, ScryptedDeviceBase } from "@scrypted/sdk";
-import axios from "axios";
-import Groq from "groq-sdk";
 import AdvancedNotifierPlugin, { PluginSettingKey } from "./main";
 import { StorageSetting, StorageSettings } from '@scrypted/sdk/storage-settings';
 import { safeParseJson } from './utils';
@@ -166,88 +162,6 @@ const createLlmQuestionTemplate = (props: {
         ],
     };
 }
-
-export const executeGoogleAi = async (props: {
-    systemPrompt: string,
-    model: string,
-    b64Image: string,
-    apiKey: string,
-    logger: Console
-}) => {
-    const { model, systemPrompt, apiKey, b64Image, logger } = props;
-
-    try {
-        const promptText = systemPrompt || 'Describe this image in detail';
-
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const generativeModel = genAI.getGenerativeModel({ model });
-
-        const generationConfig = {
-            temperature: 0.4,
-            topK: 32,
-            topP: 1,
-            maxOutputTokens: 4096,
-        };
-
-        const safetySettings = [
-            { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-            { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-            { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-            { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-        ];
-
-        // Format the image part using the received Base64 data and mimeType
-        const imagePart: Part = {
-            inlineData: {
-                data: b64Image,
-                mimeType: 'image/jpeg',
-            },
-        };
-
-        const parts: Part[] = [
-            { text: promptText },
-            imagePart,
-        ];
-
-        const result = await generativeModel.generateContent({
-            contents: [{ role: 'user', parts }],
-            generationConfig,
-            safetySettings,
-        });
-
-        // Handle cases where the response might be blocked or missing text
-        if (!result.response || !result.response.candidates || result.response.candidates.length === 0) {
-            // Check for specific finish reasons like safety
-            const finishReason = result.response?.promptFeedback?.blockReason;
-            let blockMessage = "Analysis response is empty or blocked.";
-            if (finishReason) {
-                blockMessage += ` Reason: ${finishReason}`;
-            }
-            logger.error(blockMessage);
-            return null;
-        }
-
-        return result.response.text();
-
-    } catch (error: any) {
-        logger.error("Error analyzing image:", error);
-        let errorMessage = "Failed to analyze image.";
-        // Improved error handling for common issues
-        if (error instanceof SyntaxError) { // Handle JSON parsing errors
-            errorMessage = "Invalid request format.";
-            logger.error(errorMessage);
-            return null;
-        } else if (error.message && error.message.includes('API key not valid')) {
-            errorMessage = "Invalid API Key provided. Please check your key and try again.";
-        } else if (error.message && error.message.includes('quota')) { // Handle quota errors
-            errorMessage = "API quota exceeded. Please check your usage limits.";
-        } else if (error.message) {
-            errorMessage += ` Reason: ${error.message}`;
-        }
-        logger.error(errorMessage);
-        return null;
-    }
-};
 
 export const getAiMessage = async (props: {
     plugin: AdvancedNotifierPlugin,
