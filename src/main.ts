@@ -2670,7 +2670,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 payload.data.pushover.file = { name: 'media.gif', data: gifData };
             }
         } else if (notifier.pluginId === ZENTIK_PLUGIN_ID) {
-            const zentikActions = [];
+            const zentikActions: any[] = [
+                {
+                    type: 'NAVIGATE',
+                    title: openNvrText,
+                    icon: 'sfsymbols:video',
+                    value: externalUrl,
+                }
+            ];
 
             if (addSnozeActions) {
                 for (const { url, title } of snoozeActions) {
@@ -2694,15 +2701,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         destructive: false
                     })
                 }
-            }
-
-            if (!openInApp) {
-                zentikActions.push({
-                    type: 'NAVIGATE',
-                    title: openNvrText,
-                    icon: 'sfsymbols:video',
-                    value: externalUrl,
-                });
             }
 
             const tapUrl = openInApp && rule.ruleType === RuleType.Detection ?
