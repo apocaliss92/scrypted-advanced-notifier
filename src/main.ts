@@ -19,7 +19,7 @@ import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierDataFetcher } from "./dataFetcher";
 import { addEvent, cleanupDatabases, cleanupEvents } from "./db";
 import { DetectionClass, detectionClassesDefaultMap, isLabelDetection, isMotionClassname, isPlateClassname } from "./detectionClasses";
-import { serveGif, servePluginGeneratedThumbnail, servePluginGeneratedVideoclip } from "./httpUtils";
+import { serveGif, serveImage, servePluginGeneratedThumbnail, servePluginGeneratedVideoclip } from "./httpUtils";
 import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
@@ -830,6 +830,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 eventImage,
                 eventVideoclip,
                 imageRule,
+                videoRule,
+                gifRule,
             } = await getWebhooks();
             if ([webhook, privateWebhook].includes('app')) {
                 if (deviceIdOrActionRaw) {
@@ -909,8 +911,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     });
                     return;
                 } else if ([privateWebhook, webhook].includes(gif)) {
+                    const { gifPath } = this.camera.getFilePath({ fileId: deviceIdOrAction.replace('.gif', '') });
                     await serveGif({
-                        fileId: deviceIdOrAction,
+                        gifPath,
                         plugin: this,
                         request,
                         response
@@ -944,13 +947,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                             }
                         });
                         return;
-                        // response.send('', {
-                        //     code: 302,
-                        //     headers: {
-                        //         ...request.headers,
-                        //         Location: imageUrl,
-                        //     }
-                        // });
                     } else if (imageSource === ScryptedEventSource.Frigate) {
                         const imagePath = webhook === eventThumbnail ? 'thumbnail' : 'snapshot';
                         const imageUrl = `${this.frigateApi}/events/${decodedRuleNameOrSnoozeIdOrSnapshotId}/${imagePath}.jpg`;
@@ -981,8 +977,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     }
                     return;
                 } else if ([privateWebhook, webhook].some(hook => [videoclipStream].includes(hook))) {
+                    const { videoclipPath } = this.camera.getFilePath({ fileId: deviceIdOrAction });
                     await servePluginGeneratedVideoclip({
-                        fileId: deviceIdOrAction,
+                        videoclipPath,
                         request,
                         response,
                         plugin: this,
@@ -1018,8 +1015,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     });
                     return;
                 } else if (webhook === videoclipStream) {
+                    const { videoclipPath } = this.camera.getFilePath({ fileId: deviceIdOrAction });
                     await servePluginGeneratedVideoclip({
-                        fileId: deviceIdOrAction,
+                        videoclipPath,
                         request,
                         response,
                         plugin: this,
@@ -1034,8 +1032,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     });
                     return;
                 } else if (webhook === gif) {
+                    const { gifPath } = this.camera.getFilePath({ fileId: deviceIdOrAction.replace('.gif', '') });
                     await serveGif({
-                        fileId: deviceIdOrAction,
+                        gifPath,
                         plugin: this,
                         request,
                         response
@@ -1045,16 +1044,22 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     const isWebhookEnabled = device?.mixinState.storageSettings.values.lastSnapshotWebhook;
 
                     if (isWebhookEnabled) {
-                        let imagePath: string;
                         const pieces = ruleNameOrSnoozeIdOrSnapshotId.split('__');
+                        const firstPiece = pieces[0];
 
-                        if (pieces[0] === 'object-detection') {
+                        if (firstPiece === 'object-detection') {
                             const [_, ...rest] = pieces;
                             const identifier = rest.join('__');
                             const imageIdentifier = identifier;
                             const { filePath } = this.getDetectionImagePaths({ device: realDevice, imageIdentifier });
-                            imagePath = filePath;
-                        } else {
+                            await serveImage({
+                                imagePath: filePath,
+                                plugin: this,
+                                request,
+                                response
+                            })
+                            return;
+                        } else if (firstPiece === 'ruleImage') {
                             const [_, ruleName, variant] = pieces;
                             let imageIdentifier: string;
                             if (pieces.length === 2) {
@@ -1063,23 +1068,33 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                                 imageIdentifier = `trigger_latest__${variant}`;
                             }
                             const { filePath } = this.getRulePaths({ cameraId: realDevice.id, ruleName, fileName: imageIdentifier });
-                            imagePath = filePath;
-                        }
+                            await serveImage({
+                                imagePath: filePath,
+                                plugin: this,
+                                request,
+                                response
+                            })
+                            return;
+                        } else if (firstPiece === 'ruleClip') {
+                            const [_, ruleName] = pieces;
+                            const { videoclipLatestPath } = this.getRulePaths({ cameraId: realDevice.id, ruleName });
 
-                        try {
-                            const jpeg = await fs.promises.readFile(imagePath);
-
-                            response.send(jpeg, {
-                                headers: {
-                                    'Content-Type': 'image/jpeg',
-                                }
+                            await servePluginGeneratedVideoclip({
+                                videoclipPath: videoclipLatestPath,
+                                request,
+                                response,
+                                plugin: this,
                             });
                             return;
-                        } catch (e) {
-                            const message = `Error getting snapshot ${ruleNameOrSnoozeIdOrSnapshotId} for device ${device.name}: ${e.message}`;
-                            logger.log(message)
-                            response.send(message, {
-                                code: 404,
+                        } else if (firstPiece === 'ruleGif') {
+                            const [_, ruleName] = pieces;
+                            const { gifLatestPath } = this.getRulePaths({ cameraId: realDevice.id, ruleName });
+
+                            await serveGif({
+                                gifPath: gifLatestPath,
+                                plugin: this,
+                                request,
+                                response
                             });
                             return;
                         }
@@ -3355,6 +3370,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const ruleImagePath = fileName && generatedPath ? path.join(generatedPath, `${fileName}.jpg`) : undefined;
         const filePath = fileName && rulePath ? path.join(rulePath, `${fileName}.jpg`) : undefined;
         const framePath = fileName && framesPath ? path.join(framesPath, `${fileName}.jpg`) : undefined;
+        const gifLatestPath = path.join(generatedPath, `latest.gif`);
+        const videoclipLatestPath = path.join(generatedPath, `latest.mp4`);
 
         const fileId = `${TIMELAPSE_CLIP_PREFIX}_${cameraId}_${ruleName}_${fileName}`;
 
@@ -3368,6 +3385,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             rulesPath,
             fileId,
             ruleImagePath,
+            videoclipLatestPath,
+            gifLatestPath,
             filePath,
             gifPath: undefined,
         };
@@ -3386,9 +3405,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const framePath = fileName ? path.join(framesPath, `${fileName}.jpg`) : undefined;
         const snapshotPath = fileName && generatedPath ? path.join(generatedPath, `${fileName}.jpg`) : undefined;
         const videoclipPath = fileName ? path.join(generatedPath, `${fileName}.mp4`) : undefined;
-        const videoclipLatestPath = fileName ? path.join(generatedPath, `latest.mp4`) : undefined;
         const gifPath = fileName ? path.join(generatedPath, `${fileName}.gif`) : undefined;
-        const gifLatestPath = fileName ? path.join(generatedPath, `latest.gif`) : undefined;
 
         const fileId = `${DETECTION_CLIP_PREFIX}_${cameraId}_${fileName}`;
 
@@ -3401,8 +3418,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             videoclipPath,
             fileId,
             gifPath,
-            videoclipLatestPath,
-            gifLatestPath,
         };
     }
 
@@ -3952,8 +3967,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const {
                 videoclipPath,
                 snapshotPath,
-                videoclipLatestPath,
             } = this.getShortClipPaths({ cameraId: device.id, fileName });
+            const { videoclipLatestPath } = this.getRulePaths({ cameraId: device.id, ruleName: rule.name });
 
             if (framesAmount) {
                 const ffmpegArgs = [
@@ -4031,7 +4046,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             } = await this.prepareClipGenerationFiles(props);
 
             const fileName = String(triggerTime);
-            const { gifPath, gifLatestPath } = this.getShortClipPaths({ cameraId: device.id, fileName });
+            const { gifPath } = this.getShortClipPaths({ cameraId: device.id, fileName });
+            const { gifLatestPath } = this.getRulePaths({ cameraId: device.id, ruleName: rule.name });
 
             if (framesAmount) {
                 const ffmpegArgs = [

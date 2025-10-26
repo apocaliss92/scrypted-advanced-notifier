@@ -289,6 +289,8 @@ export const getWebhooks = async () => {
     const setAlarm = 'setAlarm';
     const videoclipStream = 'videoclipStream';
     const imageRule = 'imageRule';
+    const videoRule = 'videoRule';
+    const gifRule = 'gifRule';
     const gif = 'gif';
     const videoclipThumbnail = 'videoclipThumbnail';
     const eventThumbnail = 'eventThumbnail';
@@ -304,6 +306,8 @@ export const getWebhooks = async () => {
         setAlarm,
         videoclipStream,
         imageRule,
+        videoRule,
+        gifRule,
         gif,
         videoclipThumbnail,
         eventThumbnail,
@@ -411,6 +415,8 @@ export const getWebHookUrls = async (props: {
     let videoclipThumbnailUrl: string;
     let videoclipStreamUrl: string;
     let imageRuleUrl: string;
+    let gifRuleUrl: string;
+    let videoRuleUrl: string;
     let gifUrl: string;
     let eventThumbnailUrl: string;
     let eventImageUrl: string;
@@ -425,10 +431,12 @@ export const getWebHookUrls = async (props: {
         snoozeNotification,
         postNotification,
         videoclipStream,
-        gif,
         videoclipThumbnail,
         eventThumbnail,
         imageRule,
+        videoRule,
+        gifRule,
+        gif,
         eventImage,
         eventVideoclip,
         eventsApp,
@@ -453,8 +461,10 @@ export const getWebHookUrls = async (props: {
 
         videoclipStreamUrl = `${assetsOrigin}${publicPathnamePrefix}${videoclipStream}/${fileId}?${paramString}`;
         imageRuleUrl = `${assetsOrigin}${publicPathnamePrefix}${imageRule}/${encodedId}/${fileId}?${paramString}`;
-        gifUrl = `${assetsOrigin}${publicPathnamePrefix}${gif}/${fileId}?${paramString}`;
+        videoRuleUrl = `${assetsOrigin}${publicPathnamePrefix}${videoRule}/${encodedId}/${fileId}?${paramString}`;
+        gifRuleUrl = `${assetsOrigin}${publicPathnamePrefix}${gifRule}/${encodedId}/${fileId}?${paramString}`;
         videoclipThumbnailUrl = `${assetsOrigin}${publicPathnamePrefix}${videoclipThumbnail}/${fileId}?${paramString}`;
+        gifUrl = `${assetsOrigin}${publicPathnamePrefix}${gif}/${fileId}?${paramString}`;
 
         privatePathnamePrefix = `${privatePathname}${eventsApp}`;
         eventThumbnailUrl = `${privatePathnamePrefix}/${eventThumbnail}/${device?.id}/${fileId}`;
@@ -486,12 +496,14 @@ export const getWebHookUrls = async (props: {
         endpoint,
         videoclipStreamUrl,
         imageRuleUrl,
+        gifRuleUrl,
+        videoRuleUrl,
         videoclipThumbnailUrl,
         eventThumbnailUrl,
         eventImageUrl,
         eventVideoclipUrl,
         privatePathnamePrefix,
-        gifUrl
+        gifUrl,
     };
 }
 

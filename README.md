@@ -191,10 +191,10 @@ Will provide the latest registered image for each type, on the camera settings w
 - `object-detection__{ motion | any_object | animal | person | vehicle }__{ NVR | Frigate }`
 - `object-detection__face-{ known person label }`
 - `object-detection__face-{ known person label }_{ NVR | Frigate }`
-- `rule__{ ruleName }`
-- `rule__{ ruleName }__{ Crop | MarkBoundaries}`
-- `rule__{ ruleName }__clip`
-- `rule__{ ruleName }__gif`
+- `ruleImage__{ ruleName }`
+- `ruleImage__{ ruleName }__{ Crop | MarkBoundaries}`
+- `ruleClip__{ ruleName }`
+- `ruleGif__{ ruleName }`
 
 ### POST detection images
 
