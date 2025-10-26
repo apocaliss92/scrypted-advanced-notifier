@@ -133,16 +133,16 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
         const { fileId } = props;
 
         if (fileId.startsWith(TIMELAPSE_CLIP_PREFIX)) {
-            const [_, cameraName, ruleName, fileName] = fileId.split('_');
+            const [_, cameraId, ruleName, fileName] = fileId.split('_');
             return this.plugin.getRulePaths({
-                cameraName,
+                cameraId,
                 fileName,
                 ruleName
             });
         } else if (fileId.startsWith(DETECTION_CLIP_PREFIX)) {
-            const [_, cameraName, fileName] = fileId.split('_');
+            const [_, cameraId, fileName] = fileId.split('_');
             return this.plugin.getShortClipPaths({
-                cameraName,
+                cameraId,
                 fileName,
             });
         }

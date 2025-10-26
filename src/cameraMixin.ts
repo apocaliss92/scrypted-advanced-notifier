@@ -325,10 +325,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     async getVideoClipsInternal(options?: VideoClipOptions): Promise<VideoClip[]> {
         const videoClips: VideoClip[] = [];
         const logger = this.getLogger();
-        const cameraFolder = this.name;
+        const cameraFolder = this.id;
 
-        const cameraDevice = sdk.systemManager.getDeviceByName<ScryptedDeviceBase>(cameraFolder);
-        const { rulesPath } = this.plugin.getRulePaths({ cameraName: cameraFolder });
+        const cameraDevice = sdk.systemManager.getDeviceById<ScryptedDeviceBase>(cameraFolder);
+        const { rulesPath } = this.plugin.getRulePaths({ cameraId: cameraFolder });
 
         let hasRules = true;
 
@@ -343,7 +343,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             for (const ruleFolder of rulesFolder) {
                 const { generatedPath } = this.plugin.getRulePaths({
-                    cameraName: cameraFolder,
+                    cameraId: cameraFolder,
                     ruleName: ruleFolder
                 });
 
@@ -356,7 +356,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                         if (timestamp > options.startTime && timestamp < options.endTime) {
                             const { fileId } = this.plugin.getRulePaths({
-                                cameraName: cameraFolder,
+                                cameraId: cameraFolder,
                                 fileName,
                                 ruleName: ruleFolder
                             });
@@ -393,7 +393,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         let hasClips = true;
         try {
-            const { generatedPath } = this.plugin.getShortClipPaths({ cameraName: cameraDevice.name });
+            const { generatedPath } = this.plugin.getShortClipPaths({ cameraId: cameraFolder });
             await fs.promises.access(generatedPath);
             clipsPath = generatedPath;
         } catch (e) {
@@ -411,7 +411,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                         if (timestamp > options.startTime && timestamp < options.endTime) {
                             const { fileId } = this.plugin.getShortClipPaths({
-                                cameraName: cameraDevice.name,
+                                cameraId: cameraFolder,
                                 fileName,
                             });
                             const { videoclipThumbnailUrl, videoclipStreamUrl } = await getWebHookUrls({
@@ -452,16 +452,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { fileId } = props;
 
         if (fileId.startsWith(TIMELAPSE_CLIP_PREFIX)) {
-            const [_, cameraName, ruleName, fileName] = fileId.split('_');
+            const [_, cameraId, ruleName, fileName] = fileId.split('_');
             return this.plugin.getRulePaths({
-                cameraName,
+                cameraId,
                 fileName,
                 ruleName
             });
         } else if (fileId.startsWith(DETECTION_CLIP_PREFIX)) {
-            const [_, cameraName, fileName] = fileId.split('_');
+            const [_, cameraId, fileName] = fileId.split('_');
             return this.plugin.getShortClipPaths({
-                cameraName,
+                cameraId,
                 fileName,
             });
         }
@@ -1017,7 +1017,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async initDb() {
-        const { dbPath } = this.plugin.getEventPaths({ cameraName: this.cameraDevice.name });
+        const { dbPath } = this.plugin.getEventPaths({ cameraId: this.cameraDevice.id });
         const logger = this.getLogger();
         const db = new JsonDB(new Config(dbPath, true, true, '/'));
         try {
@@ -1572,16 +1572,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 detections: match ? [match] : undefined,
                 device: this.cameraDevice,
                 triggerTime,
-                prefix: `rule-${rule.name}`,
                 eventSource,
-            }).catch(logger.log);
-
-            this.storeImagesOnFs({
-                b64Image,
-                device: this.cameraDevice,
-                triggerTime,
-                prefix: `rule-${rule.name}`,
-                eventSource,
+                ruleName: rule.name,
             }).catch(logger.log);
 
             if (rule.ruleType === RuleType.Detection && !skipTrigger) {
@@ -1732,15 +1724,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const mo = await sdk.mediaManager.createMediaObject(this.mixinState.lastFrame, 'image/jpeg');
                 if (this.mixinState.decoderResize && !skipResize) {
                     const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(mo, ScryptedMimeTypes.Image);
-                    // image = await convertedImage.toImage(
-                    //     !this.mixinState.storageSettings.values.resizeDecoderFrames ? {
-                    //         format: 'jpeg',
-                    //         resize: {
-                    //             width: SNAPSHOT_WIDTH,
-                    //         },
-                    //     } :
-                    //         undefined
-                    // );
                     image = await convertedImage.toImage(
                         { format: 'jpeg' }
                     );
@@ -2370,8 +2353,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     b64Image,
                     device: this.cameraDevice,
                     triggerTime,
-                    prefix: `rule-${rule.name}`,
                     eventSource: ScryptedEventSource.RawDetection,
+                    ruleName: rule.name,
+                    detections: [],
                 }).catch(logger.log);
 
                 const { timePassed } = this.isDelayPassed({
@@ -2389,6 +2373,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         rule,
                         triggerTime,
                         image,
+                        b64Image,
                         occupancyData: occupancyRuleData
                     });
                 }
@@ -2486,6 +2471,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             message,
                             rule,
                             triggerTime: now,
+                            b64Image,
                         });
 
                         this.triggerRule({
@@ -2516,50 +2502,25 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async storeImagesOnFs(props: {
-        prefix?: string,
-        suffix?: string,
-        detections?: ObjectDetectionResult[],
+        variant?: string,
+        detections: ObjectDetectionResult[],
         device: ScryptedDeviceBase,
         triggerTime: number,
         b64Image: string,
         eventSource: ScryptedEventSource,
+        ruleName?: string,
     }) {
-        const { detections, prefix, suffix, device, triggerTime, b64Image, eventSource } = props;
+        const { detections, variant, device, triggerTime, b64Image, eventSource, ruleName } = props;
 
-        if (detections) {
-            for (const detection of detections) {
-                const { className, label } = detection;
-                const detectionClass = detectionClassesDefaultMap[className];
-                if (detectionClass) {
-
-                    let name = `${prefix}-${className}`;
-
-                    if (label && !isPlateClassname(className)) {
-                        name += `-${label}`;
-                    }
-                    if (suffix) {
-                        name += `-${suffix}`;
-                    }
-
-                    this.plugin.storeImage({
-                        device,
-                        name,
-                        timestamp: triggerTime,
-                        b64Image,
-                        detection,
-                        eventSource
-                    });
-                }
-            }
-        } else if (prefix) {
-            this.plugin.storeImage({
-                device,
-                name: prefix,
-                timestamp: triggerTime,
-                b64Image,
-                eventSource
-            });
-        }
+        this.plugin.storeDetectionImages({
+            device,
+            timestamp: triggerTime,
+            b64Image,
+            detections,
+            eventSource,
+            ruleName,
+            variant
+        });
     }
 
     async processAccumulatedDetections() {
@@ -3074,33 +3035,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     })}`);
 
                     const processedB64Image = await moToB64(image);
-                    let suffix = detectionSource !== ScryptedEventSource.RawDetection ? `${detectionSource}-` : '';
-                    suffix += `${imageProcessing}`;
-                    this.storeImagesOnFs({
-                        b64Image: processedB64Image,
-                        detections: [match],
-                        device: this.cameraDevice,
-                        triggerTime,
-                        prefix: 'object-detection',
-                        suffix,
-                        eventSource: detectionSource
-                    }).catch(logger.log);
 
                     this.storeImagesOnFs({
                         b64Image: processedB64Image,
                         detections: match ? [match] : undefined,
                         device: this.cameraDevice,
                         triggerTime,
-                        prefix: `rule-${rule.name}-${imageProcessing}`,
-                        eventSource: detectionSource
-                    }).catch(logger.log);
-
-                    this.storeImagesOnFs({
-                        b64Image: processedB64Image,
-                        device: this.cameraDevice,
-                        triggerTime,
-                        prefix: `rule-${rule.name}-${imageProcessing}`,
-                        eventSource: detectionSource
+                        variant: imageProcessing,
+                        eventSource: detectionSource,
+                        ruleName: rule.name
                     }).catch(logger.log);
                 }
 
@@ -3448,7 +3391,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { detect, eventDetails, image: parentImage, eventSource } = props;
         const isDetectionFromNvr = eventSource === ScryptedEventSource.NVR;
         const isDetectionFromFrigate = eventSource === ScryptedEventSource.Frigate;
-        const isDetectionRawDetection = eventSource === ScryptedEventSource.RawDetection;
         const logger = this.getLogger();
         const { timestamp: triggerTimeParent, detections } = detect;
         const detectionSourceForMqtt = this.detectionSourceForMqtt;
@@ -3636,9 +3578,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     detections: candidates,
                     device: this.cameraDevice,
                     triggerTime,
-                    prefix: 'object-detection',
-                    suffix: !isDetectionRawDetection ? eventSource : undefined,
-                    eventSource
+                    eventSource,
                 }).catch(logger.log);
             }
 
@@ -3776,15 +3716,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         image,
                     }).catch(logger.log);
 
-                    this.plugin.storeEventImage({
-                        b64Image,
-                        detections: [{ className: DetectionClass.Doorbell, score: 1 }],
-                        device: this.cameraDevice,
-                        eventSource: ScryptedEventSource.RawDetection,
-                        logger,
-                        timestamp: now,
-                        image,
-                    }).catch(logger.error);
+                    if (this.plugin.storageSettings.values.storeEvents) {
+                        this.plugin.storeEventImage({
+                            b64Image,
+                            detections: [{ className: DetectionClass.Doorbell, score: 1 }],
+                            device: this.cameraDevice,
+                            eventSource: ScryptedEventSource.RawDetection,
+                            logger,
+                            timestamp: now,
+                            image,
+                        }).catch(logger.error);
+                    }
                 } else {
                     this.resetDetectionEntities({
                         resetSource: 'MotionSensor',
@@ -3843,15 +3785,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         image,
                     }).catch(logger.log);
 
-                    this.plugin.storeEventImage({
-                        b64Image,
-                        detections: [{ className: DetectionClass.Audio, score: 1 }],
-                        device: this.cameraDevice,
-                        eventSource: ScryptedEventSource.RawDetection,
-                        logger,
-                        timestamp: now,
-                        image,
-                    }).catch(logger.error);
+                    if (this.plugin.storageSettings.values.storeEvents) {
+                        this.plugin.storeEventImage({
+                            b64Image,
+                            detections: [{ className: DetectionClass.Audio, score: 1 }],
+                            device: this.cameraDevice,
+                            eventSource: ScryptedEventSource.RawDetection,
+                            logger,
+                            timestamp: now,
+                            image,
+                        }).catch(logger.error);
+                    }
                 } else {
                     this.resetDetectionEntities({
                         resetSource: 'MotionSensor',
