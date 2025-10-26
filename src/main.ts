@@ -3370,8 +3370,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const ruleImagePath = fileName && generatedPath ? path.join(generatedPath, `${fileName}.jpg`) : undefined;
         const filePath = fileName && rulePath ? path.join(rulePath, `${fileName}.jpg`) : undefined;
         const framePath = fileName && framesPath ? path.join(framesPath, `${fileName}.jpg`) : undefined;
-        const gifLatestPath = path.join(generatedPath, `latest.gif`);
-        const videoclipLatestPath = path.join(generatedPath, `latest.mp4`);
+        const gifLatestPath = generatedPath ? path.join(generatedPath, `latest.gif`) : undefined;
+        const videoclipLatestPath = generatedPath ? path.join(generatedPath, `latest.mp4`) : undefined;
 
         const fileId = `${TIMELAPSE_CLIP_PREFIX}_${cameraId}_${ruleName}_${fileName}`;
 
