@@ -1920,7 +1920,7 @@ export const getRuleSettings = (props: {
         const aiEnabled = safeParseJson<boolean>(storage.getItem(aiEnabledKey), false);
         const generateClip = safeParseJson<boolean>(storage.getItem(generateClipKey), false);
         const notifiers = safeParseJson<string[]>(storage.getItem(notifiersKey), []);
-        const advancedSecurityEnabled = ruleType === RuleType.Detection && isPlugin;
+        const advancedSecurityEnabled = ruleType === RuleType.Detection;
         const isAdvancedSecuritySystem = advancedSecurityEnabled && currentActivation === DetectionRuleActivation.AdvancedSecuritySystem;
 
         settings.push(
