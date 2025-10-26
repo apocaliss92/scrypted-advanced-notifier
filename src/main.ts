@@ -3386,7 +3386,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const framePath = fileName ? path.join(framesPath, `${fileName}.jpg`) : undefined;
         const snapshotPath = fileName && generatedPath ? path.join(generatedPath, `${fileName}.jpg`) : undefined;
         const videoclipPath = fileName ? path.join(generatedPath, `${fileName}.mp4`) : undefined;
+        const videoclipLatestPath = fileName ? path.join(generatedPath, `latest.mp4`) : undefined;
         const gifPath = fileName ? path.join(generatedPath, `${fileName}.gif`) : undefined;
+        const gifLatestPath = fileName ? path.join(generatedPath, `latest.gif`) : undefined;
 
         const fileId = `${DETECTION_CLIP_PREFIX}_${cameraId}_${fileName}`;
 
@@ -3399,6 +3401,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             videoclipPath,
             fileId,
             gifPath,
+            videoclipLatestPath,
+            gifLatestPath,
         };
     }
 
@@ -3948,6 +3952,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const {
                 videoclipPath,
                 snapshotPath,
+                videoclipLatestPath,
             } = this.getShortClipPaths({ cameraId: device.id, fileName });
 
             if (framesAmount) {
@@ -3969,6 +3974,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     stdio: 'inherit',
                 });
                 await once(cp, 'exit');
+                await fs.promises.copyFile(videoclipPath, videoclipLatestPath);
                 logger.log(`Detection clip ${videoclipPath} generated`);
 
                 const { framePath } = this.getShortClipPaths({
@@ -4025,26 +4031,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             } = await this.prepareClipGenerationFiles(props);
 
             const fileName = String(triggerTime);
-            const { gifPath } = this.getShortClipPaths({ cameraId: device.id, fileName });
+            const { gifPath, gifLatestPath } = this.getShortClipPaths({ cameraId: device.id, fileName });
 
             if (framesAmount) {
-                // const ffmpegArgs = [
-                //     '-loglevel', 'error',
-                //     '-f', 'concat',
-                //     '-safe', '0',
-                //     '-r', `${fps}`,
-                //     '-i', listPath,
-                //     // '-filter_complex',
-                //     // "[0:v] scale='if(gt(iw,1280),240,iw*240/1280)':-2:flags=lanczos, pad=ceil(iw/2)*2:ceil(ih/2)*2, palettegen=stats_mode=diff:max_colors=64 [p]; " +
-                //     // "[0:v] scale='if(gt(iw,1280),240,iw*240/1280)':-2:flags=lanczos, pad=ceil(iw/2)*2:ceil(ih/2)*2 [scaled]; " +
-                //     // "[scaled][p] paletteuse",
-                //     '-filter_complex',
-                //     "[0:v] scale='min(1280,iw)':-2, pad=ceil(iw/2)*2:ceil(ih/2)*2, palettegen=stats_mode=diff [p];" +
-                //     "[0:v] scale='min(1280,iw)':-2, pad=ceil(iw/2)*2:ceil(ih/2)*2 [scaled];" +
-                //     "[scaled][p] paletteuse",
-                //     '-y',
-                //     gifPath
-                // ];
                 const ffmpegArgs = [
                     '-loglevel', 'error',
                     '-f', 'concat',
@@ -4052,7 +4041,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     '-r', `${fps}`,
                     '-i', listPath,
                     '-vf', `scale='min(${SNAPSHOT_WIDTH},iw)':'-2',pad=ceil(iw/2)*2:ceil(ih/2)*2`,
-                    // '-vf', `fps=12,scale='min(${SNAPSHOT_WIDTH},iw)':'-2':flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=64[p];[s1][p]paletteuse=dither=floyd_steinberg`,
                     '-y',
                     gifPath,
                 ];
@@ -4062,6 +4050,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     stdio: 'inherit',
                 });
                 await once(cp, 'exit');
+                await fs.promises.copyFile(gifPath, gifLatestPath);
                 logger.log(`GIF ${gifPath} generated`);
             } else {
                 logger.log(`Skipping ${rule.name} ${triggerTime} GIF generation, no frames available`);
