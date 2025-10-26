@@ -1,10 +1,13 @@
 
-import sdk, { MediaObject, Notifier, NotifierOptions, ScryptedDeviceBase, ScryptedInterface, Settings } from '@scrypted/sdk';
+import sdk, { MediaObject, Notifier, NotifierOptions, ScryptedDeviceBase, ScryptedInterface, Setting, Settings, SettingValue } from '@scrypted/sdk';
 import AdvancedNotifierPlugin from './main';
 import { DeviceInterface } from './utils';
+import { StorageSettings } from '@scrypted/sdk/storage-settings';
 const { systemManager } = sdk;
 
-export class AdvancedNotifierNotifier extends ScryptedDeviceBase implements Notifier {
+export class AdvancedNotifierNotifier extends ScryptedDeviceBase implements Notifier, Settings {
+    storageSettings = new StorageSettings(this, {});
+
     constructor(nativeId: string, private plugin: AdvancedNotifierPlugin) {
         super(nativeId);
 
@@ -39,6 +42,16 @@ export class AdvancedNotifierNotifier extends ScryptedDeviceBase implements Noti
                 }, 2000);
             }
         })();
+    }
+
+    async getSettings(): Promise<Setting[]> {
+        const settings = await this.storageSettings.getSettings();
+
+        return settings;
+    }
+
+    async putSetting(key: string, value: SettingValue): Promise<void> {
+        return this.storageSettings.putSetting(key, value);
     }
 
     async sendNotification(title: string, options?: NotifierOptions, media?: MediaObject, icon?: MediaObject | string): Promise<void> {

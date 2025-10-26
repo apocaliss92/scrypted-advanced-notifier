@@ -71,6 +71,7 @@ export type PluginSettingKey =
     | 'cleanupEvents'
     | 'enableDecoder'
     | 'assetsOriginSource'
+    | 'customOriginUrl'
     | 'privateKey'
     | 'postProcessingCropSizeIncrease'
     | 'postProcessingMarkingSizeIncrease'
@@ -260,7 +261,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 AssetOriginSource.CloudSecure,
                 AssetOriginSource.LocalSecure,
                 AssetOriginSource.LocalInsecure,
-            ]
+                AssetOriginSource.Custom,
+            ],
+            onPut: async () => await this.refreshSettings()
+        },
+        customOriginUrl: {
+            title: 'Custom origin URL',
+            subgroup: 'Advanced',
+            description: 'Enter a custom URL for the asset origin, in case of missing cloud plugin',
+            type: 'string',
         },
         testDevice: {
             title: 'Device',
@@ -1381,6 +1390,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.storageSettings.settings.assetsOriginSource.choices = [
                 AssetOriginSource.LocalSecure,
                 AssetOriginSource.LocalInsecure,
+                AssetOriginSource.Custom,
             ];
             if (this.storageSettings.values.assetsOriginSource === AssetOriginSource.CloudSecure) {
                 logger.log(`Assets origin set to ${AssetOriginSource.CloudSecure} but cloud plugin is not installed. Changing to ${AssetOriginSource.LocalSecure}`);
@@ -1869,6 +1879,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const { priorityChoices } = getNotifierData({ notifierId: testNotifier.id, ruleType: RuleType.Detection });
             this.storageSettings.settings.testPriority.choices = priorityChoices;
         }
+
+        const originSource = this.storageSettings.values.assetsOriginSource;
+        this.storageSettings.settings.customOriginUrl.hide = originSource !== AssetOriginSource.Custom;
     }
 
     get enabledDetectionSources() {
@@ -1884,11 +1897,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     async getSettings() {
         try {
-            // applySettingsShow(this.storageSettings);
             const settings = await this.storageSettings.getSettings();
 
             return settings;
-            // return super.getSettings();
         } catch (e) {
             this.getLogger().log('Error in getSettings', e);
             return [];

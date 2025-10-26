@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.4.75
+- Add setting for custom origin to cover cloud plugin missing
+- Fix init NVR Notifier proxy device 
+
 ### 4.4.72
 - Add setting to allow clip extension on repeated detections in the configured timeframe
 

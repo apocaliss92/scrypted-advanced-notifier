@@ -138,6 +138,7 @@ export enum AssetOriginSource {
     CloudSecure = 'CloudSecure',
     LocalSecure = 'LocalSecure',
     LocalInsecure = 'LocalInsecure',
+    Custom = 'Custom',
 }
 
 export interface ObserveZoneData {
@@ -321,18 +322,29 @@ export const getAssetsParams = async (props: {
 }) => {
     try {
         const { plugin } = props;
+        const logger = plugin.getLogger();
         const { assetsOriginSource } = plugin.storageSettings.values;
         const localEndpoint = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true });
         const cloudEndpoint = await sdk.endpointManager.getCloudEndpoint(undefined, { public: true });
 
         const localEndpointRaw = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true });
         const cloudEndpointRaw = await sdk.endpointManager.getCloudEndpoint(undefined, { public: true });
-        let endpointRaw = localEndpointRaw;
+        let endpointRaw;
 
-        if (assetsOriginSource === AssetOriginSource.CloudSecure && plugin.hasCloudPlugin) {
+        if (assetsOriginSource === AssetOriginSource.LocalSecure) {
+            endpointRaw = localEndpointRaw;
+        } else if (assetsOriginSource === AssetOriginSource.CloudSecure && plugin.hasCloudPlugin) {
             endpointRaw = cloudEndpointRaw;
         } else if (assetsOriginSource === AssetOriginSource.LocalInsecure) {
             endpointRaw = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true, insecure: true });
+        } else if (assetsOriginSource === AssetOriginSource.Custom) {
+            const customOrigin = plugin.storageSettings.values.customOriginUrl;
+            if (customOrigin) {
+                endpointRaw = customOrigin;
+            } else {
+                logger.error('Custom origin URL is not set, falling back to local secure endpoint.');
+                endpointRaw = localEndpointRaw;
+            }
         }
 
         const endpointUrl = new URL(endpointRaw);
