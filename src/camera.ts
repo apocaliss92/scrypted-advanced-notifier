@@ -100,7 +100,7 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
             const cameraFolders = await fs.promises.readdir(imagesPath);
 
             for (const cameraFolder of cameraFolders) {
-                const cameraDevice = sdk.systemManager.getDeviceByName(cameraFolder);
+                const cameraDevice = sdk.systemManager.getDeviceById(cameraFolder);
                 if (cameraDevice) {
                     const cameraMixin = this.plugin.currentCameraMixinsMap[cameraDevice.id];
 

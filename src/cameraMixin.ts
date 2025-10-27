@@ -350,7 +350,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             const { videoRuleUrl, imageRuleUrl } = await getWebHookUrls({
                                 fileId: fileName,
                                 ruleName: ruleFolder,
-                                plugin: this.plugin
+                                plugin: this.plugin,
+                                device: cameraDevice
                             });
                             const { fileId } = this.plugin.getRulePaths({
                                 cameraId: cameraFolder,
