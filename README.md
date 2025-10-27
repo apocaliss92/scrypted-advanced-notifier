@@ -192,7 +192,6 @@ Will provide the latest registered image for each type, on the camera settings w
 - `object-detection__face-{ known person label }`
 - `object-detection__face-{ known person label }_{ NVR | Frigate }`
 - `ruleImage__{ ruleName }`
-- `ruleImage__{ ruleName }__{ Crop | MarkBoundaries}`
 - `ruleClip__{ ruleName }`
 - `ruleGif__{ ruleName }`
 

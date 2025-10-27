@@ -46,8 +46,6 @@ export const SOFT_MIN_RPC_OBJECTS = 200;
 export const HARD_MIN_RPC_OBJECTS = 300;
 export const FRIGATE_BRIDGE_PLUGIN_NAME = 'Frigate bridge';
 export const EVENTS_RECORDER_PLUGIN_NAME = 'Events recorder';
-export const TIMELAPSE_CLIP_PREFIX = 'TIMELAPSE';
-export const DETECTION_CLIP_PREFIX = 'DETECTION';
 export const ADVANCED_NOTIFIER_PLUGIN_NAME = scrypted.name;
 export const SCRYPTED_NVR_OBJECT_DETECTION_NAME = 'Scrypted NVR Object Detection';
 
@@ -287,12 +285,9 @@ export const getWebhooks = async () => {
     const snoozeNotification = 'snoozeNotification';
     const postNotification = 'postNotification';
     const setAlarm = 'setAlarm';
-    const videoclipStream = 'videoclipStream';
     const imageRule = 'imageRule';
     const videoRule = 'videoRule';
     const gifRule = 'gifRule';
-    const gif = 'gif';
-    const videoclipThumbnail = 'videoclipThumbnail';
     const eventThumbnail = 'eventThumbnail';
     const eventImage = 'eventImage';
     const eventsApp = 'eventsApp';
@@ -304,12 +299,9 @@ export const getWebhooks = async () => {
         snoozeNotification,
         postNotification,
         setAlarm,
-        videoclipStream,
         imageRule,
         videoRule,
         gifRule,
-        gif,
-        videoclipThumbnail,
         eventThumbnail,
         eventImage,
         eventsApp,
@@ -395,7 +387,8 @@ export const getWebHookUrls = async (props: {
     snoozeId?: string,
     snoozeItems?: SnoozeItem[],
     fileId?: string,
-    plugin: AdvancedNotifierPlugin
+    plugin: AdvancedNotifierPlugin,
+    ruleName?: string,
 }) => {
     const {
         cameraIdOrAction,
@@ -404,7 +397,8 @@ export const getWebHookUrls = async (props: {
         snoozeId,
         fileId,
         snoozeItems,
-        plugin
+        plugin,
+        ruleName
     } = props;
 
     let lastSnapshotCloudUrl: string;
@@ -412,12 +406,9 @@ export const getWebHookUrls = async (props: {
     let haActionUrl: string;
     let postNotificationUrl: string;
     let endpoint: string;
-    let videoclipThumbnailUrl: string;
-    let videoclipStreamUrl: string;
     let imageRuleUrl: string;
     let gifRuleUrl: string;
     let videoRuleUrl: string;
-    let gifUrl: string;
     let eventThumbnailUrl: string;
     let eventImageUrl: string;
     let eventVideoclipUrl: string;
@@ -430,13 +421,10 @@ export const getWebHookUrls = async (props: {
         haAction,
         snoozeNotification,
         postNotification,
-        videoclipStream,
-        videoclipThumbnail,
         eventThumbnail,
         imageRule,
         videoRule,
         gifRule,
-        gif,
         eventImage,
         eventVideoclip,
         eventsApp,
@@ -459,12 +447,9 @@ export const getWebHookUrls = async (props: {
         haActionUrl = `${assetsOrigin}${publicPathnamePrefix}${haAction}/${encodedId}?${paramString}`;
         postNotificationUrl = `${assetsOrigin}${publicPathnamePrefix}${postNotification}/${encodedId}?${paramString}`;
 
-        videoclipStreamUrl = `${assetsOrigin}${publicPathnamePrefix}${videoclipStream}/${fileId}?${paramString}`;
-        imageRuleUrl = `${assetsOrigin}${publicPathnamePrefix}${imageRule}/${encodedId}/${fileId}?${paramString}`;
-        videoRuleUrl = `${assetsOrigin}${publicPathnamePrefix}${videoRule}/${encodedId}/${fileId}?${paramString}`;
-        gifRuleUrl = `${assetsOrigin}${publicPathnamePrefix}${gifRule}/${encodedId}/${fileId}?${paramString}`;
-        videoclipThumbnailUrl = `${assetsOrigin}${publicPathnamePrefix}${videoclipThumbnail}/${fileId}?${paramString}`;
-        gifUrl = `${assetsOrigin}${publicPathnamePrefix}${gif}/${fileId}?${paramString}`;
+        imageRuleUrl = `${assetsOrigin}${publicPathnamePrefix}${imageRule}/${encodedId}/${ruleName}/${fileId}.jpg?${paramString}`;
+        videoRuleUrl = `${assetsOrigin}${publicPathnamePrefix}${videoRule}/${encodedId}/${ruleName}/${fileId}.mp4?${paramString}`;
+        gifRuleUrl = `${assetsOrigin}${publicPathnamePrefix}${gifRule}/${encodedId}/${ruleName}/${fileId}.gif?${paramString}`;
 
         privatePathnamePrefix = `${privatePathname}${eventsApp}`;
         eventThumbnailUrl = `${privatePathnamePrefix}/${eventThumbnail}/${device?.id}/${fileId}`;
@@ -494,16 +479,13 @@ export const getWebHookUrls = async (props: {
         snoozeActions,
         postNotificationUrl,
         endpoint,
-        videoclipStreamUrl,
         imageRuleUrl,
         gifRuleUrl,
         videoRuleUrl,
-        videoclipThumbnailUrl,
         eventThumbnailUrl,
         eventImageUrl,
         eventVideoclipUrl,
         privatePathnamePrefix,
-        gifUrl,
     };
 }
 

@@ -88,6 +88,7 @@ export class CameraMixinState {
     lastB64Image?: string;
     lastPictureTaken?: number;
     processingOccupanceData?: boolean;
+    folderStructureEnsured?: boolean;
     rtspUrl: string;
     decoderStream: MediaStreamDestination;
     decoderResize: boolean;

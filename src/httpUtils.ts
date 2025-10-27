@@ -2,29 +2,6 @@ import sdk, { HttpRequest, HttpResponse } from "@scrypted/sdk";
 import AdvancedNotifierPlugin from "./main";
 import fs from 'fs';
 
-export const servePluginGeneratedThumbnail = async (props: {
-    fileId: string,
-    request: HttpRequest,
-    response: HttpResponse,
-    plugin: AdvancedNotifierPlugin
-}) => {
-    const { fileId, response, plugin } = props;
-
-    const logger = plugin.getLogger();
-
-    logger.info(JSON.stringify({ fileId }));
-
-    const mo = await plugin.camera.getVideoClipThumbnail(fileId);
-    const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
-
-    response.send(jpeg, {
-        headers: {
-            'Content-Type': 'image/jpeg'
-        }
-    });
-    return;
-}
-
 export const serveGif = async (props: {
     gifPath: string,
     request: HttpRequest,
