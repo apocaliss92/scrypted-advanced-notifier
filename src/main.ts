@@ -2217,11 +2217,17 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         logger: Console
     }) {
         const { device, rule, b64Image, bufferImage, triggerTime, logger } = props;
-        const { imageLatestPath, imageHistoricalPath } = this.getRulePaths({
+        const { generatedPath, imageLatestPath, imageHistoricalPath } = this.getRulePaths({
             cameraId: device.id,
             ruleName: rule.name,
             triggerTime
         });
+
+        try {
+            await fs.promises.access(generatedPath);
+        } catch {
+            await fs.promises.mkdir(generatedPath, { recursive: true });
+        }
 
         logger.log(`Storing rule image for ${rule.name} into ${imageHistoricalPath} and latest at ${imageLatestPath}`);
 
