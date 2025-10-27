@@ -2135,6 +2135,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { cameraDevice, rule, triggerTime, image, b64Image, occupancyData } = props;
         const logger = this.getLogger(cameraDevice);
 
+        await this.ensureRuleFoldersExist({ cameraId: cameraDevice.id, ruleName: rule.name });
+
         let message = occupancyData.occupies ?
             rule.zoneOccupiedText :
             rule.zoneNotOccupiedText;
@@ -2172,7 +2174,22 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             triggerTime,
             b64Image,
         }).catch(logger.error);
+    }
 
+    async ensureRuleFoldersExist(props: { cameraId: string, ruleName: string }) {
+        const { cameraId, ruleName } = props;
+        const logger = this.getLogger();
+        const { generatedPath } = this.getRulePaths({
+            cameraId,
+            ruleName,
+        });
+
+        try {
+            await fs.promises.access(generatedPath);
+        } catch {
+            logger.log(`Creating rule folder at ${generatedPath}`);
+            await fs.promises.mkdir(generatedPath, { recursive: true });
+        }
     }
 
     async notifyAudioEvent(props: {
@@ -2192,6 +2209,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             triggerTime,
             logger,
         });
+        await this.ensureRuleFoldersExist({ cameraId: cameraDevice.id, ruleName: rule.name });
 
         for (const notifierId of rule.notifiers) {
             const notifier = systemManager.getDeviceById<DeviceInterface>(notifierId);
@@ -2217,17 +2235,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         logger: Console
     }) {
         const { device, rule, b64Image, bufferImage, triggerTime, logger } = props;
-        const { generatedPath, imageLatestPath, imageHistoricalPath } = this.getRulePaths({
+        const { imageLatestPath, imageHistoricalPath } = this.getRulePaths({
             cameraId: device.id,
             ruleName: rule.name,
             triggerTime
         });
-
-        try {
-            await fs.promises.access(generatedPath);
-        } catch {
-            await fs.promises.mkdir(generatedPath, { recursive: true });
-        }
 
         logger.log(`Storing rule image for ${rule.name} into ${imageHistoricalPath} and latest at ${imageLatestPath}`);
 
@@ -2264,6 +2276,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             ruleName: rule.name,
             device: cameraDevice,
         });
+
+        await this.ensureRuleFoldersExist({ cameraId: cameraDevice.id, ruleName: rule.name });
 
         const { videoHistoricalPath } = this.getRulePaths({
             ruleName: rule.name,
@@ -2398,6 +2412,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { device: cameraDevice, triggerDevice } = await this.getLinkedCamera(triggerDeviceId);
         const logger = this.getLogger(cameraDevice);
         const cameraMixin = this.currentCameraMixinsMap[cameraDevice.id];
+
+        await this.ensureRuleFoldersExist({ cameraId: cameraDevice.id, ruleName: rule.name });
 
         let image: MediaObject;
         let b64Image: string;
@@ -3891,12 +3907,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { decoderpath } = this.getFsPaths({ cameraId: device.id });
         const { filesListPath, generatedPath } = this.getRulePaths({ cameraId: device.id, triggerTime, ruleName: rule.name });
 
-        try {
-            await fs.promises.access(generatedPath);
-        } catch {
-            await fs.promises.mkdir(generatedPath, { recursive: true });
-        }
-
         let preTriggerFrames = 0;
         let postTriggerFrames = 0;
         let eventFrameTriggerTime: number;
@@ -3978,7 +3988,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const {
                 videoHistoricalPath,
                 imageHistoricalPath,
-                imageLatestPath,
                 videoclipLatestPath
             } = this.getRulePaths({ cameraId: device.id, triggerTime, ruleName: rule.name });
 
