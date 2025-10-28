@@ -1707,6 +1707,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     const rule = deviceState?.allAvailableRules.find(rule => rule.ruleType === RuleType.Timelapse && rule.name === ruleName);
                     const device = sdk.systemManager.getDeviceById<DeviceInterface>(deviceId);
                     const deviceLogger = deviceState.logger;
+                    await this.ensureRuleFoldersExist({ cameraId: device.id, ruleName: rule.name });
                     await this.generateTimelapse({
                         rule,
                         device,
@@ -3676,11 +3677,18 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 filesListPath,
                 videoHistoricalPath,
                 imageHistoricalPath,
+                generatedPath,
             } = this.getRulePaths({
                 cameraId: device.id,
                 ruleName: rule.name,
                 triggerTime
             });
+
+            try {
+                await fs.promises.access(generatedPath);
+            } catch {
+                await fs.promises.mkdir(generatedPath, { recursive: true });
+            }
 
             const files = await fs.promises.readdir(framesPath);
             const sortedFiles = files
