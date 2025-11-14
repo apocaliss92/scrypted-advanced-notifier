@@ -163,6 +163,22 @@ const getBasicMqttEntities = () => {
         entityCategory: 'diagnostic',
         retain: false,
     };
+    const snapshotsEntity: MqttEntity = {
+        domain: 'switch',
+        entity: 'snapshots',
+        name: 'Snapshots',
+        icon: 'mdi:camera',
+        entityCategory: 'diagnostic',
+        retain: false,
+    };
+    const rebroadcastEntity: MqttEntity = {
+        domain: 'switch',
+        entity: 'rebroadcast',
+        name: 'Rebroadcast',
+        icon: 'mdi:broadcast',
+        entityCategory: 'diagnostic',
+        retain: false,
+    };
     const rebootEntity: MqttEntity = {
         domain: 'button',
         entity: 'reboot',
@@ -276,6 +292,8 @@ const getBasicMqttEntities = () => {
         audioPressureEntity,
         onlineEntity,
         recordingEntity,
+        snapshotsEntity,
+        rebroadcastEntity,
         rebootEntity,
         ptzPresetEntity,
         ptzZoomInEntity,
@@ -876,6 +894,8 @@ export const subscribeToCameraMqttTopics = async (
         device: ScryptedDeviceBase,
         console: Console,
         switchRecordingCb?: (active: boolean) => void,
+        switchSnapshotsCb?: (active: boolean) => void,
+        switchRebroadcastCb?: (active: boolean) => void,
         switchNotificationsEnabledCb: (active: boolean) => void,
         switchOccupancyCheckCb: (active: boolean) => void,
         rebootCb?: () => void,
@@ -892,6 +912,8 @@ export const subscribeToCameraMqttTopics = async (
         rules,
         activationRuleCb,
         switchRecordingCb,
+        switchSnapshotsCb,
+        switchRebroadcastCb,
         switchNotificationsEnabledCb,
         switchOccupancyCheckCb,
         rebootCb,
@@ -942,6 +964,8 @@ export const subscribeToCameraMqttTopics = async (
         ptzZoomOutEntity,
         rebootEntity,
         recordingEntity,
+        snapshotsEntity,
+        rebroadcastEntity,
     } = getBasicMqttEntities();
 
     if (switchRecordingCb) {
@@ -955,6 +979,36 @@ export const subscribeToCameraMqttTopics = async (
                 }
 
                 await mqttClient.publish(stateTopic, message, recordingEntity.retain);
+            }
+        });
+    }
+
+    if (switchSnapshotsCb) {
+        const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: snapshotsEntity, device });
+        await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
+            if (messageTopic === commandTopic) {
+                if (message === PAYLOAD_ON) {
+                    switchSnapshotsCb(true);
+                } else if (message === PAYLOAD_OFF) {
+                    switchSnapshotsCb(false);
+                }
+
+                await mqttClient.publish(stateTopic, message, snapshotsEntity.retain);
+            }
+        });
+    }
+
+    if (switchRebroadcastCb) {
+        const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: rebroadcastEntity, device });
+        await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
+            if (messageTopic === commandTopic) {
+                if (message === PAYLOAD_ON) {
+                    switchRebroadcastCb(true);
+                } else if (message === PAYLOAD_OFF) {
+                    switchRebroadcastCb(false);
+                }
+
+                await mqttClient.publish(stateTopic, message, rebroadcastEntity.retain);
             }
         });
     }
@@ -1284,6 +1338,8 @@ export const setupCameraAutodiscovery = async (props: {
         ptzPresetEntity,
         rebootEntity,
         recordingEntity,
+        snapshotsEntity,
+        rebroadcastEntity,
         sleepingEntity,
         triggeredEntity,
     } = getBasicMqttEntities();
@@ -1291,6 +1347,8 @@ export const setupCameraAutodiscovery = async (props: {
     const mqttEntities = [
         triggeredEntity,
         notificationsEnabledEntity,
+        rebroadcastEntity,
+        snapshotsEntity,
         ...detectionMqttEntities
     ];
 
@@ -1676,6 +1734,8 @@ export const publishCameraValues = async (props: {
     mqttClient?: MqttClient,
     device: ScryptedDeviceBase,
     isRecording?: boolean,
+    isSnapshotsEnabled?: boolean,
+    isRebroadcastEnabled?: boolean,
     checkOccupancy?: boolean,
     notificationsEnabled: boolean,
     console: Console,
@@ -1686,6 +1746,8 @@ export const publishCameraValues = async (props: {
         device,
         mqttClient,
         isRecording,
+        isSnapshotsEnabled,
+        isRebroadcastEnabled,
         notificationsEnabled,
         rulesToDisable,
         rulesToEnable,
@@ -1703,6 +1765,8 @@ export const publishCameraValues = async (props: {
         notificationsEnabledEntity,
         onlineEntity,
         recordingEntity,
+        snapshotsEntity,
+        rebroadcastEntity,
         sleepingEntity,
         audioPressureEntity
     } = getBasicMqttEntities();
@@ -1724,6 +1788,13 @@ export const publishCameraValues = async (props: {
             const { stateTopic } = getMqttTopics({ mqttEntity: recordingEntity, device });
             await mqttClient.publish(stateTopic, isRecording ? PAYLOAD_ON : PAYLOAD_OFF, recordingEntity.retain);
         }
+        
+        const { stateTopic: snapshotsStateTopic } = getMqttTopics({ mqttEntity: snapshotsEntity, device });
+        await mqttClient.publish(snapshotsStateTopic, isSnapshotsEnabled ? PAYLOAD_ON : PAYLOAD_OFF, snapshotsEntity.retain);
+       
+        const { stateTopic: rebroadcastStateTopic } = getMqttTopics({ mqttEntity: rebroadcastEntity, device });
+        await mqttClient.publish(rebroadcastStateTopic, isRebroadcastEnabled ? PAYLOAD_ON : PAYLOAD_OFF, rebroadcastEntity.retain);
+       
         if (device.interfaces.includes(ScryptedInterface.AudioVolumeControl)) {
             const { stateTopic } = getMqttTopics({ mqttEntity: audioPressureEntity, device });
             await mqttClient.publish(stateTopic, device.audioVolumes?.dBFS, audioPressureEntity.retain);

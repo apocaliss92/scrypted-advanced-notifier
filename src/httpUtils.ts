@@ -2,42 +2,18 @@ import sdk, { HttpRequest, HttpResponse } from "@scrypted/sdk";
 import AdvancedNotifierPlugin from "./main";
 import fs from 'fs';
 
-export const servePluginGeneratedThumbnail = async (props: {
-    fileId: string,
-    request: HttpRequest,
-    response: HttpResponse,
-    plugin: AdvancedNotifierPlugin
-}) => {
-    const { fileId, response, plugin } = props;
-
-    const logger = plugin.getLogger();
-
-    logger.info(JSON.stringify({ fileId }));
-
-    const mo = await plugin.camera.getVideoClipThumbnail(fileId);
-    const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
-
-    response.send(jpeg, {
-        headers: {
-            'Content-Type': 'image/jpeg'
-        }
-    });
-    return;
-}
-
 export const serveGif = async (props: {
-    fileId: string,
+    gifPath: string,
     request: HttpRequest,
     response: HttpResponse,
     plugin: AdvancedNotifierPlugin
 }) => {
-    const { fileId, response, plugin } = props;
+    const { gifPath, response, plugin } = props;
 
     const logger = plugin.getLogger();
 
-    logger.info(JSON.stringify({ fileId }));
+    logger.info(JSON.stringify({ gifPath }));
 
-    const { gifPath } = plugin.camera.getFilePath({ fileId: fileId.replace('.gif', '') });
     const gifBuf = await fs.promises.readFile(gifPath);
 
     response.send(gifBuf, {
@@ -48,15 +24,36 @@ export const serveGif = async (props: {
     return;
 }
 
-export const servePluginGeneratedVideoclip = async (props: {
-    fileId: string,
+export const serveImage = async (props: {
+    imagePath: string,
     request: HttpRequest,
     response: HttpResponse,
     plugin: AdvancedNotifierPlugin
 }) => {
-    const { fileId, request, response, plugin } = props;
+    const { imagePath, response, plugin } = props;
+
     const logger = plugin.getLogger();
-    const { videoclipPath } = plugin.camera.getFilePath({ fileId });
+
+    logger.info(JSON.stringify({ imagePath }));
+
+    const imageBuf = await fs.promises.readFile(imagePath);
+
+    response.send(imageBuf, {
+        headers: {
+            'Content-Type': 'image/jpeg'
+        }
+    });
+    return;
+}
+
+export const servePluginGeneratedVideoclip = async (props: {
+    videoclipPath: string,
+    request: HttpRequest,
+    response: HttpResponse,
+    plugin: AdvancedNotifierPlugin
+}) => {
+    const { videoclipPath, request, response, plugin } = props;
+    const logger = plugin.getLogger();
 
     const stat = await fs.promises.stat(videoclipPath);
     const fileSize = stat.size;

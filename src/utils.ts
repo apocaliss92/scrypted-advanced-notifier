@@ -29,7 +29,6 @@ export const EVENTS_RECORDER_PLUGIN_ID = '@apocaliss92/scrypted-events-recorder'
 export const FRIGATE_BRIDGE_PLUGIN_ID = '@apocaliss92/scrypted-frigate-bridge';
 export const NVR_NOTIFIER_INTERFACE = `${NVR_PLUGIN_ID}:Notifier`;
 export const SNAPSHOT_WIDTH = 1280;
-export const LATEST_IMAGE_SUFFIX = '-latest';
 export const NOTIFIER_NATIVE_ID = 'advancedNotifierDefaultNotifier';
 export const CAMERA_NATIVE_ID = 'advancedNotifierCamera';
 export const ALARM_SYSTEM_NATIVE_ID = 'advancedNotifierAlarmSystem';
@@ -47,8 +46,6 @@ export const SOFT_MIN_RPC_OBJECTS = 200;
 export const HARD_MIN_RPC_OBJECTS = 300;
 export const FRIGATE_BRIDGE_PLUGIN_NAME = 'Frigate bridge';
 export const EVENTS_RECORDER_PLUGIN_NAME = 'Events recorder';
-export const TIMELAPSE_CLIP_PREFIX = 'TIMELAPSE';
-export const DETECTION_CLIP_PREFIX = 'DETECTION';
 export const ADVANCED_NOTIFIER_PLUGIN_NAME = scrypted.name;
 export const SCRYPTED_NVR_OBJECT_DETECTION_NAME = 'Scrypted NVR Object Detection';
 
@@ -243,7 +240,7 @@ export type IsDelayPassedProps =
     { type: DelayType.PeopleTrackerImageUpdate, label: string } |
     { type: DelayType.BasicDetectionImage, classname: string, label?: string, eventSource: ScryptedEventSource } |
     { type: DelayType.BasicDetectionTrigger, classname: string, label?: string, eventSource: ScryptedEventSource } |
-    { type: DelayType.FsImageUpdate, filename: string, eventSource: ScryptedEventSource } |
+    { type: DelayType.FsImageUpdate, filename: string } |
     { type: DelayType.OccupancyNotification, matchRule: MatchRule, eventSource: ScryptedEventSource } |
     { type: DelayType.PostWebhookImage, classname: string, eventSource: ScryptedEventSource } |
     { type: DelayType.RuleImageUpdate, matchRule: MatchRule, eventSource: ScryptedEventSource } |
@@ -288,9 +285,9 @@ export const getWebhooks = async () => {
     const snoozeNotification = 'snoozeNotification';
     const postNotification = 'postNotification';
     const setAlarm = 'setAlarm';
-    const videoclipStream = 'videoclipStream';
-    const gif = 'gif';
-    const videoclipThumbnail = 'videoclipThumbnail';
+    const imageRule = 'imageRule';
+    const videoRule = 'videoRule';
+    const gifRule = 'gifRule';
     const eventThumbnail = 'eventThumbnail';
     const eventImage = 'eventImage';
     const eventsApp = 'eventsApp';
@@ -302,9 +299,9 @@ export const getWebhooks = async () => {
         snoozeNotification,
         postNotification,
         setAlarm,
-        videoclipStream,
-        gif,
-        videoclipThumbnail,
+        imageRule,
+        videoRule,
+        gifRule,
         eventThumbnail,
         eventImage,
         eventsApp,
@@ -390,7 +387,8 @@ export const getWebHookUrls = async (props: {
     snoozeId?: string,
     snoozeItems?: SnoozeItem[],
     fileId?: string,
-    plugin: AdvancedNotifierPlugin
+    plugin: AdvancedNotifierPlugin,
+    ruleName?: string,
 }) => {
     const {
         cameraIdOrAction,
@@ -399,7 +397,8 @@ export const getWebHookUrls = async (props: {
         snoozeId,
         fileId,
         snoozeItems,
-        plugin
+        plugin,
+        ruleName
     } = props;
 
     let lastSnapshotCloudUrl: string;
@@ -407,9 +406,9 @@ export const getWebHookUrls = async (props: {
     let haActionUrl: string;
     let postNotificationUrl: string;
     let endpoint: string;
-    let videoclipThumbnailUrl: string;
-    let videoclipStreamUrl: string;
-    let gifUrl: string;
+    let imageRuleUrl: string;
+    let gifRuleUrl: string;
+    let videoRuleUrl: string;
     let eventThumbnailUrl: string;
     let eventImageUrl: string;
     let eventVideoclipUrl: string;
@@ -422,10 +421,10 @@ export const getWebHookUrls = async (props: {
         haAction,
         snoozeNotification,
         postNotification,
-        videoclipStream,
-        gif,
-        videoclipThumbnail,
         eventThumbnail,
+        imageRule,
+        videoRule,
+        gifRule,
         eventImage,
         eventVideoclip,
         eventsApp,
@@ -441,7 +440,6 @@ export const getWebHookUrls = async (props: {
             localEndpoint,
             privatePathname,
             publicPathnamePrefix,
-            cloudAssetsOrigin,
         } = await getAssetsParams({ plugin });
 
         lastSnapshotCloudUrl = `${cloudEndpoint}${lastSnapshot}/${encodedId}/{IMAGE_NAME}?${paramString}`;
@@ -449,9 +447,9 @@ export const getWebHookUrls = async (props: {
         haActionUrl = `${assetsOrigin}${publicPathnamePrefix}${haAction}/${encodedId}?${paramString}`;
         postNotificationUrl = `${assetsOrigin}${publicPathnamePrefix}${postNotification}/${encodedId}?${paramString}`;
 
-        videoclipStreamUrl = `${assetsOrigin}${publicPathnamePrefix}${videoclipStream}/${fileId}?${paramString}`;
-        gifUrl = `${assetsOrigin}${publicPathnamePrefix}${gif}/${fileId}?${paramString}`;
-        videoclipThumbnailUrl = `${assetsOrigin}${publicPathnamePrefix}${videoclipThumbnail}/${fileId}?${paramString}`;
+        imageRuleUrl = `${assetsOrigin}${publicPathnamePrefix}${imageRule}/${encodedId}/${ruleName}/${fileId}.jpg?${paramString}`;
+        videoRuleUrl = `${assetsOrigin}${publicPathnamePrefix}${videoRule}/${encodedId}/${ruleName}/${fileId}.mp4?${paramString}`;
+        gifRuleUrl = `${assetsOrigin}${publicPathnamePrefix}${gifRule}/${encodedId}/${ruleName}/${fileId}.gif?${paramString}`;
 
         privatePathnamePrefix = `${privatePathname}${eventsApp}`;
         eventThumbnailUrl = `${privatePathnamePrefix}/${eventThumbnail}/${device?.id}/${fileId}`;
@@ -481,13 +479,13 @@ export const getWebHookUrls = async (props: {
         snoozeActions,
         postNotificationUrl,
         endpoint,
-        videoclipStreamUrl,
-        videoclipThumbnailUrl,
+        imageRuleUrl,
+        gifRuleUrl,
+        videoRuleUrl,
         eventThumbnailUrl,
         eventImageUrl,
         eventVideoclipUrl,
         privatePathnamePrefix,
-        gifUrl
     };
 }
 

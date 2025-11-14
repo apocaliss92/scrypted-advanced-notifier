@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.5.0
+- Notification images are now server through this plugin, and not cloud plugin anymore
+- Rework of storing of artifacts (gifs, videos), check the README for the new webhooks syntax
+
 ### 4.4.75
 - Add setting for custom origin to cover cloud plugin missing
 - Fix init NVR Notifier proxy device 

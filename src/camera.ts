@@ -3,13 +3,11 @@ import sdk, { Camera, MediaObject, PictureOptions, RequestPictureOptions, Respon
 import { StorageSettings, StorageSettingsDict } from '@scrypted/sdk/storage-settings';
 import fs from 'fs';
 import { sortBy } from 'lodash';
-import path from 'path';
 import { logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { CameraBase } from '../../scrypted/plugins/ffmpeg-camera/src/common';
 import { UrlMediaStreamOptions } from '../../scrypted/plugins/rtsp/src/rtsp';
 import { ffmpegFilterImageBuffer } from '../../scrypted/plugins/snapshot/src/ffmpeg-image-filter';
 import AdvancedNotifierPlugin from './main';
-import { DETECTION_CLIP_PREFIX, TIMELAPSE_CLIP_PREFIX } from './utils';
 
 type StorageKeys = 'logeLevel';
 
@@ -60,14 +58,6 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
         return this.logger;
     }
 
-    getfont() {
-        const pluginVolume = process.env.SCRYPTED_PLUGIN_VOLUME;
-        const unzippedFs = path.join(pluginVolume, 'zip/unzipped/fs');
-        const fontFile = path.join(unzippedFs, 'Lato-Bold.ttf');
-
-        return fontFile;
-    }
-
     async takeSmartCameraPicture(options?: PictureOptions): Promise<MediaObject> {
         const logger = this.getLogger();
         try {
@@ -110,7 +100,7 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
             const cameraFolders = await fs.promises.readdir(imagesPath);
 
             for (const cameraFolder of cameraFolders) {
-                const cameraDevice = sdk.systemManager.getDeviceByName(cameraFolder);
+                const cameraDevice = sdk.systemManager.getDeviceById(cameraFolder);
                 if (cameraDevice) {
                     const cameraMixin = this.plugin.currentCameraMixinsMap[cameraDevice.id];
 
@@ -129,34 +119,15 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
         }
     }
 
-    getFilePath(props: { fileId: string }) {
-        const { fileId } = props;
-
-        if (fileId.startsWith(TIMELAPSE_CLIP_PREFIX)) {
-            const [_, cameraName, ruleName, fileName] = fileId.split('_');
-            return this.plugin.getRulePaths({
-                cameraName,
-                fileName,
-                ruleName
-            });
-        } else if (fileId.startsWith(DETECTION_CLIP_PREFIX)) {
-            const [_, cameraName, fileName] = fileId.split('_');
-            return this.plugin.getShortClipPaths({
-                cameraName,
-                fileName,
-            });
-        }
-    }
-
     async getVideoClip(fileId: string): Promise<MediaObject> {
         const logger = this.getLogger();
 
         try {
-            const { videoclipPath } = this.getFilePath({ fileId });
+            const { videPath } = await this.plugin.decodeFileId({ fileId });
 
-            logger.info('Fetching videoclip ', fileId, videoclipPath);
+            logger.info('Fetching videoclip ', fileId, videPath);
 
-            const fileURLToPath = `file://${videoclipPath}`
+            const fileURLToPath = `file://${videPath}`
             const videoclipMo = await sdk.mediaManager.createMediaObjectFromUrl(fileURLToPath);
             return videoclipMo;
         } catch (e) {
@@ -168,11 +139,11 @@ export class AdvancedNotifierCamera extends CameraBase<UrlMediaStreamOptions> im
         const logger = this.getLogger();
 
         try {
-            const { snapshotPath } = this.getFilePath({ fileId });
+            const { imagePath } = await this.plugin.decodeFileId({ fileId });
 
-            logger.info('Fetching thumbnail ', fileId, snapshotPath);
+            logger.info('Fetching thumbnail ', fileId, imagePath);
 
-            const imageBuf = await fs.promises.readFile(snapshotPath);
+            const imageBuf = await fs.promises.readFile(imagePath);
             const mo = await sdk.mediaManager.createMediaObject(imageBuf, 'image/jpeg');
 
             return mo;

@@ -187,15 +187,13 @@ Some basic webhooks are available
 
 Will provide the latest registered image for each type, on the camera settings will be provided the basic url, {IMAGE_NAME} should be replaced with one of the following:
 
-- `object-detection-{ motion | any_object | animal | person | vehicle }`
-- `object-detection-{ motion | any_object | animal | person | vehicle }-{ Crop | MarkBoundaries}`
-- `object-detection-{ motion | any_object | animal | person | vehicle }-{ NVR | Frigate }`
-- `object-detection-face-{ known person label }`
-- `object-detection-face-{ known person label }-{ NVR | Frigate }`
-- `rule-{ ruleName }`
-- `rule-{ ruleName }-{ motion | any_object | animal | person | vehicle }`
-- `rule-{ ruleName }-{ Crop | MarkBoundaries}`
-- `rule-{ ruleName }-{ Crop | MarkBoundaries}-{ motion | any_object | animal | person | vehicle }`
+- `object-detection__{ motion | any_object | animal | person | vehicle }`
+- `object-detection__{ motion | any_object | animal | person | vehicle }__{ NVR | Frigate }`
+- `object-detection__face-{ known person label }`
+- `object-detection__face-{ known person label }_{ NVR | Frigate }`
+- `ruleImage__{ ruleName }`
+- `ruleClip__{ ruleName }`
+- `ruleGif__{ ruleName }`
 
 ### POST detection images
 
