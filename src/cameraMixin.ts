@@ -513,6 +513,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         await device.putSetting(`recording:privacyMode`, !enabled)
     }
 
+    async toggleSnapshotsEnabled(device: Settings, enabled: boolean) {
+        await device.putSetting(`snapshot:privacyMode`, !enabled)
+    }
+
+    async toggleRebroadcastEnabled(device: Settings, enabled: boolean) {
+        await device.putSetting(`prebuffer:privacyMode`, !enabled)
+    }
+
     get decoderType() {
         const { enableDecoder } = this.plugin.storageSettings.values;
         const { decoderType: decoderTypeParent } = this.mixinState.storageSettings.values;
@@ -750,6 +758,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                             await this.toggleRecording(this.cameraDevice, active);
                                         } :
                                         undefined,
+                                    switchRebroadcastCb: async (active) => {
+                                        logger.log(`Setting Rebroadcast privacy mode to ${!active}`);
+                                        await this.toggleRebroadcastEnabled(this.cameraDevice, active);
+                                    },
+                                    switchSnapshotsCb: async (active) => {
+                                        logger.log(`Setting Snapshots privacy mode to ${!active}`);
+                                        await this.toggleSnapshotsEnabled(this.cameraDevice, active);
+                                    },
                                     rebootCb: this.cameraDevice.interfaces.includes(ScryptedInterface.Reboot) ?
                                         async () => {
                                             logger.log(`Rebooting camera`);
@@ -779,6 +795,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                         const settings = await this.mixinDevice.getSettings();
                         const isRecording = !settings.find(setting => setting.key === 'recording:privacyMode')?.value;
+                        const isSnapshotsEnabled = !settings.find(setting => setting.key === 'snapshot:privacyMode')?.value;
+                        const isRebroadcastEnabled = !settings.find(setting => setting.key === 'prebuffer:privacyMode')?.value;
 
                         if (this.plugin.storageSettings.values.mqttEnabled) {
                             publishCameraValues({
@@ -789,7 +807,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 isRecording,
                                 rulesToEnable,
                                 rulesToDisable,
-                                checkOccupancy
+                                checkOccupancy,
+                                isRebroadcastEnabled,
+                                isSnapshotsEnabled
                             }).catch(logger.error);
                         }
                     }
