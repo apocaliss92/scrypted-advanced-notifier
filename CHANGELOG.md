@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.5.7
+- Sequences implemented, build a custom actions sequence and activate it on a rule
+
 ### 4.5.0
 - Notification images are now server through this plugin, and not cloud plugin anymore
 - Rework of storing of artifacts (gifs, videos), check the README for the new webhooks syntax

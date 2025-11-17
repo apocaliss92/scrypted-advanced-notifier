@@ -165,6 +165,10 @@ Audio rules will monitor the audio received by the camera
 - Set a `Decibel threshold` for the audio level to alert
 - Set `Duration in seconds` if the audio should last at least these seconds to trigger a notification. Leave blank to notify right away
 
+## Sequences
+In the sequences section, on the plugin page, you will be able to define a custom sequence with various steps. Sequences can be used on detection rules when it gets trigger or reset.
+(Initially only a few will be available, ask for more if you wish something more specific)
+
 ## Stored images
 
 The plugin will store on filesystem, if configured, images for every basic detection and rule. Set the following configurations on the plugin page under the Storage tab

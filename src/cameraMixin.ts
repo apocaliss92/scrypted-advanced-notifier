@@ -1,4 +1,4 @@
-import sdk, { EventDetails, EventListenerRegister, Image, MediaObject, Notifier, ObjectDetection, ObjectDetectionResult, ObjectsDetected, PanTiltZoomCommand, ResponseMediaStreamOptions, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoClip, VideoClipOptions, VideoClipThumbnailOptions, VideoClips, VideoFrame, VideoFrameGenerator } from "@scrypted/sdk";
+import sdk, { EventDetails, EventListenerRegister, Image, MediaObject, Notifier, ObjectDetection, ObjectDetectionResult, ObjectsDetected, OnOff, PanTiltZoom, PanTiltZoomCommand, ResponseMediaStreamOptions, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoClip, VideoClipOptions, VideoClipThumbnailOptions, VideoClips, VideoFrame, VideoFrameGenerator } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import fs from 'fs';
@@ -16,7 +16,7 @@ import AdvancedNotifierPlugin from "./main";
 import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { CameraMixinState, CurrentOccupancyState, OccupancyRuleData, getInitOccupancyState } from "./states";
-import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, RuleActionType, RuleActionsSequence, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -1476,6 +1476,43 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         return this.mixinState.logger;
     }
 
+    async triggerRuleSequences(props: {
+        sequences: RuleActionsSequence[],
+        rule: DetectionRule
+    }) {
+        const { sequences, rule } = props;
+
+        if (sequences && sequences.length) {
+            const logger = this.getLogger();
+
+            for (const sequence of sequences) {
+                try {
+                    logger.log(`Triggering sequence ${sequence.name} from rule ${rule.name}: ${JSON.stringify(sequence)}`);
+                    for (const action of sequence.actions) {
+                        logger.log(`Executing action ${action.actionName} of type ${action.type} in sequence ${sequence.name}`);
+
+                        if (action.type === RuleActionType.Wait && action.seconds) {
+                            await new Promise(resolve => setTimeout(resolve, action.seconds * 1000));
+                        } else if (action.type === RuleActionType.Ptz) {
+                            const device = sdk.systemManager.getDeviceById<PanTiltZoom>(action.deviceId);
+                            const presetId = action.presetName?.split(':')[1];
+                            await device.ptzCommand({ preset: presetId });
+                        } else if (action.type === RuleActionType.Switch) {
+                            const device = sdk.systemManager.getDeviceById<OnOff>(action.deviceId);
+                            if (action.enabled) {
+                                await device.turnOn();
+                            } else {
+                                await device.turnOff();
+                            }
+                        }
+                    }
+                } catch (e) {
+                    logger.log(`Error triggering sequence ${sequence.name} from rule ${rule.name}: ${e.message}`);
+                }
+            }
+        }
+    }
+
     async triggerRule(props: {
         matchRule: MatchRule,
         eventSource: ScryptedEventSource,
@@ -1489,7 +1526,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         try {
             const { matchRule, eventSource, b64Image, device, triggerTime, skipMqttImage, skipTrigger } = props;
-            const { rule, match } = matchRule;
+            const { rule } = matchRule;
 
             const { timePassed } = !skipMqttImage && this.isDelayPassed({
                 type: DelayType.RuleImageUpdate,
@@ -1540,6 +1577,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         logger.log(`Disabling NVR recordings from rule ${rule.name}`);
                         await this.toggleRecording(device, false);
                     }, seconds * 1000);
+                }
+
+                if (timePassed) {
+                    this.triggerRuleSequences({
+                        sequences: (matchRule.rule as DetectionRule).onTriggerSequences,
+                        rule: matchRule.rule as DetectionRule,
+                    }).catch(logger.error);
                 }
 
                 this.resetRuleEntities(rule).catch(logger.log);
@@ -2545,7 +2589,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             device: this.cameraDevice,
                             triggerTime,
                             eventSource: ScryptedEventSource.RawDetection
-                        }).catch(logger.log);
+                        }).catch(logger.error);
 
                         this.notifyDetectionRule({
                             triggerDeviceId: this.id,
@@ -2557,7 +2601,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             },
                             eventType: detectionClassesDefaultMap[match.className],
                             triggerTime,
-                        }).catch(logger.log);
+                        }).catch(logger.error);
                     }
                 }
 
@@ -3570,17 +3614,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             this.mixinState.accumulatedRules.push(matchRule);
                         }
 
-                        if (this.isActiveForMqttReporting) {
-                            logger.info(`Publishing detection rule ${matchRule.rule.name} data, b64Image ${getB64ImageLog(ruleB64Image)}`);
+                        logger.info(`Publishing detection rule ${matchRule.rule.name} data, b64Image ${getB64ImageLog(ruleB64Image)}`);
 
-                            this.triggerRule({
-                                matchRule,
-                                b64Image: ruleB64Image,
-                                device: this.cameraDevice,
-                                triggerTime,
-                                eventSource,
-                            }).catch(logger.log);
-                        }
+                        this.triggerRule({
+                            matchRule,
+                            b64Image: ruleB64Image,
+                            device: this.cameraDevice,
+                            triggerTime,
+                            eventSource,
+                        }).catch(logger.log);
                     }
                 }
             }
@@ -3826,7 +3868,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             return;
         }
 
-        const { motionDuration, } = this.mixinState.storageSettings.values;
+        const { motionDuration } = this.mixinState.storageSettings.values;
 
         const turnOffTimeout = setTimeout(async () => {
             logger.info(`Rule ${rule.name} trigger entities reset`);
@@ -3837,6 +3879,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 console: logger,
                 rule,
             });
+
+            this.triggerRuleSequences({
+                sequences: (rule as DetectionRule).onResetSequences,
+                rule: rule as DetectionRule,
+            }).catch(logger.error);
         }, motionDuration * 1000);
 
         const ruleName = rule.name;
