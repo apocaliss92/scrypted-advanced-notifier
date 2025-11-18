@@ -650,6 +650,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                         const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: name, ruleType });
                         await this.putMixinSetting(currentlyActiveKey, 'true');
+
+                        this.triggerRuleSequences({
+                            sequences: rule.onActivationSequences,
+                            postFix: 'activate',
+                            rule,
+                        }).catch(logger.error);
                     }
                 }
 
@@ -681,6 +687,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                         const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: name, ruleType });
                         await this.putMixinSetting(currentlyActiveKey, 'false');
+
+                        this.triggerRuleSequences({
+                            sequences: rule.onDeactivationSequences,
+                            postFix: 'deactivate',
+                            rule,
+                        }).catch(logger.error);
                     }
                 }
 
@@ -1477,11 +1489,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async triggerRuleSequences(props: {
-        rule: DetectionRule,
-        isTrigger: boolean,
+        sequences: RuleActionsSequence[],
+        postFix: string,
+        rule: BaseRule,
     }) {
-        const { isTrigger, rule } = props;
-        const sequences = isTrigger ? rule.onTriggerSequences : rule.onResetSequences;
+        const { postFix, sequences, rule } = props;
 
         if (sequences?.length) {
             const logger = this.plugin.getLogger();
@@ -1490,7 +1502,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const { timePassed } = this.isDelayPassed({
                     type: DelayType.SequenceExecution,
                     delay: sequence.minimumExecutionDelay,
-                    isTrigger,
+                    postFix,
                 });
 
                 if (timePassed && sequence.enabled) {
@@ -1608,8 +1620,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
 
                 this.triggerRuleSequences({
-                    rule: matchRule.rule as DetectionRule,
-                    isTrigger: true,
+                    sequences: rule.onTriggerSequences,
+                    postFix: 'trigger',
+                    rule
                 }).catch(logger.error);
 
                 this.resetRuleEntities(rule).catch(logger.log);
@@ -3109,8 +3122,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         } else if (type === DelayType.OccupancyRegularCheck) {
             minDelayInSeconds = !!this.mixinState.runningOccupancyRules.length || this.mixinState.storageSettings.values.checkOccupancy ? 0.3 : 0;
         } else if (type === DelayType.SequenceExecution) {
-            const { delay, isTrigger } = props;
-            delayKey += `-${isTrigger ? 'trigger' : 'non-trigger'}`;
+            const { delay, postFix } = props;
+            delayKey += `-${postFix}`;
             minDelayInSeconds = delay ?? 15;
         } else if (type === DelayType.EventStore) {
             const { identifiers } = props;
@@ -3920,8 +3933,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             });
 
             this.triggerRuleSequences({
-                rule: rule as DetectionRule,
-                isTrigger: false,
+                sequences: rule.onResetSequences,
+                postFix: 'reset',
+                rule,
             }).catch(logger.error);
         }, motionDuration * 1000);
 

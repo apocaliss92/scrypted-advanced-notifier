@@ -280,7 +280,7 @@ export const videoclipSpeedMultiplier: Record<VideoclipSpeed, number> = {
 
 export type IsDelayPassedProps =
     { type: DelayType.OccupancyRegularCheck } |
-    { type: DelayType.SequenceExecution, delay: number, isTrigger: boolean } |
+    { type: DelayType.SequenceExecution, delay: number, postFix: string } |
     { type: DelayType.DecoderFrameOnStorage, eventSource: ScryptedEventSource, timestamp: number } |
     { type: DelayType.EventStore, identifiers: string[] } |
     { type: DelayType.PeopleTrackerImageUpdate, label: string } |
@@ -1405,6 +1405,8 @@ export const getRuleKeys = (props: {
     const generateClipMaxExtensionRangeKey = `${prefix}:${ruleName}:generateClipMaxExtensionRange`;
     const imageProcessingKey = `${prefix}:${ruleName}:imageProcessing`;
     const totalSnoozeKey = `${prefix}:${ruleName}:totalSnooze`;
+    const onActivationSequencesKey = `${prefix}:${ruleName}:onActivationSequences`;
+    const onDeactivationSequencesKey = `${prefix}:${ruleName}:onDeactivationSequences`;
 
     // Specific for detection rules
     const detectionClassesKey = `${prefix}:${ruleName}:detecionClasses`;
@@ -1483,14 +1485,16 @@ export const getRuleKeys = (props: {
             generateClipMaxExtensionRangeKey,
             imageProcessingKey,
             totalSnoozeKey,
+            onActivationSequencesKey,
+            onDeactivationSequencesKey,
+            onTriggerSequencesKey,
+            onResetSequencesKey,
         },
         detection: {
             useNvrDetectionsKey,
             detectionSourceKey,
             whitelistedZonesKey,
             blacklistedZonesKey,
-            onTriggerSequencesKey,
-            onResetSequencesKey,
             recordingTriggerSecondsKey,
             nvrEventsKey,
             frigateLabelsKey,
@@ -1967,7 +1971,7 @@ export const getRuleSettings = (props: {
     refreshSettings: OnRefreshSettings,
     logger: Console
 }) => {
-    const { ruleType, storage, ruleSource, getSpecificRules, refreshSettings, device } = props;
+    const { ruleType, storage, ruleSource, getSpecificRules, refreshSettings } = props;
     const isPlugin = ruleSource === RuleSource.Plugin;
     const group = isPlugin ? pluginRulesGroup : mixinRulesGroup;
     const settings: StorageSetting[] = [];
@@ -2002,7 +2006,11 @@ export const getRuleSettings = (props: {
                 generateClipTypeKey,
                 generateClipMaxExtensionRangeKey,
                 imageProcessingKey,
-                totalSnoozeKey
+                totalSnoozeKey,
+                onActivationSequencesKey,
+                onDeactivationSequencesKey,
+                onTriggerSequencesKey,
+                onResetSequencesKey
             }
         } = getRuleKeys({ ruleName, ruleType });
 
@@ -2261,6 +2269,67 @@ export const getRuleSettings = (props: {
         }
 
         settings.push(...getSpecificRules({ ruleName, subgroup, group, showMore: showMoreConfigurations }));
+
+        const sequenceNames = storage.getItem(ruleSequencesKey) as string[] || [];
+        if (currentActivation !== DetectionRuleActivation.Always) {
+            settings.push(
+                {
+                    key: onActivationSequencesKey,
+                    title: 'On-activation sequences',
+                    description: 'Sequences to execute when the rule is activated',
+                    group,
+                    subgroup,
+                    multiple: true,
+                    combobox: true,
+                    immediate: true,
+                    choices: sequenceNames,
+                    defaultValue: [],
+                    hide: !showMoreConfigurations
+                },
+                {
+                    key: onDeactivationSequencesKey,
+                    title: 'On-deactivation sequences',
+                    description: 'Sequences to execute when the rule is deactivated',
+                    group,
+                    subgroup,
+                    multiple: true,
+                    combobox: true,
+                    immediate: true,
+                    choices: sequenceNames,
+                    defaultValue: [],
+                    hide: !showMoreConfigurations
+                }
+            );
+        }
+
+        settings.push(
+            {
+                key: onTriggerSequencesKey,
+                title: 'On-trigger sequences',
+                description: 'Sequences to execute when the rule is triggered',
+                group,
+                subgroup,
+                multiple: true,
+                combobox: true,
+                immediate: true,
+                choices: sequenceNames,
+                defaultValue: [],
+                hide: !showMoreConfigurations
+            },
+            {
+                key: onResetSequencesKey,
+                title: 'On-reset sequences',
+                description: 'Sequences to execute when the rule is reset',
+                group,
+                subgroup,
+                multiple: true,
+                combobox: true,
+                immediate: true,
+                choices: sequenceNames,
+                defaultValue: [],
+                hide: !showMoreConfigurations
+            }
+        );
 
         if (ruleType !== RuleType.Occupancy) {
             settings.push({
@@ -2587,8 +2656,6 @@ export const getDetectionRulesSettings = async (props: {
             useNvrDetectionsKey,
             detectionSourceKey,
             whitelistedZonesKey,
-            onTriggerSequencesKey,
-            onResetSequencesKey,
             devicesKey,
             detectionClassesKey,
             peopleKey,
@@ -2607,7 +2674,6 @@ export const getDetectionRulesSettings = async (props: {
         const detectionSource = storage.getItem(detectionSourceKey) as ScryptedEventSource ||
             (useNvrDetections ? ScryptedEventSource.NVR : ScryptedEventSource.RawDetection);
         const showCameraSettings = isPlugin || isCamera;
-        const sequenceNames = storage.getItem(ruleSequencesKey) as string[] || [];
 
         if (isCamera || isPlugin) {
             settings.push(
@@ -2632,31 +2698,7 @@ export const getDetectionRulesSettings = async (props: {
                         ScryptedEventSource.RawDetection,
                         ScryptedEventSource.NVR,
                     ]
-                },
-                {
-                    key: onTriggerSequencesKey,
-                    title: 'On-trigger sequences',
-                    description: 'Sequences to execute when the rule is triggered',
-                    group,
-                    subgroup,
-                    multiple: true,
-                    combobox: true,
-                    immediate: true,
-                    choices: sequenceNames,
-                    defaultValue: []
-                },
-                {
-                    key: onResetSequencesKey,
-                    title: 'On-reset sequences',
-                    description: 'Sequences to execute when the rule is reset',
-                    group,
-                    subgroup,
-                    multiple: true,
-                    combobox: true,
-                    immediate: true,
-                    choices: sequenceNames,
-                    defaultValue: []
-                },
+                }
             );
         }
 
@@ -3371,6 +3413,10 @@ export interface BaseRule {
     generateClipType: VideoclipType;
     generateClipPostSeconds: number;
     generateClipPreSeconds: number;
+    onActivationSequences?: RuleActionsSequence[];
+    onDeactivationSequences?: RuleActionsSequence[];
+    onTriggerSequences?: RuleActionsSequence[];
+    onResetSequences?: RuleActionsSequence[];
     imageProcessing: ImagePostProcessing;
     notifierData: Record<string, {
         actions: ExtendedNotificationAction[],
@@ -3406,8 +3452,6 @@ export interface DetectionRule extends BaseRule {
     disableNvrRecordingSeconds?: number;
     detectionSource?: ScryptedEventSource;
     maxClipExtensionRange?: number;
-    onTriggerSequences?: RuleActionsSequence[];
-    onResetSequences?: RuleActionsSequence[];
 }
 
 export const getMinutes = (date: Moment) => date.minutes() + (date.hours() * 60);
@@ -3469,6 +3513,10 @@ const initBasicRule = (props: {
         generateClipTypeKey,
         imageProcessingKey,
         totalSnoozeKey,
+        onActivationSequencesKey,
+        onDeactivationSequencesKey,
+        onTriggerSequencesKey,
+        onResetSequencesKey,
     } } = getRuleKeys({
         ruleType,
         ruleName,
@@ -3489,6 +3537,42 @@ const initBasicRule = (props: {
     const generateClipPreSeconds = safeParseJson<number>(storage.getItem(generateClipPreSecondsKey)) ?? defaultClipPostSeconds;
     const generateClipType = storage.getItem(generateClipTypeKey) ?? defaultVideoclipType;
     const imageProcessing = ScryptedEventSource.RawDetection ? storage.getItem(imageProcessingKey) as ImagePostProcessing : ImagePostProcessing.Default;
+    const onActivationSequencesNames = storage.getItem(onActivationSequencesKey) as string[] ?? [];
+    const onDeactivationSequencesNames = storage.getItem(onDeactivationSequencesKey) as string[] ?? [];
+    const onTriggerSequencesNames = storage.getItem(onTriggerSequencesKey) as string[] ?? [];
+    const onResetSequencesNames = storage.getItem(onResetSequencesKey) as string[] ?? [];
+
+    const onActivationSequences: RuleActionsSequence[] = [];
+    const onDeactivationSequences: RuleActionsSequence[] = [];
+    if (activationType !== DetectionRuleActivation.Always) {
+        for (const sequenceName of onActivationSequencesNames) {
+            const sequenceObject = getSequenceObject({ sequenceName, storage });
+            if (sequenceObject) {
+                onActivationSequences.push(sequenceObject);
+            }
+        }
+        for (const sequenceName of onDeactivationSequencesNames) {
+            const sequenceObject = getSequenceObject({ sequenceName, storage });
+            if (sequenceObject) {
+                onDeactivationSequences.push(sequenceObject);
+            }
+        }
+    }
+
+    const onTriggerSequences: RuleActionsSequence[] = [];
+    for (const sequenceName of onTriggerSequencesNames) {
+        const sequenceObject = getSequenceObject({ sequenceName, storage });
+        if (sequenceObject) {
+            onTriggerSequences.push(sequenceObject);
+        }
+    }
+    const onResetSequences: RuleActionsSequence[] = [];
+    for (const sequenceName of onResetSequencesNames) {
+        const sequenceObject = getSequenceObject({ sequenceName, storage });
+        if (sequenceObject) {
+            onResetSequences.push(sequenceObject);
+        }
+    }
 
     const rule: BaseRule = {
         isEnabled,
@@ -3510,6 +3594,10 @@ const initBasicRule = (props: {
         generateClipPostSeconds: generateClip ? generateClipPostSeconds : undefined,
         generateClipPreSeconds: generateClip ? generateClipPreSeconds : undefined,
         notifierData: {},
+        onActivationSequences,
+        onDeactivationSequences,
+        onTriggerSequences,
+        onResetSequences
     };
 
     for (const notifierId of notifiers) {
@@ -3789,7 +3877,7 @@ export const getDetectionRules = (props: {
                     textKey,
                     minDelayKey,
                     minMqttPublishDelayKey,
-                    generateClipMaxExtensionRangeKey
+                    generateClipMaxExtensionRangeKey,
                 },
                 detection: {
                     useNvrDetectionsKey,
@@ -3797,8 +3885,6 @@ export const getDetectionRules = (props: {
                     detectionClassesKey,
                     whitelistedZonesKey,
                     blacklistedZonesKey,
-                    onTriggerSequencesKey,
-                    onResetSequencesKey,
                     devicesKey,
                     nvrEventsKey,
                     frigateLabelsKey,
@@ -3832,8 +3918,6 @@ export const getDetectionRules = (props: {
 
             const nvrEvents = storage.getItem(nvrEventsKey) as NvrEvent[] ?? [];
             const frigateLabels = storage.getItem(frigateLabelsKey) as string[] ?? [];
-            const onTriggerSequencesNames = storage.getItem(onTriggerSequencesKey) as string[] ?? [];
-            const onResetSequencesNames = storage.getItem(onResetSequencesKey) as string[] ?? [];
             const audioLabels = storage.getItem(audioLabelsKey) as string[] ?? [];
             const scoreThreshold = storage.getItem(scoreThresholdKey) as number || (isAudioOnly ? 0.5 : 0.7);
             const minDelay = storage.getItem(minDelayKey) as number;
@@ -3853,21 +3937,6 @@ export const getDetectionRules = (props: {
                 logger: console
             });
 
-            const onTriggerSequences: RuleActionsSequence[] = [];
-            for (const sequenceName of onTriggerSequencesNames) {
-                const sequenceObject = getSequenceObject({ sequenceName, storage });
-                if (sequenceObject) {
-                    onTriggerSequences.push(sequenceObject);
-                }
-            }
-            const onResetSequences: RuleActionsSequence[] = [];
-            for (const sequenceName of onResetSequencesNames) {
-                const sequenceObject = getSequenceObject({ sequenceName, storage });
-                if (sequenceObject) {
-                    onResetSequences.push(sequenceObject);
-                }
-            }
-
             const detectionRule: DetectionRule = {
                 ...rule,
                 scoreThreshold,
@@ -3886,8 +3955,6 @@ export const getDetectionRules = (props: {
                 audioLabels,
                 aiFilter,
                 maxClipExtensionRange,
-                onResetSequences,
-                onTriggerSequences,
             };
 
             if (!isPlugin) {
