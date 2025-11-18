@@ -244,6 +244,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
             logger,
             ruleSource: RuleSource.Device,
             refreshSettings: this.refreshSettings.bind(this),
+            plugin: this.plugin,
         });
         dynamicSettings.push(...detectionRulesSettings);
 

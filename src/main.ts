@@ -1913,6 +1913,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             audioLabels,
             people,
             refreshSettings: async () => await this.refreshSettings(),
+            plugin: this,
         });
         dynamicSettings.push(...detectionRulesSettings);
 

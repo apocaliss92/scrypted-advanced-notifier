@@ -1217,6 +1217,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             audioLabels,
             ruleSource: RuleSource.Device,
             refreshSettings: this.refreshSettings.bind(this),
+            plugin: this.plugin,
         });
         dynamicSettings.push(...detectionRulesSettings);
 
@@ -3298,18 +3299,24 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             };
 
             let zonesOk = true;
-            if (rule.source === RuleSource.Device) {
-                const isIncluded = whitelistedZones?.length ? zones?.some(zone => whitelistedZones.includes(zone)) : true;
-                const isExcluded = blacklistedZones?.length ? zones?.some(zone => blacklistedZones.includes(zone)) : false;
+            const isPlugin = rule.source === RuleSource.Plugin;
 
-                zonesOk = isIncluded && !isExcluded;
+            const isIncluded = whitelistedZones?.length ? zones?.some(zone => {
+                const zoneName = isPlugin ? `${this.name}::${zone}` : zone;
+                return whitelistedZones.includes(zoneName);
+            }) : true;
+            const isExcluded = blacklistedZones?.length ? zones?.some(zone => {
+                const zoneName = isPlugin ? `${this.name}::${zone}` : zone;
+                return blacklistedZones.includes(zoneName)
+            }) : false;
 
-                dataToReport = {
-                    ...dataToReport,
-                    zonesOk,
-                    isIncluded,
-                    isExcluded,
-                }
+            zonesOk = isIncluded && !isExcluded;
+
+            dataToReport = {
+                ...dataToReport,
+                zonesOk,
+                isIncluded,
+                isExcluded,
             }
 
             if (!zonesOk) {

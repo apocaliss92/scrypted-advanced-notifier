@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.5.11
+- Add possibility to select whitelisted/blacklited zones also on plugin rules
+
 ### 4.5.7
 - Sequences implemented, build a custom actions sequence and activate it on a rule
 

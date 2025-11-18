@@ -1615,7 +1615,7 @@ export const sensorsFilterWthAn: StorageSetting['deviceFilter'] = `interfaces.in
 export const cameraFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && interfaces.some(int => ${getInterfacesString(cameraInterfaces)}.includes(int))`;
 export const frigateCamerasFilter: StorageSetting['deviceFilter'] = `interfaces.includes('${ADVANCED_NOTIFIER_INTERFACE}') && interfaces.includes('${FRIGATE_OBJECT_DETECTOR_INTERFACE}')`;
 
-type GetSpecificRules = (props: { group: string, subgroup: string, ruleName: string, showMore: boolean }) => StorageSetting[];
+type GetSpecificRules = (props: { group: string, subgroup: string, ruleName: string, showMore: boolean }) => Promise<StorageSetting[]>;
 type OnRefreshSettings = () => Promise<void>
 
 export const getNotifierData = (props: {
@@ -1962,7 +1962,7 @@ const getNotifierSettings = (props: {
     return settings;
 };
 
-export const getRuleSettings = (props: {
+export const getRuleSettings = async (props: {
     ruleType: RuleType,
     storage: StorageSettings<any>,
     ruleSource: RuleSource,
@@ -2268,7 +2268,8 @@ export const getRuleSettings = (props: {
             );
         }
 
-        settings.push(...getSpecificRules({ ruleName, subgroup, group, showMore: showMoreConfigurations }));
+        const specificSettings = await getSpecificRules({ ruleName, subgroup, group, showMore: showMoreConfigurations });
+        settings.push(...specificSettings);
 
         const sequenceNames = storage.getItem(ruleSequencesKey) as string[] || [];
         if (currentActivation !== DetectionRuleActivation.Always) {
@@ -2624,7 +2625,8 @@ export const getDetectionRulesSettings = async (props: {
     ruleSource: RuleSource,
     device?: DeviceBase,
     refreshSettings: OnRefreshSettings,
-    logger: Console
+    logger: Console,
+    plugin: AdvancedNotifierPlugin
 }) => {
     const {
         storage,
@@ -2636,12 +2638,13 @@ export const getDetectionRulesSettings = async (props: {
         refreshSettings,
         logger,
         people,
-        audioLabels
+        audioLabels,
+        plugin
     } = props;
     const isPlugin = ruleSource === RuleSource.Plugin;
     const { isCamera } = !isPlugin ? isDeviceSupported(device) : {};
 
-    const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup, showMore }) => {
+    const getSpecificRules: GetSpecificRules = async ({ group, ruleName, subgroup, showMore }) => {
         const settings: StorageSetting[] = [];
 
         const { detection, common, } = getRuleKeys({ ruleName, ruleType: RuleType.Detection });
@@ -2904,15 +2907,35 @@ export const getDetectionRulesSettings = async (props: {
                 immediate: true,
                 combobox: true,
                 deviceFilter: isFrigate ? frigateCamerasFilter : deviceFilter,
-                defaultValue: []
+                defaultValue: [],
+                onPut: async () => await refreshSettings(),
             });
         }
 
-        const zonesToUse = isFrigate ?
-            frigateZones : zones;
+        let zonesToUse: string[] = [];
+
+        if (!isCamera) {
+            const devices = storage.getItem(devicesKey) as string[] ?? [];
+
+            for (const deviceId of devices) {
+                const deviceMixin = plugin.currentCameraMixinsMap[deviceId];
+                if (deviceMixin) {
+                    const zones = (await deviceMixin.getObserveZones()).map(item => item.name);
+                    const { frigateZones } = await deviceMixin.getFrigateData();
+
+                    const cameraZones = isFrigate ? frigateZones : zones;
+                    for (const cameraZone of cameraZones) {
+                        zonesToUse.push(`${deviceMixin.name}::${cameraZone}`);
+                    }
+                }
+            }
+        } else {
+            zonesToUse = isFrigate ? frigateZones : zones;
+        }
+
         const zonesDescription = isFrigate ? 'Zones defined on the Frigate interface' :
             'Zones defined in the `Object detection` section of type `Observe`';
-        if (isCamera && zonesToUse) {
+        if (zonesToUse) {
             settings.push(
                 {
                     key: whitelistedZonesKey,
@@ -2924,7 +2947,7 @@ export const getDetectionRulesSettings = async (props: {
                     combobox: true,
                     immediate: true,
                     choices: zonesToUse,
-                    readonly: !zonesToUse.length,
+                    readonly: !zonesToUse?.length,
                     defaultValue: []
                 },
                 {
@@ -2936,53 +2959,51 @@ export const getDetectionRulesSettings = async (props: {
                     multiple: true,
                     combobox: true,
                     immediate: true,
-                    choices: zones,
-                    readonly: !zones.length,
+                    choices: zonesToUse,
+                    readonly: !zonesToUse?.length,
                     defaultValue: []
                 },
             )
         }
 
-        if (isCamera || isPlugin) {
-            let minDelayDescription = 'Minimum amount of seconds to wait until a notification is sent for the same detection type.';
-            if (isPlugin) {
-                minDelayDescription += ' Overrides the device setting';
-            }
-
-            settings.push(
-                {
-                    key: minDelayKey,
-                    title: 'Minimum notification delay',
-                    description: minDelayDescription,
-                    group,
-                    subgroup,
-                    type: 'number',
-                    placeholder: '-',
-                    hide: !showMore
-                },
-                {
-                    key: minMqttPublishDelayKey,
-                    title: 'Minimum MQTT publish delay',
-                    description: 'Minimum amount of seconds to wait until a new image is published on MQTT',
-                    group,
-                    subgroup,
-                    type: 'number',
-                    placeholder: '15',
-                    defaultValue: 15,
-                    hide: !showMore
-                },
-                {
-                    key: recordingTriggerSecondsKey,
-                    title: 'Disable recording in seconds',
-                    description: 'Set a value here in seconds to enable the camera recording when the rule is triggered. After the seconds specified, recording will be disabled',
-                    group,
-                    subgroup,
-                    type: 'number',
-                    placeholder: '-',
-                    hide: !showMore
-                },
-            )
+        let minDelayDescription = 'Minimum amount of seconds to wait until a notification is sent for the same detection type.';
+        if (isPlugin) {
+            minDelayDescription += ' Overrides the device setting';
         }
+
+        settings.push(
+            {
+                key: minDelayKey,
+                title: 'Minimum notification delay',
+                description: minDelayDescription,
+                group,
+                subgroup,
+                type: 'number',
+                placeholder: '-',
+                hide: !showMore
+            },
+            {
+                key: minMqttPublishDelayKey,
+                title: 'Minimum MQTT publish delay',
+                description: 'Minimum amount of seconds to wait until a new image is published on MQTT',
+                group,
+                subgroup,
+                type: 'number',
+                placeholder: '15',
+                defaultValue: 15,
+                hide: !showMore
+            },
+            {
+                key: recordingTriggerSecondsKey,
+                title: 'Disable recording in seconds',
+                description: 'Set a value here in seconds to enable the camera recording when the rule is triggered. After the seconds specified, recording will be disabled',
+                group,
+                subgroup,
+                type: 'number',
+                placeholder: '-',
+                hide: !showMore
+            },
+        )
 
         return settings;
     };
@@ -3011,7 +3032,7 @@ export const getOccupancyRulesSettings = async (props: {
 }) => {
     const { storage, zones, ruleSource, refreshSettings, logger, device, onManualCheck } = props;
 
-    const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup, showMore }) => {
+    const getSpecificRules: GetSpecificRules = async ({ group, ruleName, subgroup, showMore }) => {
         const settings: StorageSetting[] = [];
 
         const { occupancy, common } = getRuleKeys({ ruleName, ruleType: RuleType.Occupancy });
@@ -3180,7 +3201,7 @@ export const getTimelapseRulesSettings = async (props: {
 }) => {
     const { storage, ruleSource, onCleanDataTimelapse, onGenerateTimelapse, refreshSettings, logger, device } = props;
 
-    const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup, showMore }) => {
+    const getSpecificRules: GetSpecificRules = async ({ group, ruleName, subgroup, showMore }) => {
         const settings: StorageSetting[] = [];
 
         const { timelapse, common } = getRuleKeys({ ruleName, ruleType: RuleType.Timelapse });
@@ -3305,7 +3326,7 @@ export const getAudioRulesSettings = async (props: {
 }) => {
     const { storage, ruleSource, refreshSettings, logger, device } = props;
 
-    const getSpecificRules: GetSpecificRules = ({ group, ruleName, subgroup }) => {
+    const getSpecificRules: GetSpecificRules = async ({ group, ruleName, subgroup }) => {
         const settings: StorageSetting[] = [];
 
         const { audio, common } = getRuleKeys({ ruleName, ruleType: RuleType.Audio });
@@ -3957,10 +3978,8 @@ export const getDetectionRules = (props: {
                 maxClipExtensionRange,
             };
 
-            if (!isPlugin) {
-                detectionRule.whitelistedZones = storage.getItem(whitelistedZonesKey) as string[] ?? [];
-                detectionRule.blacklistedZones = storage.getItem(blacklistedZonesKey) as string[] ?? [];
-            }
+            detectionRule.whitelistedZones = storage.getItem(whitelistedZonesKey) as string[] ?? [];
+            detectionRule.blacklistedZones = storage.getItem(blacklistedZonesKey) as string[] ?? [];
 
             const hasFace = detectionClasses.includes(DetectionClass.Face);
             const hasPlate = detectionClasses.includes(DetectionClass.Plate);
