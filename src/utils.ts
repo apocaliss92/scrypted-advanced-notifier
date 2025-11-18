@@ -2108,7 +2108,7 @@ export const getRuleSettings = async (props: {
                     {
                         key: generateClipTypeKey,
                         title: 'Clip type',
-                        description: 'MP4 supported only by HA notifiers, GIF supported mostly by everything',
+                        description: 'MP4 supported only by HA/Zentik notifiers, GIF supported mostly by everything',
                         group,
                         subgroup,
                         immediate: true,
