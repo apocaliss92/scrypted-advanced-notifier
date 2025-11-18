@@ -38,19 +38,15 @@ The plugin will export to MQTT the following entities:
 
 The plugin provides customized way to deliver notifications. It is based on rules. Each rule can be activated based on several factors, i.e. active sensors, time ranges, security system status. Any notifier can be used but the only fully supported currently are (can be extended for any other):
 
-- Zentik
+- Zentik - Full round notifier application. Perfect for apple devices (iOS, iPad, Mac), developed by me with an eye to Advanced notifier and support whatever was possible, available for beta testing:
+    - iOS under https://testflight.apple.com/join/dFqETQEm
+    - PWA (android, web) under https://notifier.zentik.app
+    - Scrypted plugin available https://www.npmjs.com/package/@apocaliss92/scrypted-zentik
 - Native Scrypted notifiers (i.e. Scrypted iPhone app...)
 - Ntfy
 - Homeassistant push notifications
 - Pushover
 - Telegram
-
-  I have developed a notifications app, Zentik, now available for beta testing:
-  - iOS under https://testflight.apple.com/join/dFqETQEm
-  - PWA (android, web) under https://notifier.zentik.app
-  It will work seaminglessly with Scrypted, showing all the media dispatched (i.e. video + image). Scrypted plugin available https://www.npmjs.com/package/@apocaliss92/scrypted-zentik 
-
-  It's useful to use Pushover or NTFY as notifiers storage, in combination with a homeassistant or NVR one, setting its priority to the lowest. This will allow to have a rich notification and also to store it on another notifier. This because notifiers such as pushover, ntfy or telegram do not have a nice support to actions. Following parameters are required to successfully send notifications
 
 - `Scrypted token`: Token stored on the scrypted entity on homeassistant
 - `NVR url`: Url pointing to the NVR instance, should be accessible from outside
