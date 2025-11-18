@@ -1549,6 +1549,7 @@ export const getSequenceKeys = (props: {
 
     const actionsKey = `${prefix}:${sequenceName}:actions`;
     const enabledKey = `${prefix}:${sequenceName}:enabled`;
+    const testKey = `${prefix}:${sequenceName}:test`;
     const minimumExecutionDelayKey = `${prefix}:${sequenceName}:minimumExecutionDelay`;
     const typeKey = `${prefix}:${sequenceName}:${actionName}:type`;
     const deviceIdKey = `${prefix}:${sequenceName}:${actionName}:deviceId`;
@@ -1571,6 +1572,7 @@ export const getSequenceKeys = (props: {
         waitSecondsKey,
         lockStateKey,
         entryStateKey,
+        testKey,
     };
 };
 
@@ -2419,12 +2421,13 @@ const getDeviceFilter = (interfaces: ScryptedInterface[]) => {
 export const getSequencesSettings = async (props: {
     storage: StorageSettings<any>,
     refreshSettings: OnRefreshSettings,
-    logger: Console
+    logger: Console,
+    onTestSequence: (sequenceName: string) => Promise<void>,
 }) => {
     const {
         storage,
         refreshSettings,
-        logger,
+        onTestSequence,
     } = props;
 
     const settings: StorageSetting[] = [];
@@ -2610,6 +2613,17 @@ export const getSequencesSettings = async (props: {
                 }
             }
         }
+
+        settings.push({
+            title: 'Test sequence',
+            type: 'button',
+            group,
+            subgroup,
+            immediate: true,
+            onPut: async () => {
+                await onTestSequence(sequenceName);
+            },
+        });
     }
 
     return settings;
@@ -3785,7 +3799,7 @@ const initBasicRule = (props: {
     };
 }
 
-const getSequenceObject = (props: {
+export const getSequenceObject = (props: {
     sequenceName: string,
     storage: StorageSettings<any>,
 }) => {

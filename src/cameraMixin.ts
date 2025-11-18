@@ -651,10 +651,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: name, ruleType });
                         await this.putMixinSetting(currentlyActiveKey, 'true');
 
-                        this.triggerRuleSequences({
+                        this.plugin.triggerRuleSequences({
                             sequences: rule.onActivationSequences,
                             postFix: 'activate',
                             rule,
+                            deviceId: this.cameraDevice.id,
                         }).catch(logger.error);
                     }
                 }
@@ -688,10 +689,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: name, ruleType });
                         await this.putMixinSetting(currentlyActiveKey, 'false');
 
-                        this.triggerRuleSequences({
+                        this.plugin.triggerRuleSequences({
                             sequences: rule.onDeactivationSequences,
                             postFix: 'deactivate',
                             rule,
+                            deviceId: this.cameraDevice.id,
                         }).catch(logger.error);
                     }
                 }
@@ -1489,71 +1491,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         return this.mixinState.logger;
     }
 
-    async triggerRuleSequences(props: {
-        sequences: RuleActionsSequence[],
-        postFix: string,
-        rule: BaseRule,
-    }) {
-        const { postFix, sequences, rule } = props;
-
-        if (sequences?.length) {
-            const logger = this.plugin.getLogger();
-
-            for (const sequence of sequences) {
-                const { timePassed } = this.isDelayPassed({
-                    type: DelayType.SequenceExecution,
-                    delay: sequence.minimumExecutionDelay,
-                    postFix,
-                });
-
-                if (timePassed && sequence.enabled) {
-                    try {
-                        logger.log(`Triggering sequence ${sequence.name} from rule ${rule.name}: ${JSON.stringify(sequence)}`);
-                        for (const action of sequence.actions) {
-                            logger.info(`Executing action ${action.actionName} of type ${action.type} in sequence ${sequence.name}`);
-
-                            if (action.type === RuleActionType.Wait && action.seconds) {
-                                await new Promise(resolve => setTimeout(resolve, action.seconds * 1000));
-                            } if (action.type === RuleActionType.Script) {
-                                const device = sdk.systemManager.getDeviceById<Program>(action.deviceId);
-                                await device.run();
-                            } else if (action.type === RuleActionType.Ptz) {
-                                const device = sdk.systemManager.getDeviceById<PanTiltZoom>(action.deviceId);
-                                const presetId = action.presetName?.split(':')[1];
-                                await device.ptzCommand({ preset: presetId });
-                            } else if (action.type === RuleActionType.Switch) {
-                                const device = sdk.systemManager.getDeviceById<OnOff>(action.deviceId);
-                                if (action.turnOn) {
-                                    await device.turnOn();
-                                } else {
-                                    await device.turnOff();
-                                }
-                            } else if (action.type === RuleActionType.Lock) {
-                                const device = sdk.systemManager.getDeviceById<Lock>(action.deviceId);
-                                if (action.lock) {
-                                    await device.lock();
-                                } else {
-                                    await device.unlock();
-                                }
-                            } else if (action.type === RuleActionType.Entry) {
-                                const device = sdk.systemManager.getDeviceById<Entry>(action.deviceId);
-                                if (action.openEntry) {
-                                    await device.openEntry();
-                                } else {
-                                    await device.closeEntry();
-                                }
-                            }
-                        }
-                    } catch (e) {
-                        logger.log(`Error triggering sequence ${sequence.name} from rule ${rule.name}: ${e.message}`);
-                    }
-                } else {
-                    logger.info(`Skipping sequence ${sequence.name}: enabled ${sequence.enabled}, timePassed ${timePassed}`);
-                }
-            }
-        }
-    }
-
     async triggerRule(props: {
         matchRule: MatchRule,
         eventSource: ScryptedEventSource,
@@ -1620,10 +1557,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }, seconds * 1000);
                 }
 
-                this.triggerRuleSequences({
+                this.plugin.triggerRuleSequences({
                     sequences: rule.onTriggerSequences,
                     postFix: 'trigger',
-                    rule
+                    rule,
+                    deviceId: device.id,
                 }).catch(logger.error);
 
                 this.resetRuleEntities(rule).catch(logger.log);
@@ -3939,10 +3877,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 rule,
             });
 
-            this.triggerRuleSequences({
+            this.plugin.triggerRuleSequences({
                 sequences: rule.onResetSequences,
                 postFix: 'reset',
                 rule,
+                deviceId: this.cameraDevice.id,
             }).catch(logger.error);
         }, motionDuration * 1000);
 

@@ -1,4 +1,4 @@
-import sdk, { DeviceBase, DeviceProvider, HttpRequest, HttpRequestHandler, HttpResponse, Image, LauncherApplication, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetection, ObjectDetectionResult, PushHandler, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, SettingValue, VideoClips, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { DeviceBase, DeviceProvider, Entry, HttpRequest, HttpRequestHandler, HttpResponse, Image, LauncherApplication, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetection, ObjectDetectionResult, OnOff, Lock, PanTiltZoom, Program, PushHandler, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, SettingValue, VideoClips, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
 import child_process from 'child_process';
@@ -25,7 +25,7 @@ import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { CameraMixinState, OccupancyRuleData } from "./states";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, defaultClipPostSeconds, defaultClipPreSeconds, defaultOccupancyClipPreSeconds, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, DevNotifications, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getSequencesSettings, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, ruleSequencesGroup, ruleSequencesKey, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType, ZENTIK_PLUGIN_ID } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, defaultClipPostSeconds, defaultClipPreSeconds, defaultOccupancyClipPreSeconds, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, DevNotifications, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getSequencesSettings, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, ruleSequencesGroup, ruleSequencesKey, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType, ZENTIK_PLUGIN_ID, getSequenceObject, RuleActionType, RuleActionsSequence } from "./utils";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -1898,6 +1898,97 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
     };
 
+
+    async triggerRuleSequences(props: {
+        sequences: RuleActionsSequence[],
+        postFix: 'test' | string,
+        rule: BaseRule,
+        deviceId?: string,
+    }) {
+        const { postFix, sequences, rule, deviceId } = props;
+        const isTest = postFix === 'test';
+
+        if (sequences?.length) {
+            const logger = this.getLogger();
+
+            for (const sequence of sequences) {
+                let canExecute = false;
+                if (deviceId) {
+                    const cameraMixin = deviceId ? this.currentCameraMixinsMap[deviceId] : undefined;
+                    const { timePassed } = cameraMixin.isDelayPassed({
+                        type: DelayType.SequenceExecution,
+                        delay: sequence.minimumExecutionDelay,
+                        postFix,
+                    });
+                    canExecute = timePassed;
+                }
+
+                if (isTest || (canExecute && sequence.enabled)) {
+                    try {
+                        logger.log(`Triggering sequence ${sequence.name} from rule ${rule.name}: ${JSON.stringify(sequence)}`);
+                        for (const action of sequence.actions) {
+                            logger[isTest ? 'log' : 'info'](`Executing action ${action.actionName} of type ${action.type} in sequence ${sequence.name}`);
+
+                            if (action.type === RuleActionType.Wait && action.seconds) {
+                                await new Promise(resolve => setTimeout(resolve, action.seconds * 1000));
+                            } if (action.type === RuleActionType.Script) {
+                                const device = sdk.systemManager.getDeviceById<Program>(action.deviceId);
+                                await device.run();
+                            } else if (action.type === RuleActionType.Ptz) {
+                                const device = sdk.systemManager.getDeviceById<PanTiltZoom>(action.deviceId);
+                                const presetId = action.presetName?.split(':')[1];
+                                await device.ptzCommand({ preset: presetId });
+                            } else if (action.type === RuleActionType.Switch) {
+                                const device = sdk.systemManager.getDeviceById<OnOff>(action.deviceId);
+                                if (action.turnOn) {
+                                    await device.turnOn();
+                                } else {
+                                    await device.turnOff();
+                                }
+                            } else if (action.type === RuleActionType.Lock) {
+                                const device = sdk.systemManager.getDeviceById<Lock>(action.deviceId);
+                                if (action.lock) {
+                                    await device.lock();
+                                } else {
+                                    await device.unlock();
+                                }
+                            } else if (action.type === RuleActionType.Entry) {
+                                const device = sdk.systemManager.getDeviceById<Entry>(action.deviceId);
+                                if (action.openEntry) {
+                                    await device.openEntry();
+                                } else {
+                                    await device.closeEntry();
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        logger.log(`Error triggering sequence ${sequence.name} from rule ${rule.name}: ${e.message}`);
+                    }
+                } else {
+                    logger[isTest ? 'log' : 'info'](`Skipping sequence ${sequence.name}: enabled ${sequence.enabled}, canExecute ${canExecute}`);
+                }
+            }
+        }
+    }
+
+    async testSequence(sequenceName: string) {
+        const logger = this.getLogger();
+
+        const sequence = getSequenceObject({
+            sequenceName,
+            storage: this.storageSettings,
+        });
+
+        logger.log(`Testing sequence ${sequenceName}: ${JSON.stringify(sequence)}`);
+        await this.triggerRuleSequences({
+            sequences: [sequence],
+            postFix: 'test',
+            rule: {
+                name: 'test',
+            } as BaseRule,
+        });
+    }
+
     async refreshSettings() {
         const logger = this.getLogger();
         const dynamicSettings: StorageSetting[] = [];
@@ -1921,6 +2012,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger,
             refreshSettings: async () => await this.refreshSettings(),
             storage: this.storageSettings,
+            onTestSequence: async (sequenceName: string) => {
+                await this.testSequence(sequenceName);
+            }
         })
         dynamicSettings.push(...actionRuleSettings);
 
