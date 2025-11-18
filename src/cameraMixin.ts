@@ -1,4 +1,4 @@
-import sdk, { EventDetails, EventListenerRegister, Image, MediaObject, Notifier, ObjectDetection, ObjectDetectionResult, ObjectsDetected, OnOff, Lock, PanTiltZoom, PanTiltZoomCommand, ResponseMediaStreamOptions, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoClip, VideoClipOptions, VideoClipThumbnailOptions, VideoClips, VideoFrame, VideoFrameGenerator, Entry } from "@scrypted/sdk";
+import sdk, { EventDetails, EventListenerRegister, Image, MediaObject, Notifier, ObjectDetection, ObjectDetectionResult, ObjectsDetected, OnOff, Lock, PanTiltZoom, PanTiltZoomCommand, ResponseMediaStreamOptions, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoClip, VideoClipOptions, VideoClipThumbnailOptions, VideoClips, VideoFrame, VideoFrameGenerator, Entry, Program } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import fs from 'fs';
@@ -1483,16 +1483,17 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { isTrigger, rule } = props;
         const sequences = isTrigger ? rule.onTriggerSequences : rule.onResetSequences;
 
-        if (sequences && sequences.length) {
-            const logger = this.getLogger();
+        if (sequences?.length) {
+            const logger = this.plugin.getLogger();
 
             for (const sequence of sequences) {
-                const canTrigger = isTrigger ? this.isDelayPassed({
+                const { timePassed } = this.isDelayPassed({
                     type: DelayType.SequenceExecution,
-                    delay: sequence.minimumExecutionDelay
-                })?.timePassed : true;
+                    delay: sequence.minimumExecutionDelay,
+                    isTrigger,
+                });
 
-                if (canTrigger) {
+                if (timePassed && sequence.enabled) {
                     try {
                         logger.log(`Triggering sequence ${sequence.name} from rule ${rule.name}: ${JSON.stringify(sequence)}`);
                         for (const action of sequence.actions) {
@@ -1500,20 +1501,23 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                             if (action.type === RuleActionType.Wait && action.seconds) {
                                 await new Promise(resolve => setTimeout(resolve, action.seconds * 1000));
+                            } if (action.type === RuleActionType.Script) {
+                                const device = sdk.systemManager.getDeviceById<Program>(action.deviceId);
+                                await device.run();
                             } else if (action.type === RuleActionType.Ptz) {
                                 const device = sdk.systemManager.getDeviceById<PanTiltZoom>(action.deviceId);
                                 const presetId = action.presetName?.split(':')[1];
                                 await device.ptzCommand({ preset: presetId });
                             } else if (action.type === RuleActionType.Switch) {
                                 const device = sdk.systemManager.getDeviceById<OnOff>(action.deviceId);
-                                if (action.switchEnabled) {
+                                if (action.turnOn) {
                                     await device.turnOn();
                                 } else {
                                     await device.turnOff();
                                 }
                             } else if (action.type === RuleActionType.Lock) {
                                 const device = sdk.systemManager.getDeviceById<Lock>(action.deviceId);
-                                if (action.lockState) {
+                                if (action.lock) {
                                     await device.lock();
                                 } else {
                                     await device.unlock();
@@ -1531,7 +1535,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         logger.log(`Error triggering sequence ${sequence.name} from rule ${rule.name}: ${e.message}`);
                     }
                 } else {
-                    logger.debug(`Skipping sequence ${sequence.name} from rule ${rule.name} due to minimumExecutionDelay ${sequence.minimumExecutionDelay}`);
+                    logger.info(`Skipping sequence ${sequence.name}: enabled ${sequence.enabled}, timePassed ${timePassed}`);
                 }
             }
         }
@@ -3105,7 +3109,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         } else if (type === DelayType.OccupancyRegularCheck) {
             minDelayInSeconds = !!this.mixinState.runningOccupancyRules.length || this.mixinState.storageSettings.values.checkOccupancy ? 0.3 : 0;
         } else if (type === DelayType.SequenceExecution) {
-            const { delay } = props;
+            const { delay, isTrigger } = props;
+            delayKey += `-${isTrigger ? 'trigger' : 'non-trigger'}`;
             minDelayInSeconds = delay ?? 15;
         } else if (type === DelayType.EventStore) {
             const { identifiers } = props;

@@ -60,6 +60,7 @@ export enum RuleActionType {
     Lock = 'Lock',
     Switch = 'Switch',
     Entry = 'Entry',
+    Script = 'Script',
 }
 
 export type RuleAction = {
@@ -76,19 +77,23 @@ export type RuleAction = {
     } |
     {
         type: RuleActionType.Switch;
-        switchEnabled: boolean;
+        turnOn: boolean;
     } |
     {
         type: RuleActionType.Entry;
         openEntry: boolean;
     } |
     {
+        type: RuleActionType.Script;
+    } |
+    {
         type: RuleActionType.Lock;
-        lockState: boolean;
+        lock: boolean;
     });
 
 export interface RuleActionsSequence {
     name: string;
+    enabled: boolean;
     minimumExecutionDelay: number;
     actions: RuleAction[];
 }
@@ -275,7 +280,7 @@ export const videoclipSpeedMultiplier: Record<VideoclipSpeed, number> = {
 
 export type IsDelayPassedProps =
     { type: DelayType.OccupancyRegularCheck } |
-    { type: DelayType.SequenceExecution, delay: number } |
+    { type: DelayType.SequenceExecution, delay: number, isTrigger: boolean } |
     { type: DelayType.DecoderFrameOnStorage, eventSource: ScryptedEventSource, timestamp: number } |
     { type: DelayType.EventStore, identifiers: string[] } |
     { type: DelayType.PeopleTrackerImageUpdate, label: string } |
@@ -1539,6 +1544,7 @@ export const getSequenceKeys = (props: {
     const prefix = 'sequence';
 
     const actionsKey = `${prefix}:${sequenceName}:actions`;
+    const enabledKey = `${prefix}:${sequenceName}:enabled`;
     const minimumExecutionDelayKey = `${prefix}:${sequenceName}:minimumExecutionDelay`;
     const typeKey = `${prefix}:${sequenceName}:${actionName}:type`;
     const deviceIdKey = `${prefix}:${sequenceName}:${actionName}:deviceId`;
@@ -1551,6 +1557,7 @@ export const getSequenceKeys = (props: {
 
     return {
         actionsKey,
+        enabledKey,
         minimumExecutionDelayKey,
         typeKey,
         deviceIdKey,
@@ -1579,6 +1586,7 @@ const ruleActionDeviceInterfacesMap: Partial<Record<RuleActionType, ScryptedInte
     [RuleActionType.Switch]: [ScryptedInterface.OnOff],
     [RuleActionType.Lock]: [ScryptedInterface.Lock],
     [RuleActionType.Entry]: [ScryptedInterface.Entry],
+    [RuleActionType.Script]: [ScryptedInterface.Program],
 };
 const cameraInterfaces: ScryptedInterface[] = [
     ScryptedInterface.Camera,
@@ -2333,6 +2341,11 @@ export const getRuleSettings = (props: {
     return settings;
 }
 
+const getDeviceFilter = (interfaces: ScryptedInterface[]) => {
+    const filter: StorageSetting['deviceFilter'] = `interfaces.some(int => ${getInterfacesString(interfaces)}.includes(int))`;
+    return filter
+}
+
 export const getSequencesSettings = async (props: {
     storage: StorageSettings<any>,
     refreshSettings: OnRefreshSettings,
@@ -2351,10 +2364,20 @@ export const getSequencesSettings = async (props: {
 
     for (const sequenceName of sequenceNames) {
         const subgroup = `${sequenceName}`;
-        const { actionsKey, minimumExecutionDelayKey } = getSequenceKeys({ sequenceName });
+        const { actionsKey, minimumExecutionDelayKey, enabledKey } = getSequenceKeys({ sequenceName });
         const actionNames = safeParseJson<string[]>(storage.getItem(actionsKey), []);
 
         settings.push(
+            {
+                key: enabledKey,
+                title: 'Enabled',
+                type: 'boolean',
+                group,
+                subgroup,
+                immediate: true,
+                defaultValue: true,
+                onPut: async () => await refreshSettings(),
+            },
             {
                 key: minimumExecutionDelayKey,
                 title: 'Minimum execution delay (seconds)',
@@ -2427,9 +2450,23 @@ export const getSequencesSettings = async (props: {
                             onPut: async () => await refreshSettings(),
                         }
                     );
+                } if (currentType === RuleActionType.Script) {
+                    const ruleActionDevicesFilter = getDeviceFilter(ruleActionDeviceInterfacesMap[currentType] || []);
+
+                    settings.push(
+                        {
+                            key: deviceIdKey,
+                            title: `Script`,
+                            group,
+                            subgroup,
+                            immediate: true,
+                            type: 'device',
+                            deviceFilter: ruleActionDevicesFilter,
+                            onPut: async () => await refreshSettings(),
+                        }
+                    );
                 } else {
-                    const ruleActionDevicesInterfaces = ruleActionDeviceInterfacesMap[currentType] || [];
-                    const ruleActionDevicesFilter: StorageSetting['deviceFilter'] = `interfaces.some(int => ${getInterfacesString(ruleActionDevicesInterfaces)}.includes(int))`;
+                    const ruleActionDevicesFilter = getDeviceFilter(ruleActionDeviceInterfacesMap[currentType] || []);
 
                     settings.push({
                         key: deviceIdKey,
@@ -3644,11 +3681,13 @@ const getSequenceObject = (props: {
     storage: StorageSettings<any>,
 }) => {
     const { sequenceName, storage } = props;
-    const { actionsKey, minimumExecutionDelayKey } = getSequenceKeys({ sequenceName });
+    const { actionsKey, minimumExecutionDelayKey, enabledKey } = getSequenceKeys({ sequenceName });
     const actionNames = safeParseJson<string[]>(storage.getItem(actionsKey), []);
     const minimumExecutionDelay = safeParseJson<number>(storage.getItem(minimumExecutionDelayKey), 15);
+    const enabled = safeParseJson<boolean>(storage.getItem(enabledKey), true);
     const sequence: RuleActionsSequence = {
         name: sequenceName,
+        enabled,
         minimumExecutionDelay,
         actions: [],
     };
@@ -3672,6 +3711,14 @@ const getSequenceObject = (props: {
                 type: currentType,
                 seconds: safeParseJson<number>(storage.getItem(waitSecondsKey as any))
             })
+        } if (currentType === RuleActionType.Script) {
+            const device = storage.getItem(deviceIdKey as any) as DeviceBase;
+
+            sequence.actions.push({
+                actionName,
+                deviceId: device?.id,
+                type: currentType,
+            })
         } else {
             const device = storage.getItem(deviceIdKey as any) as DeviceBase;
             if (device) {
@@ -3687,14 +3734,14 @@ const getSequenceObject = (props: {
                         actionName,
                         deviceId: device.id,
                         type: currentType,
-                        switchEnabled: safeParseJson<number>(storage.getItem(switchEnabledKey as any))
+                        turnOn: safeParseJson<number>(storage.getItem(switchEnabledKey as any))
                     })
                 } else if (currentType === RuleActionType.Lock) {
                     sequence.actions.push({
                         actionName,
                         deviceId: device.id,
                         type: currentType,
-                        lockState: safeParseJson<number>(storage.getItem(lockStateKey as any))
+                        lock: safeParseJson<number>(storage.getItem(lockStateKey as any))
                     })
                 } else if (currentType === RuleActionType.Entry) {
                     sequence.actions.push({
