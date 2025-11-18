@@ -598,6 +598,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     imageEmbeddingCache: Record<string, Buffer> = {};
     textEmbeddingCache: Record<string, Buffer> = {};
 
+    lastDelaySet: Record<string, number> = {};
+
     accumulatedTimelapsesToGenerate: { ruleName: string, deviceId: string }[] = [];
     mainFlowInProgress = false;
 
@@ -779,6 +781,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     async start() {
         try {
             await this.init();
+            await this.refreshSettings();
             await this.refreshSettings();
             await this.mainFlow();
 

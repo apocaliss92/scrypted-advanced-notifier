@@ -1,4 +1,4 @@
-import sdk, { EventDetails, EventListenerRegister, Image, MediaObject, Notifier, ObjectDetection, ObjectDetectionResult, ObjectsDetected, OnOff, PanTiltZoom, PanTiltZoomCommand, ResponseMediaStreamOptions, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoClip, VideoClipOptions, VideoClipThumbnailOptions, VideoClips, VideoFrame, VideoFrameGenerator } from "@scrypted/sdk";
+import sdk, { EventDetails, EventListenerRegister, Image, MediaObject, Notifier, ObjectDetection, ObjectDetectionResult, ObjectsDetected, OnOff, Lock, PanTiltZoom, PanTiltZoomCommand, ResponseMediaStreamOptions, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoClip, VideoClipOptions, VideoClipThumbnailOptions, VideoClips, VideoFrame, VideoFrameGenerator, Entry } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import fs from 'fs';
@@ -1477,37 +1477,61 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async triggerRuleSequences(props: {
-        sequences: RuleActionsSequence[],
-        rule: DetectionRule
+        rule: DetectionRule,
+        isTrigger: boolean,
     }) {
-        const { sequences, rule } = props;
+        const { isTrigger, rule } = props;
+        const sequences = isTrigger ? rule.onTriggerSequences : rule.onResetSequences;
 
         if (sequences && sequences.length) {
             const logger = this.getLogger();
 
             for (const sequence of sequences) {
-                try {
-                    logger.log(`Triggering sequence ${sequence.name} from rule ${rule.name}: ${JSON.stringify(sequence)}`);
-                    for (const action of sequence.actions) {
-                        logger.log(`Executing action ${action.actionName} of type ${action.type} in sequence ${sequence.name}`);
+                const canTrigger = isTrigger ? this.isDelayPassed({
+                    type: DelayType.SequenceExecution,
+                    delay: sequence.minimumExecutionDelay
+                })?.timePassed : true;
 
-                        if (action.type === RuleActionType.Wait && action.seconds) {
-                            await new Promise(resolve => setTimeout(resolve, action.seconds * 1000));
-                        } else if (action.type === RuleActionType.Ptz) {
-                            const device = sdk.systemManager.getDeviceById<PanTiltZoom>(action.deviceId);
-                            const presetId = action.presetName?.split(':')[1];
-                            await device.ptzCommand({ preset: presetId });
-                        } else if (action.type === RuleActionType.Switch) {
-                            const device = sdk.systemManager.getDeviceById<OnOff>(action.deviceId);
-                            if (action.enabled) {
-                                await device.turnOn();
-                            } else {
-                                await device.turnOff();
+                if (canTrigger) {
+                    try {
+                        logger.log(`Triggering sequence ${sequence.name} from rule ${rule.name}: ${JSON.stringify(sequence)}`);
+                        for (const action of sequence.actions) {
+                            logger.info(`Executing action ${action.actionName} of type ${action.type} in sequence ${sequence.name}`);
+
+                            if (action.type === RuleActionType.Wait && action.seconds) {
+                                await new Promise(resolve => setTimeout(resolve, action.seconds * 1000));
+                            } else if (action.type === RuleActionType.Ptz) {
+                                const device = sdk.systemManager.getDeviceById<PanTiltZoom>(action.deviceId);
+                                const presetId = action.presetName?.split(':')[1];
+                                await device.ptzCommand({ preset: presetId });
+                            } else if (action.type === RuleActionType.Switch) {
+                                const device = sdk.systemManager.getDeviceById<OnOff>(action.deviceId);
+                                if (action.switchEnabled) {
+                                    await device.turnOn();
+                                } else {
+                                    await device.turnOff();
+                                }
+                            } else if (action.type === RuleActionType.Lock) {
+                                const device = sdk.systemManager.getDeviceById<Lock>(action.deviceId);
+                                if (action.lockState) {
+                                    await device.lock();
+                                } else {
+                                    await device.unlock();
+                                }
+                            } else if (action.type === RuleActionType.Entry) {
+                                const device = sdk.systemManager.getDeviceById<Entry>(action.deviceId);
+                                if (action.openEntry) {
+                                    await device.openEntry();
+                                } else {
+                                    await device.closeEntry();
+                                }
                             }
                         }
+                    } catch (e) {
+                        logger.log(`Error triggering sequence ${sequence.name} from rule ${rule.name}: ${e.message}`);
                     }
-                } catch (e) {
-                    logger.log(`Error triggering sequence ${sequence.name} from rule ${rule.name}: ${e.message}`);
+                } else {
+                    logger.debug(`Skipping sequence ${sequence.name} from rule ${rule.name} due to minimumExecutionDelay ${sequence.minimumExecutionDelay}`);
                 }
             }
         }
@@ -1579,12 +1603,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }, seconds * 1000);
                 }
 
-                if (timePassed) {
-                    this.triggerRuleSequences({
-                        sequences: (matchRule.rule as DetectionRule).onTriggerSequences,
-                        rule: matchRule.rule as DetectionRule,
-                    }).catch(logger.error);
-                }
+                this.triggerRuleSequences({
+                    rule: matchRule.rule as DetectionRule,
+                    isTrigger: true,
+                }).catch(logger.error);
 
                 this.resetRuleEntities(rule).catch(logger.log);
             }
@@ -3082,6 +3104,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             minDelayInSeconds = this.mixinState.storageSettings.values.decoderFrequency / 1000;
         } else if (type === DelayType.OccupancyRegularCheck) {
             minDelayInSeconds = !!this.mixinState.runningOccupancyRules.length || this.mixinState.storageSettings.values.checkOccupancy ? 0.3 : 0;
+        } else if (type === DelayType.SequenceExecution) {
+            const { delay } = props;
+            minDelayInSeconds = delay ?? 15;
         } else if (type === DelayType.EventStore) {
             const { identifiers } = props;
 
@@ -3097,13 +3122,22 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             minDelayInSeconds = 5;
         }
 
-        const lastSetTime = this.mixinState.lastDelaySet[delayKey];
+        const isOnPlugin = type === DelayType.SequenceExecution;
+
+        const lastSetTime = isOnPlugin ?
+            this.plugin.lastDelaySet[delayKey] :
+            this.mixinState.lastDelaySet[delayKey];
         const timePassed = !lastSetTime || !minDelayInSeconds ? true : (referenceTime - lastSetTime) >= (minDelayInSeconds * 1000);
         const lastSetInSeconds = lastSetTime ? (referenceTime - lastSetTime) / 1000 : undefined;
 
         this.getLogger().debug(`Is delay passed for ${delayKey}: ${timePassed}, last set ${lastSetInSeconds}. ${JSON.stringify(props)}`);
+
         if (timePassed) {
-            this.mixinState.lastDelaySet[delayKey] = referenceTime;
+            if (isOnPlugin) {
+                this.plugin.lastDelaySet[delayKey] = referenceTime;
+            } else {
+                this.mixinState.lastDelaySet[delayKey] = referenceTime;
+            }
         }
 
         return {
@@ -3881,8 +3915,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             });
 
             this.triggerRuleSequences({
-                sequences: (rule as DetectionRule).onResetSequences,
                 rule: rule as DetectionRule,
+                isTrigger: false,
             }).catch(logger.error);
         }, motionDuration * 1000);
 

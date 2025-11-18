@@ -57,7 +57,9 @@ export enum DevNotifications {
 export enum RuleActionType {
     Wait = 'Wait',
     Ptz = 'Ptz',
+    Lock = 'Lock',
     Switch = 'Switch',
+    Entry = 'Entry',
 }
 
 export type RuleAction = {
@@ -74,11 +76,20 @@ export type RuleAction = {
     } |
     {
         type: RuleActionType.Switch;
-        enabled: boolean;
+        switchEnabled: boolean;
+    } |
+    {
+        type: RuleActionType.Entry;
+        openEntry: boolean;
+    } |
+    {
+        type: RuleActionType.Lock;
+        lockState: boolean;
     });
 
 export interface RuleActionsSequence {
     name: string;
+    minimumExecutionDelay: number;
     actions: RuleAction[];
 }
 
@@ -210,6 +221,7 @@ export enum DelayType {
     EventStore = 'EventStore',
     PostWebhookImage = 'PostWebhookImage',
     OccupancyRegularCheck = 'OccupancyRegularCheck',
+    SequenceExecution = 'SequenceExecution',
 }
 
 export enum GetImageReason {
@@ -263,6 +275,7 @@ export const videoclipSpeedMultiplier: Record<VideoclipSpeed, number> = {
 
 export type IsDelayPassedProps =
     { type: DelayType.OccupancyRegularCheck } |
+    { type: DelayType.SequenceExecution, delay: number } |
     { type: DelayType.DecoderFrameOnStorage, eventSource: ScryptedEventSource, timestamp: number } |
     { type: DelayType.EventStore, identifiers: string[] } |
     { type: DelayType.PeopleTrackerImageUpdate, label: string } |
@@ -1526,21 +1539,27 @@ export const getSequenceKeys = (props: {
     const prefix = 'sequence';
 
     const actionsKey = `${prefix}:${sequenceName}:actions`;
+    const minimumExecutionDelayKey = `${prefix}:${sequenceName}:minimumExecutionDelay`;
     const typeKey = `${prefix}:${sequenceName}:${actionName}:type`;
     const deviceIdKey = `${prefix}:${sequenceName}:${actionName}:deviceId`;
     const actionTitleKey = `${prefix}:${sequenceName}:${actionName}:actionTitle`;
     const presetNameKey = `${prefix}:${sequenceName}:${actionName}:presetName`;
     const switchEnabledKey = `${prefix}:${sequenceName}:${actionName}:switchEnabled`;
+    const lockStateKey = `${prefix}:${sequenceName}:${actionName}:lockState`;
+    const entryStateKey = `${prefix}:${sequenceName}:${actionName}:entryState`;
     const waitSecondsKey = `${prefix}:${sequenceName}:${actionName}:waitSeconds`;
 
     return {
         actionsKey,
+        minimumExecutionDelayKey,
         typeKey,
         deviceIdKey,
         actionTitleKey,
         presetNameKey,
         switchEnabledKey,
         waitSecondsKey,
+        lockStateKey,
+        entryStateKey,
     };
 };
 
@@ -1558,6 +1577,8 @@ const sensorInterfaces: ScryptedInterface[] = [
 const ruleActionDeviceInterfacesMap: Partial<Record<RuleActionType, ScryptedInterface[]>> = {
     [RuleActionType.Ptz]: [ScryptedInterface.PanTiltZoom],
     [RuleActionType.Switch]: [ScryptedInterface.OnOff],
+    [RuleActionType.Lock]: [ScryptedInterface.Lock],
+    [RuleActionType.Entry]: [ScryptedInterface.Entry],
 };
 const cameraInterfaces: ScryptedInterface[] = [
     ScryptedInterface.Camera,
@@ -2330,10 +2351,20 @@ export const getSequencesSettings = async (props: {
 
     for (const sequenceName of sequenceNames) {
         const subgroup = `${sequenceName}`;
-        const { actionsKey } = getSequenceKeys({ sequenceName });
+        const { actionsKey, minimumExecutionDelayKey } = getSequenceKeys({ sequenceName });
         const actionNames = safeParseJson<string[]>(storage.getItem(actionsKey), []);
 
         settings.push(
+            {
+                key: minimumExecutionDelayKey,
+                title: 'Minimum execution delay (seconds)',
+                type: 'number',
+                group,
+                subgroup,
+                immediate: true,
+                defaultValue: 15,
+                onPut: async () => await refreshSettings(),
+            },
             {
                 key: actionsKey,
                 title: 'Actions',
@@ -2349,7 +2380,16 @@ export const getSequencesSettings = async (props: {
         )
 
         for (const actionName of actionNames) {
-            const { actionTitleKey, deviceIdKey, presetNameKey, typeKey, switchEnabledKey, waitSecondsKey } = getSequenceKeys({ sequenceName, actionName });
+            const {
+                actionTitleKey,
+                deviceIdKey,
+                presetNameKey,
+                typeKey,
+                switchEnabledKey,
+                waitSecondsKey,
+                lockStateKey,
+                entryStateKey
+            } = getSequenceKeys({ sequenceName, actionName });
             const currentType = storage.getItem(typeKey as any) as RuleActionType;
             const device = storage.getItem(deviceIdKey as any) as DeviceBase;
 
@@ -2425,7 +2465,31 @@ export const getSequencesSettings = async (props: {
                                 settings.push(
                                     {
                                         key: switchEnabledKey,
-                                        title: `Enabled`,
+                                        title: `On/Off`,
+                                        type: 'boolean',
+                                        group,
+                                        subgroup,
+                                        immediate: true,
+                                        onPut: async () => await refreshSettings(),
+                                    }
+                                );
+                            } else if (currentType === RuleActionType.Lock) {
+                                settings.push(
+                                    {
+                                        key: lockStateKey,
+                                        title: `Lock/unlock`,
+                                        type: 'boolean',
+                                        group,
+                                        subgroup,
+                                        immediate: true,
+                                        onPut: async () => await refreshSettings(),
+                                    }
+                                );
+                            } else if (currentType === RuleActionType.Entry) {
+                                settings.push(
+                                    {
+                                        key: entryStateKey,
+                                        title: `Open/close`,
                                         type: 'boolean',
                                         group,
                                         subgroup,
@@ -3580,15 +3644,25 @@ const getSequenceObject = (props: {
     storage: StorageSettings<any>,
 }) => {
     const { sequenceName, storage } = props;
-    const { actionsKey } = getSequenceKeys({ sequenceName });
+    const { actionsKey, minimumExecutionDelayKey } = getSequenceKeys({ sequenceName });
     const actionNames = safeParseJson<string[]>(storage.getItem(actionsKey), []);
+    const minimumExecutionDelay = safeParseJson<number>(storage.getItem(minimumExecutionDelayKey), 15);
     const sequence: RuleActionsSequence = {
         name: sequenceName,
+        minimumExecutionDelay,
         actions: [],
     };
 
     for (const actionName of actionNames) {
-        const { deviceIdKey, presetNameKey, typeKey, switchEnabledKey, waitSecondsKey } = getSequenceKeys({ sequenceName, actionName });
+        const {
+            deviceIdKey,
+            presetNameKey,
+            typeKey,
+            switchEnabledKey,
+            waitSecondsKey,
+            lockStateKey,
+            entryStateKey
+        } = getSequenceKeys({ sequenceName, actionName });
         const currentType = storage.getItem(typeKey as any) as RuleActionType;
 
         if (currentType === RuleActionType.Wait) {
@@ -3613,7 +3687,21 @@ const getSequenceObject = (props: {
                         actionName,
                         deviceId: device.id,
                         type: currentType,
-                        enabled: safeParseJson<number>(storage.getItem(switchEnabledKey as any))
+                        switchEnabled: safeParseJson<number>(storage.getItem(switchEnabledKey as any))
+                    })
+                } else if (currentType === RuleActionType.Lock) {
+                    sequence.actions.push({
+                        actionName,
+                        deviceId: device.id,
+                        type: currentType,
+                        lockState: safeParseJson<number>(storage.getItem(lockStateKey as any))
+                    })
+                } else if (currentType === RuleActionType.Entry) {
+                    sequence.actions.push({
+                        actionName,
+                        deviceId: device.id,
+                        type: currentType,
+                        openEntry: safeParseJson<number>(storage.getItem(entryStateKey as any))
                     })
                 }
             }
