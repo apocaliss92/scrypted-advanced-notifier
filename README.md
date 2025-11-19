@@ -34,6 +34,9 @@ The plugin will export to MQTT the following entities:
 - Recording switch (NVR privacy mode)
 - Current dBs (if enabled)
 
+IMPORTANT
+If you edit a device name, to force the correct re-creation of the ha entities you will need to delete manually the entities on HA and restart the plugin
+
 ## Notifications
 
 The plugin provides customized way to deliver notifications. It is based on rules. Each rule can be activated based on several factors, i.e. active sensors, time ranges, security system status. Any notifier can be used but the only fully supported currently are (can be extended for any other):

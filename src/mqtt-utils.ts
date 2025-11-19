@@ -47,8 +47,9 @@ interface MqttEntity {
 }
 
 interface AutodiscoveryConfig {
-    dev: object;
+    dev: any;
     unique_id: string;
+    default_entity_id: string;
     object_id?: string;
     name: string;
     platform: MqttEntity['domain'];
@@ -326,11 +327,11 @@ const getBasicMqttAutodiscoveryConfiguration = (props: {
     const config: AutodiscoveryConfig = {
         dev: mqttDevice,
         unique_id: `${idPrefix}-${deviceId}-${toKebabCase(entity)}`,
+        default_entity_id: `${domain}.${toSnakeCase(`${mqttDevice.name} ${name}`)}`,
         name,
         platform: domain,
         optimistic: false,
         retain: false,
-        // retain: true,
         qos: 0,
         device_class: deviceClass,
         state_class: stateClass,
@@ -1788,13 +1789,13 @@ export const publishCameraValues = async (props: {
             const { stateTopic } = getMqttTopics({ mqttEntity: recordingEntity, device });
             await mqttClient.publish(stateTopic, isRecording ? PAYLOAD_ON : PAYLOAD_OFF, recordingEntity.retain);
         }
-        
+
         const { stateTopic: snapshotsStateTopic } = getMqttTopics({ mqttEntity: snapshotsEntity, device });
         await mqttClient.publish(snapshotsStateTopic, isSnapshotsEnabled ? PAYLOAD_ON : PAYLOAD_OFF, snapshotsEntity.retain);
-       
+
         const { stateTopic: rebroadcastStateTopic } = getMqttTopics({ mqttEntity: rebroadcastEntity, device });
         await mqttClient.publish(rebroadcastStateTopic, isRebroadcastEnabled ? PAYLOAD_ON : PAYLOAD_OFF, rebroadcastEntity.retain);
-       
+
         if (device.interfaces.includes(ScryptedInterface.AudioVolumeControl)) {
             const { stateTopic } = getMqttTopics({ mqttEntity: audioPressureEntity, device });
             await mqttClient.publish(stateTopic, device.audioVolumes?.dBFS, audioPressureEntity.retain);

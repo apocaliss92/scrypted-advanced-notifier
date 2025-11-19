@@ -4469,17 +4469,23 @@ export const binarySensorMetadataMap: Record<SupportedSensorType, BinarySensorMe
 export const toKebabCase = (str: string) => str
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .replace(/[_\s]+/g, '-')
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
 
 export const toSnakeCase = (str: string) => str
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .replace(/[-\s]+/g, '_')
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
 
 export const toTitleCase = (str: string) => str
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .replace(/[_-]+/g, ' ')
     .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/^\w/, char => char.toUpperCase());
 
 export const splitRules = (props: {
