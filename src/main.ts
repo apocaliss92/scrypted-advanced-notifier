@@ -1,4 +1,4 @@
-import sdk, { DeviceBase, DeviceProvider, Entry, HttpRequest, HttpRequestHandler, HttpResponse, Image, LauncherApplication, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetection, ObjectDetectionResult, OnOff, Lock, PanTiltZoom, Program, PushHandler, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, SettingValue, VideoClips, WritableDeviceState } from "@scrypted/sdk";
+import sdk, { DeviceBase, DeviceProvider, Entry, HttpRequest, HttpRequestHandler, HttpResponse, Image, LauncherApplication, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetection, ObjectDetectionResult, OnOff, Lock, PanTiltZoom, Program, PushHandler, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, SettingValue, VideoClips, WritableDeviceState, PanTiltZoomMovement } from "@scrypted/sdk";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
 import child_process from 'child_process';
@@ -1937,7 +1937,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                             } else if (action.type === RuleActionType.Ptz) {
                                 const device = sdk.systemManager.getDeviceById<PanTiltZoom>(action.deviceId);
                                 const presetId = action.presetName?.split(':')[1];
-                                await device.ptzCommand({ preset: presetId });
+                                await device.ptzCommand({ preset: presetId, movement: PanTiltZoomMovement.Preset });
                             } else if (action.type === RuleActionType.Switch) {
                                 const device = sdk.systemManager.getDeviceById<OnOff>(action.deviceId);
                                 if (action.turnOn) {
