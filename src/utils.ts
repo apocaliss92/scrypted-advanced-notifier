@@ -2437,7 +2437,7 @@ export const getSequencesSettings = async (props: {
 
     for (const sequenceName of sequenceNames) {
         const subgroup = `${sequenceName}`;
-        const { actionsKey, minimumExecutionDelayKey, enabledKey } = getSequenceKeys({ sequenceName });
+        const { actionsKey, minimumExecutionDelayKey, enabledKey, testKey } = getSequenceKeys({ sequenceName });
         const actionNames = safeParseJson<string[]>(storage.getItem(actionsKey), []);
 
         settings.push(
@@ -2484,7 +2484,7 @@ export const getSequencesSettings = async (props: {
                 switchEnabledKey,
                 waitSecondsKey,
                 lockStateKey,
-                entryStateKey
+                entryStateKey,
             } = getSequenceKeys({ sequenceName, actionName });
             const currentType = storage.getItem(typeKey as any) as RuleActionType;
             const device = storage.getItem(deviceIdKey as any) as DeviceBase;
@@ -2615,6 +2615,7 @@ export const getSequencesSettings = async (props: {
         }
 
         settings.push({
+            key: testKey,
             title: 'Test sequence',
             type: 'button',
             group,
