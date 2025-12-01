@@ -1,13 +1,7 @@
-import sdk, { SecuritySystemMode } from "@scrypted/sdk";
+import { SecuritySystemMode } from "@scrypted/sdk";
 import { StorageSetting, StorageSettings } from "@scrypted/sdk/storage-settings";
 import { ExtendedNotificationAction, getAssetsParams, getWebhooks, sensorsFilter } from "./utils";
 import AdvancedNotifierPlugin from "./main";
-
-export const supportedAlarmModes = [
-    SecuritySystemMode.AwayArmed,
-    SecuritySystemMode.NightArmed,
-    SecuritySystemMode.HomeArmed,
-];
 
 export enum AlarmEvent {
     Preactivation = 'Preactivation',

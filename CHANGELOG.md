@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.6.1
+- Allow configuration of available modes on onobarded Alarm system
+
 ### 4.5.11
 - Add possibility to select whitelisted/blacklited zones also on plugin rules
 

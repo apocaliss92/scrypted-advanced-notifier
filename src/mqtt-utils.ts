@@ -19,6 +19,12 @@ export enum MqttEntityIdentifier {
     Object = 'Object',
 }
 
+export const AlarmSupportedFeatureToHaMap: Partial<Record<SecuritySystemMode, string>> = {
+    [SecuritySystemMode.AwayArmed]: 'arm_away',
+    [SecuritySystemMode.HomeArmed]: 'arm_home',
+    [SecuritySystemMode.NightArmed]: 'arm_night',
+}
+
 const PAYLOAD_PRESS = 'PRESS';
 const PAYLOAD_ON = 'true';
 const PAYLOAD_OFF = 'false';
@@ -44,6 +50,7 @@ interface MqttEntity {
     options?: string[];
     retain?: boolean;
     identifier?: MqttEntityIdentifier;
+    supportedFeatures?: string[];
 }
 
 interface AutodiscoveryConfig {
@@ -322,7 +329,10 @@ const getBasicMqttAutodiscoveryConfiguration = (props: {
     infoTopic?: string,
 }) => {
     const { mqttEntity, mqttDevice, deviceId, additionalProps = {}, stateTopic, commandTopic, infoTopic } = props;
-    const { entity, domain, name, icon, deviceClass, entityCategory, options, unitOfMeasurement, stateClass, precision, disabled } = mqttEntity;
+    const { entity, domain, name, icon, deviceClass,
+        entityCategory, options, unitOfMeasurement,
+        stateClass, precision, disabled, supportedFeatures = []
+    } = mqttEntity;
 
     const config: AutodiscoveryConfig = {
         dev: mqttDevice,
@@ -372,7 +382,7 @@ const getBasicMqttAutodiscoveryConfiguration = (props: {
     } else if (domain === 'alarm_control_panel') {
         config.command_topic = commandTopic;
         config.state_topic = stateTopic;
-        config.supported_features = ['arm_home', 'arm_away', 'arm_night', 'trigger'];
+        config.supported_features = ['trigger', ...supportedFeatures];
         config.code_arm_required = false;
         config.code_disarm_required = false;
         config.code_trigger_required = false;
@@ -737,8 +747,9 @@ export const setupPluginAutodiscovery = async (props: {
 export const setupAlarmSystemAutodiscovery = async (props: {
     mqttClient?: MqttClient,
     console: Console,
+    supportedModes: SecuritySystemMode[],
 }) => {
-    const { mqttClient, console } = props;
+    const { mqttClient, console, supportedModes } = props;
 
     if (!mqttClient) {
         return;
@@ -750,7 +761,10 @@ export const setupAlarmSystemAutodiscovery = async (props: {
         alarmSystemEntity,
     } = getBasicMqttEntities();
 
-    mqttEntities.push(alarmSystemEntity);
+    mqttEntities.push({
+        ...alarmSystemEntity,
+        supportedFeatures: supportedModes.map(mode => AlarmSupportedFeatureToHaMap[mode]),
+    });
 
     return await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, device: alarmSystemId, console, });
 }
