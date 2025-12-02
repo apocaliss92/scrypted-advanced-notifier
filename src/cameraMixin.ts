@@ -17,6 +17,7 @@ import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassn
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { CameraMixinState, CurrentOccupancyState, OccupancyRuleData, getInitOccupancyState } from "./states";
 import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, RuleActionType, RuleActionsSequence, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
+import { AudioSensitivity } from "./audioRtspFfmpegStream";
 
 const { systemManager } = sdk;
 
@@ -38,6 +39,13 @@ type CameraSettingKey =
     | 'resizeDecoderFrames'
     | 'checkOccupancy'
     | 'decoderType'
+    | 'audioAnalyzerOnboarded'
+    | 'audioAnalyzerStreamName'
+    | 'audioAnalyzerCustomStreamUrl'
+    | 'audioAnalyzerSensitivity'
+    | 'audioAnalyzerScoreThreshold'
+    | 'audioAnalyzerFilteredClasses'
+    | 'audioAnalyzerProcessPid'
     | 'lastSnapshotWebhook'
     | 'lastSnapshotWebhookCloudUrl'
     | 'lastSnapshotWebhookLocalUrl'
@@ -196,6 +204,52 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 DecoderType.Always,
                 DecoderType.Off,
             ]
+        },
+        audioAnalyzerOnboarded: {
+            title: 'Onboarded Audio Analyzer',
+            description: 'Enable or disable the onboarded audio analyzer for this camera',
+            type: 'boolean',
+            immediate: true,
+            defaultValue: true,
+        },
+        audioAnalyzerStreamName: {
+            title: 'Stream',
+            description: 'Select a stream which provides audio',
+            type: 'string',
+            immediate: true,
+            choices: [],
+        },
+        audioAnalyzerCustomStreamUrl: {
+            title: 'Manual stream',
+            description: 'Copy the stream from the "RTSP rebroadcast URL" field if you have unsual cameras',
+            placeholder: 'rtsp://localhost:12345/1231251351astwea',
+        },
+        audioAnalyzerSensitivity: {
+            title: 'Audio sensitivity',
+            description: 'Specify how often to classify based on the audio levels',
+            type: 'string',
+            immediate: true,
+            defaultValue: AudioSensitivity.Medium,
+            choices: Object.values(AudioSensitivity),
+            hide: true,
+        },
+        audioAnalyzerScoreThreshold: {
+            title: 'Detection score threshold',
+            type: 'number',
+            defaultValue: 0.5,
+            hide: true,
+        },
+        audioAnalyzerFilteredClasses: {
+            title: 'Detection classes to enable',
+            type: 'string',
+            defaultValue: ['bark', 'fire_alarm', 'scream', 'speech', 'yell', 'crying'],
+            choices: [],
+            multiple: true,
+            hide: true,
+        },
+        processPid: {
+            type: 'string',
+            hide: true,
         },
         // WEBHOOKS
         lastSnapshotWebhook: {
