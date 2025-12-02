@@ -1,5 +1,65 @@
 import { EventEmitter } from 'events';
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
+import sdk, { ObjectDetection, ObjectsDetected } from '@scrypted/sdk';
+import { DetectionClass } from './detectionClasses';
+
+export enum AudioAnalyzerSource {
+    Disabled = 'Disabled',
+    YAMNET = 'YAMNET',
+}
+
+
+export const getAudioAnalysisDevice = (source: AudioAnalyzerSource) => {
+    if (source === AudioAnalyzerSource.YAMNET) {
+        return sdk.systemManager.getDeviceByName<ObjectDetection>('YAMNet Audio Classification');
+    }
+
+    return null;
+}
+
+export const executeAudioClassification = async (props: {
+    chunk: number[],
+    logger: Console,
+    source: AudioAnalyzerSource,
+    labels: string[],
+    threshold: number,
+}) => {
+    const { chunk, logger, source, labels, threshold } = props;
+    const classifierDevice = getAudioAnalysisDevice(source);
+
+    if (!classifierDevice) {
+        logger.error(`Audio analysis device for source ${source} not found`);
+        return;
+    }
+
+    const mo = await sdk.mediaManager.createMediaObject(chunk, '*/*');
+
+    const result = await classifierDevice.detectObjects(mo);
+    logger.debug('YAMNet result', JSON.stringify(result));
+    if (result && result.detections) {
+        const filtered = result.detections.filter(det =>
+            labels.includes(det.className) && det.score >= threshold
+        );
+
+        const sorted = filtered.sort((a, b) => b.score - a.score);
+        if (sorted.length) {
+            logger.debug('YAMNet result filtered', JSON.stringify(sorted));
+
+            const now = Date.now();
+            const detection: ObjectsDetected = {
+                timestamp: now,
+                inputDimensions: [0, 0],
+                detections: sorted.map((det => ({
+                    ...det,
+                    className: DetectionClass.Audio,
+                    label: det.className
+                })))
+            };
+
+            return detection;
+        }
+    }
+}
 
 export enum AudioSensitivity {
     Low = 'Low',

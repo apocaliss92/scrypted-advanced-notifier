@@ -1196,6 +1196,7 @@ export const getActiveRules = async (
         anyAllowedNvrRule: anyAllowedNvrDetectionRule,
         shouldListenDoorbell,
         shouldListenAudioSensor,
+        enabledAudioLabels,
     } = getDetectionRules({
         device,
         console,
@@ -1274,6 +1275,7 @@ export const getActiveRules = async (
         shouldListenDoorbell,
         hasClips,
         shouldListenAudioSensor,
+        enabledAudioLabels,
     }
 }
 
@@ -3891,6 +3893,7 @@ export const getDetectionRules = (props: {
     const { console, pluginStorage, device, deviceStorage } = props;
     const availableRules: DetectionRule[] = [];
     const allowedRules: DetectionRule[] = [];
+    const enabledAudioLabelsSet: Set<string> = new Set();
     let anyAllowedNvrRule = false;
     let shouldListenDoorbell = false;
     let shouldListenAudioSensor = false;
@@ -4050,6 +4053,9 @@ export const getDetectionRules = (props: {
                 !anyAllowedNvrRule && (anyAllowedNvrRule = detectionRule.detectionSource === ScryptedEventSource.NVR);
                 !shouldListenDoorbell && (shouldListenDoorbell = detectionClasses.includes(DetectionClass.Doorbell));
                 !shouldListenAudioSensor && hasAudio && (shouldListenAudioSensor = true);
+                for (const audioLabel of detectionRule.audioLabels || []) {
+                    enabledAudioLabelsSet.add(audioLabel);
+                }
             }
 
         }
@@ -4067,6 +4073,7 @@ export const getDetectionRules = (props: {
         anyAllowedNvrRule,
         shouldListenDoorbell,
         shouldListenAudioSensor,
+        enabledAudioLabels: Array.from(enabledAudioLabelsSet)
     };
 }
 
