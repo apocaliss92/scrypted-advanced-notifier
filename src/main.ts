@@ -26,6 +26,7 @@ import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { CameraMixinState, OccupancyRuleData } from "./states";
 import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, defaultClipPostSeconds, defaultClipPreSeconds, defaultOccupancyClipPreSeconds, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, DevNotifications, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getSequencesSettings, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, ruleSequencesGroup, ruleSequencesKey, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType, ZENTIK_PLUGIN_ID, getSequenceObject, RuleActionType, RuleActionsSequence } from "./utils";
+import { AudioAnalyzerSource } from "./audioAnalyzerUtils";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -606,6 +607,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     cameraMotionActive = new Set<string>();
 
     cameraStates: Record<string, CameraMixinState> = {};
+    audioClassifierMissingLogged = new Set<AudioAnalyzerSource>();
 
     constructor(nativeId: string) {
         super(nativeId, {
@@ -2354,13 +2356,19 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         logger: Console
     }) {
         const { device, rule, b64Image, bufferImage, triggerTime, logger } = props;
-        const { imageLatestPath, imageHistoricalPath } = this.getRulePaths({
+        const { imageLatestPath, imageHistoricalPath, generatedPath } = this.getRulePaths({
             cameraId: device.id,
             ruleName: rule.name,
             triggerTime
         });
 
         logger.log(`Storing rule image for ${rule.name} into ${imageHistoricalPath} and latest at ${imageLatestPath}`);
+
+        try {
+            await fs.promises.access(generatedPath);
+        } catch {
+            await fs.promises.mkdir(generatedPath, { recursive: true });
+        }
 
         if (b64Image) {
             const base64Data = b64Image.replace(/^data:image\/png;base64,/, "");
@@ -4368,6 +4376,26 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         } catch (e) {
             logger.error(`Error clearing events data for device ${device.name}`, e);
         }
+    }
+
+    getAudioAnalysisDevice(source: AudioAnalyzerSource) {
+        let device: ObjectDetection = null;
+        let pluginName: string = '';
+
+        if (source === AudioAnalyzerSource.YAMNET) {
+            pluginName = 'YAMNet Audio Classification';
+        }
+
+        if (pluginName) {
+            device = sdk.systemManager.getDeviceByName<ObjectDetection>(pluginName);
+        }
+
+        if (!device && pluginName && !this.audioClassifierMissingLogged.has(source)) {
+            this.log.a(`Audio classifier device for source ${source} not found. Install plugin "${pluginName}" to enable audio analysis.`);
+            this.audioClassifierMissingLogged.add(source);
+        }
+
+        return device;
     }
 }
 

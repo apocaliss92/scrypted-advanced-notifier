@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.6.2
+- Audio analysis pipeline moved on this plugin. Basic object detector won't be necessary anymore, YAMNET remains a dependency
+- Support for audio volumes dropped, Frigate/BasicObjectDetector won't be source for audio volumes anymore. If you were relying on this just drop a message, can restore if required
+
 ### 4.6.1
 - Allow configuration of available modes on onobarded Alarm system
 

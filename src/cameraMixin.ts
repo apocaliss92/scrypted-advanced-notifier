@@ -1,4 +1,4 @@
-import sdk, { EventDetails, EventListenerRegister, Image, MediaObject, Notifier, ObjectDetection, ObjectDetectionResult, ObjectsDetected, OnOff, Lock, PanTiltZoom, PanTiltZoomCommand, ResponseMediaStreamOptions, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoClip, VideoClipOptions, VideoClipThumbnailOptions, VideoClips, VideoFrame, VideoFrameGenerator, Entry, Program } from "@scrypted/sdk";
+import sdk, { EventDetails, EventListenerRegister, Image, MediaObject, Notifier, ObjectDetection, ObjectDetectionResult, ObjectsDetected, PanTiltZoomCommand, ResponseMediaStreamOptions, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoClip, VideoClipOptions, VideoClipThumbnailOptions, VideoClips, VideoFrame, VideoFrameGenerator } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import fs from 'fs';
@@ -10,14 +10,14 @@ import { filterOverlappedDetections } from '../../scrypted-basic-object-detector
 import { objectDetectorNativeId } from '../../scrypted-frigate-bridge/src/utils';
 import { Deferred } from "../../scrypted/server/src/deferred";
 import { checkObjectsOccupancy, confirmDetection } from "./aiUtils";
+import { AudioAnalyzerSource, AudioChunkData, AudioRtspFfmpegStream, AudioSensitivity, executeAudioClassification, sensitivityDbThresholds } from "./audioAnalyzerUtils";
 import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, isAudioClassname, isFaceClassname, isMotionClassname, isObjectClassname, isPlateClassname, levenshteinDistance } from "./detectionClasses";
 import { addBoundingBoxesToImage, addZoneClipPathToImage, cropImageToDetection } from "./drawingUtils";
 import AdvancedNotifierPlugin from "./main";
 import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { CameraMixinState, CurrentOccupancyState, OccupancyRuleData, getInitOccupancyState } from "./states";
-import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, RuleActionType, RuleActionsSequence, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
-import { AudioAnalyzerSource, AudioChunkData, AudioRtspFfmpegStream, AudioSensitivity, executeAudioClassification, getAudioAnalysisDevice, sensitivityDbThresholds } from "./audioAnalyzerUtils";
+import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -39,11 +39,11 @@ type CameraSettingKey =
     | 'resizeDecoderFrames'
     | 'checkOccupancy'
     | 'decoderType'
-    | 'audioAnalyzerSource'
+    | 'audioAnalyzerEnabled'
+    | 'audioClassifierSource'
     | 'audioAnalyzerStreamName'
     | 'audioAnalyzerCustomStreamUrl'
     | 'audioAnalyzerSensitivity'
-    | 'audioAnalyzerScoreThreshold'
     | 'audioAnalyzerProcessPid'
     | 'lastSnapshotWebhook'
     | 'lastSnapshotWebhookCloudUrl'
@@ -204,15 +204,30 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 DecoderType.Off,
             ]
         },
-        audioAnalyzerSource: {
-            title: 'Audio analyzer source',
-            description: 'Select the source for audio analysis. Disabled will turn off onboarded audio analysis',
+        audioAnalyzerEnabled: {
+            title: 'Audio analyzer enabled',
+            description: 'Enable or disable onboarded audio analysis',
+            type: 'boolean',
+            immediate: true,
+            subgroup: 'Audio Analysis',
+            defaultValue: true,
+            onPut: async () => {
+                await this.restartAudioAnalysis();
+                await this.refreshSettings();
+            },
+        },
+        audioClassifierSource: {
+            title: 'Audio classifier source',
+            description: 'Select the source for audio classification. Disabled will turn off onboarded audio classification',
             type: 'string',
             immediate: true,
             subgroup: 'Audio Analysis',
             defaultValue: AudioAnalyzerSource.YAMNET,
             choices: Object.values(AudioAnalyzerSource),
-            onPut: async () => await this.restartAudioAnalysis(),
+            onPut: async () => {
+                await this.restartAudioAnalysis();
+                await this.refreshSettings();
+            },
         },
         audioAnalyzerStreamName: {
             title: 'Stream',
@@ -221,14 +236,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             subgroup: 'Audio Analysis',
             immediate: true,
             choices: [],
-            onPut: async () => await this.restartAudioAnalysis(),
+            onPut: async () => {
+                await this.restartAudioAnalysis();
+                await this.refreshSettings();
+            },
         },
         audioAnalyzerCustomStreamUrl: {
             title: 'Manual stream',
             description: 'Copy the stream from the "RTSP rebroadcast URL" field if you have unsual cameras',
             placeholder: 'rtsp://localhost:12345/1231251351astwea',
             subgroup: 'Audio Analysis',
-            onPut: async () => await this.restartAudioAnalysis(),
+            onPut: async () => {
+                await this.restartAudioAnalysis();
+                await this.refreshSettings();
+            },
         },
         audioAnalyzerSensitivity: {
             title: 'Audio sensitivity',
@@ -238,12 +259,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             subgroup: 'Audio Analysis',
             defaultValue: AudioSensitivity.Medium,
             choices: Object.values(AudioSensitivity),
-        },
-        audioAnalyzerScoreThreshold: {
-            title: 'Audio score threshold',
-            subgroup: 'Audio Analysis',
-            type: 'number',
-            defaultValue: 0.5,
+            onPut: async () => {
+                await this.refreshSettings();
+            },
         },
         audioAnalyzerProcessPid: {
             type: 'string',
@@ -1327,6 +1345,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             postDetectionImageWebhook,
             enabledToMqtt,
             schedulerEnabled,
+            audioAnalyzerEnabled,
+            audioClassifierSource,
         } = this.mixinState.storageSettings.values;
 
         if (this.mixinState.storageSettings.settings.lastSnapshotWebhookCloudUrl) {
@@ -1370,6 +1390,26 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 ScryptedEventSource.Default,
                 ...this.plugin.enabledDetectionSources,
             ]
+        }
+
+        const isAudioClassifierEnabled = audioClassifierSource !== AudioAnalyzerSource.Disabled;
+        if (this.mixinState.storageSettings.settings.audioClassifierSource) {
+            this.mixinState.storageSettings.settings.audioClassifierSource.hide = !audioAnalyzerEnabled;
+        }
+        if (this.mixinState.storageSettings.settings.audioAnalyzerStreamName) {
+            this.mixinState.storageSettings.settings.audioAnalyzerStreamName.hide = !audioAnalyzerEnabled;
+        }
+        if (this.mixinState.storageSettings.settings.audioAnalyzerCustomStreamUrl) {
+            this.mixinState.storageSettings.settings.audioAnalyzerCustomStreamUrl.hide = !audioAnalyzerEnabled;
+        }
+        if (this.mixinState.storageSettings.settings.audioAnalyzerCustomStreamUrl) {
+            this.mixinState.storageSettings.settings.audioAnalyzerCustomStreamUrl.hide = !audioAnalyzerEnabled;
+        }
+        if (this.mixinState.storageSettings.settings.audioAnalyzerProcessPid) {
+            this.mixinState.storageSettings.settings.audioAnalyzerProcessPid.hide = !audioAnalyzerEnabled;
+        }
+        if (this.mixinState.storageSettings.settings.audioAnalyzerSensitivity) {
+            this.mixinState.storageSettings.settings.audioAnalyzerSensitivity.hide = !audioAnalyzerEnabled || !isAudioClassifierEnabled;
         }
     }
 
@@ -3913,8 +3953,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     getAudioClassifier() {
+        const { audioClassifierSource } = this.mixinState.storageSettings.values;
         if (!this.audioClassifier) {
-            this.audioClassifier = getAudioAnalysisDevice(this.mixinState.storageSettings.values.audioAnalyzerSource);
+            this.audioClassifier = this.plugin.getAudioAnalysisDevice(audioClassifierSource);
         }
 
         return this.audioClassifier;
@@ -3949,6 +3990,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             this.audioRtspFfmpegStream = undefined;
         }
         await this.stopAudioAnalysis();
+
+        if (!this.mixinState.storageSettings.values.audioAnalyzerEnabled) {
+            logger.log('Audio analyzer is disabled, not starting.');
+            return;
+        }
 
         let rtspUrl: string;
 
@@ -4029,10 +4075,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         source: AudioAnalyzerSource.YAMNET,
                         labels: this.audioClassificationLabels,
                         threshold,
-                    }).then(async (detection) => {
-                        if (detection) {
-                            logger.info(`Audio classification result: ${JSON.stringify(detection)}`);
-                            await this.onDeviceEvent(ScryptedInterface.ObjectDetector, detection);
+                        classifierDevice: this.audioClassifier
+                    }).then(async (detect) => {
+                        if (detect) {
+                            logger.info(`Audio classification result: ${JSON.stringify(detect)}`);
+                            this.processDetections({
+                                detect,
+                                eventSource: ScryptedEventSource.RawDetection,
+                            }).catch(logger.error);
                         }
                     })
                 }

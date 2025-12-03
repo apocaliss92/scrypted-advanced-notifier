@@ -8,24 +8,15 @@ export enum AudioAnalyzerSource {
     YAMNET = 'YAMNET',
 }
 
-
-export const getAudioAnalysisDevice = (source: AudioAnalyzerSource) => {
-    if (source === AudioAnalyzerSource.YAMNET) {
-        return sdk.systemManager.getDeviceByName<ObjectDetection>('YAMNet Audio Classification');
-    }
-
-    return null;
-}
-
 export const executeAudioClassification = async (props: {
     chunk: number[],
     logger: Console,
     source: AudioAnalyzerSource,
     labels: string[],
     threshold: number,
+    classifierDevice: ObjectDetection
 }) => {
-    const { chunk, logger, source, labels, threshold } = props;
-    const classifierDevice = getAudioAnalysisDevice(source);
+    const { chunk, logger, source, labels, threshold, classifierDevice } = props;
 
     if (!classifierDevice) {
         logger.error(`Audio analysis device for source ${source} not found`);

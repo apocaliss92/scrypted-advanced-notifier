@@ -120,6 +120,13 @@ These rules can be created for multiple cameras (on the plugin page) or per sing
   - MarkBoundaries will drawn a coloured rectangle around the detected object
   - Crop will crop the image around the detected object
 
+#### Audio classification
+Detection rules can also detect audio labels, i.e. crying, scream, speech etc. This will be possible adding in the detection calsses setting the "Audio" label. A new setting will appear to specify which labels to consider. The classifier to be used can be set in the Audio analysis section of the camera device: 
+- YAMNET ('YAMNet Audio Classification' plugin), this will be used by the plugin onboarded audio analyser
+- DISABLED, no classifier will be run, external plugins will be able to still forward events, such as Frigate Bridge
+
+Impact of the onboard classifier is relatively small and it can replace completely the smart audio sensor
+
 ### Occupancy (only on camera)
 
 These rules will monitor a specific area to mark it as occupied or not
@@ -157,7 +164,7 @@ Define a timeframe, the plugin will collect frames from the camera and generate 
 
 ### Audio (only on camera)
 
-**Audio rules will activate only if a source of audio measurement is active. These are currently probided by Basic object detector (Audio detector mixin) and Frigate Bridge (Frigate audio detector).**
+**Audio rules will activate only if a source of audio measurement is active. The plugin provides an onboarded audio analyser, which will activate when any audio rule is running.**
 Audio rules will monitor the audio received by the camera
 
 - Create a new rule adding a new text in the `Audio rules` selector and hit save. A new tab will appear
