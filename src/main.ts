@@ -2529,13 +2529,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             eventType,
             triggerDeviceId,
             snoozeId,
-            triggerTime,
+            triggerTime: triggerTimeParent,
             forceAi,
             imageData,
             matchRule,
         } = props;
         const { rule: ruleParent, match } = matchRule;
         const rule = ruleParent as DetectionRule;
+        const triggerTime = triggerTimeParent || Date.now();
         const { device: cameraDevice, triggerDevice } = await this.getLinkedCamera(triggerDeviceId);
         const logger = this.getLogger(cameraDevice);
         const cameraMixin = this.currentCameraMixinsMap[cameraDevice.id];
