@@ -107,6 +107,11 @@ export class CameraMixinState {
     detectionIdEventIdMap: Record<string, string> = {};
     objectIdLastReport: Record<string, number> = {};
 
+    recordingStartTime: number;
+    recordingTimeout: NodeJS.Timeout;
+    recordingClipPath: string;
+    recordingThumbnailPath: string;
+
     decoderEnablementLogged = false;
 
     constructor(props: { clientId: string, cameraMixin: AdvancedNotifierCameraMixin }) {

@@ -56,20 +56,14 @@ export class VideoRtspFfmpegRecorder extends EventEmitter {
         }
 
         const args = [
-            '-hide_banner',
             '-rtsp_transport', 'tcp',
             '-i', rtspUrl,
-            ...(h264 ? [
-                '-c:v', 'libx264',
-                '-c:a', 'copy',
-                '-preset', 'veryfast',
-                '-crf', '23'
-            ] :
-                ['-c', 'copy']
-            ),
+            '-c:v', h264 ? 'libx264' : 'copy',
+            ...(h264 ? ['-preset', 'veryfast', '-crf', '23'] : []),
+            '-movflags', '+faststart',
+            // '-c:a', 'aac',
             '-f', 'mp4',
-            '-y',
-            this.outputPath
+            this.outputPath,
         ];
 
         console.log('ffmpeg start recording:', ffmpegPath, args.join(' '));
@@ -77,7 +71,7 @@ export class VideoRtspFfmpegRecorder extends EventEmitter {
         this.ffmpegProcess = ffmpeg;
 
         ffmpeg.stderr.on('data', (data: Buffer) => {
-            console.debug('[ffmpeg stderr]', data.toString());
+            console.log('[ffmpeg stderr]', data.toString());
         });
         ffmpeg.on('exit', (code, signal) => {
             console.log(`ffmpeg recording terminated (code=${code}, signal=${signal})`);

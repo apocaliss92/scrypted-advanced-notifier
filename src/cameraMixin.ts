@@ -1242,20 +1242,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }
 
             const deviceSettings = await this.cameraDevice.getSettings();
-            const prebufferSetting = deviceSettings.find(item => item.key === 'prebuffer:enabledStreams');
             this.streams = deviceSettings.filter(setting => setting.title === 'RTSP Rebroadcast Url');
-
-            if (prebufferSetting) {
-                this.mixinState.storageSettings.settings.audioAnalyzerStreamName.choices = prebufferSetting.choices;
-                this.mixinState.storageSettings.settings.videoRecorderStreamName.choices = prebufferSetting.choices;
-                const firstStream = prebufferSetting.choices[0];
-                if (!this.mixinState.storageSettings.values.audioAnalyzerStreamName) {
-                    this.mixinState.storageSettings.values.audioAnalyzerStreamName = firstStream;
-                }
-                if (!this.mixinState.storageSettings.values.videoRecorderStreamName) {
-                    this.mixinState.storageSettings.values.videoRecorderStreamName = firstStream;
-                }
-            }
 
             const { rulesPath } = this.plugin.getRulePaths({ cameraId: this.cameraDevice.id });
             try {
@@ -1478,6 +1465,19 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
         if (this.mixinState.storageSettings.settings.audioAnalyzerSensitivity) {
             this.mixinState.storageSettings.settings.audioAnalyzerSensitivity.hide = !audioAnalyzerEnabled || !isAudioClassifierEnabled;
+        }
+
+        if (this.streams) {
+            const streamNames = this.streams.map(stream => stream.subgroup?.replace('Stream: ', '') ?? '').filter(name => name);
+            this.mixinState.storageSettings.settings.audioAnalyzerStreamName.choices = streamNames;
+            this.mixinState.storageSettings.settings.videoRecorderStreamName.choices = streamNames;
+            const firstStream = streamNames[0];
+            if (!this.mixinState.storageSettings.values.audioAnalyzerStreamName) {
+                this.mixinState.storageSettings.values.audioAnalyzerStreamName = firstStream;
+            }
+            if (!this.mixinState.storageSettings.values.videoRecorderStreamName) {
+                this.mixinState.storageSettings.values.videoRecorderStreamName = firstStream;
+            }
         }
     }
 
@@ -3769,34 +3769,24 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
             }
 
-            await this.considerStartRecording({
-                triggerTime,
-                b64Image: mqttFsB64Image,
-            });
+            const recordingRules = cloneDeep(
+                this.mixinState.runningRecordingRules.filter(rule =>
+                    rule.currentlyActive &&
+                    rule.detectionClasses?.length &&
+                    rule.detectionClasses.some(dc =>
+                        candidates.some(c => detectionClassesDefaultMap[c.className] === dc)
+                    )
+                )
+            ) ?? [];
+            if (recordingRules.length) {
+                await this.startRecording({
+                    triggerTime,
+                    rules: recordingRules,
+                });
+            }
 
         } catch (e) {
             logger.log('Error finding a match', e);
-        }
-    }
-
-    async considerStartRecording(props: {
-        triggerTime: number,
-        b64Image?: string,
-    }) {
-        const { } = props;
-        const { triggerTime, b64Image } = props;
-        const logger = this.getLogger();
-        const recordingRules = cloneDeep(
-            this.mixinState.runningRecordingRules.filter(rule =>
-                rule.currentlyActive && rule.detectionClasses?.length
-            )
-        ) ?? [];
-        if (recordingRules.length) {
-            logger.log(`Starting event videoclip recordings for rules: ${recordingRules.map(r => r.name).join(', ')}`);
-            await this.startRecording({
-                triggerTime,
-                rules: recordingRules,
-            });
         }
     }
 
@@ -3901,6 +3891,22 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     if (shouldUseDecoder) {
                         this.startDecoder('StartMotion').catch(logger.error);
                     }
+
+                    if (this.videoRecorder) {
+                        const recordingRules = cloneDeep(
+                            this.mixinState.runningRecordingRules.filter(rule =>
+                                rule.currentlyActive && rule.detectionClasses?.length && rule.prolongClipOnMotion
+                            )
+                        ) ?? [];
+                        if (recordingRules.length) {
+                            logger.info(`Prolonging videoclip recordings (due to motion) for rules: ${recordingRules.map(r => r.name).join(', ')}`);
+                            await this.startRecording({
+                                triggerTime: now,
+                                rules: recordingRules,
+                            });
+                        }
+                    }
+
                 } else {
                     this.plugin.cameraMotionActive.delete(this.id);
                     this.mixinState.detectionIdEventIdMap = {};
@@ -4175,6 +4181,42 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { triggerTime, rules } = props;
         const logger = this.getLogger();
         const { videoRecorderCustomStreamUrl, videoRecorderStreamName, videoRecorderH264 } = this.mixinState.storageSettings.values;
+
+        const maxPostEvent = Math.max(...rules.map(r => r.postEventSeconds));
+        const maxClipLength = Math.max(...rules.map(r => r.maxClipLength));
+        const now = Date.now();
+
+        if (this.videoRecorder) {
+            logger.info(`Recording already active. Extending...`);
+
+            if (this.mixinState.recordingTimeout) {
+                clearTimeout(this.mixinState.recordingTimeout);
+            }
+
+            const startTime = this.mixinState.recordingStartTime || now;
+            const elapsedSeconds = (now - startTime) / 1000;
+
+            let durationToRecord = maxPostEvent;
+            const totalProjectedDuration = elapsedSeconds + durationToRecord;
+
+            if (totalProjectedDuration > maxClipLength) {
+                durationToRecord = maxClipLength - elapsedSeconds;
+                logger.info(`Capping recording duration to max clip length. Remaining: ${durationToRecord}s`);
+            }
+
+            if (durationToRecord > 0) {
+                this.mixinState.recordingTimeout = setTimeout(() => {
+                    this.stopRecording();
+                }, durationToRecord * 1000);
+                logger.info(`Recording extended by ${durationToRecord}s`);
+            } else {
+                logger.info(`Max clip length reached. Stopping recording.`);
+                this.stopRecording();
+            }
+
+            return;
+        }
+
         let rtspUrl: string;
 
         if (videoRecorderCustomStreamUrl) {
@@ -4196,10 +4238,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             return;
         }
 
-        const { recordedClipPath } = this.plugin.getRecordedEventPath({
+        const { recordedClipPath, recordedThumbnailPath, recordedEventsPath } = this.plugin.getRecordedEventPath({
             cameraId: this.id,
             fileName: `${triggerTime}`,
         });
+
+        try {
+            await fs.promises.access(recordedEventsPath);
+        } catch {
+            await fs.promises.mkdir(recordedEventsPath, { recursive: true });
+        }
 
         await this.stopRecording();
 
@@ -4214,9 +4262,34 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         if (pid) {
             this.mixinState.storageSettings.values.videoRecorderProcessPid = String(pid);
         }
+
+        this.mixinState.recordingStartTime = now;
+        this.mixinState.recordingClipPath = recordedClipPath;
+        this.mixinState.recordingThumbnailPath = recordedThumbnailPath;
+
+        const duration = Math.min(maxPostEvent, maxClipLength);
+
+        this.mixinState.recordingTimeout = setTimeout(() => {
+            this.stopRecording();
+        }, duration * 1000);
+
+        logger.log(`Starting event videoclip recordings for rules: ${rules.map(r => r.name).join(', ')} with duration ${duration}s`);
     }
 
     async stopRecording() {
+        if (this.mixinState.recordingTimeout) {
+            clearTimeout(this.mixinState.recordingTimeout);
+            this.mixinState.recordingTimeout = undefined;
+        }
+
+        const startTime = this.mixinState.recordingStartTime;
+        const clipPath = this.mixinState.recordingClipPath;
+        const thumbnailPath = this.mixinState.recordingThumbnailPath;
+
+        this.mixinState.recordingStartTime = undefined;
+        this.mixinState.recordingClipPath = undefined;
+        this.mixinState.recordingThumbnailPath = undefined;
+
         try {
             const { videoRecorderProcessPid } = this.mixinState.storageSettings.values;
             if (videoRecorderProcessPid) {
@@ -4234,6 +4307,39 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         if (this.videoRecorder) {
             this.videoRecorder.stop();
             this.videoRecorder = undefined;
+        }
+
+        if (startTime && clipPath && thumbnailPath) {
+            try {
+                const duration = (Date.now() - startTime) / 1000;
+                const seekTime = duration / 2;
+                const ffmpegPath = await sdk.mediaManager.getFFmpegPath();
+                const logger = this.getLogger();
+
+                logger.info(`Extracting thumbnail from ${clipPath} at ${seekTime}s to ${thumbnailPath}`);
+
+                const args = [
+                    '-hide_banner',
+                    '-ss', String(seekTime),
+                    '-i', clipPath,
+                    '-vframes', '1',
+                    '-y',
+                    thumbnailPath
+                ];
+
+                const { spawn } = require('child_process');
+                const ffmpeg = spawn(ffmpegPath, args);
+
+                ffmpeg.on('exit', (code: number) => {
+                    if (code !== 0) {
+                        logger.error(`Thumbnail extraction failed with code ${code}`);
+                    } else {
+                        logger.info(`Thumbnail extracted successfully`);
+                    }
+                });
+            } catch (e) {
+                this.getLogger().error('Error extracting thumbnail', e);
+            }
         }
     }
 }

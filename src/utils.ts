@@ -2379,7 +2379,7 @@ export const getRuleSettings = async (props: {
             }
         );
 
-        if (ruleType !== RuleType.Occupancy) {
+        if (!isOccupancyRule && !isRecordingRule) {
             settings.push({
                 key: textKey,
                 title: isDetectionRule ? 'Custom text' : 'Notification text',
