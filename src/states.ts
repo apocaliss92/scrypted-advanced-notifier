@@ -1,6 +1,5 @@
 import { MediaObject, MediaStreamDestination, ObjectsDetected } from "@scrypted/sdk";
-import { Deferred } from "../../scrypted/common/src/deferred";
-import { AudioRule, BaseRule, DetectionRule, MatchRule, ObserveZoneData, OccupancyRule, ScryptedEventSource, TimelapseRule } from "./utils";
+import { AudioRule, BaseRule, DetectionRule, MatchRule, ObserveZoneData, OccupancyRule, RecordingRule, ScryptedEventSource, TimelapseRule } from "./utils";
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
@@ -60,6 +59,7 @@ export class CameraMixinState {
     runningDetectionRules: DetectionRule[] = [];
     runningTimelapseRules: TimelapseRule[] = [];
     runningAudioRules: AudioRule[] = [];
+    runningRecordingRules: RecordingRule[] = [];
     availableTimelapseRules: TimelapseRule[] = [];
     allAvailableRules: BaseRule[] = [];
     audioRuleSamples: Record<string, {

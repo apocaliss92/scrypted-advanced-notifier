@@ -1031,6 +1031,7 @@ export enum RuleType {
     Occupancy = 'Occupancy',
     Timelapse = 'Timelapse',
     Audio = 'Audio',
+    Recording = 'Recording',
 }
 
 export const ruleTypeMetadataMap: Record<RuleType, { rulesKey: string, rulePrefix: string, subgroupPrefix: string }> = {
@@ -1038,6 +1039,7 @@ export const ruleTypeMetadataMap: Record<RuleType, { rulesKey: string, rulePrefi
     [RuleType.Occupancy]: { rulePrefix: 'occupancyRule', rulesKey: 'occupancyRules', subgroupPrefix: 'OCC' },
     [RuleType.Timelapse]: { rulePrefix: 'timelapseRule', rulesKey: 'timelapseRules', subgroupPrefix: 'TIME' },
     [RuleType.Audio]: { rulePrefix: 'audioRule', rulesKey: 'audioRules', subgroupPrefix: 'AUDIO' },
+    [RuleType.Recording]: { rulePrefix: 'recordingRule', rulesKey: 'recordingRules', subgroupPrefix: 'REC' },
 }
 
 export const mixinRulesGroup = 'Advanced notifier rules';
@@ -1055,6 +1057,7 @@ export type MixinBaseSettingKey =
     | 'occupancyRules'
     | 'timelapseRules'
     | 'audioRules'
+    | 'recordingRules'
 
 export enum NotificationPriority {
     SuperLow = "SuperLow",
@@ -1134,19 +1137,28 @@ export const getMixinBaseSettings = (props: {
                 choices: [],
                 onPut: async () => await refreshSettings()
             };
-            if (device.interfaces.includes(ScryptedInterface.AudioVolumeControl)) {
-                settings[ruleTypeMetadataMap[RuleType.Audio].rulesKey] = {
-                    title: 'Audio rules',
-                    group: mixinRulesGroup,
-                    type: 'string',
-                    multiple: true,
-                    combobox: true,
-                    immediate: true,
-                    defaultValue: [],
-                    choices: [],
-                    onPut: async () => await refreshSettings()
-                };
-            }
+            settings[ruleTypeMetadataMap[RuleType.Recording].rulesKey] = {
+                title: 'Recording rules',
+                group: mixinRulesGroup,
+                type: 'string',
+                multiple: true,
+                combobox: true,
+                immediate: true,
+                defaultValue: [],
+                choices: [],
+                onPut: async () => await refreshSettings()
+            };
+            settings[ruleTypeMetadataMap[RuleType.Audio].rulesKey] = {
+                title: 'Audio rules',
+                group: mixinRulesGroup,
+                type: 'string',
+                multiple: true,
+                combobox: true,
+                immediate: true,
+                defaultValue: [],
+                choices: [],
+                onPut: async () => await refreshSettings()
+            };
         }
 
         if (isCamera || isNotifier || isSensor) {
@@ -1171,7 +1183,7 @@ export const getMixinBaseSettings = (props: {
 
         return settings;
     } catch (e) {
-        console.log('Error in getBasixSettings', e);
+        console.log('Error in getMixinBaseSettings', e);
     }
 }
 
@@ -1233,6 +1245,16 @@ export const getActiveRules = async (
         device,
     });
 
+    const {
+        allowedRules: allowedRecordingRules,
+        availableRules: availableRecordingRules,
+    } = await getDeviceRecordingRules({
+        deviceStorage,
+        pluginStorage,
+        console,
+        device,
+    });
+
     const isPluginEnabled = pluginStorage.getItem('pluginEnabled');
     const isMqttActive = pluginStorage.getItem('mqttEnabled');
     const isDeviceEnabledToMqtt = deviceStorage?.values.enabledToMqtt;
@@ -1242,6 +1264,7 @@ export const getActiveRules = async (
         ...availableOccupancyRules,
         ...availableTimelapseRules,
         ...availableAudioRules,
+        ...availableRecordingRules,
     ];
 
     const allAllowedRules = [
@@ -1249,6 +1272,7 @@ export const getActiveRules = async (
         ...allowedOccupancyRules,
         ...allowedTimelapseRules,
         ...allowedAudioRules,
+        ...allowedRecordingRules,
     ];
 
     const hasClips = allAllowedRules.some(rule => rule.generateClip);
@@ -1262,10 +1286,12 @@ export const getActiveRules = async (
         availableOccupancyRules,
         availableTimelapseRules,
         availableAudioRules,
+        availableRecordingRules,
         allowedDetectionRules,
         allowedOccupancyRules,
         allowedTimelapseRules,
         allowedAudioRules,
+        allowedRecordingRules,
         allAvailableRules,
         allAllowedRules,
         shouldListenDetections,
@@ -1458,6 +1484,14 @@ export const getRuleKeys = (props: {
     const audioDurationKey = `${prefix}:${ruleName}:audioDuration`;
     const hitPercentageKey = `${prefix}:${ruleName}:hitPercentage`;
 
+    // Specific for recording rules
+    const recordingDetectionClassesKey = `${prefix}:${ruleName}:detectionClasses`;
+    const recordingScoreThresholdKey = `${prefix}:${ruleName}:scoreThreshold`;
+    const minDelayBetweenClipsKey = `${prefix}:${ruleName}:minDelayBetweenClips`;
+    const postEventSecondsKey = `${prefix}:${ruleName}:postEventSeconds`;
+    const maxClipLengthKey = `${prefix}:${ruleName}:maxClipLength`;
+    const prolongClipOnMotionKey = `${prefix}:${ruleName}:prolongClipOnMotion`;
+
     return {
         common: {
             activationKey,
@@ -1538,6 +1572,14 @@ export const getRuleKeys = (props: {
             decibelThresholdKey,
             audioDurationKey,
             hitPercentageKey,
+        },
+        recording: {
+            recordingDetectionClassesKey,
+            recordingScoreThresholdKey,
+            minDelayBetweenClipsKey,
+            postEventSecondsKey,
+            maxClipLengthKey,
+            prolongClipOnMotionKey,
         }
     }
 }
@@ -1983,8 +2025,9 @@ export const getRuleSettings = async (props: {
     const isDetectionRule = ruleType === RuleType.Detection;
     const isOccupancyRule = ruleType === RuleType.Occupancy;
     const isAudioRule = ruleType === RuleType.Audio;
+    const isRecordingRule = ruleType === RuleType.Recording;
 
-    const rules = storage.getItem(rulesKey);
+    const rules = storage.getItem(rulesKey) ?? [];
     for (const ruleName of rules) {
         const subgroup = `${subgroupPrefix}: ${ruleName}`;
         const {
@@ -2385,18 +2428,20 @@ export const getRuleSettings = async (props: {
             );
         }
 
-        settings.push(
-            {
-                key: totalSnoozeKey,
-                title: 'Snooze per rule',
-                description: 'If enabled, snooze actions will act for any notifier of the rule, rather then per used device',
-                type: 'boolean',
-                group,
-                subgroup,
-                immediate: true,
-                defaultValue: false,
-            }
-        );
+        if (!isRecordingRule) {
+            settings.push(
+                {
+                    key: totalSnoozeKey,
+                    title: 'Snooze per rule',
+                    description: 'If enabled, snooze actions will act for any notifier of the rule, rather then per used device',
+                    type: 'boolean',
+                    group,
+                    subgroup,
+                    immediate: true,
+                    defaultValue: false,
+                }
+            );
+        }
 
         for (const notifierId of notifiers) {
             const notifierSettings = getNotifierSettings({
@@ -3416,6 +3461,177 @@ export const getAudioRulesSettings = async (props: {
     });
 }
 
+export async function getDeviceRecordingRules(props: {
+    deviceStorage: StorageSettings<any>,
+    pluginStorage: StorageSettings<any>,
+    console: Console,
+    device: DeviceBase,
+}) {
+    const { deviceStorage, pluginStorage, console, device } = props;
+    const ruleType = RuleType.Recording;
+    const { rulesKey } = ruleTypeMetadataMap[ruleType];
+    const { securitySystem } = pluginStorage.values;
+
+    const availableRules: RecordingRule[] = [];
+    const allowedRules: RecordingRule[] = [];
+
+    const deviceRules = deviceStorage?.getItem(rulesKey) as string[] || [];
+    const pluginRules = pluginStorage?.getItem(rulesKey) as string[] || [];
+
+    const processRules = (rules: string[], source: RuleSource) => {
+        const storage = source === RuleSource.Device ? deviceStorage : pluginStorage;
+        for (const ruleName of rules) {
+            const { recording } = getRuleKeys({ ruleName, ruleType });
+
+            const {
+                recordingDetectionClassesKey,
+                recordingScoreThresholdKey,
+                minDelayBetweenClipsKey,
+                postEventSecondsKey,
+                maxClipLengthKey,
+                prolongClipOnMotionKey,
+            } = recording;
+
+            const detectionClasses = storage.getItem(recordingDetectionClassesKey) as string[] || [];
+            const scoreThreshold = storage.getItem(recordingScoreThresholdKey) as number;
+            const minDelayBetweenClips = storage.getItem(minDelayBetweenClipsKey) as number;
+            const postEventSeconds = storage.getItem(postEventSecondsKey) as number;
+            const maxClipLength = storage.getItem(maxClipLengthKey) as number;
+            const prolongClipOnMotion = storage.getItem(prolongClipOnMotionKey) as boolean;
+
+            const { rule, basicRuleAllowed } = initBasicRule({
+                ruleName,
+                ruleSource: source,
+                ruleType: RuleType.Recording,
+                storage,
+                securitySystem,
+                logger: console
+            });
+
+            const recordingRule: RecordingRule = {
+                ...rule,
+                detectionClasses,
+                scoreThreshold,
+                minDelayBetweenClips,
+                postEventSeconds,
+                maxClipLength,
+                prolongClipOnMotion,
+            };
+
+            availableRules.push(recordingRule);
+
+            if (basicRuleAllowed) {
+                allowedRules.push(recordingRule);
+            }
+        }
+    }
+
+    processRules(deviceRules, RuleSource.Device);
+    processRules(pluginRules, RuleSource.Plugin);
+
+    return {
+        availableRules,
+        allowedRules,
+    };
+}
+
+export const getRecordingRulesSettings = async (props: {
+    storage: StorageSettings<any>,
+    ruleSource: RuleSource,
+    refreshSettings: OnRefreshSettings,
+    logger: Console,
+    device: DeviceBase,
+}) => {
+    const { storage, ruleSource, refreshSettings, logger, device } = props;
+
+    const getSpecificRules: GetSpecificRules = async ({ group, ruleName, subgroup }) => {
+        const settings: StorageSetting[] = [];
+
+        const { recording } = getRuleKeys({ ruleName, ruleType: RuleType.Recording });
+
+        const {
+            recordingDetectionClassesKey,
+            recordingScoreThresholdKey,
+            minDelayBetweenClipsKey,
+            postEventSecondsKey,
+            maxClipLengthKey,
+            prolongClipOnMotionKey,
+        } = recording;
+
+        settings.push(
+            {
+                key: recordingDetectionClassesKey,
+                title: 'Detection classes',
+                description: 'Classes to trigger the recording',
+                group,
+                subgroup,
+                type: 'string',
+                multiple: true,
+                combobox: true,
+                choices: basicDetectionClasses,
+                defaultValue: [DetectionClass.Person],
+            },
+            {
+                key: recordingScoreThresholdKey,
+                title: 'Score threshold',
+                description: 'Minimum score to trigger the recording',
+                group,
+                subgroup,
+                type: 'number',
+            },
+            {
+                key: minDelayBetweenClipsKey,
+                title: 'Minimum delay between clips',
+                description: 'Minimum seconds between recordings',
+                group,
+                subgroup,
+                type: 'number',
+                defaultValue: 30,
+            },
+            {
+                key: postEventSecondsKey,
+                title: 'Post event seconds',
+                description: 'Seconds to record after the event',
+                group,
+                subgroup,
+                type: 'number',
+                defaultValue: 10,
+            },
+            {
+                key: maxClipLengthKey,
+                title: 'Max clip length',
+                description: 'Maximum length of the clip in seconds',
+                group,
+                subgroup,
+                type: 'number',
+                defaultValue: 60,
+            },
+            {
+                key: prolongClipOnMotionKey,
+                title: 'Prolong clip on motion',
+                description: 'Continue recording if motion is detected',
+                group,
+                subgroup,
+                type: 'boolean',
+                defaultValue: true,
+                immediate: true,
+            }
+        );
+
+        return settings;
+    };
+
+    return getRuleSettings({
+        getSpecificRules,
+        ruleSource,
+        ruleType: RuleType.Recording,
+        storage,
+        refreshSettings,
+        logger,
+        device,
+    });
+}
+
 export enum RuleSource {
     Plugin = 'Plugin',
     Device = 'Device',
@@ -3490,6 +3706,15 @@ export interface DetectionRule extends BaseRule {
     disableNvrRecordingSeconds?: number;
     detectionSource?: ScryptedEventSource;
     maxClipExtensionRange?: number;
+}
+
+export interface RecordingRule extends BaseRule {
+    detectionClasses: string[];
+    scoreThreshold: number;
+    minDelayBetweenClips: number;
+    postEventSeconds: number;
+    maxClipLength: number;
+    prolongClipOnMotion: boolean;
 }
 
 export const getMinutes = (date: Moment) => date.minutes() + (date.hours() * 60);

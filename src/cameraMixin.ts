@@ -11,13 +11,14 @@ import { objectDetectorNativeId } from '../../scrypted-frigate-bridge/src/utils'
 import { Deferred } from "../../scrypted/server/src/deferred";
 import { checkObjectsOccupancy, confirmDetection } from "./aiUtils";
 import { AudioAnalyzerSource, AudioChunkData, AudioRtspFfmpegStream, AudioSensitivity, executeAudioClassification, sensitivityDbThresholds } from "./audioAnalyzerUtils";
+import { VideoRtspFfmpegRecorder } from "./videoRecorderUtils";
 import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, isAudioClassname, isFaceClassname, isMotionClassname, isObjectClassname, isPlateClassname, levenshteinDistance } from "./detectionClasses";
 import { addBoundingBoxesToImage, addZoneClipPathToImage, cropImageToDetection } from "./drawingUtils";
 import AdvancedNotifierPlugin from "./main";
 import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { CameraMixinState, CurrentOccupancyState, OccupancyRuleData, getInitOccupancyState } from "./states";
-import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, RecordingRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRecordingRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -45,6 +46,10 @@ type CameraSettingKey =
     | 'audioAnalyzerCustomStreamUrl'
     | 'audioAnalyzerSensitivity'
     | 'audioAnalyzerProcessPid'
+    | 'videoRecorderProcessPid'
+    | 'videoRecorderStreamName'
+    | 'videoRecorderCustomStreamUrl'
+    | 'videoRecorderH264'
     | 'lastSnapshotWebhook'
     | 'lastSnapshotWebhookCloudUrl'
     | 'lastSnapshotWebhookLocalUrl'
@@ -268,6 +273,39 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             subgroup: 'Audio Analysis',
             hide: true,
         },
+        videoRecorderProcessPid: {
+            type: 'string',
+            subgroup: 'Advanced',
+            hide: true,
+        },
+        videoRecorderStreamName: {
+            title: 'Stream',
+            description: 'Select a stream which provides video for recording',
+            type: 'string',
+            subgroup: 'Video recorder',
+            immediate: true,
+            choices: [],
+            onPut: async () => {
+                await this.refreshSettings();
+            },
+        },
+        videoRecorderCustomStreamUrl: {
+            title: 'Manual stream',
+            description: 'Copy the stream from the "RTSP rebroadcast URL" field if you have unsual cameras',
+            placeholder: 'rtsp://localhost:12345/1231251351astwea',
+            subgroup: 'Video recorder',
+            onPut: async () => {
+                await this.refreshSettings();
+            },
+        },
+        videoRecorderH264: {
+            title: 'Convert to H264',
+            description: 'Convert the recorded video to H264. Useful if the source stream is H265 and you want to view it in browsers that do not support it.',
+            type: 'boolean',
+            subgroup: 'Video recorder',
+            defaultValue: true,
+            immediate: true,
+        },
         // WEBHOOKS
         lastSnapshotWebhook: {
             subgroup: 'Webhooks',
@@ -353,8 +391,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     shouldClassifyAudio: boolean;
     isActiveForAudioAnalysis: boolean;
     audioRtspFfmpegStream: AudioRtspFfmpegStream;
+    videoRecorder: VideoRtspFfmpegRecorder;
     audioClassificationLabels: string[];
     audioClassifier: ObjectDetection;
+
+    streams: any[] = [];
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -666,6 +707,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     allowedAudioRules,
                     allowedDetectionRules,
                     allowedOccupancyRules,
+                    allowedRecordingRules,
                     allowedTimelapseRules,
                     availableTimelapseRules,
                     shouldListenDetections: shouldListenDetectionsParent,
@@ -689,6 +731,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     ...this.mixinState.runningAudioRules,
                     ...this.mixinState.runningOccupancyRules,
                     ...this.mixinState.runningTimelapseRules,
+                    ...this.mixinState.runningRecordingRules,
                 ];
 
                 const [rulesToEnable, rulesToDisable] = splitRules({
@@ -773,6 +816,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 this.mixinState.runningDetectionRules = cloneDeep(allowedDetectionRules || []);
                 this.mixinState.runningOccupancyRules = cloneDeep(allowedOccupancyRules || []);
                 this.mixinState.runningTimelapseRules = cloneDeep(allowedTimelapseRules || []);
+                this.mixinState.runningRecordingRules = cloneDeep(allowedRecordingRules || []);
                 this.mixinState.runningAudioRules = cloneDeep(allowedAudioRules || []);
                 this.mixinState.availableTimelapseRules = cloneDeep(availableTimelapseRules || []);
                 this.mixinState.allAvailableRules = cloneDeep(allAvailableRules || []);
@@ -1019,11 +1063,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             const closestDestination = closestStream?.destinations?.[0];
             if (closestDestination) {
-                const deviceSettings = await this.cameraDevice.getSettings();
                 this.mixinState.decoderStream = closestStream.destinations[0];
                 this.mixinState.decoderResize = ((closestStream.video.width ?? 0) - SNAPSHOT_WIDTH) > 200;
                 const streamName = closestStream?.name;
-                const rebroadcastConfig = deviceSettings.find(setting => setting.subgroup === `Stream: ${streamName}` && setting.title === 'RTSP Rebroadcast Url');
+                const rebroadcastConfig = this.streams.find(setting => setting.subgroup === `Stream: ${streamName}`);
                 this.mixinState.rtspUrl = rebroadcastConfig?.value as string;
                 logger.log(`Stream found ${this.mixinState.decoderStream} (${this.mixinState.rtspUrl}), requires resize ${this.mixinState.decoderResize}`);
                 logger.info(`${JSON.stringify(closestStream)}`);
@@ -1173,6 +1216,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.motionListener = undefined;
         this.stopDoorbellListener();
         this.stopAudioAnalysis();
+        this.stopRecording();
         this.resetMqttMotionTimeout();
 
         Object.keys(this.mixinState.detectionRuleListeners).forEach(ruleName => {
@@ -1195,6 +1239,22 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 await this.mixinState.storageSettings.putSetting('lastSnapshotWebhookCloudUrl', lastSnapshotCloudUrl);
                 await this.mixinState.storageSettings.putSetting('lastSnapshotWebhookLocalUrl', lastSnapshotLocalUrl);
+            }
+
+            const deviceSettings = await this.cameraDevice.getSettings();
+            const prebufferSetting = deviceSettings.find(item => item.key === 'prebuffer:enabledStreams');
+            this.streams = deviceSettings.filter(setting => setting.title === 'RTSP Rebroadcast Url');
+
+            if (prebufferSetting) {
+                this.mixinState.storageSettings.settings.audioAnalyzerStreamName.choices = prebufferSetting.choices;
+                this.mixinState.storageSettings.settings.videoRecorderStreamName.choices = prebufferSetting.choices;
+                const firstStream = prebufferSetting.choices[0];
+                if (!this.mixinState.storageSettings.values.audioAnalyzerStreamName) {
+                    this.mixinState.storageSettings.values.audioAnalyzerStreamName = firstStream;
+                }
+                if (!this.mixinState.storageSettings.values.videoRecorderStreamName) {
+                    this.mixinState.storageSettings.values.videoRecorderStreamName = firstStream;
+                }
             }
 
             const { rulesPath } = this.plugin.getRulePaths({ cameraId: this.cameraDevice.id });
@@ -1323,16 +1383,24 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         });
         dynamicSettings.push(...timelapseRulesSettings);
 
-        if (this.cameraDevice.interfaces.includes(ScryptedInterface.AudioVolumeControl)) {
-            const audioRulesSettings = await getAudioRulesSettings({
-                storage: this.mixinState.storageSettings,
-                ruleSource: RuleSource.Device,
-                logger,
-                device: this,
-                refreshSettings: this.refreshSettings.bind(this),
-            });
-            dynamicSettings.push(...audioRulesSettings);
-        }
+        const audioRulesSettings = await getAudioRulesSettings({
+            storage: this.mixinState.storageSettings,
+            ruleSource: RuleSource.Device,
+            logger,
+            device: this,
+            refreshSettings: this.refreshSettings.bind(this),
+        });
+        dynamicSettings.push(...audioRulesSettings);
+
+
+        const recordingRulesSettings = await getRecordingRulesSettings({
+            storage: this.mixinState.storageSettings,
+            ruleSource: RuleSource.Device,
+            logger,
+            refreshSettings: this.refreshSettings.bind(this),
+            device: this,
+        });
+        dynamicSettings.push(...recordingRulesSettings);
 
         this.mixinState.storageSettings = await convertSettingsToStorageSettings({
             device: this,
@@ -3492,19 +3560,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             logger.info(`${eventSource} detections received, classnames ${classnamesLog}`);
         }
 
+        let mqttFsB64Image: string;
+        let mqttFsImageSource = ImageSource.NotFound;
+
         try {
             const canUpdateDetectionsOnMqtt = eventSource === detectionSourceForMqtt;
-            // Here should be changed the MQTT image to post-process, when available
-            let mqttFsImage: MediaObject;
-            let mqttFsB64Image: string;
-            let mqttFsImageSource = ImageSource.NotFound;
 
             if (isDetectionFromNvr) {
-                mqttFsImage = croppedNvrImage;
                 mqttFsB64Image = croppedNvrB64Image;
                 mqttFsImageSource = ImageSource.Input;
             } else if (decoderImage) {
-                mqttFsImage = decoderImage;
                 mqttFsB64Image = decoderB64Image;
                 mqttFsImageSource = ImageSource.Decoder;
             }
@@ -3550,7 +3615,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                         reason: isDetectionFromFrigate ? GetImageReason.FromFrigate : GetImageReason.MotionUpdate,
                                     });
 
-                                    mqttFsImage = imageNew;
                                     mqttFsB64Image = b64ImageNew;
                                     mqttFsImageSource = imageSourceNew;
                                 }
@@ -3704,8 +3768,35 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
                 }
             }
+
+            await this.considerStartRecording({
+                triggerTime,
+                b64Image: mqttFsB64Image,
+            });
+
         } catch (e) {
             logger.log('Error finding a match', e);
+        }
+    }
+
+    async considerStartRecording(props: {
+        triggerTime: number,
+        b64Image?: string,
+    }) {
+        const { } = props;
+        const { triggerTime, b64Image } = props;
+        const logger = this.getLogger();
+        const recordingRules = cloneDeep(
+            this.mixinState.runningRecordingRules.filter(rule =>
+                rule.currentlyActive && rule.detectionClasses?.length
+            )
+        ) ?? [];
+        if (recordingRules.length) {
+            logger.log(`Starting event videoclip recordings for rules: ${recordingRules.map(r => r.name).join(', ')}`);
+            await this.startRecording({
+                triggerTime,
+                rules: recordingRules,
+            });
         }
     }
 
@@ -3998,26 +4089,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         let rtspUrl: string;
 
-        const deviceSettings = await this.cameraDevice.getSettings();
-        const prebufferSetting = deviceSettings.find(item => item.key === 'prebuffer:enabledStreams');
-
-        if (prebufferSetting) {
-            this.mixinState.storageSettings.settings.audioAnalyzerStreamName.choices = prebufferSetting.choices;
-            if (!this.mixinState.storageSettings.values.audioAnalyzerStreamName) {
-                this.mixinState.storageSettings.values.audioAnalyzerStreamName = prebufferSetting.choices[0];
-                this.mixinState.storageSettings.values.streamName = prebufferSetting.choices[0];
-            }
-        }
         const { audioAnalyzerStreamName, audioAnalyzerCustomStreamUrl } = this.mixinState.storageSettings.values;
 
         if (audioAnalyzerCustomStreamUrl) {
             rtspUrl = audioAnalyzerCustomStreamUrl;
             logger.log(`Rebroadcast URL manually set: ${rtspUrl})}`);
         } else if (audioAnalyzerStreamName) {
-            const rebroadcastConfig = deviceSettings.find(item =>
-                item.subgroup?.includes(audioAnalyzerStreamName) && item.key === 'prebuffer:rtspRebroadcastUrl'
-            );
-
+            const rebroadcastConfig = this.streams.find(setting => setting.subgroup === `Stream: ${audioAnalyzerStreamName}`);
             rtspUrl = rebroadcastConfig?.value as string;
 
             logger.log(`Rebroadcast URL found: ${JSON.stringify({
@@ -4088,5 +4166,74 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
             }
         });
+    }
+
+    async startRecording(props: {
+        triggerTime: number,
+        rules: RecordingRule[]
+    }) {
+        const { triggerTime, rules } = props;
+        const logger = this.getLogger();
+        const { videoRecorderCustomStreamUrl, videoRecorderStreamName, videoRecorderH264 } = this.mixinState.storageSettings.values;
+        let rtspUrl: string;
+
+        if (videoRecorderCustomStreamUrl) {
+            rtspUrl = videoRecorderCustomStreamUrl;
+            logger.log(`Rebroadcast URL manually set: ${rtspUrl})}`);
+        } else if (videoRecorderStreamName) {
+            const rebroadcastConfig = this.streams.find(setting => setting.subgroup === `Stream: ${videoRecorderStreamName}`);
+            rtspUrl = rebroadcastConfig?.value as string;
+
+            logger.log(`Rebroadcast URL found: ${JSON.stringify({
+                url: rtspUrl,
+                streamName: videoRecorderStreamName,
+                rebroadcastConfig
+            })}`);
+        }
+
+        if (!rtspUrl) {
+            logger.error('Recording RTSP URL not configured');
+            return;
+        }
+
+        const { recordedClipPath } = this.plugin.getRecordedEventPath({
+            cameraId: this.id,
+            fileName: `${triggerTime}`,
+        });
+
+        await this.stopRecording();
+
+        this.videoRecorder = new VideoRtspFfmpegRecorder({
+            rtspUrl,
+            console: logger,
+            ffmpegPath: await sdk.mediaManager.getFFmpegPath(),
+            h264: videoRecorderH264,
+        });
+
+        const pid = this.videoRecorder.start(recordedClipPath);
+        if (pid) {
+            this.mixinState.storageSettings.values.videoRecorderProcessPid = String(pid);
+        }
+    }
+
+    async stopRecording() {
+        try {
+            const { videoRecorderProcessPid } = this.mixinState.storageSettings.values;
+            if (videoRecorderProcessPid) {
+                try {
+                    process.kill(parseInt(videoRecorderProcessPid));
+                } catch (e) {
+                    // ignore if process not found
+                }
+                this.mixinState.storageSettings.values.videoRecorderProcessPid = undefined;
+            }
+        } catch (e) {
+            this.getLogger().error('Error killing video recorder process', e);
+        }
+
+        if (this.videoRecorder) {
+            this.videoRecorder.stop();
+            this.videoRecorder = undefined;
+        }
     }
 }

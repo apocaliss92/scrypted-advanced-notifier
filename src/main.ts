@@ -3630,6 +3630,24 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         };
     }
 
+    public getRecordedEventPath = (props: {
+        cameraId: string,
+        fileName?: string,
+    }) => {
+        const { cameraId, fileName } = props;
+        const { cameraPath } = this.getFsPaths({ cameraId });
+
+        const recordedEventsPath = path.join(cameraPath, 'recordedEvents');
+        const recordedClipPath = fileName ? path.join(recordedEventsPath, `${fileName}.mp4`) : undefined;
+        const recordedThumbnailPath = fileName ? path.join(recordedEventsPath, `${fileName}.jpg`) : undefined;
+
+        return {
+            recordedEventsPath,
+            recordedClipPath,
+            recordedThumbnailPath,
+        };
+    }
+
     public storeDetectionImages = async (props: {
         device: ScryptedDeviceBase,
         timestamp: number,
