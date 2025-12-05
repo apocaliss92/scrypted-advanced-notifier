@@ -4282,63 +4282,29 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             this.mixinState.recordingTimeout = undefined;
         }
 
-        const startTime = this.mixinState.recordingStartTime;
-        const clipPath = this.mixinState.recordingClipPath;
         const thumbnailPath = this.mixinState.recordingThumbnailPath;
 
         this.mixinState.recordingStartTime = undefined;
         this.mixinState.recordingClipPath = undefined;
         this.mixinState.recordingThumbnailPath = undefined;
 
-        try {
-            const { videoRecorderProcessPid } = this.mixinState.storageSettings.values;
-            if (videoRecorderProcessPid) {
-                try {
-                    process.kill(parseInt(videoRecorderProcessPid));
-                } catch (e) {
-                    // ignore if process not found
-                }
-                this.mixinState.storageSettings.values.videoRecorderProcessPid = undefined;
-            }
-        } catch (e) {
-            this.getLogger().error('Error killing video recorder process', e);
-        }
-
         if (this.videoRecorder) {
-            this.videoRecorder.stop();
+            await this.videoRecorder.stop(thumbnailPath);
             this.videoRecorder = undefined;
-        }
-
-        if (startTime && clipPath && thumbnailPath) {
+            this.mixinState.storageSettings.values.videoRecorderProcessPid = undefined;
+        } else {
             try {
-                const duration = (Date.now() - startTime) / 1000;
-                const seekTime = duration / 2;
-                const ffmpegPath = await sdk.mediaManager.getFFmpegPath();
-                const logger = this.getLogger();
-
-                logger.info(`Extracting thumbnail from ${clipPath} at ${seekTime}s to ${thumbnailPath}`);
-
-                const args = [
-                    '-hide_banner',
-                    '-ss', String(seekTime),
-                    '-i', clipPath,
-                    '-vframes', '1',
-                    '-y',
-                    thumbnailPath
-                ];
-
-                const { spawn } = require('child_process');
-                const ffmpeg = spawn(ffmpegPath, args);
-
-                ffmpeg.on('exit', (code: number) => {
-                    if (code !== 0) {
-                        logger.error(`Thumbnail extraction failed with code ${code}`);
-                    } else {
-                        logger.info(`Thumbnail extracted successfully`);
+                const { videoRecorderProcessPid } = this.mixinState.storageSettings.values;
+                if (videoRecorderProcessPid) {
+                    try {
+                        process.kill(parseInt(videoRecorderProcessPid), 'SIGINT');
+                    } catch (e) {
+                        // ignore if process not found
                     }
-                });
+                    this.mixinState.storageSettings.values.videoRecorderProcessPid = undefined;
+                }
             } catch (e) {
-                this.getLogger().error('Error extracting thumbnail', e);
+                this.getLogger().error('Error killing video recorder process', e);
             }
         }
     }

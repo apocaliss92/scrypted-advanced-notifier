@@ -3467,7 +3467,7 @@ export async function getDeviceRecordingRules(props: {
     console: Console,
     device: DeviceBase,
 }) {
-    const { deviceStorage, pluginStorage, console, device } = props;
+    const { deviceStorage, pluginStorage, console } = props;
     const ruleType = RuleType.Recording;
     const { rulesKey } = ruleTypeMetadataMap[ruleType];
     const { securitySystem } = pluginStorage.values;
@@ -3540,7 +3540,7 @@ export const getRecordingRulesSettings = async (props: {
     ruleSource: RuleSource,
     refreshSettings: OnRefreshSettings,
     logger: Console,
-    device: DeviceBase,
+    device?: DeviceBase,
 }) => {
     const { storage, ruleSource, refreshSettings, logger, device } = props;
 
