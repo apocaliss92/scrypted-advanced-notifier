@@ -12,6 +12,8 @@ import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, Detectio
 import AdvancedNotifierPlugin, { PluginSettingKey } from "./main";
 import { detectionClassForObjectsReporting } from "./mqtt-utils";
 const { endpointManager } = sdk;
+import fs from 'fs';
+import path from 'path';
 
 export type DeviceInterface = ScryptedDevice & Camera & ScryptedDeviceBase & Notifier & Settings & ObjectDetector & VideoCamera & EntrySensor & Lock & BinarySensor & Reboot & PanTiltZoom & OnOff;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
@@ -48,6 +50,14 @@ export const FRIGATE_BRIDGE_PLUGIN_NAME = 'Frigate bridge';
 export const EVENTS_RECORDER_PLUGIN_NAME = 'Events recorder';
 export const ADVANCED_NOTIFIER_PLUGIN_NAME = scrypted.name;
 export const SCRYPTED_NVR_OBJECT_DETECTION_NAME = 'Scrypted NVR Object Detection';
+
+export const formatSize = (size: number) => {
+    const sizeInMb = size / (1024 * 1024);
+    if (sizeInMb < 1000) {
+        return `${sizeInMb.toFixed(2)} MB`;
+    }
+    return `${(sizeInMb / 1024).toFixed(2)} GB`;
+}
 
 export enum DevNotifications {
     ConfigCheckError = 'ConfigCheckError',
@@ -5025,4 +5035,38 @@ export const getEmbeddingSimilarityScore = async (props: {
     } else {
         return 0;
     }
+}
+
+export const calculateSize = async (props: {
+    currentPath: string,
+    filenamePrefix?: string,
+    maxSpaceInGb?: number,
+}) => {
+    const { currentPath, filenamePrefix, maxSpaceInGb = 0 } = props;
+    let occupiedSizeInBytes = 0;
+
+    const calculateSizeInner = async (innerPath: string) => {
+        const entries = await fs.promises.readdir(innerPath, { withFileTypes: true });
+        const filteredFiles = filenamePrefix ? entries.filter(entry => entry.name.includes(filenamePrefix)) : entries;
+
+        for (const entry of filteredFiles) {
+            const fullPath = path.join(innerPath, entry.name);
+            if (entry.isDirectory()) {
+                await calculateSizeInner(fullPath);
+            } else if (entry.isFile()) {
+                const stats = await fs.promises.stat(fullPath);
+                occupiedSizeInBytes += stats.size;
+            }
+        }
+    }
+
+    await calculateSizeInner(currentPath);
+
+    const maxSpaceInBytes = maxSpaceInGb * 1024 * 1024 * 1024;
+    const freeMemoryInBytes = maxSpaceInBytes - occupiedSizeInBytes;
+
+    return {
+        occupiedSizeInBytes,
+        freeMemoryInBytes,
+    };
 }

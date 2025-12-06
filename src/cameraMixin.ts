@@ -2,7 +2,6 @@ import sdk, { EventDetails, EventListenerRegister, Image, MediaObject, Notifier,
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import fs from 'fs';
-import path from 'path';
 import { cloneDeep, sortBy, uniq, uniqBy } from "lodash";
 import moment from "moment";
 import { Config, JsonDB } from "node-json-db";
@@ -12,7 +11,6 @@ import { objectDetectorNativeId } from '../../scrypted-frigate-bridge/src/utils'
 import { Deferred } from "../../scrypted/server/src/deferred";
 import { checkObjectsOccupancy, confirmDetection } from "./aiUtils";
 import { AudioAnalyzerSource, AudioChunkData, AudioRtspFfmpegStream, AudioSensitivity, executeAudioClassification, sensitivityDbThresholds } from "./audioAnalyzerUtils";
-import { VideoRtspFfmpegRecorder, getVideoClipName, parseVideoFileName } from "./videoRecorderUtils";
 import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, isAudioClassname, isFaceClassname, isMotionClassname, isObjectClassname, isPlateClassname, levenshteinDistance } from "./detectionClasses";
 import { addBoundingBoxesToImage, addZoneClipPathToImage, cropImageToDetection } from "./drawingUtils";
 import AdvancedNotifierPlugin from "./main";
@@ -20,6 +18,7 @@ import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassn
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { CameraMixinState, CurrentOccupancyState, OccupancyRuleData, getInitOccupancyState } from "./states";
 import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, RecordingRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRecordingRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
+import { VideoRtspFfmpegRecorder, getVideoClipName, parseVideoFileName } from "./videoRecorderUtils";
 
 const { systemManager } = sdk;
 
@@ -61,6 +60,8 @@ type CameraSettingKey =
     | 'decoderProcessId'
     | 'snoozedData'
     | 'delayPassedData'
+    | 'occupiedSpaceText'
+    | 'occupiedSpaceInBytes'
     | MixinBaseSettingKey;
 
 export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> implements Settings, VideoClips {
@@ -357,6 +358,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             title: 'Minimum posting delay',
             type: 'number',
             defaultValue: 15,
+        },
+        occupiedSpaceText: {
+            title: 'Occupied space',
+            type: 'string',
+            readonly: true,
+        },
+        occupiedSpaceInBytes: {
+            type: 'string',
+            readonly: true,
+            hide: true,
         },
         decoderProcessId: {
             hide: true,
@@ -886,20 +897,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const decoderType = this.decoderType;
 
                 // Cleanup
-                if ([DecoderType.Always, DecoderType.OnMotion].includes(decoderType)) {
-                    const { videoclipsRetention } = this.plugin.storageSettings.values;
-                    const framesThreshold = now - (1000 * 60 * 2);
-                    const videoclipsThreshold = now - (1000 * 60 * 60 * 24 * videoclipsRetention);
-                    if (!this.mixinState.lastFsCleanup || this.mixinState.lastFsCleanup < framesThreshold) {
-                        this.mixinState.lastFsCleanup = now;
-                        this.plugin.clearVideoclipsData({
-                            device: this.cameraDevice,
-                            logger,
-                            framesThreshold,
-                            videoclipsThreshold,
-                        }).catch(logger.log);
-                    }
+                // if ([DecoderType.Always, DecoderType.OnMotion].includes(decoderType)) {
+                const { videoclipsRetention } = this.plugin.storageSettings.values;
+                const framesThreshold = now - (1000 * 60 * 2);
+                const videoclipsThreshold = now - (1000 * 60 * 60 * 24 * videoclipsRetention);
+                if (!this.mixinState.lastFsCleanup || this.mixinState.lastFsCleanup < framesThreshold) {
+                    this.mixinState.lastFsCleanup = now;
+                    this.plugin.clearVideoclipsData({
+                        device: this.cameraDevice,
+                        logger,
+                        framesThreshold,
+                        videoclipsThreshold,
+                    }).catch(logger.log);
                 }
+                // }
 
                 // MQTT report
                 if (isActiveForMqttReporting) {
