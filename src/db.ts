@@ -6,9 +6,6 @@ import path from 'path';
 import { ScryptedEventSource } from './utils';
 import { ObjectDetectionResult } from '@scrypted/sdk';
 
-// const pluginVolume = process.env.SCRYPTED_PLUGIN_VOLUME;
-// const dbsPath = path.join(pluginVolume, 'dbs');
-// const eventDbsPath = path.join(dbsPath, 'events');
 const dbFileFormat = 'YYYYMMDD';
 
 export type DbDetectionEvent = {

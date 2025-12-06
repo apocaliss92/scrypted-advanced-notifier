@@ -4060,7 +4060,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const now = Date.now();
         const videoclipsThreshold = now - (1000 * 60 * 60 * 24 * maxDays);
         const { decoderpath, cameraPath } = this.getFsPaths({ cameraId: device.id });
-        logger.log(`Cleaning up generated data: maxDays=${maxDays}, maxSpaceInGb=${maxSpaceInGb}, framesThreshold=${framesThreshold}, videoclipsThreshold=${videoclipsThreshold}`);
+        const eventsThreshold = now - (eventsRetention * 1000 * 60 * 60 * 24);
+        logger.log(`Cleaning up generated data: 
+            maxDays=${maxDays}, 
+            maxSpaceInGb=${maxSpaceInGb}, 
+            framesThreshold=${framesThreshold}, 
+            videoclipsThreshold=${videoclipsThreshold}, 
+            eventsThreshold=${eventsThreshold}`
+        );
 
         const logData = {
             framesFound: 0,
@@ -4167,11 +4174,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logData.eventsFound += imageFiles.length;
 
             for (const filename of imageFiles) {
-                const fileName = filename.split('.')[0];
-                const { eventImagePath } = this.getEventPaths({ cameraId: device.id, fileName });
+                const fileName = filename.split('_')[0];
+                const { eventImagePath } = this.getEventPaths({ cameraId: device.id, fileName: filename.split('.')[0] });
 
-                const startTime = Number(eventImagePath);
-                if (startTime < eventsRetention) {
+                const startTime = Number(fileName);
+                if (startTime < eventsThreshold) {
                     try {
                         await fs.promises.unlink(eventImagePath);
                         logData.eventsRemoved += 1;
@@ -4183,11 +4190,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const thumbnailFiles = await fs.promises.readdir(thumbnailsPath);
 
             for (const filename of thumbnailFiles) {
-                const fileName = filename.split('.')[0];
-                const { eventThumbnailPath } = this.getEventPaths({ cameraId: device.id, fileName });
+                const fileName = filename.split('_')[0];
+                const { eventThumbnailPath } = this.getEventPaths({ cameraId: device.id, fileName: filename.split('.')[0] });
 
-                const startTime = Number(eventThumbnailPath);
-                if (startTime < eventsRetention) {
+                const startTime = Number(fileName);
+                if (startTime < eventsThreshold) {
                     try {
                         await fs.promises.unlink(eventThumbnailPath);
                         logData.eventsRemoved += 1;
