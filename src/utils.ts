@@ -227,6 +227,7 @@ export enum DelayType {
     PostWebhookImage = 'PostWebhookImage',
     OccupancyRegularCheck = 'OccupancyRegularCheck',
     SequenceExecution = 'SequenceExecution',
+    EventRecording = 'EventRecording',
 }
 
 export enum GetImageReason {
@@ -291,7 +292,8 @@ export type IsDelayPassedProps =
     { type: DelayType.PostWebhookImage, classname: string, eventSource: ScryptedEventSource } |
     { type: DelayType.RuleImageUpdate, matchRule: MatchRule, eventSource: ScryptedEventSource } |
     { type: DelayType.RuleNotification, matchRule: MatchRule } |
-    { type: DelayType.RuleMinCheck, rule: BaseRule };
+    { type: DelayType.RuleMinCheck, rule: BaseRule } |
+    { type: DelayType.EventRecording, minDelay: number };
 
 export const getElegibleDevices = (isFrigate?: boolean) => {
     const allDevices = Object.keys(sdk.systemManager.getSystemState()).map(deviceId => sdk.systemManager.getDeviceById<DeviceInterface>(deviceId));
@@ -1248,7 +1250,7 @@ export const getActiveRules = async (
     const {
         allowedRules: allowedRecordingRules,
         availableRules: availableRecordingRules,
-    } = await getDeviceRecordingRules({
+    } = await getRecordingRules({
         deviceStorage,
         pluginStorage,
         console,
@@ -1487,7 +1489,6 @@ export const getRuleKeys = (props: {
     // Specific for recording rules
     const recordingDetectionClassesKey = `${prefix}:${ruleName}:detectionClasses`;
     const recordingScoreThresholdKey = `${prefix}:${ruleName}:scoreThreshold`;
-    const minDelayBetweenClipsKey = `${prefix}:${ruleName}:minDelayBetweenClips`;
     const postEventSecondsKey = `${prefix}:${ruleName}:postEventSeconds`;
     const maxClipLengthKey = `${prefix}:${ruleName}:maxClipLength`;
     const prolongClipOnMotionKey = `${prefix}:${ruleName}:prolongClipOnMotion`;
@@ -1501,6 +1502,7 @@ export const getRuleKeys = (props: {
             scoreThresholdKey,
             enabledSensorsKey,
             disabledSensorsKey,
+            devicesKey,
             notifiersKey,
             dayKey,
             startTimeKey,
@@ -1535,7 +1537,6 @@ export const getRuleKeys = (props: {
             nvrEventsKey,
             frigateLabelsKey,
             audioLabelsKey,
-            devicesKey,
             detectionClassesKey,
             peopleKey,
             platesKey,
@@ -1576,7 +1577,6 @@ export const getRuleKeys = (props: {
         recording: {
             recordingDetectionClassesKey,
             recordingScoreThresholdKey,
-            minDelayBetweenClipsKey,
             postEventSecondsKey,
             maxClipLengthKey,
             prolongClipOnMotionKey,
@@ -2057,7 +2057,7 @@ export const getRuleSettings = async (props: {
                 onActivationSequencesKey,
                 onDeactivationSequencesKey,
                 onTriggerSequencesKey,
-                onResetSequencesKey
+                onResetSequencesKey,
             }
         } = getRuleKeys({ ruleName, ruleType });
 
@@ -2711,7 +2711,7 @@ export const getDetectionRulesSettings = async (props: {
 
         const { detection, common, } = getRuleKeys({ ruleName, ruleType: RuleType.Detection });
 
-        const { scoreThresholdKey, activationKey, minDelayKey, minMqttPublishDelayKey } = common;
+        const { scoreThresholdKey, activationKey, minDelayKey, minMqttPublishDelayKey, devicesKey } = common;
         const {
             blacklistedZonesKey,
             nvrEventsKey,
@@ -2721,7 +2721,6 @@ export const getDetectionRulesSettings = async (props: {
             useNvrDetectionsKey,
             detectionSourceKey,
             whitelistedZonesKey,
-            devicesKey,
             detectionClassesKey,
             peopleKey,
             plateMaxDistanceKey,
@@ -3461,16 +3460,17 @@ export const getAudioRulesSettings = async (props: {
     });
 }
 
-export async function getDeviceRecordingRules(props: {
-    deviceStorage: StorageSettings<any>,
+export function getRecordingRules(props: {
+    deviceStorage?: StorageSettings<any>,
     pluginStorage: StorageSettings<any>,
     console: Console,
-    device: DeviceBase,
+    device?: DeviceBase,
 }) {
-    const { deviceStorage, pluginStorage, console } = props;
+    const { deviceStorage, pluginStorage, console, device } = props;
     const ruleType = RuleType.Recording;
     const { rulesKey } = ruleTypeMetadataMap[ruleType];
     const { securitySystem } = pluginStorage.values;
+    const deviceId = device?.id;
 
     const availableRules: RecordingRule[] = [];
     const allowedRules: RecordingRule[] = [];
@@ -3479,14 +3479,16 @@ export async function getDeviceRecordingRules(props: {
     const pluginRules = pluginStorage?.getItem(rulesKey) as string[] || [];
 
     const processRules = (rules: string[], source: RuleSource) => {
-        const storage = source === RuleSource.Device ? deviceStorage : pluginStorage;
+        const isPlugin = source === RuleSource.Plugin;
+        const isDevice = source === RuleSource.Device;
+        const storage = isDevice ? deviceStorage : pluginStorage;
         for (const ruleName of rules) {
-            const { recording } = getRuleKeys({ ruleName, ruleType });
+            const { recording, common } = getRuleKeys({ ruleName, ruleType });
 
+            const { devicesKey } = common;
             const {
                 recordingDetectionClassesKey,
                 recordingScoreThresholdKey,
-                minDelayBetweenClipsKey,
                 postEventSecondsKey,
                 maxClipLengthKey,
                 prolongClipOnMotionKey,
@@ -3494,10 +3496,13 @@ export async function getDeviceRecordingRules(props: {
 
             const detectionClasses = storage.getItem(recordingDetectionClassesKey) as string[] || [];
             const scoreThreshold = storage.getItem(recordingScoreThresholdKey) as number;
-            const minDelayBetweenClips = storage.getItem(minDelayBetweenClipsKey) as number;
             const postEventSeconds = storage.getItem(postEventSecondsKey) as number;
             const maxClipLength = storage.getItem(maxClipLengthKey) as number;
             const prolongClipOnMotion = storage.getItem(prolongClipOnMotionKey) as boolean;
+            const mainDevices = storage.getItem(devicesKey) as string[] ?? [];
+            const allDevices = getElegibleDevices().map(device => device.id);
+
+            const devices = !isPlugin ? [deviceId] : mainDevices.length ? mainDevices : allDevices;
 
             const { rule, basicRuleAllowed } = initBasicRule({
                 ruleName,
@@ -3512,22 +3517,26 @@ export async function getDeviceRecordingRules(props: {
                 ...rule,
                 detectionClasses,
                 scoreThreshold,
-                minDelayBetweenClips,
                 postEventSeconds,
                 maxClipLength,
                 prolongClipOnMotion,
+                devices,
             };
 
             availableRules.push(recordingRule);
+            const deviceOk = (!!devices?.length && (deviceId ? devices.includes(deviceId) : true));
 
-            if (basicRuleAllowed) {
+            if (basicRuleAllowed && deviceOk) {
                 allowedRules.push(recordingRule);
             }
         }
     }
 
-    processRules(deviceRules, RuleSource.Device);
     processRules(pluginRules, RuleSource.Plugin);
+
+    if (deviceStorage) {
+        processRules(deviceRules, RuleSource.Device);
+    }
 
     return {
         availableRules,
@@ -3547,18 +3556,32 @@ export const getRecordingRulesSettings = async (props: {
     const getSpecificRules: GetSpecificRules = async ({ group, ruleName, subgroup }) => {
         const settings: StorageSetting[] = [];
 
-        const { recording } = getRuleKeys({ ruleName, ruleType: RuleType.Recording });
+        const { recording, common } = getRuleKeys({ ruleName, ruleType: RuleType.Recording });
+        const { devicesKey, minDelayKey } = common;
 
         const {
             recordingDetectionClassesKey,
             recordingScoreThresholdKey,
-            minDelayBetweenClipsKey,
             postEventSecondsKey,
             maxClipLengthKey,
             prolongClipOnMotionKey,
         } = recording;
 
         settings.push(
+            {
+                key: devicesKey,
+                title: 'Devices',
+                description: 'Select devices (empty means none)',
+                group,
+                subgroup,
+                type: 'device',
+                multiple: true,
+                immediate: true,
+                combobox: true,
+                deviceFilter,
+                defaultValue: [],
+                onPut: async () => await refreshSettings(),
+            },
             {
                 key: recordingDetectionClassesKey,
                 title: 'Detection classes',
@@ -3580,7 +3603,7 @@ export const getRecordingRulesSettings = async (props: {
                 type: 'number',
             },
             {
-                key: minDelayBetweenClipsKey,
+                key: minDelayKey,
                 title: 'Minimum delay between clips',
                 description: 'Minimum seconds between recordings',
                 group,
@@ -3711,7 +3734,6 @@ export interface DetectionRule extends BaseRule {
 export interface RecordingRule extends BaseRule {
     detectionClasses: string[];
     scoreThreshold: number;
-    minDelayBetweenClips: number;
     postEventSeconds: number;
     maxClipLength: number;
     prolongClipOnMotion: boolean;
@@ -3780,6 +3802,7 @@ const initBasicRule = (props: {
         onDeactivationSequencesKey,
         onTriggerSequencesKey,
         onResetSequencesKey,
+        devicesKey
     } } = getRuleKeys({
         ruleType,
         ruleName,
@@ -3804,6 +3827,7 @@ const initBasicRule = (props: {
     const onDeactivationSequencesNames = storage.getItem(onDeactivationSequencesKey) as string[] ?? [];
     const onTriggerSequencesNames = storage.getItem(onTriggerSequencesKey) as string[] ?? [];
     const onResetSequencesNames = storage.getItem(onResetSequencesKey) as string[] ?? [];
+    const devices = storage.getItem(devicesKey) as string[] ?? [];
 
     const onActivationSequences: RuleActionsSequence[] = [];
     const onDeactivationSequences: RuleActionsSequence[] = [];
@@ -3851,6 +3875,7 @@ const initBasicRule = (props: {
         activationType,
         source: ruleSource,
         securitySystemModes,
+        devices,
         generateClip,
         generateClipType,
         generateClipSpeed: generateClip ? generateClipSpeed : undefined,
@@ -4142,6 +4167,7 @@ export const getDetectionRules = (props: {
                     minDelayKey,
                     minMqttPublishDelayKey,
                     generateClipMaxExtensionRangeKey,
+                    devicesKey
                 },
                 detection: {
                     useNvrDetectionsKey,
@@ -4149,7 +4175,6 @@ export const getDetectionRules = (props: {
                     detectionClassesKey,
                     whitelistedZonesKey,
                     blacklistedZonesKey,
-                    devicesKey,
                     nvrEventsKey,
                     frigateLabelsKey,
                     audioLabelsKey,

@@ -1,5 +1,6 @@
 import { ChildProcessWithoutNullStreams, spawn } from "child_process";
 import { EventEmitter } from "events";
+import { DetectionClass } from "./detectionClasses";
 
 export interface VideoRtspFfmpegRecorderOptions {
     rtspUrl: string;
@@ -138,4 +139,40 @@ export class VideoRtspFfmpegRecorder extends EventEmitter {
             }
         });
     }
+}
+
+export const detectionClassIndex = {
+    [DetectionClass.Motion]: 0,
+    [DetectionClass.Person]: 1,
+    [DetectionClass.Vehicle]: 2,
+    [DetectionClass.Animal]: 3,
+    [DetectionClass.Face]: 4,
+    [DetectionClass.Plate]: 5,
+    [DetectionClass.Package]: 6,
+}
+
+export const getVideoClipName = (props: {
+    startTime: number,
+    endTime: number,
+    logger: Console,
+    classesDetected: string[]
+}) => {
+    const { startTime, classesDetected, endTime, logger } = props;
+    const detectionsHashComponents = new Array(10).fill(0);
+    Object.entries(detectionClassIndex).forEach(([detectionClass, index]) => {
+        if (classesDetected.includes(detectionClass) || detectionClass === DetectionClass.Motion) {
+            detectionsHashComponents[index] = 1;
+        }
+    });
+    const detectionsHash = detectionsHashComponents.join('');
+    const filename = `${startTime}_${endTime}_${detectionsHash}`;
+
+    logger.log(`Filename calculated: ${JSON.stringify({
+        filename,
+        detectionsHashComponents,
+        classesDetected,
+        detectionsHash
+    })}`)
+
+    return filename;
 }

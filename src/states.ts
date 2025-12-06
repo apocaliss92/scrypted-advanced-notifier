@@ -96,6 +96,8 @@ export class CameraMixinState {
 
     accumulatedDetections: AccumulatedDetection[] = [];
     accumulatedRules: MatchRule[] = [];
+    recordingClassesDetected: Set<string> = new Set();
+    lastRecordingProlongLog: number = 0;
     clientId: string;
 
     snoozeUntilDic: Record<string, number> = {};
@@ -109,8 +111,6 @@ export class CameraMixinState {
 
     recordingStartTime: number;
     recordingTimeout: NodeJS.Timeout;
-    recordingClipPath: string;
-    recordingThumbnailPath: string;
 
     decoderEnablementLogged = false;
 

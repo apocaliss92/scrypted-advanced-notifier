@@ -2,6 +2,7 @@ import sdk, { EventDetails, EventListenerRegister, Image, MediaObject, Notifier,
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import fs from 'fs';
+import path from 'path';
 import { cloneDeep, sortBy, uniq, uniqBy } from "lodash";
 import moment from "moment";
 import { Config, JsonDB } from "node-json-db";
@@ -11,7 +12,7 @@ import { objectDetectorNativeId } from '../../scrypted-frigate-bridge/src/utils'
 import { Deferred } from "../../scrypted/server/src/deferred";
 import { checkObjectsOccupancy, confirmDetection } from "./aiUtils";
 import { AudioAnalyzerSource, AudioChunkData, AudioRtspFfmpegStream, AudioSensitivity, executeAudioClassification, sensitivityDbThresholds } from "./audioAnalyzerUtils";
-import { VideoRtspFfmpegRecorder } from "./videoRecorderUtils";
+import { VideoRtspFfmpegRecorder, getVideoClipName } from "./videoRecorderUtils";
 import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, isAudioClassname, isFaceClassname, isMotionClassname, isObjectClassname, isPlateClassname, levenshteinDistance } from "./detectionClasses";
 import { addBoundingBoxesToImage, addZoneClipPathToImage, cropImageToDetection } from "./drawingUtils";
 import AdvancedNotifierPlugin from "./main";
@@ -1261,6 +1262,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 await fs.promises.access(eventsPath);
             } catch {
                 await fs.promises.mkdir(eventsPath, { recursive: true });
+            }
+            const { recordedEventsPath } = this.plugin.getRecordedEventPath({ cameraId: this.cameraDevice.id });
+            try {
+                await fs.promises.access(recordedEventsPath);
+            } catch {
+                await fs.promises.mkdir(recordedEventsPath, { recursive: true });
             }
         } catch { };
 
@@ -3184,6 +3191,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             delayKey += `-${lastDetectionkey}`;
             minDelayInSeconds = matchRule.rule.minDelay ?? minDelayTime;
+        } else if (type === DelayType.EventRecording) {
+            const { minDelay } = props;
+
+            minDelayInSeconds = minDelay;
         } else if (type === DelayType.RuleMinCheck) {
             const { rule } = props;
 
@@ -3515,6 +3526,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             logger,
             objectIdLastReport: this.mixinState.objectIdLastReport,
         });
+
+        if (this.mixinState.recordingStartTime) {
+            candidates.forEach(c => {
+                const dc = detectionClassesDefaultMap[c.className];
+                if (dc) {
+                    this.mixinState.recordingClassesDetected.add(dc);
+                }
+            });
+        }
+
         const originalCandidates = cloneDeep(candidates);
 
         let detectionId: string = detect?.detectionId;
@@ -3782,6 +3803,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 await this.startRecording({
                     triggerTime,
                     rules: recordingRules,
+                    candidates,
                 });
             }
 
@@ -3899,10 +3921,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             )
                         ) ?? [];
                         if (recordingRules.length) {
-                            logger.info(`Prolonging videoclip recordings (due to motion) for rules: ${recordingRules.map(r => r.name).join(', ')}`);
                             await this.startRecording({
                                 triggerTime: now,
                                 rules: recordingRules,
+                                candidates: detections,
                             });
                         }
                     }
@@ -4176,18 +4198,23 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async startRecording(props: {
         triggerTime: number,
-        rules: RecordingRule[]
+        rules: RecordingRule[],
+        candidates?: ObjectsDetected['detections']
     }) {
-        const { triggerTime, rules } = props;
+        const { triggerTime, rules, candidates } = props;
         const logger = this.getLogger();
         const { videoRecorderCustomStreamUrl, videoRecorderStreamName, videoRecorderH264 } = this.mixinState.storageSettings.values;
 
         const maxPostEvent = Math.max(...rules.map(r => r.postEventSeconds));
         const maxClipLength = Math.max(...rules.map(r => r.maxClipLength));
+        const maxClipRecordingDelay = Math.max(...rules.map(r => r.minDelay));
         const now = Date.now();
 
         if (this.videoRecorder) {
-            logger.info(`Recording already active. Extending...`);
+            if (now - this.mixinState.lastRecordingProlongLog > 2500) {
+                logger.log(`Recording already active, extending: ${getDetectionsLog(candidates)}`);
+                this.mixinState.lastRecordingProlongLog = now;
+            }
 
             if (this.mixinState.recordingTimeout) {
                 clearTimeout(this.mixinState.recordingTimeout);
@@ -4217,6 +4244,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             return;
         }
 
+        if (!this.isDelayPassed({
+            type: DelayType.EventRecording,
+            minDelay: maxClipRecordingDelay,
+        })?.timePassed) {
+            return;
+        }
+
         let rtspUrl: string;
 
         if (videoRecorderCustomStreamUrl) {
@@ -4238,7 +4272,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             return;
         }
 
-        const { recordedClipPath, recordedThumbnailPath, recordedEventsPath } = this.plugin.getRecordedEventPath({
+        const { recordedClipPath, recordedEventsPath } = this.plugin.getRecordedEventPath({
             cameraId: this.id,
             fileName: `${triggerTime}`,
         });
@@ -4263,9 +4297,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             this.mixinState.storageSettings.values.videoRecorderProcessPid = String(pid);
         }
 
-        this.mixinState.recordingStartTime = now;
-        this.mixinState.recordingClipPath = recordedClipPath;
-        this.mixinState.recordingThumbnailPath = recordedThumbnailPath;
+        this.mixinState.recordingStartTime = triggerTime;
+        this.mixinState.recordingClassesDetected.clear();
+        if (candidates) {
+            candidates.forEach(c => {
+                const dc = detectionClassesDefaultMap[c.className];
+                if (dc) {
+                    this.mixinState.recordingClassesDetected.add(dc);
+                }
+            });
+        }
 
         const duration = Math.min(maxPostEvent, maxClipLength);
 
@@ -4277,21 +4318,54 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async stopRecording() {
-        if (this.mixinState.recordingTimeout) {
-            clearTimeout(this.mixinState.recordingTimeout);
-            this.mixinState.recordingTimeout = undefined;
-        }
-
-        const thumbnailPath = this.mixinState.recordingThumbnailPath;
-
-        this.mixinState.recordingStartTime = undefined;
-        this.mixinState.recordingClipPath = undefined;
-        this.mixinState.recordingThumbnailPath = undefined;
-
         if (this.videoRecorder) {
-            await this.videoRecorder.stop(thumbnailPath);
+            if (this.mixinState.recordingTimeout) {
+                clearTimeout(this.mixinState.recordingTimeout);
+                this.mixinState.recordingTimeout = undefined;
+            }
+            const startTime = this.mixinState.recordingStartTime;
+            const classesDetected = Array.from(this.mixinState.recordingClassesDetected);
+
+            const {
+                recordedClipPath,
+                recordedThumbnailPath
+            } = this.plugin.getRecordedEventPath({
+                cameraId: this.id,
+                fileName: `${startTime}`,
+            });
+
+            this.mixinState.recordingStartTime = undefined;
+            this.mixinState.recordingClassesDetected.clear();
+
+            await this.videoRecorder.stop(recordedThumbnailPath);
             this.videoRecorder = undefined;
             this.mixinState.storageSettings.values.videoRecorderProcessPid = undefined;
+
+            if (startTime) {
+                const endTime = Date.now();
+                const newFilename = getVideoClipName({
+                    startTime,
+                    endTime,
+                    classesDetected,
+                    logger: this.getLogger()
+                });
+
+                const {
+                    recordedClipPath: newRecordedClipPath,
+                    recordedThumbnailPath: newRecordedThumbnailPath
+                } = this.plugin.getRecordedEventPath({
+                    cameraId: this.id,
+                    fileName: newFilename,
+                });
+
+                try {
+                    await fs.promises.rename(recordedClipPath, newRecordedClipPath);
+                    await fs.promises.rename(recordedThumbnailPath, newRecordedThumbnailPath);
+                    this.getLogger().log(`Renamed recording to ${newFilename}`);
+                } catch (e) {
+                    this.getLogger().error('Error renaming recording files', e);
+                }
+            }
         } else {
             try {
                 const { videoRecorderProcessPid } = this.mixinState.storageSettings.values;

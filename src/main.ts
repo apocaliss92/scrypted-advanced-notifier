@@ -25,7 +25,7 @@ import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { CameraMixinState, OccupancyRuleData } from "./states";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, defaultClipPostSeconds, defaultClipPreSeconds, defaultOccupancyClipPreSeconds, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, DevNotifications, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getSequencesSettings, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, ruleSequencesGroup, ruleSequencesKey, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType, ZENTIK_PLUGIN_ID, getSequenceObject, RuleActionType, RuleActionsSequence, getRecordingRulesSettings } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, defaultClipPostSeconds, defaultClipPreSeconds, defaultOccupancyClipPreSeconds, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, DevNotifications, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getSequencesSettings, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, ruleSequencesGroup, ruleSequencesKey, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType, ZENTIK_PLUGIN_ID, getSequenceObject, RuleActionType, RuleActionsSequence, getRecordingRulesSettings, getRecordingRules, RecordingRule } from "./utils";
 import { AudioAnalyzerSource } from "./audioAnalyzerUtils";
 
 const { systemManager, mediaManager } = sdk;
@@ -34,6 +34,7 @@ export type PluginSettingKey =
     | 'pluginEnabled'
     | 'mqttEnabled'
     | 'notificationsEnabled'
+    | 'frigateEnabled'
     | 'devNotifications'
     | 'serverId'
     | 'localAddresses'
@@ -113,6 +114,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             defaultValue: false,
             immediate: true,
         },
+        frigateEnabled: {
+            title: 'Frifate enabled',
+            type: 'boolean',
+            defaultValue: false,
+            immediate: true,
+            hide: true,
+        },
         notificationsEnabled: {
             title: 'Notifications enabled',
             type: 'boolean',
@@ -154,6 +162,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             title: 'Scrypted token',
             description: 'Token to be found on the Homeassistant entity generated by the Scrypted integration (i.e. sensor.scrypted_token_{ip}',
             type: 'string',
+            subgroup: 'Homeassistant',
         },
         nvrUrl: {
             title: 'NVR url',
@@ -586,6 +595,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     alarmSystem: AdvancedNotifierAlarmSystem;
     dataFetcher: AdvancedNotifierDataFetcher;
     runningDetectionRules: DetectionRule[] = [];
+    runningRecordingRules: RecordingRule[] = [];
     lastNotExistingNotifier: number;
     public allAvailableRules: BaseRule[] = [];
     lastAutoDiscovery: number;
@@ -1579,11 +1589,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
 
             const pluginStorage = this.storageSettings;
-            const { availableRules, allowedRules } = getDetectionRules({ pluginStorage, console: logger });
+            const { availableRules: availableDetectionRules, allowedRules: allowedDetectionRules } = getDetectionRules({ pluginStorage, console: logger });
+            const { availableRules: availableRecordingRules, allowedRules: allowedRecordingRules } = getRecordingRules({ pluginStorage, console: logger });
+
+            const availableRules = [...availableDetectionRules, ...availableRecordingRules];
+            const allowedRules = [...allowedDetectionRules, ...allowedRecordingRules];
+            const currentlyRunningRules = [...this.runningDetectionRules, ...this.runningRecordingRules];
 
             const [rulesToEnable, rulesToDisable] = splitRules({
                 allRules: availableRules,
-                currentlyRunningRules: this.runningDetectionRules,
+                currentlyRunningRules,
                 rulesToActivate: allowedRules
             });
 
@@ -1599,7 +1614,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 this.putSetting(currentlyActiveKey, 'false');
             }
 
-            this.runningDetectionRules = cloneDeep(allowedRules) || [];
+            this.runningDetectionRules = cloneDeep(allowedDetectionRules) || [];
+            this.runningRecordingRules = cloneDeep(allowedRecordingRules) || [];
             this.deviceVideocameraMap = deviceVideocameraMap;
             this.videocameraDevicesMap = videocameraDevicesMap;
             this.allAvailableRules = availableRules;
@@ -2061,7 +2077,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
         }
 
-
         this.storageSettings = await convertSettingsToStorageSettings({
             device: this,
             dynamicSettings,
@@ -2092,6 +2107,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         this.storageSettings.settings.testGenerateClipType.hide = !testGenerateClip;
         this.storageSettings.settings.testClipPostSeconds.hide = !testGenerateClip;
         this.storageSettings.settings.testClipPreSeconds.hide = !testGenerateClip;
+        // this.storageSettings.settings.frigateEnabled.hide = !this.frigateApi;
 
         if (testNotifier) {
             const { priorityChoices } = getNotifierData({ notifierId: testNotifier.id, ruleType: RuleType.Detection });
