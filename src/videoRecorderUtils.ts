@@ -1,6 +1,7 @@
 import { ChildProcessWithoutNullStreams, spawn } from "child_process";
 import { EventEmitter } from "events";
-import { DetectionClass } from "./detectionClasses";
+import { classnamePrio, DetectionClass } from "./detectionClasses";
+import { sortBy } from "lodash";
 
 export interface VideoRtspFfmpegRecorderOptions {
     rtspUrl: string;
@@ -151,6 +152,9 @@ export const detectionClassIndex = {
     [DetectionClass.Package]: 6,
 }
 
+export const detectionClassIndexReversed = Object.entries(detectionClassIndex)
+    .reduce((tot, [detectionClass, index]) => ({ ...tot, [index]: detectionClass }), {});
+
 export const getVideoClipName = (props: {
     startTime: number,
     endTime: number,
@@ -175,4 +179,53 @@ export const getVideoClipName = (props: {
     })}`)
 
     return filename;
+}
+
+export const getMainDetectionClass = (detectionClasses: DetectionClass[]) => {
+    if (detectionClasses.includes(DetectionClass.Face)) {
+        return DetectionClass.Face;
+    }
+    if (detectionClasses.includes(DetectionClass.Plate)) {
+        return DetectionClass.Plate;
+    }
+    if (detectionClasses.includes(DetectionClass.Package)) {
+        return DetectionClass.Package;
+    }
+    if (detectionClasses.includes(DetectionClass.Person)) {
+        return DetectionClass.Person;
+    }
+    if (detectionClasses.includes(DetectionClass.Animal)) {
+        return DetectionClass.Animal;
+    }
+    if (detectionClasses.includes(DetectionClass.Vehicle)) {
+        return DetectionClass.Vehicle;
+    }
+    if (detectionClasses.includes(DetectionClass.Motion)) {
+        return DetectionClass.Motion;
+    }
+}
+
+export const parseVideoFileName = (videoClipName: string) => {
+    const [startTime, endTime, detectionsHash] = videoClipName.split('_');
+
+    const detectionClasses: DetectionClass[] = [];
+    const detectionFlags = detectionsHash.split('');
+    detectionFlags.forEach((flag, index) => flag === '1' && detectionClasses.push(detectionClassIndexReversed[index]));
+    const sortedClassnames = sortBy(detectionClasses,
+        (classname) => classnamePrio[classname] ?? 100,
+    );
+    const startTimeNumber = Number(startTime);
+    const endTimeNumber = Number(endTime);
+
+    const eventName = getMainDetectionClass(detectionClasses);
+
+    const duration = endTimeNumber - startTimeNumber;
+
+    return {
+        startTime: startTimeNumber,
+        endTime: endTimeNumber,
+        detectionClasses: sortedClassnames,
+        eventName,
+        duration,
+    };
 }

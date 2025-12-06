@@ -335,6 +335,8 @@ export const getWebhooks = async () => {
     const setAlarm = 'setAlarm';
     const imageRule = 'imageRule';
     const videoRule = 'videoRule';
+    const recordedClipVideo = 'recordedClipVideo';
+    const recordedClipThumbnail = 'recordedClipThumbnail';
     const gifRule = 'gifRule';
     const eventThumbnail = 'eventThumbnail';
     const eventImage = 'eventImage';
@@ -342,6 +344,8 @@ export const getWebhooks = async () => {
     const eventVideoclip = 'eventVideoclip';
 
     return {
+        recordedClipVideo,
+        recordedClipThumbnail,
         lastSnapshot,
         haAction,
         snoozeNotification,
@@ -461,6 +465,8 @@ export const getWebHookUrls = async (props: {
     let eventImageUrl: string;
     let eventVideoclipUrl: string;
     let privatePathnamePrefix: string;
+    let recordedClipVideoPath: string;
+    let recordedClipThumbnailPath: string;
 
     const snoozeActions: ExtendedNotificationAction[] = [];
 
@@ -476,6 +482,8 @@ export const getWebHookUrls = async (props: {
         eventImage,
         eventVideoclip,
         eventsApp,
+        recordedClipThumbnail,
+        recordedClipVideo,
     } = await getWebhooks();
 
     try {
@@ -494,6 +502,9 @@ export const getWebHookUrls = async (props: {
         lastSnapshotLocalUrl = `${localEndpoint}${lastSnapshot}/${encodedId}/{IMAGE_NAME}?${paramString}`;
         haActionUrl = `${assetsOrigin}${publicPathnamePrefix}${haAction}/${encodedId}?${paramString}`;
         postNotificationUrl = `${assetsOrigin}${publicPathnamePrefix}${postNotification}/${encodedId}?${paramString}`;
+
+        recordedClipThumbnailPath = `${assetsOrigin}${publicPathnamePrefix}${recordedClipThumbnail}/${encodedId}/recordings/${fileId}.jpg?${paramString}`;
+        recordedClipVideoPath = `${assetsOrigin}${publicPathnamePrefix}${recordedClipVideo}/${encodedId}/recordings/${fileId}.mp4?${paramString}`;
 
         imageRuleUrl = `${assetsOrigin}${publicPathnamePrefix}${imageRule}/${encodedId}/${ruleName}/${fileId}.jpg?${paramString}`;
         videoRuleUrl = `${assetsOrigin}${publicPathnamePrefix}${videoRule}/${encodedId}/${ruleName}/${fileId}.mp4?${paramString}`;
@@ -534,6 +545,8 @@ export const getWebHookUrls = async (props: {
         eventImageUrl,
         eventVideoclipUrl,
         privatePathnamePrefix,
+        recordedClipThumbnailPath,
+        recordedClipVideoPath,
     };
 }
 
@@ -1250,7 +1263,7 @@ export const getActiveRules = async (
     const {
         allowedRules: allowedRecordingRules,
         availableRules: availableRecordingRules,
-    } = await getRecordingRules({
+    } = getRecordingRules({
         deviceStorage,
         pluginStorage,
         console,
@@ -2268,21 +2281,23 @@ export const getRuleSettings = async (props: {
             });
         }
 
-        settings.push(
-            {
-                key: notifiersKey,
-                title: 'Notifiers',
-                group,
-                subgroup,
-                type: 'device',
-                multiple: true,
-                combobox: true,
-                deviceFilter: notifierFilter,
-                defaultValue: [],
-                immediate: true,
-                onPut: async () => await refreshSettings()
-            }
-        );
+        if (!isRecordingRule) {
+            settings.push(
+                {
+                    key: notifiersKey,
+                    title: 'Notifiers',
+                    group,
+                    subgroup,
+                    type: 'device',
+                    multiple: true,
+                    combobox: true,
+                    deviceFilter: notifierFilter,
+                    defaultValue: [],
+                    immediate: true,
+                    onPut: async () => await refreshSettings()
+                }
+            );
+        }
 
         if (currentActivation === DetectionRuleActivation.Schedule && ruleType !== RuleType.Timelapse) {
             settings.push(
@@ -3571,14 +3586,14 @@ export const getRecordingRulesSettings = async (props: {
             {
                 key: devicesKey,
                 title: 'Devices',
-                description: 'Select devices (empty means none)',
+                description: 'Select cameras',
                 group,
                 subgroup,
                 type: 'device',
                 multiple: true,
                 immediate: true,
                 combobox: true,
-                deviceFilter,
+                deviceFilter: cameraFilter,
                 defaultValue: [],
                 onPut: async () => await refreshSettings(),
             },

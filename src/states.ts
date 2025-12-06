@@ -1,4 +1,4 @@
-import { MediaObject, MediaStreamDestination, ObjectsDetected } from "@scrypted/sdk";
+import { MediaObject, MediaStreamDestination, ObjectsDetected, VideoClip } from "@scrypted/sdk";
 import { AudioRule, BaseRule, DetectionRule, MatchRule, ObserveZoneData, OccupancyRule, RecordingRule, ScryptedEventSource, TimelapseRule } from "./utils";
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
@@ -98,6 +98,10 @@ export class CameraMixinState {
     accumulatedRules: MatchRule[] = [];
     recordingClassesDetected: Set<string> = new Set();
     lastRecordingProlongLog: number = 0;
+    videoClipsCache: {
+        timestamp: number;
+        clips: VideoClip[];
+    } | undefined;
     clientId: string;
 
     snoozeUntilDic: Record<string, number> = {};

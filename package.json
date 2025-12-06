@@ -51,7 +51,7 @@
   },
   "dependencies": {
     "@scrypted/common": "file:../scrypted/common",
-    "@scrypted/sdk": "0.5.52",
+    "@scrypted/sdk": "0.5.53",
     "axios": "^0.23.0",
     "jimp": "^1.6.0",
     "lodash": "^4.17.21",

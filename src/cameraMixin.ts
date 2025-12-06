@@ -12,7 +12,7 @@ import { objectDetectorNativeId } from '../../scrypted-frigate-bridge/src/utils'
 import { Deferred } from "../../scrypted/server/src/deferred";
 import { checkObjectsOccupancy, confirmDetection } from "./aiUtils";
 import { AudioAnalyzerSource, AudioChunkData, AudioRtspFfmpegStream, AudioSensitivity, executeAudioClassification, sensitivityDbThresholds } from "./audioAnalyzerUtils";
-import { VideoRtspFfmpegRecorder, getVideoClipName } from "./videoRecorderUtils";
+import { VideoRtspFfmpegRecorder, getVideoClipName, parseVideoFileName } from "./videoRecorderUtils";
 import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, isAudioClassname, isFaceClassname, isMotionClassname, isObjectClassname, isPlateClassname, levenshteinDistance } from "./detectionClasses";
 import { addBoundingBoxesToImage, addZoneClipPathToImage, cropImageToDetection } from "./drawingUtils";
 import AdvancedNotifierPlugin from "./main";
@@ -440,6 +440,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async getVideoClipsInternal(options?: VideoClipOptions): Promise<VideoClip[]> {
+        const now = Date.now();
+        if (this.mixinState.videoClipsCache && (now - this.mixinState.videoClipsCache.timestamp) < 15000) {
+            return this.mixinState.videoClipsCache.clips;
+        }
+
         const videoClips: VideoClip[] = [];
         const logger = this.getLogger();
         const cameraFolder = this.id;
@@ -502,7 +507,58 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             logger.error(`Error fetching videoclips for camera ${cameraDevice.name}`, e);
         }
 
-        return sortBy(videoClips, 'startTime');
+        const { recordedEventsPath } = this.plugin.getRecordedEventPath({ cameraId: cameraFolder });
+
+        try {
+            const files = await fs.promises.readdir(recordedEventsPath);
+
+            for (const file of files) {
+                try {
+                    const [fileName, extension] = file.split('.');
+                    if (extension === 'mp4') {
+                        const { startTime, endTime, detectionClasses, eventName, duration } = parseVideoFileName(fileName);
+
+                        if (startTime > options.startTime && endTime < options.endTime) {
+                            const { recordedClipVideoPath, recordedClipThumbnailPath } = await getWebHookUrls({
+                                fileId: fileName,
+                                plugin: this.plugin,
+                                device: cameraDevice
+                            });
+
+                            videoClips.push({
+                                id: fileName,
+                                startTime,
+                                duration,
+                                event: eventName,
+                                description: ADVANCED_NOTIFIER_INTERFACE,
+                                thumbnailId: fileName,
+                                videoId: fileName,
+                                detectionClasses,
+                                resources: {
+                                    thumbnail: {
+                                        href: recordedClipThumbnailPath
+                                    },
+                                    video: {
+                                        href: recordedClipVideoPath
+                                    }
+                                }
+                            });
+                        }
+                    }
+                } catch { }
+            }
+        } catch (e) {
+            logger.error(`Error fetching videoclips for camera ${cameraDevice.name}`, e);
+        }
+
+        const result = sortBy(videoClips, 'startTime');
+        this.mixinState.videoClipsCache = {
+            timestamp: now,
+            clips: result
+        };
+
+        logger.info(`Fetched ${result.length} videoclips: ${JSON.stringify({ options, videoClips })}`);
+        return result;
     }
 
     async getVideoClip(videoId: string): Promise<MediaObject> {
