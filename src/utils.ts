@@ -4681,9 +4681,9 @@ export const isDeviceSupported = (device: DeviceBase) => {
     const isSupported = isCamera || isDoorbell || isSensor || isNotifier;
 
     const sensorType: SupportedSensorType = isLock ? SupportedSensorType.Lock :
-        isBinarySensor ? SupportedSensorType.Binary :
-            isFloodSensor ? SupportedSensorType.Flood :
-                isEntrySensor ? SupportedSensorType.Entry :
+        isFloodSensor ? SupportedSensorType.Flood :
+            isEntrySensor ? SupportedSensorType.Entry :
+                isBinarySensor ? SupportedSensorType.Binary :
                     undefined;
 
     return {
