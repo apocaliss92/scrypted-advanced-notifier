@@ -51,12 +51,29 @@ export const EVENTS_RECORDER_PLUGIN_NAME = 'Events recorder';
 export const ADVANCED_NOTIFIER_PLUGIN_NAME = scrypted.name;
 export const SCRYPTED_NVR_OBJECT_DETECTION_NAME = 'Scrypted NVR Object Detection';
 
-export const formatSize = (size: number) => {
+export const formatSize = (size: number, unit?: 'MB' | 'GB') => {
+    let unitToUse = unit;
     const sizeInMb = size / (1024 * 1024);
-    if (sizeInMb < 1000) {
-        return `${sizeInMb.toFixed(2)} MB`;
+    if (!unitToUse) {
+        if (sizeInMb < 1000) {
+            unitToUse = 'MB';
+        } else {
+            unitToUse = 'GB';
+        }
     }
-    return `${(sizeInMb / 1024).toFixed(2)} GB`;
+
+    let value = sizeInMb;
+
+    if (unitToUse === 'GB') {
+        value = sizeInMb / 1024
+    }
+    const formatted = `${value.toFixed(2)} ${unitToUse}`;
+
+    return {
+        formatted,
+        unit: unitToUse,
+        value: Number(value.toFixed(2)),
+    }
 }
 
 export enum DevNotifications {

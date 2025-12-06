@@ -69,7 +69,7 @@ export type PluginSettingKey =
     | 'checkConfigurations'
     | 'aiSource'
     | 'imagesPath'
-    | 'videoclipsRetention'
+    | 'eventsRetention'
     | typeof ruleSequencesKey
     | 'storeEvents'
     | 'cleanupEvents'
@@ -89,6 +89,7 @@ export type PluginSettingKey =
     | 'postProcessingLineThickness'
     | 'postProcessingShowScore'
     | 'postProcessingAspectRatio'
+    | 'eventsDbsRemoved612'
     | BaseSettingsKey
     | TextSettingKey;
 
@@ -482,10 +483,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             type: 'button',
             onPut: async () => await this.clearAllEventsData()
         },
-        videoclipsRetention: {
-            title: 'Videoclip retention days',
+        eventsRetention: {
+            title: 'Events retention days',
             group: 'Storage',
-            description: 'How many days to keep the generated clips',
+            description: 'How many days to keep the generated event images',
             type: 'number',
             defaultValue: 30,
         },
@@ -582,6 +583,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             type: 'string',
             defaultValue: '#AAAAAA',
         },
+        eventsDbsRemoved612: {
+            type: 'boolean',
+            hide: true,
+        }
     };
     storageSettings = new StorageSettings(this, this.initStorage);
 
@@ -760,6 +765,34 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         );
 
         await this.initPluginSettings();
+
+        if (!this.storageSettings.values.eventsDbsRemoved612) {
+            logger.log(`Initiating old DBs migration`);
+            const pluginVolume = process.env.SCRYPTED_PLUGIN_VOLUME;
+            const oldDbsPath = path.join(pluginVolume, 'dbs', 'events');
+            const { dbsPath } = this.getEventPaths({});
+
+            try {
+                const files = await fs.promises.readdir(oldDbsPath);
+                logger.log(`Found old DB files: ${files}`);
+                for (const file of files) {
+                    if (file.endsWith('.json')) {
+                        const src = path.join(oldDbsPath, file);
+                        const dest = path.join(dbsPath, file);
+                        logger.log(`Copying old DB file from ${src} to ${dest}`);
+                        await fs.promises.copyFile(src, dest);
+                    }
+                }
+
+                await fs.promises.rm(path.join(pluginVolume, 'dbs'), { recursive: true, force: true });
+
+                logger.log(`${files.length} DBs moved`);
+            } catch (e) {
+                logger.log('Error moving old DBs', e);
+            }
+            this.storageSettings.values.eventsDbsRemoved612 = true;
+        }
+        logger.log(`Initiating old DBs migration`);
     }
 
 
@@ -1655,9 +1688,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 this.lastConfigurationsCheck = now;
                 await this.checkPluginConfigurations(false);
 
+                const { dbsPath } = this.getEventPaths({});
+
                 await cleanupDatabases({
-                    days: this.storageSettings.values.videoclipsRetention,
+                    days: this.storageSettings.values.eventsRetention,
                     logger,
+                    dbsPath,
                 });
             }
 
@@ -3573,16 +3609,17 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     public getFsPaths(props: {
-        cameraId: string,
+        cameraId?: string,
         triggerTime?: number,
     }) {
         const { cameraId, triggerTime } = props;
-        const imagesPath = this.getStoragePath();
-        const cameraPath = path.join(imagesPath, cameraId);
-        const decoderpath = path.join(cameraPath, 'decoder');
-        const framePath = triggerTime ? path.join(decoderpath, `${triggerTime}.jpg`) : undefined;
+        const storagePath = this.getStoragePath();
+        const cameraPath = cameraId ? path.join(storagePath, cameraId) : undefined;
+        const decoderpath = cameraPath ? path.join(cameraPath, 'decoder') : undefined;
+        const framePath = triggerTime && decoderpath ? path.join(decoderpath, `${triggerTime}.jpg`) : undefined;
 
         return {
+            storagePath,
             cameraPath,
             decoderpath,
             framePath,
@@ -3670,16 +3707,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     public getEventPaths = (props: {
-        cameraId: string,
+        cameraId?: string,
         fileName?: string,
     }) => {
         const { cameraId, fileName } = props;
-        const { cameraPath } = this.getFsPaths({ cameraId });
+        const { cameraPath, storagePath } = this.getFsPaths({ cameraId });
+        const dbsPath = path.join(storagePath, 'dbs');
 
-        const eventsPath = path.join(cameraPath, 'events');
-        const dbPath = path.join(cameraPath, 'events_db.json');
-        const thumbnailsPath = path.join(eventsPath, 'thumbnails');
-        const imagesPath = path.join(eventsPath, 'images');
+        const eventsPath = cameraPath ? path.join(cameraPath, 'events') : undefined;
+        const thumbnailsPath = eventsPath ? path.join(eventsPath, 'thumbnails') : undefined;
+        const imagesPath = eventsPath ? path.join(eventsPath, 'images') : undefined;
         const eventThumbnailPath = fileName ? path.join(thumbnailsPath, `${fileName}.jpg`) : undefined;
         const eventImagePath = fileName ? path.join(imagesPath, `${fileName}.jpg`) : undefined;
 
@@ -3688,7 +3725,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             eventThumbnailPath,
             eventImagePath,
             fileId: fileName,
-            dbPath,
+            dbsPath,
             thumbnailsPath,
             imagesPath,
         };
@@ -4014,12 +4051,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     public clearVideoclipsData = async (props: {
         device: ScryptedDeviceBase,
         logger: Console,
+        maxSpaceInGb: number,
+        maxDays: number,
         framesThreshold: number,
-        videoclipsThreshold: number,
     }) => {
-        const { device, logger, framesThreshold, videoclipsThreshold } = props;
+        const { eventsRetention } = this.storageSettings.values
+        const { device, logger, maxDays, maxSpaceInGb, framesThreshold } = props;
+        const now = Date.now();
+        const videoclipsThreshold = now - (1000 * 60 * 60 * 24 * maxDays);
         const { decoderpath, cameraPath } = this.getFsPaths({ cameraId: device.id });
-        logger.log(`Cleaning up generated data`);
+        logger.log(`Cleaning up generated data: maxDays=${maxDays}, maxSpaceInGb=${maxSpaceInGb}, framesThreshold=${framesThreshold}, videoclipsThreshold=${videoclipsThreshold}`);
 
         const logData = {
             framesFound: 0,
@@ -4028,6 +4069,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             clipsRemoved: 0,
             snapshotsFound: 0,
             snapshotsRemoved: 0,
+            eventsFound: 0,
+            eventsRemoved: 0,
             recordedEventsFound: 0,
             recordedEventsRemoved: 0,
         };
@@ -4036,6 +4079,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             currentPath: cameraPath,
         });
 
+        // Decoder frames cleanup
         try {
             const frames = await fs.promises.readdir(decoderpath);
             logData.framesFound = frames.length;
@@ -4055,8 +4099,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
         } catch { }
 
+        // Rules artifacts cleanup
         const { rulesPath } = this.getRulePaths({ cameraId: device.id });
-
         try {
             await fs.promises.access(rulesPath);
             const rulesFolder = await fs.promises.readdir(rulesPath);
@@ -4113,8 +4157,50 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
         } catch { }
 
-        const { recordedEventsPath } = this.getRecordedEventPath({ cameraId: device.id });
+        // Recorded events cleanup
+        const { imagesPath, thumbnailsPath } = this.getEventPaths({ cameraId: device.id });
+        try {
+            await fs.promises.access(imagesPath);
 
+            const imageFiles = await fs.promises.readdir(imagesPath);
+
+            logData.eventsFound += imageFiles.length;
+
+            for (const filename of imageFiles) {
+                const fileName = filename.split('.')[0];
+                const { eventImagePath } = this.getEventPaths({ cameraId: device.id, fileName });
+
+                const startTime = Number(eventImagePath);
+                if (startTime < eventsRetention) {
+                    try {
+                        await fs.promises.unlink(eventImagePath);
+                        logData.eventsRemoved += 1;
+                    } catch (err) {
+                        logger.error(`Error removing event ${filename}`, err.message);
+                    }
+                }
+            }
+            const thumbnailFiles = await fs.promises.readdir(thumbnailsPath);
+
+            for (const filename of thumbnailFiles) {
+                const fileName = filename.split('.')[0];
+                const { eventThumbnailPath } = this.getEventPaths({ cameraId: device.id, fileName });
+
+                const startTime = Number(eventThumbnailPath);
+                if (startTime < eventsRetention) {
+                    try {
+                        await fs.promises.unlink(eventThumbnailPath);
+                        logData.eventsRemoved += 1;
+                    } catch (err) {
+                        logger.error(`Error removing event ${filename}`, err.message);
+                    }
+                }
+            }
+
+        } catch { }
+
+        // Recorded events cleanup
+        const { recordedEventsPath } = this.getRecordedEventPath({ cameraId: device.id });
         try {
             await fs.promises.access(recordedEventsPath);
 
@@ -4154,13 +4240,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             currentPath: cameraPath,
         });
         const sizeFreed = occupiedSizeBefore - occupiedSizeAfter;
-        const sizeFreedFormatted = formatSize(sizeFreed);
+        const { formatted: sizeFreedFormatted } = formatSize(sizeFreed);
 
         const cameraMixin = this.currentCameraMixinsMap[device.id];
-        const occupiedSizeFormatted = formatSize(occupiedSizeAfter);
-        cameraMixin.mixinState.storageSettings.values.occupiedSpaceText = occupiedSizeFormatted;
+        const { value: occupiedSizeInGb, formatted: formattedOccupiedSizeInGb } = formatSize(occupiedSizeAfter, 'GB');
+        cameraMixin.mixinState.storageSettings.values.occupiedSpaceInGb = occupiedSizeInGb;
 
-        logger.log(`Cleanup completed ${JSON.stringify(logData)}, freed space: ${sizeFreedFormatted}, occupied space: ${occupiedSizeFormatted}`);
+        logger.log(`Cleanup completed ${JSON.stringify(logData)}, freed space: ${sizeFreedFormatted}, occupied space: ${formattedOccupiedSizeInGb}`);
     }
 
     public prepareClipGenerationFiles = async (props: {
@@ -4175,7 +4261,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const cameraMixin = this.currentCameraMixinsMap[device.id];
 
         const { decoderpath } = this.getFsPaths({ cameraId: device.id });
-        const { filesListPath, generatedPath } = this.getRulePaths({ cameraId: device.id, triggerTime, ruleName: rule.name });
+        const { filesListPath } = this.getRulePaths({ cameraId: device.id, triggerTime, ruleName: rule.name });
 
         let preTriggerFrames = 0;
         let postTriggerFrames = 0;
@@ -4462,6 +4548,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const smallB64Image = await moToB64(resizedImage);
         const smallBase64Data = smallB64Image.replace(/^data:image\/png;base64,/, "");
         await fs.promises.writeFile(eventThumbnailPath, smallBase64Data, 'base64');
+        const { dbsPath } = this.getEventPaths({});
 
         addEvent({
             event: {
@@ -4477,6 +4564,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 detections,
             },
             logger,
+            dbsPath,
         });
     }
 
@@ -4489,8 +4577,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 const deviceLogger = this.currentCameraMixinsMap[deviceId].getLogger();
                 await this.clearEventsData({ device, logger: deviceLogger })
             }
+            const { dbsPath } = this.getEventPaths({});
 
-            await cleanupEvents({ logger });
+            await cleanupEvents({ logger, dbsPath });
         } catch (e) {
             logger.error(`Error clearing all events data`, e);
         }
