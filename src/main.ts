@@ -17,7 +17,7 @@ import { haAlarmAutomation, haAlarmAutomationId } from "./alarmUtils";
 import { AdvancedNotifierCamera } from "./camera";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierDataFetcher } from "./dataFetcher";
-import { addEvent, cleanupDatabases, cleanupEvents } from "./db";
+import { addEvent, cleanupDatabases, cleanupEvents, cleanupOldEvents } from "./db";
 import { DetectionClass, detectionClassesDefaultMap, isLabelDetection, isMotionClassname, isPlateClassname } from "./detectionClasses";
 import { serveGif, serveImage, servePluginGeneratedVideoclip } from "./httpUtils";
 import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
@@ -69,7 +69,6 @@ export type PluginSettingKey =
     | 'checkConfigurations'
     | 'aiSource'
     | 'imagesPath'
-    | 'eventsRetention'
     | typeof ruleSequencesKey
     | 'storeEvents'
     | 'cleanupEvents'
@@ -94,6 +93,8 @@ export type PluginSettingKey =
     | TextSettingKey;
 
 export default class AdvancedNotifierPlugin extends BasePlugin implements MixinProvider, HttpRequestHandler, DeviceProvider, PushHandler, LauncherApplication {
+    private clearVideoclipsQueue: Promise<void> = Promise.resolve();
+
     initStorage: StorageSettingsDict<PluginSettingKey> = {
         ...getBaseSettings({
             onPluginSwitch: async (_, enabled) => {
@@ -482,13 +483,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             group: 'Storage',
             type: 'button',
             onPut: async () => await this.clearAllEventsData()
-        },
-        eventsRetention: {
-            title: 'Events retention days',
-            group: 'Storage',
-            description: 'How many days to keep the generated event images',
-            type: 'number',
-            defaultValue: 14,
         },
         postProcessingCropSizeIncrease: {
             title: 'Size increase',
@@ -1687,14 +1681,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             if (!this.lastConfigurationsCheck || (now - this.lastConfigurationsCheck) > 1000 * 60 * 60) {
                 this.lastConfigurationsCheck = now;
                 await this.checkPluginConfigurations(false);
-
-                const { dbsPath } = this.getEventPaths({});
-
-                await cleanupDatabases({
-                    days: this.storageSettings.values.eventsRetention,
-                    logger,
-                    dbsPath,
-                });
             }
 
             const { mqttEnabled, notificationsEnabled, devNotifications, devNotifier } = this.storageSettings.values;
@@ -3638,28 +3624,52 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     async decodeFileId(props: { fileId: string }) {
         const { fileId } = props;
 
-        const [cameraId, ruleName, triggerTime] = fileId.split('__');
+        const [identifier, cameraId] = fileId.split('__');
+
         const device = systemManager.getDeviceById<DeviceInterface>(cameraId);
 
-        const { videoHistoricalPath, imageHistoricalPath } = this.getRulePaths({
-            cameraId,
-            ruleName,
-            triggerTime: Number(triggerTime),
-        });
+        if (identifier === 'rule') {
+            const [_, __, ruleName, triggerTime] = fileId.split('__');
+            const { videoHistoricalPath, imageHistoricalPath } = this.getRulePaths({
+                cameraId,
+                ruleName,
+                triggerTime: Number(triggerTime),
+            });
 
-        const { videoRuleUrl, imageRuleUrl } = await getWebHookUrls({
-            console: this.getLogger(),
-            device: device,
-            plugin: this,
-            fileId: triggerTime,
-        });
+            const { videoRuleUrl, imageRuleUrl } = await getWebHookUrls({
+                console: this.getLogger(),
+                device: device,
+                plugin: this,
+                fileId: triggerTime,
+            });
 
-        return {
-            videPath: videoHistoricalPath,
-            imagePath: imageHistoricalPath,
-            videoUrl: videoRuleUrl,
-            imageUrl: imageRuleUrl
-        };
+            return {
+                videPath: videoHistoricalPath,
+                imagePath: imageHistoricalPath,
+                videoUrl: videoRuleUrl,
+                imageUrl: imageRuleUrl
+            };
+        } else if (identifier === 'event') {
+            const [_, __, fileName] = fileId.split('__');
+            const { recordedClipPath, recordedThumbnailPath } = this.getRecordedEventPath({
+                cameraId,
+                fileName
+            });
+
+            const { recordedClipThumbnailPath, recordedClipVideoPath } = await getWebHookUrls({
+                console: this.getLogger(),
+                device: device,
+                plugin: this,
+                fileId: fileName,
+            });
+
+            return {
+                videPath: recordedClipPath,
+                imagePath: recordedThumbnailPath,
+                videoUrl: recordedClipVideoPath,
+                imageUrl: recordedClipThumbnailPath
+            };
+        }
     }
 
     public getRulePaths = (props: {
@@ -3686,7 +3696,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const imageLatestPath = rulePath ? path.join(rulePath, `latest.jpg`) : undefined;
         const imageLatestPathVariant = rulePath ? path.join(rulePath, `latest_${variant}.jpg`) : undefined;
 
-        const fileId = `${cameraId}__${ruleName}__${triggerTime}`;
+        const fileId = `rule__${cameraId}__${ruleName}__${triggerTime}`;
 
         return {
             rulePath,
@@ -3742,10 +3752,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const recordedClipPath = fileName ? path.join(recordedEventsPath, `${fileName}.mp4`) : undefined;
         const recordedThumbnailPath = fileName ? path.join(recordedEventsPath, `${fileName}.jpg`) : undefined;
 
+        const fileId = `event__${cameraId}__${fileName}`;
+
         return {
             recordedEventsPath,
             recordedClipPath,
             recordedThumbnailPath,
+            fileId,
         };
     }
 
@@ -4048,21 +4061,39 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
     }
 
-    public clearVideoclipsData = async (props: {
+    public clearVideoclipsData = (props: {
         device: ScryptedDeviceBase,
         logger: Console,
         maxSpaceInGb: number,
         maxDays: number,
         framesThreshold: number,
+        eventsMaxDays: number,
         additionalCutoffDays?: number,
     }) => {
-        const { eventsRetention } = this.storageSettings.values
-        const { device, logger, maxDays, maxSpaceInGb, framesThreshold, additionalCutoffDays = 0 } = props;
-        const now = Date.now();
-        const videoclipsThreshold = now - (1000 * 60 * 60 * 24 * (maxDays + additionalCutoffDays));
-        const { decoderpath, cameraPath } = this.getFsPaths({ cameraId: device.id });
-        const eventsThreshold = now - ((eventsRetention + additionalCutoffDays) * 1000 * 60 * 60 * 24);
+        this.clearVideoclipsQueue = this.clearVideoclipsQueue.then(async () => {
+            try {
+                await this.doClearVideoclipsData(props);
+            } catch (e) {
+                props.logger.error('Error in clearVideoclipsData', e);
+            }
+        });
+        return this.clearVideoclipsQueue;
+    }
 
+    private doClearVideoclipsData = async (props: {
+        device: ScryptedDeviceBase,
+        logger: Console,
+        maxSpaceInGb: number,
+        maxDays: number,
+        framesThreshold: number,
+        eventsMaxDays: number,
+        additionalCutoffDays?: number,
+    }) => {
+        const { device, logger, maxDays, maxSpaceInGb, framesThreshold, additionalCutoffDays = 0, eventsMaxDays } = props;
+        const now = Date.now();
+        const videoclipsThreshold = now - (1000 * 60 * 60 * 24 * (maxDays - additionalCutoffDays));
+        const { decoderpath, cameraPath } = this.getFsPaths({ cameraId: device.id });
+        const eventsThreshold = now - ((eventsMaxDays - additionalCutoffDays) * 1000 * 60 * 60 * 24);
         logger.log(`Cleaning up generated data: additionalCutoffDays=${additionalCutoffDays}, maxDays=${maxDays}, maxSpaceInGb=${maxSpaceInGb}, framesThreshold=${framesThreshold}, videoclipsThreshold=${videoclipsThreshold}, eventsThreshold=${eventsThreshold}`);
 
         const logData = {
@@ -4161,7 +4192,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         } catch { }
 
         // Recorded events cleanup
-        const { imagesPath, thumbnailsPath } = this.getEventPaths({ cameraId: device.id });
+        const { imagesPath, thumbnailsPath, dbsPath } = this.getEventPaths({ cameraId: device.id });
+
+        await cleanupOldEvents({ logger, dbsPath, thresholdTimestamp: eventsThreshold, deviceId: device.id });
+
         try {
             await fs.promises.access(imagesPath);
 
@@ -4253,6 +4287,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         if (occupiedSizeInGb > (maxSpaceInGb * 0.95)) {
             logger.log(`Should clean additional space: occupiedSizeInGb ${occupiedSizeInGb} > maxSpaceInGb ${maxSpaceInGb} (95% cutoff)`);
+            await this.clearVideoclipsData({
+                device,
+                logger,
+                maxDays,
+                maxSpaceInGb,
+                framesThreshold,
+                eventsMaxDays,
+                additionalCutoffDays: additionalCutoffDays + 1,
+            });
         }
     }
 

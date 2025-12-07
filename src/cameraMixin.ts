@@ -62,6 +62,7 @@ type CameraSettingKey =
     | 'delayPassedData'
     | 'maxSpaceInGb'
     | 'storageRetentionDays'
+    | 'storageEventsRetentionDays'
     | 'occupiedSpaceInGb'
     | MixinBaseSettingKey;
 
@@ -73,10 +74,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             refreshSettings: this.refreshSettings.bind(this)
         }),
         storageRetentionDays: {
-            title: 'Retention days',
-            description: 'Number of days to keep the stored data (rules artifacts and videoclips, events will follow the plugin retention rule)',
+            title: 'Clips/Rules retention days',
+            description: 'Number of days to keep rules artifacts and videoclips',
             type: 'number',
             defaultValue: 30,
+            subgroup: 'Storage',
+        },
+        storageEventsRetentionDays: {
+            title: 'Events retention days',
+            group: 'Storage',
+            description: 'How many days to keep the generated event images',
+            type: 'number',
+            defaultValue: 14,
             subgroup: 'Storage',
         },
         maxSpaceInGb: {
@@ -544,6 +553,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 plugin: this.plugin,
                                 device: cameraDevice
                             });
+                            const { fileId } = this.plugin.getRecordedEventPath({
+                                cameraId: cameraFolder,
+                                fileName
+                            });
 
                             videoClips.push({
                                 id: fileName,
@@ -551,8 +564,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 duration,
                                 event: eventName,
                                 description: ADVANCED_NOTIFIER_INTERFACE,
-                                thumbnailId: fileName,
-                                videoId: fileName,
+                                thumbnailId: fileId,
+                                videoId: fileId,
                                 detectionClasses,
                                 resources: {
                                     thumbnail: {
@@ -902,7 +915,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const decoderType = this.decoderType;
 
                 // Cleanup
-                const { maxSpaceInGb, storageRetentionDays } = this.mixinState.storageSettings.values;
+                const { maxSpaceInGb, storageRetentionDays, storageEventsRetentionDays } = this.mixinState.storageSettings.values;
                 const framesThreshold = now - (1000 * 60 * 2);
 
                 if (!this.mixinState.lastFsCleanup || this.mixinState.lastFsCleanup < framesThreshold) {
@@ -913,6 +926,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         maxSpaceInGb,
                         maxDays: storageRetentionDays,
                         framesThreshold,
+                        eventsMaxDays: storageEventsRetentionDays,
                     }).catch(logger.log);
                 }
 

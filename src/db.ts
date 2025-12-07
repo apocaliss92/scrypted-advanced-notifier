@@ -31,6 +31,52 @@ export const cleanupEvents = async (props: { logger: Console, dbsPath: string })
   logger.log(`All DBs pruned`);
 }
 
+export const cleanupOldEvents = async (props: { logger: Console, dbsPath: string, thresholdTimestamp: number, deviceId: string }) => {
+  const { logger, dbsPath, thresholdTimestamp, deviceId } = props;
+  try {
+    const files = await fs.promises.readdir(dbsPath);
+    const thresholdDate = moment(thresholdTimestamp);
+
+    for (const file of files) {
+      if (file.endsWith('.json')) {
+        const dateStr = file.replace('.json', '');
+        const fileDate = moment(dateStr, dbFileFormat);
+
+        if (fileDate.isValid() && fileDate.isBefore(thresholdDate, 'day')) {
+          const dbPath = path.join(dbsPath, dateStr);
+          let db = dailyDbCache[dbPath]?.db;
+
+          if (!db) {
+            db = new JsonDB(new Config(dbPath, true, true, '/'));
+          }
+
+          try {
+            const events = await db.getData('/events') as DbDetectionEvent[];
+            const newEvents = events.filter(e => e.deviceId !== deviceId);
+
+            if (newEvents.length !== events.length) {
+              if (newEvents.length === 0) {
+                if (dailyDbCache[dbPath]) {
+                  delete dailyDbCache[dbPath];
+                }
+                await fs.promises.unlink(path.join(dbsPath, file));
+                logger.log(`Removed empty DB file: ${file}`);
+              } else {
+                await db.push('/events', newEvents);
+                logger.log(`Removed ${events.length - newEvents.length} events for device ${deviceId} from ${file}`);
+              }
+            }
+          } catch (e) {
+            // ignore
+          }
+        }
+      }
+    }
+  } catch (e) {
+    logger.error('Error cleaning up old events DB', e);
+  }
+}
+
 const dailyDbCache: Record<string, { db: JsonDB, lastUse: number }> = {};
 
 const getDbForEvent = async (timestamp: number, dbsPath: string) => {
