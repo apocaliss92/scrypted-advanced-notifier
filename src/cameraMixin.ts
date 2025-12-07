@@ -82,7 +82,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         },
         storageEventsRetentionDays: {
             title: 'Events retention days',
-            group: 'Storage',
             description: 'How many days to keep the generated event images',
             type: 'number',
             defaultValue: 14,
