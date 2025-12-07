@@ -488,7 +488,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             group: 'Storage',
             description: 'How many days to keep the generated event images',
             type: 'number',
-            defaultValue: 30,
+            defaultValue: 14,
         },
         postProcessingCropSizeIncrease: {
             title: 'Size increase',
@@ -4054,20 +4054,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         maxSpaceInGb: number,
         maxDays: number,
         framesThreshold: number,
+        additionalCutoffDays?: number,
     }) => {
         const { eventsRetention } = this.storageSettings.values
-        const { device, logger, maxDays, maxSpaceInGb, framesThreshold } = props;
+        const { device, logger, maxDays, maxSpaceInGb, framesThreshold, additionalCutoffDays = 0 } = props;
         const now = Date.now();
-        const videoclipsThreshold = now - (1000 * 60 * 60 * 24 * maxDays);
+        const videoclipsThreshold = now - (1000 * 60 * 60 * 24 * (maxDays + additionalCutoffDays));
         const { decoderpath, cameraPath } = this.getFsPaths({ cameraId: device.id });
-        const eventsThreshold = now - (eventsRetention * 1000 * 60 * 60 * 24);
-        logger.log(`Cleaning up generated data: 
-            maxDays=${maxDays}, 
-            maxSpaceInGb=${maxSpaceInGb}, 
-            framesThreshold=${framesThreshold}, 
-            videoclipsThreshold=${videoclipsThreshold}, 
-            eventsThreshold=${eventsThreshold}`
-        );
+        const eventsThreshold = now - ((eventsRetention + additionalCutoffDays) * 1000 * 60 * 60 * 24);
+
+        logger.log(`Cleaning up generated data: additionalCutoffDays=${additionalCutoffDays}, maxDays=${maxDays}, maxSpaceInGb=${maxSpaceInGb}, framesThreshold=${framesThreshold}, videoclipsThreshold=${videoclipsThreshold}, eventsThreshold=${eventsThreshold}`);
 
         const logData = {
             framesFound: 0,
@@ -4254,6 +4250,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         cameraMixin.mixinState.storageSettings.values.occupiedSpaceInGb = occupiedSizeInGb;
 
         logger.log(`Cleanup completed ${JSON.stringify(logData)}, freed space: ${sizeFreedFormatted}, occupied space: ${formattedOccupiedSizeInGb}`);
+
+        if (occupiedSizeInGb > (maxSpaceInGb * 0.95)) {
+            logger.log(`Should clean additional space: occupiedSizeInGb ${occupiedSizeInGb} > maxSpaceInGb ${maxSpaceInGb} (95% cutoff)`);
+        }
     }
 
     public prepareClipGenerationFiles = async (props: {

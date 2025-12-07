@@ -17,6 +17,7 @@ export class VideoRtspFfmpegRecorder extends EventEmitter {
     private stopped = false;
     private outputPath: string | undefined;
     private startTime: number | undefined;
+    private maxDuration: number | undefined;
 
     constructor(options: VideoRtspFfmpegRecorderOptions) {
         super();
@@ -26,9 +27,10 @@ export class VideoRtspFfmpegRecorder extends EventEmitter {
         };
     }
 
-    start(outputPath: string): number | undefined {
+    start(outputPath: string, maxDuration?: number): number | undefined {
         this.stopped = false;
         this.outputPath = outputPath;
+        this.maxDuration = maxDuration;
         this.startTime = Date.now();
         this.spawnFfmpeg();
         return this.ffmpegProcess?.pid;
@@ -106,6 +108,7 @@ export class VideoRtspFfmpegRecorder extends EventEmitter {
 
         const args = [
             '-hide_banner',
+            ...(this.maxDuration ? ['-t', String(this.maxDuration + 10)] : []),
             '-rtsp_transport', 'tcp',
             '-i', rtspUrl,
             '-c:v', h264 ? 'libx264' : 'copy',

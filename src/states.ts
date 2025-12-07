@@ -98,10 +98,6 @@ export class CameraMixinState {
     accumulatedRules: MatchRule[] = [];
     recordingClassesDetected: Set<string> = new Set();
     lastRecordingProlongLog: number = 0;
-    videoClipsCache: {
-        timestamp: number;
-        clips: VideoClip[];
-    } | undefined;
     clientId: string;
 
     snoozeUntilDic: Record<string, number> = {};

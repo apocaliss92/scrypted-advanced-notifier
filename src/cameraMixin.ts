@@ -17,7 +17,7 @@ import AdvancedNotifierPlugin from "./main";
 import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { CameraMixinState, CurrentOccupancyState, OccupancyRuleData, getInitOccupancyState } from "./states";
-import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, RecordingRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRecordingRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, RecordingRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, cachedReaddir, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRecordingRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
 import { VideoRtspFfmpegRecorder, getVideoClipName, parseVideoFileName } from "./videoRecorderUtils";
 
 const { systemManager } = sdk;
@@ -465,11 +465,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async getVideoClipsInternal(options?: VideoClipOptions): Promise<VideoClip[]> {
-        const now = Date.now();
-        if (this.mixinState.videoClipsCache && (now - this.mixinState.videoClipsCache.timestamp) < 15 * 1000) {
-            return this.mixinState.videoClipsCache.clips;
-        }
-
         const videoClips: VideoClip[] = [];
         const logger = this.getLogger();
         const cameraFolder = this.id;
@@ -478,7 +473,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { rulesPath } = this.plugin.getRulePaths({ cameraId: cameraFolder });
 
         try {
-            const rulesFolder = await fs.promises.readdir(rulesPath);
+            const rulesFolder = await cachedReaddir(rulesPath);
 
             for (const ruleFolder of rulesFolder) {
                 const { generatedPath } = this.plugin.getRulePaths({
@@ -486,7 +481,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     ruleName: ruleFolder
                 });
 
-                const files = await fs.promises.readdir(generatedPath);
+                const files = await cachedReaddir(generatedPath);
 
                 for (const file of files) {
                     const [fileName, extension] = file.split('.');
@@ -535,7 +530,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { recordedEventsPath } = this.plugin.getRecordedEventPath({ cameraId: cameraFolder });
 
         try {
-            const files = await fs.promises.readdir(recordedEventsPath);
+            const files = await cachedReaddir(recordedEventsPath);
 
             for (const file of files) {
                 try {
@@ -577,10 +572,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
 
         const result = sortBy(videoClips, 'startTime');
-        this.mixinState.videoClipsCache = {
-            timestamp: now,
-            clips: result
-        };
 
         logger.info(`Fetched ${result.length} videoclips: ${JSON.stringify({ options, videoClips })}`);
         return result;
@@ -4366,7 +4357,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             h264: videoRecorderH264,
         });
 
-        const pid = this.videoRecorder.start(recordedClipPath);
+        const pid = this.videoRecorder.start(recordedClipPath, maxClipLength);
         if (pid) {
             this.mixinState.storageSettings.values.videoRecorderProcessPid = String(pid);
         }

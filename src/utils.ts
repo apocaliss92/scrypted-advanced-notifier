@@ -48,6 +48,22 @@ export const SOFT_MIN_RPC_OBJECTS = 200;
 export const HARD_MIN_RPC_OBJECTS = 300;
 export const FRIGATE_BRIDGE_PLUGIN_NAME = 'Frigate bridge';
 export const EVENTS_RECORDER_PLUGIN_NAME = 'Events recorder';
+
+const readdirCache: Record<string, { timestamp: number, files: string[] }> = {};
+
+export const cachedReaddir = async (path: string): Promise<string[]> => {
+    const now = Date.now();
+    if (readdirCache[path] && (now - readdirCache[path].timestamp < 30000)) {
+        return readdirCache[path].files;
+    }
+
+    const files = await fs.promises.readdir(path);
+    readdirCache[path] = {
+        timestamp: now,
+        files
+    };
+    return files;
+}
 export const ADVANCED_NOTIFIER_PLUGIN_NAME = scrypted.name;
 export const SCRYPTED_NVR_OBJECT_DETECTION_NAME = 'Scrypted NVR Object Detection';
 
