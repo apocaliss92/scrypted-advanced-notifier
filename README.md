@@ -127,6 +127,18 @@ Detection rules can also detect audio labels, i.e. crying, scream, speech etc. T
 
 Impact of the onboard classifier is relatively small and it can replace completely the smart audio sensor
 
+### Recording (only on camera)
+
+These rules let the cameras to record configurable videoclips. Mostly use these on camera where NVR might be overkill to be used, the app will still show the clips in a nice way
+
+They are based on some criteria:
+- detection classes, what should initially trigger the recording
+- score threshold, the minimum score to trigger the recording, leave empty for any detection
+- Minimum delay between clips, how many seconds to wait, at minimum, to record the following clip
+- Post event seconds, how many seconds to record, at minimum, after the recording starts. The default camera prebuffer will be extra pre-event seconds on top
+- Max clip length, seconds cap of the clip, following detections will prolong the original clip length
+- Prolong clip on motion, prolong the clip also for simple motion events  
+
 ### Occupancy (only on camera)
 
 These rules will monitor a specific area to mark it as occupied or not

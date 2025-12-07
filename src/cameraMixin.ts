@@ -3873,7 +3873,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     rule.currentlyActive &&
                     rule.detectionClasses?.length &&
                     rule.detectionClasses.some(dc =>
-                        candidates.some(c => detectionClassesDefaultMap[c.className] === dc)
+                        candidates.some(c =>
+                            detectionClassesDefaultMap[c.className] === dc &&
+                                rule.scoreThreshold ? (!c.score || c.score >= rule.scoreThreshold) : true
+                        )
                     )
                 )
             ) ?? [];

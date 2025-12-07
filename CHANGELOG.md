@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.7.0
+- Recording rules implemented. This is a drop-in replacement for events-recorder plugin (if you ever heard of it). Creating a new Recording Rule will let the plugin register configurable clips (including prebuffer, depends on the single camera how much it will be). This will allow to have an events based camera only when relevant events happen
+- Events handling has been improved, some resources have been moved on the main storage directory, cleanups of resource optimized. It's now possible per camera to define how much space (or days) to allocate. Events have their own retention settings
+
 ### 4.6.2
 - Audio analysis pipeline moved on this plugin. Basic object detector won't be necessary anymore, YAMNET remains a dependency
 - Support for audio volumes dropped, Frigate/BasicObjectDetector won't be source for audio volumes anymore. If you were relying on this just drop a message, can restore if required

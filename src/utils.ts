@@ -31,6 +31,8 @@ export const EVENTS_RECORDER_PLUGIN_ID = '@apocaliss92/scrypted-events-recorder'
 export const FRIGATE_BRIDGE_PLUGIN_ID = '@apocaliss92/scrypted-frigate-bridge';
 export const NVR_NOTIFIER_INTERFACE = `${NVR_PLUGIN_ID}:Notifier`;
 export const SNAPSHOT_WIDTH = 1280;
+export const ADVANCED_NOTIFIER_PLUGIN_NAME = scrypted.name;
+export const SCRYPTED_NVR_OBJECT_DETECTION_NAME = 'Scrypted NVR Object Detection';
 export const NOTIFIER_NATIVE_ID = 'advancedNotifierDefaultNotifier';
 export const CAMERA_NATIVE_ID = 'advancedNotifierCamera';
 export const ALARM_SYSTEM_NATIVE_ID = 'advancedNotifierAlarmSystem';
@@ -50,10 +52,11 @@ export const FRIGATE_BRIDGE_PLUGIN_NAME = 'Frigate bridge';
 export const EVENTS_RECORDER_PLUGIN_NAME = 'Events recorder';
 
 const readdirCache: Record<string, { timestamp: number, files: string[] }> = {};
+const fsCacheDurationSeconds = 10;
 
 export const cachedReaddir = async (path: string): Promise<string[]> => {
     const now = Date.now();
-    if (readdirCache[path] && (now - readdirCache[path].timestamp < 30000)) {
+    if (readdirCache[path] && (now - readdirCache[path].timestamp < (fsCacheDurationSeconds * 1000))) {
         return readdirCache[path].files;
     }
 
@@ -64,8 +67,6 @@ export const cachedReaddir = async (path: string): Promise<string[]> => {
     };
     return files;
 }
-export const ADVANCED_NOTIFIER_PLUGIN_NAME = scrypted.name;
-export const SCRYPTED_NVR_OBJECT_DETECTION_NAME = 'Scrypted NVR Object Detection';
 
 export const formatSize = (size: number, unit?: 'MB' | 'GB') => {
     let unitToUse = unit;
