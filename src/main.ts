@@ -93,7 +93,8 @@ export type PluginSettingKey =
     | TextSettingKey;
 
 export default class AdvancedNotifierPlugin extends BasePlugin implements MixinProvider, HttpRequestHandler, DeviceProvider, PushHandler, LauncherApplication {
-    private clearVideoclipsQueue: Promise<void> = Promise.resolve();
+    private clearVideoclipsQueue: { deviceId: string; task: () => Promise<void> }[] = [];
+    private processingClearVideoclips = false;
 
     initStorage: StorageSettingsDict<PluginSettingKey> = {
         ...getBaseSettings({
@@ -2667,6 +2668,57 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             logger.log(`${rule.notifiers.length} notifiers will be notified with image from ${imageSource}: ${JSON.stringify({ match, rule, videoUrl, gifUrl, imageUrl })} `);
 
+            let message: string;
+
+            if (rule?.customText) {
+                message = rule.customText;
+            } else {
+                const { aiEnabled: cameraAiEnabled } = cameraMixin?.mixinState.storageSettings.values ?? {};
+                const anyNotifierAiEnabled = rule.notifiers.some(notifierId => {
+                    const notifierMixin = this.currentNotifierMixinsMap[notifierId];
+                    const { aiEnabled: notifierAiEnabled } = notifierMixin?.storageSettings.values ?? {};
+                    return notifierAiEnabled;
+                });
+
+                const { aiSource } = this.storageSettings.values;
+                if (forceAi || rule?.useAi || cameraAiEnabled || anyNotifierAiEnabled) {
+                    logger.log(`Notification AI: ${JSON.stringify({
+                        aiSource,
+                        camera: cameraDevice.name,
+                        forceAi,
+                        cameraAiEnabled,
+                        anyNotifierAiEnabled
+                    })}`);
+                }
+
+                const isAiEnabled = forceAi || rule?.useAi || (!rule && cameraAiEnabled && anyNotifierAiEnabled);
+                if (aiSource !== AiSource.Disabled && isAiEnabled) {
+                    const { systemPromptKey } = getAiSettingKeys();
+
+                    const prompt = rule?.aiPrompt || this.storageSettings.getItem(systemPromptKey as any);
+                    const aiResponse = await getAiMessage({
+                        b64Image,
+                        logger,
+                        originalTitle: message,
+                        plugin: this,
+                        detection: match,
+                        timeStamp: triggerTime,
+                        device: cameraDevice,
+                        prompt
+                    });
+
+                    if (aiResponse.message) {
+                        message = aiResponse.message;
+                    }
+
+                    if (aiResponse.fromCache) {
+                        logger.info(`AI response retrieved from cache: ${JSON.stringify(aiResponse)}`);
+                    } else {
+                        logger.log(`AI response generated: ${JSON.stringify(aiResponse)}`);
+                    }
+                }
+            }
+
             for (const notifierId of rule.notifiers) {
                 const notifier = systemManager.getDeviceById<Settings & ScryptedDeviceBase>(notifierId);
 
@@ -2686,6 +2738,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     forceAi,
                     gifUrl,
                     imageUrl,
+                    message,
                 }).catch(e => logger.log(`Error on notifier ${notifier.name} `, e));
 
                 const decoderType = cameraMixin.decoderType;
@@ -2897,7 +2950,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { aiEnabled: notifierAiEnabled } = notifierMixin.storageSettings.values;
         const { haUrl, externalUrl, timelinePart } = this.getUrls(cameraId, triggerTime);
         const deviceLogger = this.getLogger(device);
-        let aiUsed = false;
 
         let additionalMessageText: string = '';
 
@@ -3236,83 +3288,41 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
         }
 
-        const { aiSource } = this.storageSettings.values;
-
         let message = messageParent;
         if (!message) {
-            if (rule?.customText) {
-                message = rule.customText;
-            } else {
-                const { externalUrl } = this.getUrls(device?.id, triggerTime);
+            const { externalUrl } = this.getUrls(device?.id, triggerTime);
 
-                message = await this.getNotificationText({
-                    detection,
-                    externalUrl,
-                    detectionTime: triggerTime,
-                    notifierId: notifier.id,
-                    eventType,
-                    device,
-                    rule: rule as DetectionRule,
-                });
-
-                if (forceAi || rule?.useAi || cameraAiEnabled || notifierAiEnabled) {
-                    logger.log(`Notification AI: ${JSON.stringify({
-                        aiSource,
-                        camera: device?.name,
-                        notifier: notifier?.name,
-                        forceAi,
-                        cameraAiEnabled,
-                        notifierAiEnabled
-                    })}`);
-                }
-
-                const isAiEnabled = forceAi || rule?.useAi || (!rule && cameraAiEnabled && notifierAiEnabled);
-                if (aiSource !== AiSource.Disabled && isAiEnabled) {
-                    const { systemPromptKey } = getAiSettingKeys();
-
-                    const prompt = rule?.aiPrompt || this.storageSettings.getItem(systemPromptKey as any);
-                    const aiResponse = await getAiMessage({
-                        b64Image,
-                        logger,
-                        originalTitle: message,
-                        plugin: this,
-                        detection,
-                        timeStamp: triggerTime,
-                        device,
-                        prompt
-                    });
-
-                    if (aiResponse.message) {
-                        message = aiResponse.message;
-                        aiUsed = true;
-                    }
-
-                    if (aiResponse.fromCache) {
-                        logger.info(`AI response retrieved from cache: ${JSON.stringify(aiResponse)}`);
-                    } else {
-                        logger.log(`AI response generated: ${JSON.stringify(aiResponse)}`);
-                    }
-                }
-            }
+            message = await this.getNotificationText({
+                detection,
+                externalUrl,
+                detectionTime: triggerTime,
+                notifierId: notifier.id,
+                eventType,
+                device,
+                rule: rule as DetectionRule,
+            });
         }
 
         if (additionalMessageText) {
             message += additionalMessageText;
         }
 
-        logger.info(`Notification content generated: ${JSON.stringify({
+        const logMessage = messageParent ?
+            'Custom message provided, skipping text generation.' :
+            'Notification content generated';
+
+        logger.info(`${logMessage}: ${JSON.stringify({
             notifier: notifier.name,
             cameraAiEnabled,
             notifierAiEnabled,
-            aiSource,
             ruleAiEnabled: rule ? rule.useAi : 'Not applicable',
             actionsEnabled,
             addSnozeActions,
             payload,
             message,
-        })}`)
+        })}`);
 
-        return { payload, message, aiUsed };
+        return { payload, message };
     }
 
     async notifyDetection(props: {
@@ -4061,7 +4071,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
     }
 
-    public clearVideoclipsData = (props: {
+    public clearVideoclipsData = async (props: {
         device: ScryptedDeviceBase,
         logger: Console,
         maxSpaceInGb: number,
@@ -4070,14 +4080,43 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         eventsMaxDays: number,
         additionalCutoffDays?: number,
     }) => {
-        this.clearVideoclipsQueue = this.clearVideoclipsQueue.then(async () => {
-            try {
-                await this.doClearVideoclipsData(props);
-            } catch (e) {
-                props.logger.error('Error in clearVideoclipsData', e);
+        const { device } = props;
+        // if (this.clearVideoclipsQueue.find(e => e.deviceId === deviceId)) {
+        //     return;
+        // }
+
+        this.clearVideoclipsQueue.push({
+            deviceId: device.id,
+            task: async () => {
+                try {
+                    await this.doClearVideoclipsData(props);
+                } catch (e) {
+                    props.logger.error('Error in clearVideoclipsData', e);
+                }
             }
         });
-        return this.clearVideoclipsQueue;
+
+        this.processClearVideoclipsQueue();
+    }
+
+    private processClearVideoclipsQueue() {
+        if (this.processingClearVideoclips) {
+            return;
+        }
+        this.processingClearVideoclips = true;
+
+        const processNext = () => {
+            const entry = this.clearVideoclipsQueue.shift();
+            if (!entry) {
+                this.processingClearVideoclips = false;
+                return;
+            }
+
+            entry.task().finally(() => {
+                setTimeout(processNext, 500);
+            });
+        };
+        processNext();
     }
 
     private doClearVideoclipsData = async (props: {
