@@ -69,9 +69,12 @@ export type PluginSettingKey =
     | 'checkConfigurations'
     | 'aiSource'
     | 'imagesPath'
+    | 'totalAvailableSpaceInGb'
+    | 'totalOccupiedSpaceInGb'
     | typeof ruleSequencesKey
     | 'storeEvents'
     | 'cleanupEvents'
+    | 'forceStorageCleanup'
     | 'enableDecoder'
     | 'assetsOriginSource'
     | 'customOriginUrl'
@@ -479,11 +482,31 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             immediate: true,
             defaultValue: false,
         },
+        totalAvailableSpaceInGb: {
+            type: 'number',
+            hide: true,
+            defaultValue: 0,
+            group: 'Storage',
+        },
+        totalOccupiedSpaceInGb: {
+            title: 'Memory occupancy in GB',
+            type: 'number',
+            range: [0, 0],
+            readonly: true,
+            placeholder: 'GB',
+            group: 'Storage',
+        },
         cleanupEvents: {
             title: 'Cleanup events data',
             group: 'Storage',
             type: 'button',
             onPut: async () => await this.clearAllEventsData()
+        },
+        forceStorageCleanup: {
+            title: 'Calculate occupied space',
+            group: 'Storage',
+            type: 'button',
+            onPut: async () => await this.forceStorageCleanup()
         },
         postProcessingCropSizeIncrease: {
             title: 'Size increase',
@@ -630,6 +653,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     cameraStates: Record<string, CameraMixinState> = {};
     audioClassifierMissingLogged = new Set<AudioAnalyzerSource>();
+
+    cameraSpaceOccupancy: Record<string, {
+        totalSize: number;
+        occupiedSize: number;
+    }> = {};
 
     constructor(nativeId: string) {
         super(nativeId, {
@@ -2168,6 +2196,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         const originSource = this.storageSettings.values.assetsOriginSource;
         this.storageSettings.settings.customOriginUrl.hide = originSource !== AssetOriginSource.Custom;
+
+        this.storageSettings.settings.totalOccupiedSpaceInGb.range = [
+            0, this.storageSettings.values.totalAvailableSpaceInGb
+        ];
     }
 
     get enabledDetectionSources() {
@@ -4074,16 +4106,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     public clearVideoclipsData = async (props: {
         device: ScryptedDeviceBase,
         logger: Console,
-        maxSpaceInGb: number,
-        maxDays: number,
-        framesThreshold: number,
-        eventsMaxDays: number,
         additionalCutoffDays?: number,
     }) => {
         const { device } = props;
-        // if (this.clearVideoclipsQueue.find(e => e.deviceId === deviceId)) {
-        //     return;
-        // }
 
         this.clearVideoclipsQueue.push({
             deviceId: device.id,
@@ -4122,22 +4147,19 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     private doClearVideoclipsData = async (props: {
         device: ScryptedDeviceBase,
         logger: Console,
-        maxSpaceInGb: number,
-        maxDays: number,
-        framesThreshold: number,
-        eventsMaxDays: number,
         additionalCutoffDays?: number,
     }) => {
-        const { device, logger, maxDays, maxSpaceInGb, framesThreshold, additionalCutoffDays = 0, eventsMaxDays } = props;
+        const { device, logger, additionalCutoffDays = 0 } = props;
+        const deviceMixin = this.currentCameraMixinsMap[device.id];
+        const { maxSpaceInGb, storageRetentionDays, storageEventsRetentionDays } = deviceMixin.mixinState.storageSettings.values;
+
         const now = Date.now();
-        const videoclipsThreshold = now - (1000 * 60 * 60 * 24 * (maxDays - additionalCutoffDays));
-        const { decoderpath, cameraPath } = this.getFsPaths({ cameraId: device.id });
-        const eventsThreshold = now - ((eventsMaxDays - additionalCutoffDays) * 1000 * 60 * 60 * 24);
-        logger.log(`Cleaning up generated data: additionalCutoffDays=${additionalCutoffDays}, maxDays=${maxDays}, maxSpaceInGb=${maxSpaceInGb}, framesThreshold=${framesThreshold}, videoclipsThreshold=${videoclipsThreshold}, eventsThreshold=${eventsThreshold}`);
+        const videoclipsThreshold = now - (1000 * 60 * 60 * 24 * (storageRetentionDays - additionalCutoffDays));
+        const { cameraPath } = this.getFsPaths({ cameraId: device.id });
+        const eventsThreshold = now - ((storageEventsRetentionDays - additionalCutoffDays) * 1000 * 60 * 60 * 24);
+        logger.log(`Cleaning up generated data: additionalCutoffDays=${additionalCutoffDays}, maxDays=${storageEventsRetentionDays}, maxSpaceInGb=${maxSpaceInGb}, videoclipsThreshold=${videoclipsThreshold}, eventsThreshold=${eventsThreshold}`);
 
         const logData = {
-            framesFound: 0,
-            framesRemoved: 0,
             clipsFound: 0,
             clipsRemoved: 0,
             snapshotsFound: 0,
@@ -4151,26 +4173,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { occupiedSizeInBytes: occupiedSizeBefore } = await calculateSize({
             currentPath: cameraPath,
         });
-
-        // Decoder frames cleanup
-        try {
-            const frames = await fs.promises.readdir(decoderpath);
-            logData.framesFound = frames.length;
-
-            for (const filename of frames) {
-                const filepath = path.join(decoderpath, filename);
-                const fileTimestamp = parseInt(filename);
-
-                if (fileTimestamp < framesThreshold) {
-                    try {
-                        await fs.promises.unlink(filepath);
-                        logData.framesRemoved += 1;
-                    } catch (err) {
-                        logger.error(`Error removing frame ${filename}`, err.message);
-                    }
-                }
-            }
-        } catch { }
 
         // Rules artifacts cleanup
         const { rulesPath } = this.getRulePaths({ cameraId: device.id });
@@ -4321,6 +4323,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const cameraMixin = this.currentCameraMixinsMap[device.id];
         const { value: occupiedSizeInGb, formatted: formattedOccupiedSizeInGb } = formatSize(occupiedSizeAfter, 'GB');
         cameraMixin.mixinState.storageSettings.values.occupiedSpaceInGb = occupiedSizeInGb;
+        this.cameraSpaceOccupancy[device.id] = {
+            occupiedSize: occupiedSizeInGb,
+            totalSize: maxSpaceInGb,
+        };
+        this.updateTotalOccupiedSpace();
 
         logger.log(`Cleanup completed ${JSON.stringify(logData)}, freed space: ${sizeFreedFormatted}, occupied space: ${formattedOccupiedSizeInGb}`);
 
@@ -4329,13 +4336,85 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             await this.clearVideoclipsData({
                 device,
                 logger,
-                maxDays,
-                maxSpaceInGb,
-                framesThreshold,
-                eventsMaxDays,
                 additionalCutoffDays: additionalCutoffDays + 1,
             });
         }
+    }
+
+    private updateTotalOccupiedSpace() {
+        let totalOccupied = 0;
+        let totalAvailable = 0;
+
+        Object.values(this.cameraSpaceOccupancy).forEach(({ occupiedSize, totalSize }) => {
+            totalOccupied += occupiedSize;
+            totalAvailable += totalSize;
+        });
+
+        const totalAvailableSpaceInGb = Number(totalAvailable.toFixed(2));
+        this.storageSettings.values.totalAvailableSpaceInGb = totalAvailableSpaceInGb;
+        this.storageSettings.values.totalOccupiedSpaceInGb = Number(totalOccupied.toFixed(2));
+        this.storageSettings.settings.totalOccupiedSpaceInGb.range = [
+            0,
+            this.storageSettings.values.totalAvailableSpaceInGb
+        ];
+
+    };
+
+    public clearDecoderFrames = async (props: {
+        device: ScryptedDeviceBase,
+        logger: Console,
+        framesThreshold: number,
+    }) => {
+        const { device } = props;
+
+        this.clearVideoclipsQueue.push({
+            deviceId: device.id,
+            task: async () => {
+                try {
+                    await this.doClearDecoderFrames(props);
+                } catch (e) {
+                    props.logger.error('Error in clearDecoderFrames', e);
+                }
+            }
+        });
+
+        this.processClearVideoclipsQueue();
+    }
+
+    private doClearDecoderFrames = async (props: {
+        device: ScryptedDeviceBase,
+        logger: Console,
+        framesThreshold: number,
+    }) => {
+        const { device, logger, framesThreshold } = props;
+        logger.log(`Cleaning up decoder frames: framesThreshold=${framesThreshold}`);
+        const { decoderpath } = this.getFsPaths({ cameraId: device.id });
+
+        const logData = {
+            framesFound: 0,
+            framesRemoved: 0,
+        };
+
+        try {
+            const frames = await fs.promises.readdir(decoderpath);
+            logData.framesFound = frames.length;
+
+            for (const filename of frames) {
+                const filepath = path.join(decoderpath, filename);
+                const fileTimestamp = parseInt(filename);
+
+                if (fileTimestamp < framesThreshold) {
+                    try {
+                        await fs.promises.unlink(filepath);
+                        logData.framesRemoved += 1;
+                    } catch (err) {
+                        logger.error(`Error removing frame ${filename}`, err.message);
+                    }
+                }
+            }
+        } catch { }
+
+        logger.log(`Decoder frames cleanup completed ${JSON.stringify(logData)}`);
     }
 
     public prepareClipGenerationFiles = async (props: {
@@ -4654,6 +4733,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             },
             logger,
             dbsPath,
+        });
+    }
+
+    private forceStorageCleanup = async () => {
+        Object.values(this.currentCameraMixinsMap).forEach(async (mixin) => {
+            await this.clearVideoclipsData({
+                device: mixin.cameraDevice,
+                logger: mixin.getLogger(),
+            });
         });
     }
 

@@ -913,19 +913,26 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const { checkOccupancy, notificationsEnabled } = this.mixinState.storageSettings.values;
                 const decoderType = this.decoderType;
 
-                // Cleanup
-                const { maxSpaceInGb, storageRetentionDays, storageEventsRetentionDays } = this.mixinState.storageSettings.values;
-                const framesThreshold = now - (1000 * 60 * 2);
+                // Cleanup decoder frames every 2 minutes
+                if (decoderType && decoderType !== DecoderType.Off) {
+                    const framesThreshold = now - (1000 * 60 * 2);
 
-                if (!this.mixinState.lastFsCleanup || this.mixinState.lastFsCleanup < framesThreshold) {
+                    if (!this.mixinState.lastDecoderFramesCleanup || this.mixinState.lastDecoderFramesCleanup < framesThreshold) {
+                        this.mixinState.lastDecoderFramesCleanup = now;
+                        this.plugin.clearDecoderFrames({
+                            device: this.cameraDevice,
+                            logger,
+                            framesThreshold,
+                        }).catch(logger.log);
+                    }
+                }
+
+                // Cleanup FS every 10 minutes
+                if (!this.mixinState.lastFsCleanup || this.mixinState.lastFsCleanup < (now - (1000 * 60 * 10))) {
                     this.mixinState.lastFsCleanup = now;
                     this.plugin.clearVideoclipsData({
                         device: this.cameraDevice,
                         logger,
-                        maxSpaceInGb,
-                        maxDays: storageRetentionDays,
-                        framesThreshold,
-                        eventsMaxDays: storageEventsRetentionDays,
                     }).catch(logger.log);
                 }
 
@@ -1551,7 +1558,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             this.mixinState.storageSettings.settings.occupiedSpaceInGb.range = [0, maxSpaceInGb || 20];
         }
 
-
         if (this.streams) {
             const streamNames = this.streams.map(stream => stream.subgroup?.replace('Stream: ', '') ?? '').filter(name => name);
             this.mixinState.storageSettings.settings.audioAnalyzerStreamName.choices = streamNames;
@@ -1696,16 +1702,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.mainLoopListener && clearInterval(this.mainLoopListener);
         this.mainLoopListener = undefined;
 
-        // if (this.mixinState.mqttClient) {
-        //     await this.mixinState.mqttClient.disconnect();
-        //     this.mixinState.mqttClient = undefined;
-        // }
-
         this.resetListeners();
         this.stopDecoder('Release');
-
-        // delete this.plugin.currentCameraMixinsMap[this.id];
-        // this.plugin.currentCameraMixinsMap[this.id] = undefined;
     }
 
     public getLogger(forceNew?: boolean) {

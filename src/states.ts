@@ -50,7 +50,8 @@ export interface AccumulatedDetection { detect: ObjectsDetected, eventId: string
 export class CameraMixinState {
     storageSettings;
     mqttClient: MqttClient;
-    lastFsCleanup: number;
+    lastFsCleanup = Date.now();
+    lastDecoderFramesCleanup = Date.now();
     logger: Console;
     lastDelaySet: Record<string, number> = {};
     mqttDetectionMotionTimeout: NodeJS.Timeout;
