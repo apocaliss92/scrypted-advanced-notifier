@@ -1735,13 +1735,14 @@ export const getNotifierData = (props: {
     const priorityChoices: NotificationPriority[] = [];
     const isDetectionRule = ruleType === RuleType.Detection;
     const isAudioRule = ruleType === RuleType.Audio;
+    const isOccupancyRule = ruleType === RuleType.Occupancy;
     const withActions = [
         HOMEASSISTANT_PLUGIN_ID, ZENTIK_PLUGIN_ID
     ].includes(pluginId) && isDetectionRule;
     const snoozingDefault = pluginId !== PUSHOVER_PLUGIN_ID;
     const openInAppDefault = true;
     const addCameraActionsDefault = pluginId !== PUSHOVER_PLUGIN_ID;
-    const withSnoozing = isDetectionRule || isAudioRule;
+    const withSnoozing = isDetectionRule || isAudioRule || isOccupancyRule;
     const withSound = [PUSHOVER_PLUGIN_ID, HOMEASSISTANT_PLUGIN_ID, ZENTIK_PLUGIN_ID].includes(pluginId);
     const withOpenInApp = [HOMEASSISTANT_PLUGIN_ID, ZENTIK_PLUGIN_ID].includes(pluginId);
     const withChannel = [HOMEASSISTANT_PLUGIN_ID].includes(pluginId);
