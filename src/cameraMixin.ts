@@ -2150,7 +2150,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const { newB64Image, newImage } = await addZoneClipPathToImage({
             image,
-            clipPath: zone.path
+            clipPaths: [zone.path],
+            console: logger,
+            plugin: this.plugin,
         });
         const occupiesFromAi = await checkObjectsOccupancy({
             b64Image: newB64Image,
@@ -2417,7 +2419,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                                     const { newB64Image } = await addZoneClipPathToImage({
                                         image,
-                                        clipPath: zone.path
+                                        clipPaths: [zone.path],
+                                        console: logger,
+                                        plugin: this.plugin,
                                     });
                                     const occupiesFromAi = await checkObjectsOccupancy({
                                         b64Image: newB64Image,
@@ -2551,15 +2555,50 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 });
 
                 if (!rulesToNotNotify.includes(rule.name) && timePassed) {
-                    const image = b64Image ? await b64ToMo(b64Image) : imageParent;
+                    let image = b64Image ? await b64ToMo(b64Image) : imageParent;
                     const triggerTime = (occupancyRuleData?.triggerTime ?? now);
+                    let imageToUse: MediaObject = image;
+
+                    if (image) {
+                        const { error, processedImage } = await this.executeImagePostProcessing({
+                            image,
+                            imageProcessing: rule.imageProcessing,
+                            shouldReDetect: true,
+                            imageSource: ImageSource.Decoder,
+                            eventSource: NotifyRuleSource.Decoder,
+                            className: rule.detectionClass,
+                        });
+
+                        if (error) {
+                            imageToUse = image;
+                        } else {
+                            image = processedImage;
+                        }
+                    }
+
+                    let b64ImageToUse = imageToUse ? await moToB64(imageToUse) : undefined;
+
+                    if (rule.showActiveZones) {
+                        logger.log(`Adding active zone to image: ${rule.observeZone}`);
+
+                        const zone = zonesData.find(zoneData => zoneData.name === rule.observeZone);
+
+                        const { newB64Image, newImage } = await addZoneClipPathToImage({
+                            image,
+                            clipPaths: [zone.path],
+                            console: logger,
+                            plugin: this.plugin,
+                        });
+                        b64ImageToUse = newB64Image;
+                        imageToUse = newImage;
+                    }
 
                     await this.plugin.notifyOccupancyEvent({
                         cameraDevice: this.cameraDevice,
                         rule,
                         triggerTime,
-                        image,
-                        b64Image,
+                        image: imageToUse,
+                        b64Image: b64ImageToUse,
                         occupancyData: occupancyRuleData
                     });
                 }
@@ -2926,25 +2965,41 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     public async executeImagePostProcessing(props: {
         image: MediaObject,
         imageSource: ImageSource,
-        matchRule: Partial<MatchRule>,
         shouldReDetect: boolean,
         eventSource: NotifyRuleSource,
+        imageProcessing: ImagePostProcessing,
+        className: string,
+        label?: string,
+        boundingBox?: ObjectDetectionResult['boundingBox'],
     }) {
-        const { matchRule, image, shouldReDetect, imageSource, eventSource } = props;
-        const { rule: ruleParent, match } = matchRule;
-        const rule = ruleParent as DetectionRule;
+        const {
+            image,
+            shouldReDetect,
+            imageSource,
+            eventSource,
+            imageProcessing,
+            className,
+            label,
+            boundingBox
+        } = props;
         const logger = this.getLogger();
         const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
+
+        const match: ObjectDetectionResult = {
+            className,
+            label,
+            boundingBox,
+            score: 1,
+        };
 
         let processedImage: MediaObject;
         let processedB64Image: string;
         let error: string;
 
         if (image) {
-            logger.log(`Post-processing set to ${rule.imageProcessing}, objectDetector is set to ${objectDetector ? objectDetector.name : 'NOT_DEFINED'}`);
+            logger.log(`Post-processing set to ${imageProcessing}, objectDetector is set to ${objectDetector ? objectDetector.name : 'NOT_DEFINED'}`);
 
-            if (match && objectDetector && image) {
-                const { className, label } = match;
+            if (objectDetector && image) {
                 let transformedDetections: ObjectDetectionResult[];
 
                 const isAudio = isAudioClassname(className);
@@ -2981,8 +3036,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             if (matchingDetections.length > 0) {
                                 if (label) {
                                     transformedDetections = [matchingDetections[0]];
-                                } else if (match.boundingBox) {
-                                    const [targetX, targetY] = match.boundingBox;
+                                } else if (boundingBox) {
+                                    const [targetX, targetY] = boundingBox;
                                     let closestDetection = matchingDetections[0];
                                     let minDistance = Infinity;
 
@@ -3027,7 +3082,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     logger.info(`Post-processing starting with: inputDimensions ${inputDimensions}`);
 
                     try {
-                        if (rule.imageProcessing === ImagePostProcessing.MarkBoundaries) {
+                        if (imageProcessing === ImagePostProcessing.MarkBoundaries) {
                             const { newImage, newB64Image } = await addBoundingBoxesToImage({
                                 image,
                                 detections: transformedDetections,
@@ -3036,7 +3091,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             });
                             processedB64Image = newB64Image;
                             processedImage = newImage;
-                        } else if (rule.imageProcessing === ImagePostProcessing.Crop) {
+                        } else if (imageProcessing === ImagePostProcessing.Crop) {
                             try {
                                 const { newB64Image, newImage } = await cropImageToDetection({
                                     image,
@@ -3054,7 +3109,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                     transformedDetections,
                                     inputDimensions,
                                     error,
-                                    matchRule,
+                                    match,
+                                    imageProcessing,
                                 }));
 
                             }
@@ -3074,7 +3130,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }
         } else {
             logger.log(`Post-processing skipping, no image provided, ${JSON.stringify({
-                matchRule,
+                match,
+                imageProcessing,
             })}`);
 
             error = 'No image provided';
@@ -3088,7 +3145,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     public async notifyDetectionRule(props: NotifyDetectionProps) {
-        const { matchRule, imageData, eventSource, triggerTime } = props;
+        const { matchRule, imageData, eventSource } = props;
         const logger = this.getLogger();
         const { rule, match } = matchRule;
         const { detectionSource, imageProcessing } = rule as DetectionRule;
@@ -3143,10 +3200,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             if (imageToProcess) {
                 const { error, processedImage } = await this.executeImagePostProcessing({
                     image: imageToProcess,
-                    matchRule,
+                    imageProcessing: rule.imageProcessing,
                     shouldReDetect,
                     imageSource,
                     eventSource,
+                    boundingBox: match.boundingBox,
+                    className: match.className,
+                    label: match.label,
                 });
 
                 if (error) {
@@ -3162,14 +3222,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             if (processingError) {
                 logger.log(`Post-processing failed. Skipping notification and resetting delay to allow new detections to come through: ${processingError}`);
-                const delayKey = this.isDelayPassed({
-                    type: DelayType.RuleNotification,
-                    matchRule: matchRule as MatchRule,
-                })?.delayKey;
-                if (delayKey) {
-                    // deleting the key fully resets the delay without growing the object
-                    delete this.mixinState.lastDelaySet[delayKey];
-                }
 
                 return;
             } else {
@@ -3197,24 +3249,43 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         imageToProcess: !!imageToProcess,
                         srcImageSource: imageData?.imageSource,
                     })}`);
-
-                    // const processedB64Image = await moToB64(image);
-
-                    // this.storeImagesOnFs({
-                    //     b64Image: processedB64Image,
-                    //     detections: match ? [match] : undefined,
-                    //     device: this.cameraDevice,
-                    //     triggerTime,
-                    //     variant: imageProcessing,
-                    //     eventSource: detectionSource,
-                    //     ruleName: rule.name
-                    // }).catch(logger.log);
                 }
 
                 logger.log(`Starting notifiers for detection rule (${eventSource}) ${getDetectionKey(matchRule as MatchRule)}, decoder ${this.decoderType} image from ${imageSource}, last check ${lastSetInSeconds ? lastSetInSeconds + 's ago' : '-'} with delay ${minDelayInSeconds}s`);
 
                 if (match.id) {
                     this.mixinState.objectIdLastReport[match.id] = Date.now();
+                }
+
+                if (image && rule.showActiveZones && match.zones?.length) {
+                    const zoneRules = (rule as DetectionRule).whitelistedZones;
+                    let zonesToShow: string[] = [];
+
+                    if (eventSource === NotifyRuleSource.Test) {
+                        zonesToShow = match.zones
+                    } else if (zoneRules?.length) {
+                        zonesToShow = match.zones.filter(zone => zoneRules.includes(zone));
+                    }
+
+                    if (zonesToShow.length) {
+                        logger.log(`Adding active zones to image: ${zonesToShow.join(', ')}`);
+                        const zonesData = await this.getObserveZones();
+                        const clipPaths = zonesData.filter(
+                            zone => zonesToShow.includes(zone.name)
+                        ).map(zone => zone.path);
+                        const { newImage } = await addZoneClipPathToImage({
+                            image,
+                            clipPaths,
+                            console: logger,
+                            plugin: this.plugin,
+                        });
+
+                        if (newImage) {
+                            logger.log(`Active zones added successfully to image: ${zonesToShow.join(', ')}`);
+
+                            image = newImage
+                        }
+                    }
                 }
 
                 await this.plugin.notifyDetectionEvent({
@@ -4230,11 +4301,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.mixinState.storageSettings.values.audioAnalyzerProcessPid = String(pid);
         const { device: classifier, pluginName, audioClassifierSource } = this.getAudioClassifier();
 
-        if (!classifier) {
-            if (!this.plugin.audioClassifierMissingLogged.has(audioClassifierSource)) {
-                this.plugin.log.a(`Audio classifier device for source ${audioClassifierSource} not found. Install plugin "${pluginName}" to enable audio analysis.`);
-                this.plugin.audioClassifierMissingLogged.add(audioClassifierSource);
-            }
+        if (!classifier && !this.plugin.audioClassifierMissingLogged.has(audioClassifierSource)) {
+            this.plugin.log.a(`Audio classifier device for source ${audioClassifierSource} not found. Install plugin "${pluginName}" to enable audio analysis.`);
+            this.plugin.audioClassifierMissingLogged.add(audioClassifierSource);
         }
 
         this.audioRtspFfmpegStream.on('audio', (audioData) => {

@@ -196,6 +196,13 @@ export interface SnoozeItem {
     minutes: number,
 }
 
+export interface ImageData {
+    fullFrameImage?: MediaObject,
+    croppedImage?: MediaObject,
+    image?: MediaObject,
+    imageSource: ImageSource,
+}
+
 export interface NotifyDetectionProps {
     eventType: DetectionEvent,
     triggerDeviceId: string,
@@ -204,12 +211,7 @@ export interface NotifyDetectionProps {
     forceAi?: boolean,
     matchRule: Partial<MatchRule>;
     eventSource: NotifyRuleSource;
-    imageData?: {
-        fullFrameImage?: MediaObject,
-        croppedImage?: MediaObject,
-        image?: MediaObject,
-        imageSource: ImageSource,
-    }
+    imageData?: ImageData
 }
 
 export enum ScryptedEventSource {
@@ -1480,6 +1482,7 @@ export const getRuleKeys = (props: {
     const aiEnabledKey = `${prefix}:${ruleName}:aiEnabled`;
     const aiPromptKey = `${prefix}:${ruleName}:aiPrompt`;
     const showMoreConfigurationsKey = `${prefix}:${ruleName}:showMoreConfigurations`;
+    const showActiveZonesKey = `${prefix}:${ruleName}:showActiveZones`;
     const minDelayKey = `${prefix}:${ruleName}:minDelay`;
     const minMqttPublishDelayKey = `${prefix}:${ruleName}:minMqttPublishDelay`;
     const startRuleTextKey = `${prefix}:${ruleName}:startRuleText`;
@@ -1584,6 +1587,7 @@ export const getRuleKeys = (props: {
             onDeactivationSequencesKey,
             onTriggerSequencesKey,
             onResetSequencesKey,
+            showActiveZonesKey,
         },
         detection: {
             useNvrDetectionsKey,
@@ -2116,6 +2120,7 @@ export const getRuleSettings = async (props: {
                 onDeactivationSequencesKey,
                 onTriggerSequencesKey,
                 onResetSequencesKey,
+                showActiveZonesKey,
             }
         } = getRuleKeys({ ruleName, ruleType });
 
@@ -2229,7 +2234,9 @@ export const getRuleSettings = async (props: {
                         defaultValue: 30,
                     },
                 );
-            } else {
+            }
+
+            if (isDetectionRule || isOccupancyRule) {
                 settings.push(
                     {
                         key: imageProcessingKey,
@@ -2241,8 +2248,18 @@ export const getRuleSettings = async (props: {
                         defaultValue: ImagePostProcessing.Default,
                         group,
                         subgroup,
+                    },
+                    {
+                        key: showActiveZonesKey,
+                        title: 'Show active zones',
+                        description: 'Highlight active zones in notifications or processing',
+                        group,
+                        subgroup,
+                        type: 'boolean',
+                        immediate: true,
+                        defaultValue: false,
                     }
-                )
+                );
             }
         }
 
@@ -3084,7 +3101,7 @@ export const getDetectionRulesSettings = async (props: {
                     readonly: !zonesToUse?.length,
                     defaultValue: []
                 },
-            )
+            );
         }
 
         let minDelayDescription = 'Minimum amount of seconds to wait until a notification is sent for the same detection type.';
@@ -3755,6 +3772,7 @@ export interface BaseRule {
     onTriggerSequences?: RuleActionsSequence[];
     onResetSequences?: RuleActionsSequence[];
     imageProcessing: ImagePostProcessing;
+    showActiveZones?: boolean;
     notifierData: Record<string, {
         actions: ExtendedNotificationAction[],
         priority: NotificationPriority,
@@ -3862,7 +3880,8 @@ const initBasicRule = (props: {
         onDeactivationSequencesKey,
         onTriggerSequencesKey,
         onResetSequencesKey,
-        devicesKey
+        devicesKey,
+        showActiveZonesKey,
     } } = getRuleKeys({
         ruleType,
         ruleName,
@@ -3882,7 +3901,8 @@ const initBasicRule = (props: {
     const generateClipPostSeconds = safeParseJson<number>(storage.getItem(generateClipPostSecondsKey)) ?? (ruleType === RuleType.Occupancy ? defaultOccupancyClipPreSeconds : defaultClipPreSeconds);
     const generateClipPreSeconds = safeParseJson<number>(storage.getItem(generateClipPreSecondsKey)) ?? defaultClipPostSeconds;
     const generateClipType = storage.getItem(generateClipTypeKey) ?? defaultVideoclipType;
-    const imageProcessing = ScryptedEventSource.RawDetection ? storage.getItem(imageProcessingKey) as ImagePostProcessing : ImagePostProcessing.Default;
+    const imageProcessing = (storage.getItem(imageProcessingKey) as ImagePostProcessing) || ImagePostProcessing.Default;
+    const showActiveZones = storage.getItem(showActiveZonesKey) as boolean ?? false;
     const onActivationSequencesNames = storage.getItem(onActivationSequencesKey) as string[] ?? [];
     const onDeactivationSequencesNames = storage.getItem(onDeactivationSequencesKey) as string[] ?? [];
     const onTriggerSequencesNames = storage.getItem(onTriggerSequencesKey) as string[] ?? [];
@@ -3924,6 +3944,7 @@ const initBasicRule = (props: {
     const rule: BaseRule = {
         isEnabled,
         imageProcessing,
+        showActiveZones,
         ruleType,
         useAi,
         aiPrompt,
@@ -4227,7 +4248,7 @@ export const getDetectionRules = (props: {
                     minDelayKey,
                     minMqttPublishDelayKey,
                     generateClipMaxExtensionRangeKey,
-                    devicesKey
+                    devicesKey,
                 },
                 detection: {
                     useNvrDetectionsKey,

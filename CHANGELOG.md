@@ -1,6 +1,12 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.7.2
+- Allow post processing for occupancy rules
+- New setting: `Show active zones`. Applies to detection and occupancy rules. If selected, the image notified will contain all the active zones during the detection matched
+- New test settings: `Show active zones`, `Zones`, to allow testing of the observed zones
+- New section `Active zones` in post-processing, to customize the ara shown on rule notification images
+
 ### 4.7.0
 - Recording rules implemented. This is a drop-in replacement for events-recorder plugin (if you ever heard of it). Creating a new Recording Rule will let the plugin register configurable clips (including prebuffer, depends on the single camera how much it will be). This will allow to have an events based camera only when relevant events happen
 - Events handling has been improved, some resources have been moved on the main storage directory, cleanups of resource optimized. It's now possible per camera to define how much space (or days) to allocate. Events have their own retention settings

@@ -55,6 +55,8 @@ export type PluginSettingKey =
     | 'testLabel'
     | 'testPriority'
     | 'testPostProcessing'
+    | 'testZones'
+    | 'testShowActiveZones'
     | 'testGenerateClip'
     | 'testGenerateClipSpeed'
     | 'testClipPreSeconds'
@@ -91,6 +93,9 @@ export type PluginSettingKey =
     | 'postProcessingLineThickness'
     | 'postProcessingShowScore'
     | 'postProcessingAspectRatio'
+    | 'postProcessingFillOpacity'
+    | 'postProcessingZonesColor'
+    | 'postProcessingZonesStrokeWidth'
     | 'eventsDbsRemoved612'
     | BaseSettingsKey
     | TextSettingKey;
@@ -338,6 +343,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             ],
             onPut: async () => await this.refreshSettings()
         },
+        testZones: {
+            group: 'Test',
+            title: 'Zones',
+            type: 'string',
+            multiple: true,
+            combobox: true,
+            choices: [],
+            immediate: true,
+        },
         testLabel: {
             group: 'Test',
             title: 'Event label',
@@ -358,6 +372,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             immediate: true,
             choices: Object.keys(ImagePostProcessing),
             defaultValue: ImagePostProcessing.Default
+        },
+        testShowActiveZones: {
+            group: 'Test',
+            title: 'Show active zones',
+            type: 'boolean',
+            immediate: true,
+            defaultValue: false,
         },
         testGenerateClip: {
             group: 'Test',
@@ -600,6 +621,28 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             description: 'Color to use for the marking boundaries around unclassified objects',
             type: 'string',
             defaultValue: '#AAAAAA',
+        },
+        postProcessingFillOpacity: {
+            title: 'Active zones fill opacity',
+            description: 'Opacity of the active zones filling, set 0 for no filling',
+            group: 'Post-Processing',
+            subgroup: 'Active zones',
+            type: 'number',
+            defaultValue: 30,
+        },
+        postProcessingZonesColor: {
+            title: 'Active zones color',
+            group: 'Post-Processing',
+            subgroup: 'Active zones',
+            type: 'string',
+            defaultValue: '#FF0000',
+        },
+        postProcessingZonesStrokeWidth: {
+            title: 'Active zones line thickness',
+            group: 'Post-Processing',
+            subgroup: 'Active zones',
+            type: 'number',
+            defaultValue: 3,
         },
         eventsDbsRemoved612: {
             type: 'boolean',
@@ -2183,6 +2226,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         const { isCamera } = testDevice ? isDeviceSupported(testDevice) : {};
         this.storageSettings.settings.testEventType.hide = !isCamera;
+        this.storageSettings.settings.testZones.hide = !isCamera;
         this.storageSettings.settings.testGenerateClipSpeed.hide = !testGenerateClip;
         this.storageSettings.settings.testGenerateClipType.hide = !testGenerateClip;
         this.storageSettings.settings.testClipPostSeconds.hide = !testGenerateClip;
@@ -2192,6 +2236,20 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if (testNotifier) {
             const { priorityChoices } = getNotifierData({ notifierId: testNotifier.id, ruleType: RuleType.Detection });
             this.storageSettings.settings.testPriority.choices = priorityChoices;
+        }
+
+        // Update testZones choices based on selected camera observe zones
+        if (isCamera && testDevice) {
+            const cameraMixin = this.currentCameraMixinsMap[testDevice.id];
+            if (cameraMixin) {
+                try {
+                    const zonesData = await cameraMixin.getObserveZones();
+                    const zoneNames = (zonesData || []).map(z => z.name).filter(Boolean);
+                    this.storageSettings.settings.testZones.choices = zoneNames;
+                } catch (e) {
+                    logger.log('Error fetching zones for testZones setting', e);
+                }
+            }
         }
 
         const originSource = this.storageSettings.values.assetsOriginSource;
@@ -3542,6 +3600,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             testSound,
             testUseAi,
             testPostProcessing,
+            testZones,
+            testShowActiveZones,
         } = this.storageSettings.values;
 
         const logger = this.getLogger();
@@ -3571,9 +3631,46 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     testSound,
                     testUseAi,
                     testPostProcessing,
+                    testZones,
+                    testShowActiveZones,
                 })}`);
 
                 const snoozeId = testBypassSnooze ? Math.random().toString(36).substring(2, 12) : undefined;
+
+                const match: ObjectDetectionResult = isDetection ? {
+                    label: testLabel,
+                    className: testEventType,
+                    score: 1,
+                    ...(testShowActiveZones && testZones?.length ? { zones: testZones } : {}),
+                } : undefined;
+
+                const rule = {
+                    notifierData: {
+                        [testNotifierId]: {
+                            priority: testPriority,
+                            actions: [],
+                            addSnooze: testAddSnoozing,
+                            addCameraActions: testAddActions,
+                            sound: testSound
+                        }
+                    },
+                    imageProcessing: testPostProcessing,
+                    generateClipSpeed: testGenerateClipSpeed,
+                    generateClipType: testGenerateClipType,
+                    generateClip: testGenerateClip,
+                    generateClipPreSeconds: testClipPreSeconds,
+                    generateClipPostSeconds: testClipPostSeconds,
+                    useAi: testUseAi,
+                    ruleType: RuleType.Detection,
+                    activationType: DetectionRuleActivation.Always,
+                    source: RuleSource.Plugin,
+                    isEnabled: true,
+                    name: 'Test rule',
+                    detectionSource: ScryptedEventSource.RawDetection,
+                    notifiers: [testNotifier?.id],
+                    showActiveZones: testShowActiveZones,
+                } as DetectionRule;
+
                 const payload: NotifyDetectionProps = {
                     eventType,
                     eventSource: NotifyRuleSource.Test,
@@ -3582,32 +3679,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     snoozeId,
                     matchRule: {
                         inputDimensions: [0, 0],
-                        match: isDetection ? { label: testLabel, className: testEventType, score: 1 } : undefined,
-                        rule: {
-                            notifierData: {
-                                [testNotifierId]: {
-                                    priority: testPriority,
-                                    actions: [],
-                                    addSnooze: testAddSnoozing,
-                                    addCameraActions: testAddActions,
-                                    sound: testSound
-                                }
-                            },
-                            imageProcessing: testPostProcessing,
-                            generateClipSpeed: testGenerateClipSpeed,
-                            generateClipType: testGenerateClipType,
-                            generateClip: testGenerateClip,
-                            generateClipPreSeconds: testClipPreSeconds,
-                            generateClipPostSeconds: testClipPostSeconds,
-                            useAi: testUseAi,
-                            ruleType: RuleType.Detection,
-                            activationType: DetectionRuleActivation.Always,
-                            source: RuleSource.Plugin,
-                            isEnabled: true,
-                            name: 'Test rule',
-                            detectionSource: ScryptedEventSource.RawDetection,
-                            notifiers: [testNotifier?.id]
-                        } as DetectionRule
+                        match,
+                        rule,
                     },
                     forceAi: testUseAi,
                 };

@@ -124,52 +124,100 @@ export const addBoundingBoxesToImage = async (props: {
 }
 
 export const addZoneClipPathToImage = async (props: {
-    clipPath?: number[][],
+    clipPaths?: number[][][],
     image: MediaObject;
+    console: Console,
+    scale?: number;
+    plugin?: AdvancedNotifierPlugin;
 }) => {
-    const { image, clipPath } = props;
-    const bufferImage = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg');
-    const metadata = await sharp(bufferImage).metadata();
+    const { image, clipPaths, console, scale = 1, plugin } = props;
 
-    const inputWidth = metadata.width;
-    const inputHeight = metadata.height;
+    try {
+        if (!clipPaths || !clipPaths.length) {
+            const newB64Image = await moToB64(image);
 
-    const scale = 0.9;
-    const zeroPoint = (1 - scale) / 2;
+            return {
+                newB64Image,
+                newImage: image,
+            };
+        }
 
-    const polygonPoints = clipPath.map(([x, y]) => {
-        const px = (zeroPoint + x * scale) * inputWidth;
-        const py = (zeroPoint + y * scale) * inputHeight;
-        return `${px},${py}`;
-    }).join(' ');
+        const bufferImage = await sdk.mediaManager.convertMediaObjectToBuffer(image, 'image/jpeg');
+        const metadata = await sharp(bufferImage).metadata();
 
-    const svgOverlay = `
+        const inputWidth = metadata.width;
+        const inputHeight = metadata.height;
+
+        const zeroPoint = (1 - scale) / 2;
+        const {
+            postProcessingFillOpacity,
+            postProcessingZonesColor,
+            postProcessingZonesStrokeWidth,
+        } = plugin?.storageSettings?.values || {};
+
+        const strokeColor = postProcessingZonesColor || 'red';
+        const strokeWidth = postProcessingZonesStrokeWidth ?? 3;
+        const opacity = typeof postProcessingFillOpacity === 'number' ? postProcessingFillOpacity : 30;
+        const clampedOpacity = Math.max(0, Math.min(100, opacity));
+        const fillOpacity = clampedOpacity / 100;
+
+        const polygons = clipPaths
+            .filter(path => path && path.length)
+            .map(path => {
+                const points = path.map(([x, y]) => {
+                    let nx = x;
+                    let ny = y;
+                    if (nx > 1 || ny > 1) {
+                        nx = nx / 100;
+                        ny = ny / 100;
+                    }
+
+                    const px = (zeroPoint + nx * scale) * inputWidth;
+                    const py = (zeroPoint + ny * scale) * inputHeight;
+                    return `${px},${py}`;
+                }).join(' ');
+
+                const fillAttributes = clampedOpacity > 0
+                    ? `fill="${strokeColor}" fill-opacity="${fillOpacity}"`
+                    : `fill="none"`;
+
+                return `<polygon points="${points}" ${fillAttributes} stroke="${strokeColor}" stroke-width="${strokeWidth}" />`;
+            })
+            .join('\n');
+
+        const svgOverlay = `
     <svg width="${inputWidth}" height="${inputHeight}" xmlns="http://www.w3.org/2000/svg">
-        <polygon points="${polygonPoints}"
-           fill="rgba(255,0,0,0.3)"
-           stroke="red"
-           stroke-width="3" />
+        ${polygons}
     </svg>
     `;
 
-    const outputBuffer = await sharp(bufferImage)
-        .composite([
-            {
-                input: Buffer.from(svgOverlay),
-                top: 0,
-                left: 0,
-                blend: 'over',
-            }
-        ])
-        .toBuffer();
+        const outputBuffer = await sharp(bufferImage)
+            .composite([
+                {
+                    input: Buffer.from(svgOverlay),
+                    top: 0,
+                    left: 0,
+                    blend: 'over',
+                }
+            ])
+            .toBuffer();
 
-    const newB64Image = outputBuffer.toString('base64');
-    const newImage = await sdk.mediaManager.createMediaObject(outputBuffer, 'image/jpeg');
+        const newB64Image = outputBuffer.toString('base64');
+        const newImage = await sdk.mediaManager.createMediaObject(outputBuffer, 'image/jpeg');
 
-    return {
-        newB64Image,
-        newImage,
-    };
+        return {
+            newB64Image,
+            newImage,
+        };
+    } catch (e) {
+        console.error(`Error in adding zone clip path to image: ${e.message}`);
+        const newB64Image = await moToB64(image);
+
+        return {
+            newB64Image,
+            newImage: image,
+        };
+    }
 }
 
 export const cropImageToDetection = async (props: {
