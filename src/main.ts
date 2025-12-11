@@ -2444,7 +2444,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             .replace('${maxObjects}', String(rule.maxObjects) ?? '');
 
         const executeNotify = async (props: { videoUrl?: string, gifUrl?: string, imageUrl?: string }) => {
-            const { gifUrl, videoUrl, imageUrl, } = props;
+            const { gifUrl, videoUrl, } = props;
+
+            const imageUrl = await this.storeRuleImage({
+                device: cameraDevice,
+                rule,
+                b64Image,
+                triggerTime,
+                logger,
+            });
+
             logger.log(`${rule.notifiers.length} notifiers will be notified: ${JSON.stringify({ rule, gifUrl, videoUrl })} `);
 
             for (const notifierId of rule.notifiers) {
@@ -2743,18 +2752,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
 
         const executeNotify = async (props: { videoUrl?: string, gifUrl?: string, imageUrl?: string }) => {
-            const { gifUrl, videoUrl, imageUrl: imageUrlParent } = props;
-            let imageUrl = imageUrlParent;
+            const { gifUrl, videoUrl } = props;
 
-            if (!imageUrl) {
-                imageUrl = await this.storeRuleImage({
-                    device: cameraDevice,
-                    rule,
-                    b64Image,
-                    triggerTime,
-                    logger,
-                });
-            }
+            const imageUrl = await this.storeRuleImage({
+                device: cameraDevice,
+                rule,
+                b64Image,
+                triggerTime,
+                logger,
+            });
 
             logger.log(`${rule.notifiers.length} notifiers will be notified with image from ${imageSource}: ${JSON.stringify({ match, rule, videoUrl, gifUrl, imageUrl })} `);
 
@@ -3677,6 +3683,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     triggerDeviceId: testDevice.id,
                     triggerTime: currentTime - 2000,
                     snoozeId,
+                    forceExecution: true,
                     matchRule: {
                         inputDimensions: [0, 0],
                         match,

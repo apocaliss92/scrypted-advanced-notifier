@@ -3145,7 +3145,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     public async notifyDetectionRule(props: NotifyDetectionProps) {
-        const { matchRule, imageData, eventSource } = props;
+        const { matchRule, imageData, eventSource, forceExecution } = props;
         const logger = this.getLogger();
         const { rule, match } = matchRule;
         const { detectionSource, imageProcessing } = rule as DetectionRule;
@@ -3155,7 +3155,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             matchRule: matchRule as MatchRule,
         });
 
-        if (timePassed) {
+        if (forceExecution || timePassed) {
             let croppedImage = imageData?.croppedImage;
             let fullFrameImage = imageData?.fullFrameImage;
             let imageSource = imageData?.imageSource;

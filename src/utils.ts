@@ -207,6 +207,7 @@ export interface NotifyDetectionProps {
     eventType: DetectionEvent,
     triggerDeviceId: string,
     snoozeId?: string,
+    forceExecution?: boolean,
     triggerTime: number,
     forceAi?: boolean,
     matchRule: Partial<MatchRule>;
