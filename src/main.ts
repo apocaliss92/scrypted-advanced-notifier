@@ -4792,12 +4792,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             device = sdk.systemManager.getDeviceByName<ObjectDetection>(pluginName);
         }
 
-        if (!device && pluginName && !this.audioClassifierMissingLogged.has(source)) {
-            this.log.a(`Audio classifier device for source ${source} not found. Install plugin "${pluginName}" to enable audio analysis.`);
-            this.audioClassifierMissingLogged.add(source);
-        }
-
-        return device;
+        return { device, pluginName };
     }
 }
 

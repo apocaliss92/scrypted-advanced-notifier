@@ -1615,7 +1615,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
             if (!labels || !isUpdated) {
                 this.mixinState.lastAudioDataFetched = now;
-                const audioClassifier = this.getAudioClassifier();
+                const { device: audioClassifier } = this.getAudioClassifier();
 
                 if (audioClassifier) {
                     const { classes } = await audioClassifier.getDetectionModel();
@@ -4151,12 +4151,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     getAudioClassifier() {
+        let pluginName: string;
         const { audioClassifierSource } = this.mixinState.storageSettings.values;
         if (!this.audioClassifier) {
-            this.audioClassifier = this.plugin.getAudioAnalysisDevice(audioClassifierSource);
+            const { device, pluginName: pluginNameFound } = this.plugin.getAudioAnalysisDevice(audioClassifierSource);
+            this.audioClassifier = device;
+            pluginName = pluginNameFound;
         }
 
-        return this.audioClassifier;
+        return { device: this.audioClassifier, pluginName, audioClassifierSource };
     }
 
     async restartAudioAnalysis() {
@@ -4225,7 +4228,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const pid = this.audioRtspFfmpegStream.start();
         this.mixinState.storageSettings.values.audioAnalyzerProcessPid = String(pid);
-        this.audioClassifier = this.getAudioClassifier();
+        const { device: classifier, pluginName, audioClassifierSource } = this.getAudioClassifier();
+
+        if (!classifier) {
+            if (!this.plugin.audioClassifierMissingLogged.has(audioClassifierSource)) {
+                this.plugin.log.a(`Audio classifier device for source ${audioClassifierSource} not found. Install plugin "${pluginName}" to enable audio analysis.`);
+                this.plugin.audioClassifierMissingLogged.add(audioClassifierSource);
+            }
+        }
 
         this.audioRtspFfmpegStream.on('audio', (audioData) => {
             const {
