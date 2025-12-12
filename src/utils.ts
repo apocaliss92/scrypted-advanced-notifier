@@ -539,11 +539,15 @@ export const getWebHookUrls = async (props: {
         const {
             assetsOrigin,
             cloudEndpoint,
-            paramString,
+            paramString: paramStringParent,
             localEndpoint,
             privatePathname,
             publicPathnamePrefix,
         } = await getAssetsParams({ plugin });
+
+        const paramString = plugin.storageSettings.values.includeUserToken ?
+            paramStringParent :
+            '';
 
         lastSnapshotCloudUrl = `${cloudEndpoint}${lastSnapshot}/${encodedId}/{IMAGE_NAME}?${paramString}`;
         lastSnapshotLocalUrl = `${localEndpoint}${lastSnapshot}/${encodedId}/{IMAGE_NAME}?${paramString}`;

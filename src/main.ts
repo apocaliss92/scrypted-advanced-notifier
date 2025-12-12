@@ -96,6 +96,7 @@ export type PluginSettingKey =
     | 'postProcessingFillOpacity'
     | 'postProcessingZonesColor'
     | 'postProcessingZonesStrokeWidth'
+    | 'includeUserToken'
     | 'eventsDbsRemoved612'
     | BaseSettingsKey
     | TextSettingKey;
@@ -182,6 +183,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             type: 'string',
             defaultValue: 'https://nvr.scrypted.app/',
             placeholder: 'https://nvr.scrypted.app/',
+            subgroup: 'Advanced',
+        },
+        includeUserToken: {
+            title: 'Include user token in payload',
+            description: 'Include the user token webhooks. Enable in case you get authentication errors interacting with urls pointing to your scrypted instance',
+            type: 'boolean',
+            defaultValue: true,
+            immediate: true,
             subgroup: 'Advanced',
         },
         mqttActiveEntitiesTopic: {

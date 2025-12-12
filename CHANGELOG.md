@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.7.3
+- New setting `Inlude user token` added in the advanced section, activate it if you face problems authenticating urls
+
 ### 4.7.2
 - Allow post processing for occupancy rules
 - New setting: `Show active zones`. Applies to detection and occupancy rules. If selected, the image notified will contain all the active zones during the detection matched
