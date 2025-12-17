@@ -402,19 +402,29 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
 
                 if (canNotify) {
                     let titleToUse = title;
+                    let b64Image: string;
+                    let imageToUse: MediaObject;
+
                     if (!isNotificationFromAnPlugin && (enableTranslations || aiEnabled) && cameraDevice) {
                         const deviceSensors = this.plugin.videocameraDevicesMap[cameraDevice.id] ?? [];
                         const { eventType, detection, triggerTime } = await parseNvrNotificationMessage(cameraDevice, deviceSensors, options, logger);
 
-                        const image = typeof media === 'string' ? (await sdk.mediaManager.createMediaObjectFromUrl(media)) : media;
+                        logger.log(`NVR notification caught, parsing started: ${JSON.stringify({
+                            enableTranslations,
+                            aiEnabled,
+                            cameraDevice: cameraDevice?.name,
+                            detection,
+                            options,
+                            hasImage: !!media
+                        })}`);
 
-                        logger.log(`NVR notification caught, parsing started: ${JSON.stringify({ enableTranslations, aiEnabled, cameraDevice: cameraDevice?.name, detection, options })}`);
-
-                        let b64Image: string;
-                        if (cameraMixin) {
-                            b64Image = (await cameraMixin.getImage({ image, reason: GetImageReason.FromNvr }))?.b64Image;
-                        } else if (image) {
-                            b64Image = await moToB64(image);
+                        if (media) {
+                            imageToUse = typeof media === 'string' ? (await sdk.mediaManager.createMediaObjectFromUrl(media)) : media;
+                            b64Image = await moToB64(imageToUse);
+                        } else {
+                            const { b64Image: newB64Image, image: newImage } = await cameraMixin.getImage({ reason: GetImageReason.FromNvr });
+                            imageToUse = newImage;
+                            b64Image = newB64Image;
                         }
 
                         const { message } = await this.plugin.getNotificationContent({
@@ -445,7 +455,7 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
                         logger.log(`Content modified to ${message} ${tapToViewText}`);
                     }
 
-                    await this.mixinDevice.sendNotification(titleToUse, options, media, icon);
+                    await this.mixinDevice.sendNotification(titleToUse, options, imageToUse ?? media, icon);
                 }
             } catch (e) {
                 logger.log('Error in sendNotification', e);

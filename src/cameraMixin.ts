@@ -1841,6 +1841,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         ].includes(reason);
         const tryDetector = !!detectionId && !!eventId;
         const isQuickNotification = reason === GetImageReason.QuickNotification;
+        const isFromNvr = reason === GetImageReason.FromNvr;
         const snapshotTimeout =
             reason === GetImageReason.RulesRefresh ? 10000 :
                 isQuickNotification ? 2000 :
@@ -2006,6 +2007,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         checkDecoder,
                         checkVeryRecent,
                         checkSnapshot,
+                    ];
+                } else if (isFromNvr) {
+                    runners = [
+                        checkDetector,
+                        checkSnapshot,
+                        checkVeryRecent,
                     ];
                 } else {
                     runners = [
