@@ -1642,6 +1642,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     private async initPluginSettings() {
         const logger = this.getLogger();
+        let defaultAssetOriginSource = AssetOriginSource.LocalSecure;
+        const assetsOriginSources = [
+            AssetOriginSource.LocalSecure,
+            AssetOriginSource.LocalInsecure,
+            AssetOriginSource.Custom,
+        ];
+
         if (this.hasCloudPlugin) {
             const localAddresses = await sdk.endpointManager.getLocalAddresses();
             const mo = await mediaManager.createMediaObject('', 'text/plain')
@@ -1652,30 +1659,35 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             logger.log(`Local addresses found: ${localAddresses}`);
             await this.putSetting('localAddresses', localAddresses);
-        } else {
-            this.storageSettings.settings.assetsOriginSource.defaultValue = AssetOriginSource.LocalSecure;
-            this.storageSettings.settings.assetsOriginSource.choices = [
-                AssetOriginSource.LocalSecure,
-                AssetOriginSource.LocalInsecure,
-                AssetOriginSource.Custom,
-            ];
-            if (this.storageSettings.values.assetsOriginSource === AssetOriginSource.CloudSecure) {
-                logger.log(`Assets origin set to ${AssetOriginSource.CloudSecure} but cloud plugin is not installed. Changing to ${AssetOriginSource.LocalSecure}`);
-                await this.putSetting('assetsOriginSource', AssetOriginSource.LocalSecure);
-            }
+            assetsOriginSources.unshift(AssetOriginSource.CloudSecure);
+            defaultAssetOriginSource = AssetOriginSource.CloudSecure;
         }
 
-        if (this.storageSettings.values.haEnabled) {
+        const {
+            assetsOriginSource,
+            haEnabled,
+            privateKey,
+            objectDetectionDevice,
+            clipDevice
+        } = this.storageSettings.values;
+
+        this.storageSettings.settings.assetsOriginSource.choices = assetsOriginSources;
+        if (!assetsOriginSources.includes(assetsOriginSource)) {
+            logger.log(`Setting assets origin to ${defaultAssetOriginSource}`);
+            this.storageSettings.values.assetsOriginSource = defaultAssetOriginSource;
+        }
+
+        if (haEnabled) {
             await this.generateHomeassistantHelpers();
         }
 
-        if (!this.storageSettings.values.privateKey) {
+        if (!privateKey) {
             const privateKey = generatePrivateKey(10);
             logger.log(`Private key not set, new one generated ***${privateKey.substring(3, 7)}***`);
-            await this.putSetting('privateKey', privateKey);
+            this.storageSettings.values.privateKey = privateKey;
         }
 
-        if (!this.storageSettings.values.objectDetectionDevice) {
+        if (!objectDetectionDevice) {
             const allDetectors = getAllDevices().filter(dev => dev.interfaces.includes(ScryptedInterface.ObjectDetectionPreview) && dev.id !== nvrAcceleratedMotionSensorId);
             const nvrOne = sdk.systemManager.getDeviceByName(SCRYPTED_NVR_OBJECT_DETECTION_NAME);
             let toUse = allDetectors[0];
@@ -1684,14 +1696,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
 
             logger.log(`Object detector not set, defaulting to ${toUse.name}`);
-            await this.putSetting('objectDetectionDevice', toUse.id);
+            // await this.putSetting('objectDetectionDevice', toUse.id);
+            this.storageSettings.values.objectDetectionDevice = toUse.id;
         }
 
-        if (!this.storageSettings.values.clipDevice) {
+        if (!clipDevice) {
             const allClippers = getAllDevices().filter(dev => dev.interfaces.includes('TextEmbedding') && dev.interfaces.includes('ImageEmbedding'));
             const toUse = allClippers[0];
             logger.log(`Clip device not set, defaulting to ${toUse.name}`);
-            await this.putSetting('clipDevice', toUse.id);
+            // await this.putSetting('clipDevice', toUse.id);
+            this.storageSettings.values.clipDevice = toUse.id;
         }
     }
 
