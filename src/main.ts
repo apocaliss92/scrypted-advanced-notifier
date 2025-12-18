@@ -1,4 +1,4 @@
-import sdk, { DeviceBase, DeviceProvider, Entry, HttpRequest, HttpRequestHandler, HttpResponse, Image, LauncherApplication, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetection, ObjectDetectionResult, OnOff, Lock, PanTiltZoom, Program, PushHandler, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, SettingValue, VideoClips, WritableDeviceState, PanTiltZoomMovement } from "@scrypted/sdk";
+import sdk, { DeviceBase, DeviceProvider, Entry, HttpRequest, HttpRequestHandler, HttpResponse, Image, LauncherApplication, Lock, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetection, ObjectDetectionResult, OnOff, PanTiltZoom, PanTiltZoomMovement, Program, PushHandler, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, SettingValue, VideoClips, WritableDeviceState } from "@scrypted/sdk";
 import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import axios from "axios";
 import child_process from 'child_process';
@@ -7,17 +7,18 @@ import fs from 'fs';
 import https from 'https';
 import { cloneDeep, isEqual, max, sortBy, uniq } from 'lodash';
 import path from 'path';
-import { BasePlugin, BaseSettingsKey, getBaseSettings, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { applySettingsShow, BasePlugin, BaseSettingsKey, getBaseSettings, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { getRpcData } from '../../scrypted-monitor/src/utils';
 import { ffmpegFilterImageBuffer } from "../../scrypted/plugins/snapshot/src/ffmpeg-image-filter";
 import { name as pluginName } from '../package.json';
 import { AiSource, getAiMessage, getAiSettingKeys, getAiSettings } from "./aiUtils";
 import { AdvancedNotifierAlarmSystem } from "./alarmSystem";
 import { haAlarmAutomation, haAlarmAutomationId } from "./alarmUtils";
+import { AudioAnalyzerSource } from "./audioAnalyzerUtils";
 import { AdvancedNotifierCamera } from "./camera";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierDataFetcher } from "./dataFetcher";
-import { addEvent, cleanupDatabases, cleanupEvents, cleanupOldEvents } from "./db";
+import { addEvent, cleanupEvents, cleanupOldEvents } from "./db";
 import { DetectionClass, detectionClassesDefaultMap, isLabelDetection, isMotionClassname, isPlateClassname } from "./detectionClasses";
 import { serveGif, serveImage, servePluginGeneratedVideoclip } from "./httpUtils";
 import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
@@ -25,9 +26,9 @@ import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { CameraMixinState, OccupancyRuleData } from "./states";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, defaultClipPostSeconds, defaultClipPreSeconds, defaultOccupancyClipPreSeconds, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, DevNotifications, ExtendedNotificationAction, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getSequencesSettings, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRuleKeys, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, ruleSequencesGroup, ruleSequencesKey, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType, ZENTIK_PLUGIN_ID, getSequenceObject, RuleActionType, RuleActionsSequence, getRecordingRulesSettings, getRecordingRules, RecordingRule, calculateSize, formatSize } from "./utils";
-import { AudioAnalyzerSource } from "./audioAnalyzerUtils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, calculateSize, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, defaultClipPostSeconds, defaultClipPreSeconds, defaultOccupancyClipPreSeconds, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, DevNotifications, ExtendedNotificationAction, formatSize, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllAvailableUrls, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRecordingRules, getRecordingRulesSettings, getRuleKeys, getSequenceObject, getSequencesSettings, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RecordingRule, RuleActionsSequence, RuleActionType, ruleSequencesGroup, ruleSequencesKey, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType, ZENTIK_PLUGIN_ID } from "./utils";
 import { parseVideoFileName } from "./videoRecorderUtils";
+import mqtt from "mqtt";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -114,17 +115,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             },
             hideHa: false,
             baseGroupName: '',
+            onRefresh: async () => await this.refreshSettings()
         }),
         pluginEnabled: {
             title: 'Plugin enabled',
             type: 'boolean',
             defaultValue: true,
-            immediate: true,
-        },
-        mqttEnabled: {
-            title: 'MQTT enabled',
-            type: 'boolean',
-            defaultValue: false,
             immediate: true,
         },
         frigateEnabled: {
@@ -679,6 +675,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     lastKnownPeopleFetched: number;
     hasCloudPlugin: boolean;
     frigateApi: string;
+    nvrObjectDetectionDevice: Settings;
     knownPeople: string[] = [];
     restartRequested = false;
     public aiMessageResponseMap: Record<string, string> = {};
@@ -766,8 +763,29 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger.log('Cloud plugin found');
             this.hasCloudPlugin = true;
         } else {
-            logger.log('Cloud plugin not found');
             this.hasCloudPlugin = false;
+
+            const {
+                cloudSecureEndpoint,
+                localInsecureUrl,
+                localSecureUrl,
+                privatePath,
+                publicPath
+            } = await getAllAvailableUrls(false);
+            logger.log(`Cloud plugin not found, URLs available: ${JSON.stringify({
+                cloudSecureEndpoint,
+                localInsecureUrl,
+                localSecureUrl,
+                privatePath,
+                publicPath
+            })}`);
+        }
+
+        const objDetectionPlugin = systemManager.getDeviceByName<Settings>(SCRYPTED_NVR_OBJECT_DETECTION_NAME);
+        if (objDetectionPlugin) {
+            this.nvrObjectDetectionDevice = objDetectionPlugin;
+        } else {
+            logger.info('Scrypted NVR Object Detection not found');
         }
 
         const frigatePlugin = systemManager.getDeviceByName<Settings>(FRIGATE_BRIDGE_PLUGIN_NAME);
@@ -864,10 +882,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 logger.log(`${files.length} DBs moved`);
             } catch (e) {
                 logger.log('Error moving old DBs', e);
+            } finally {
+                this.storageSettings.values.eventsDbsRemoved612 = true;
             }
-            this.storageSettings.values.eventsDbsRemoved612 = true;
         }
-        logger.log(`Initiating old DBs migration`);
     }
 
 
@@ -1408,13 +1426,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 return this.knownPeople;
             }
 
-            const objDetectionPlugin = systemManager.getDeviceByName<Settings>(SCRYPTED_NVR_OBJECT_DETECTION_NAME);
-            if (!objDetectionPlugin) {
-                logger.log('Scrypted NVR Object Detection not found');
+            if (!this.nvrObjectDetectionDevice) {
                 return [];
             }
 
-            const settings = await objDetectionPlugin.getSettings();
+            const settings = await this.nvrObjectDetectionDevice.getSettings();
             const knownPeople = settings?.find(setting => setting.key === 'knownPeople')?.choices
                 ?.filter(choice => !!choice)
                 .map(person => person.trim());
@@ -1550,7 +1566,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 return super.getLoggerInternal({
                     console: mixin.console,
                     storage: settings,
-                    // TODO: Complete with other mixin states
                     friendlyName: this.cameraStates[deviceId]?.clientId,
                 });
             }
@@ -1655,7 +1670,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
 
         if (!this.storageSettings.values.privateKey) {
-            const privateKey = generatePrivateKey();
+            const privateKey = generatePrivateKey(10);
+            logger.log(`Private key not set, new one generated ***${privateKey.substring(3, 7)}***`);
             await this.putSetting('privateKey', privateKey);
         }
 
@@ -1671,10 +1687,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             await this.putSetting('objectDetectionDevice', toUse.id);
         }
 
-        if (!this.storageSettings.values.objectDetectionDevice) {
-            const allClippers = getAllDevices().filter(dev => dev.interfaces.includes(ScryptedInterface.TextEmbedding));
-            logger.log(`Clip device not set, defaulting to ${allClippers[0].name}`);
-            await this.putSetting('clipDevice', allClippers[0].id);
+        if (!this.storageSettings.values.clipDevice) {
+            const allClippers = getAllDevices().filter(dev => dev.interfaces.includes('TextEmbedding') && dev.interfaces.includes('ImageEmbedding'));
+            const toUse = allClippers[0];
+            logger.log(`Clip device not set, defaulting to ${toUse.name}`);
+            await this.putSetting('clipDevice', toUse.id);
         }
     }
 
@@ -1726,7 +1743,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
 
             const pluginStorage = this.storageSettings;
-            const { availableRules: availableDetectionRules, allowedRules: allowedDetectionRules } = getDetectionRules({ pluginStorage, console: logger });
+            const { availableRules: availableDetectionRules, allowedRules: allowedDetectionRules } = getDetectionRules({ pluginStorage, console: logger, plugin: this });
             const { availableRules: availableRecordingRules, allowedRules: allowedRecordingRules } = getRecordingRules({ pluginStorage, console: logger });
 
             const availableRules = [...availableDetectionRules, ...availableRecordingRules];
@@ -2220,6 +2237,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             testDevice,
             testNotifier,
             testGenerateClip,
+            haEnabled,
         } = this.storageSettings.values;
 
         try {
@@ -2227,11 +2245,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 this.storageSettings.settings.detectionSourceForMqtt.choices = this.enabledDetectionSources;
                 this.storageSettings.settings.facesSourceForMqtt.choices = this.enabledDetectionSources;
             }
-
-            this.storageSettings.settings.mqttActiveEntitiesTopic.hide = !mqttEnabled;
             this.storageSettings.settings.detectionSourceForMqtt.hide = !mqttEnabled;
             this.storageSettings.settings.facesSourceForMqtt.hide = !mqttEnabled;
-        } catch { }
+            this.storageSettings.settings.mqttActiveEntitiesTopic.hide = !mqttEnabled;
+
+            this.storageSettings.settings.scryptedToken.hide = !haEnabled;
+
+            applySettingsShow(this.storageSettings);
+        } catch (e) {
+            logger.error('Error applying settings show/hide', e);
+        }
 
         const { isCamera } = testDevice ? isDeviceSupported(testDevice) : {};
         this.storageSettings.settings.testEventType.hide = !isCamera;
@@ -2267,17 +2290,29 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         this.storageSettings.settings.totalOccupiedSpaceInGb.range = [
             0, this.storageSettings.values.totalAvailableSpaceInGb
         ];
+
+        const defaultSource = this.defaultDetectionSource;
+        this.storageSettings.settings.detectionSourceForMqtt.defaultValue = defaultSource;
+        this.storageSettings.settings.facesSourceForMqtt.defaultValue = defaultSource;
+    }
+
+    get defaultDetectionSource() {
+        return this.nvrObjectDetectionDevice ?
+            ScryptedEventSource.NVR :
+            ScryptedEventSource.RawDetection;
     }
 
     get enabledDetectionSources() {
-        return this.frigateApi ? [
-            ScryptedEventSource.RawDetection,
-            ScryptedEventSource.NVR,
-            ScryptedEventSource.Frigate,
-        ] : [
-            ScryptedEventSource.RawDetection,
-            ScryptedEventSource.NVR,
+        const sources: ScryptedEventSource[] = [
+            ScryptedEventSource.RawDetection
         ];
+        if (this.nvrObjectDetectionDevice) {
+            sources.push(ScryptedEventSource.NVR);
+        }
+        if (this.frigateApi) {
+            sources.push(ScryptedEventSource.Frigate);
+        }
+        return sources;
     }
 
     async getSettings() {

@@ -408,6 +408,22 @@ export const getWebhooks = async () => {
     };
 }
 
+export const getAllAvailableUrls = async (hasCloudPlugin: boolean) => {
+    const cloudSecureEndpoint = hasCloudPlugin ? await sdk.endpointManager.getCloudEndpoint(undefined, { public: true }) : undefined;
+    const localSecureUrl = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true });
+    const localInsecureUrl = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true, insecure: true });
+    const privatePath = await endpointManager.getPath(undefined, { public: false });
+    const publicPath = await endpointManager.getPath(undefined, { public: true });
+
+    return {
+        cloudSecureEndpoint,
+        localSecureUrl,
+        localInsecureUrl,
+        privatePath,
+        publicPath,
+    };
+}
+
 export const isDetectionRule = (rule: BaseRule) => [
     RuleType.Audio,
     RuleType.Detection,
@@ -418,28 +434,33 @@ export const getAssetsParams = async (props: {
 }) => {
     try {
         const { plugin } = props;
+        const hasCloudPlugin = plugin.hasCloudPlugin;
         const logger = plugin.getLogger();
         const { assetsOriginSource } = plugin.storageSettings.values;
         const localEndpoint = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true });
-        const cloudEndpoint = await sdk.endpointManager.getCloudEndpoint(undefined, { public: true });
 
-        const localEndpointRaw = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true });
-        const cloudEndpointRaw = await sdk.endpointManager.getCloudEndpoint(undefined, { public: true });
-        let endpointRaw;
+        const {
+            cloudSecureEndpoint,
+            localInsecureUrl,
+            localSecureUrl,
+            privatePath,
+            publicPath
+        } = await getAllAvailableUrls(hasCloudPlugin);
+        let endpointRaw: string;
 
         if (assetsOriginSource === AssetOriginSource.LocalSecure) {
-            endpointRaw = localEndpointRaw;
-        } else if (assetsOriginSource === AssetOriginSource.CloudSecure && plugin.hasCloudPlugin) {
-            endpointRaw = cloudEndpointRaw;
+            endpointRaw = localSecureUrl;
+        } else if (assetsOriginSource === AssetOriginSource.CloudSecure && hasCloudPlugin) {
+            endpointRaw = cloudSecureEndpoint;
         } else if (assetsOriginSource === AssetOriginSource.LocalInsecure) {
-            endpointRaw = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true, insecure: true });
+            endpointRaw = localInsecureUrl;
         } else if (assetsOriginSource === AssetOriginSource.Custom) {
             const customOrigin = plugin.storageSettings.values.customOriginUrl;
             if (customOrigin) {
                 endpointRaw = customOrigin;
             } else {
                 logger.error('Custom origin URL is not set, falling back to local secure endpoint.');
-                endpointRaw = localEndpointRaw;
+                endpointRaw = localSecureUrl;
             }
         }
 
@@ -447,10 +468,10 @@ export const getAssetsParams = async (props: {
         const assetsOrigin = endpointUrl.origin;
         const userToken = endpointUrl.searchParams.get('user_token');
 
-        const localEndpointUrl = new URL(localEndpointRaw);
+        const localEndpointUrl = new URL(localSecureUrl);
         const localAssetsOrigin = localEndpointUrl.origin;
 
-        const cloudEndpointUrl = new URL(cloudEndpointRaw);
+        const cloudEndpointUrl = new URL(cloudSecureEndpoint);
         const cloudAssetsOrigin = cloudEndpointUrl.origin;
 
         const { privateKey } = plugin.storageSettings.values;
@@ -461,18 +482,15 @@ export const getAssetsParams = async (props: {
         }
         const paramString = `${searchParams.toString()}`;
 
-        const privatePathname = await endpointManager.getPath(undefined, { public: false });
-        const publicPathnamePrefix = await endpointManager.getPath(undefined, { public: true });
-
         return {
             paramString,
             assetsOrigin,
             cloudAssetsOrigin,
             localAssetsOrigin,
             localEndpoint,
-            cloudEndpoint,
-            privatePathname,
-            publicPathnamePrefix
+            cloudEndpoint: cloudSecureEndpoint,
+            privatePathname: privatePath,
+            publicPathnamePrefix: publicPath
         };
     } catch {
         return {}
@@ -1280,6 +1298,7 @@ export const getActiveRules = async (
         console,
         deviceStorage,
         pluginStorage,
+        plugin,
     });
 
     const {
@@ -1508,7 +1527,6 @@ export const getRuleKeys = (props: {
     const nvrEventsKey = `${prefix}:${ruleName}:nvrEvents`;
     const frigateLabelsKey = `${prefix}:${ruleName}:frigateLabels`;
     const audioLabelsKey = `${prefix}:${ruleName}:audioLabels`;
-    const useNvrDetectionsKey = `${prefix}:${ruleName}:useNvrDetections`;
     const detectionSourceKey = `${prefix}:${ruleName}:detectionSource`;
     const whitelistedZonesKey = `${prefix}:${ruleName}:whitelistedZones`;
     const blacklistedZonesKey = `${prefix}:${ruleName}:blacklistedZones`;
@@ -1595,7 +1613,6 @@ export const getRuleKeys = (props: {
             showActiveZonesKey,
         },
         detection: {
-            useNvrDetectionsKey,
             detectionSourceKey,
             whitelistedZonesKey,
             blacklistedZonesKey,
@@ -2800,7 +2817,6 @@ export const getDetectionRulesSettings = async (props: {
             frigateLabelsKey,
             audioLabelsKey,
             recordingTriggerSecondsKey,
-            useNvrDetectionsKey,
             detectionSourceKey,
             whitelistedZonesKey,
             detectionClassesKey,
@@ -2813,13 +2829,11 @@ export const getDetectionRulesSettings = async (props: {
             aiFilterKey,
         } = detection;
 
-        const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean ?? false;
         const clipDescription = storage.getItem(clipDescriptionKey) as string ?? '';
         const detectionClasses = safeParseJson<DetectionClass[]>(storage.getItem(detectionClassesKey), []);
         const activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
-        const detectionSource = storage.getItem(detectionSourceKey) as ScryptedEventSource ||
-            (useNvrDetections ? ScryptedEventSource.NVR : ScryptedEventSource.RawDetection);
         const showCameraSettings = isPlugin || isCamera;
+        const detectionSource = storage.getItem(detectionSourceKey) as ScryptedEventSource;
 
         if (isCamera || isPlugin) {
             settings.push(
@@ -2828,7 +2842,7 @@ export const getDetectionRulesSettings = async (props: {
                     title: 'Detections source',
                     description: 'Select which detections should be used. The snapshots will come from the same source',
                     type: 'string',
-                    defaultValue: detectionSource,
+                    defaultValue: plugin.defaultDetectionSource,
                     group,
                     subgroup,
                     immediate: true,
@@ -2836,14 +2850,7 @@ export const getDetectionRulesSettings = async (props: {
                     onPut: async () => {
                         await refreshSettings()
                     },
-                    choices: frigateLabels ? [
-                        ScryptedEventSource.RawDetection,
-                        ScryptedEventSource.NVR,
-                        ScryptedEventSource.Frigate,
-                    ] : [
-                        ScryptedEventSource.RawDetection,
-                        ScryptedEventSource.NVR,
-                    ]
+                    choices: plugin.enabledDetectionSources
                 }
             );
         }
@@ -4225,8 +4232,9 @@ export const getDetectionRules = (props: {
     pluginStorage: StorageSettings<PluginSettingKey>,
     device?: DeviceBase & StorageSettingsDevice,
     console: Console,
+    plugin: AdvancedNotifierPlugin
 }) => {
-    const { console, pluginStorage, device, deviceStorage } = props;
+    const { console, pluginStorage, device, deviceStorage, plugin } = props;
     const availableRules: DetectionRule[] = [];
     const allowedRules: DetectionRule[] = [];
     const enabledAudioLabelsSet: Set<string> = new Set();
@@ -4256,7 +4264,6 @@ export const getDetectionRules = (props: {
                     devicesKey,
                 },
                 detection: {
-                    useNvrDetectionsKey,
                     detectionSourceKey,
                     detectionClassesKey,
                     whitelistedZonesKey,
@@ -4277,9 +4284,8 @@ export const getDetectionRules = (props: {
                     ruleName: detectionRuleName,
                 });
 
-            const useNvrDetections = storage.getItem(useNvrDetectionsKey) as boolean;
             const detectionSource = storage.getItem(detectionSourceKey) as ScryptedEventSource ||
-                (useNvrDetections ? ScryptedEventSource.NVR : ScryptedEventSource.RawDetection);
+                (plugin.defaultDetectionSource);
             const activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
             const customText = storage.getItem(textKey) as string || undefined;
             const mainDevices = storage.getItem(devicesKey) as string[] ?? [];

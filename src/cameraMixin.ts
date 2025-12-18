@@ -1998,7 +1998,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     if (tryDetector) {
                         runners = [
                             checkDetector,
-                            checkDecoder
+                            checkDecoder,
+                            checkLatest,
+                            checkSnapshot,
                         ];
                     }
                 } else if (tryDetector) {
