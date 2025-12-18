@@ -4,10 +4,9 @@ import { StorageSetting, StorageSettingsDict } from "@scrypted/sdk/storage-setti
 import fs from 'fs';
 import { cloneDeep, sortBy, uniq, uniqBy } from "lodash";
 import moment from "moment";
-import { Config, JsonDB } from "node-json-db";
 import { getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
 import { filterOverlappedDetections } from '../../scrypted-basic-object-detector/src/util';
-import { objectDetectorNativeId } from '../../scrypted-frigate-bridge/src/utils';
+import { objectDetectorNativeId, FrigateObjectDetection } from '../../scrypted-frigate-bridge/src/utils';
 import { Deferred } from "../../scrypted/server/src/deferred";
 import { checkObjectsOccupancy, confirmDetection } from "./aiUtils";
 import { AudioAnalyzerSource, AudioChunkData, AudioRtspFfmpegStream, AudioSensitivity, executeAudioClassification, sensitivityDbThresholds } from "./audioAnalyzerUtils";
@@ -4039,12 +4038,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             this.detectionListener = systemManager.listenDevice(this.id, {
                 event: ScryptedInterface.ObjectDetector,
             }, async (_, eventDetails, data) => {
-                const detect: ObjectsDetected = data;
+                let detect: ObjectsDetected | FrigateObjectDetection = data;
 
                 let eventSource = ScryptedEventSource.RawDetection;
-                const frigateEvent = (detect as any)?.frigateEvent;
 
-                if (frigateEvent) {
+                if ("frigateEvent" in detect) {
+                    detect = (detect as FrigateObjectDetection).frigateEvent;
                     eventSource = ScryptedEventSource.Frigate;
                 }
 

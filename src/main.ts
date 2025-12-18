@@ -785,7 +785,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if (objDetectionPlugin) {
             this.nvrObjectDetectionDevice = objDetectionPlugin;
         } else {
-            logger.info('Scrypted NVR Object Detection not found');
+            logger.log('Scrypted NVR Object Detection not found');
         }
 
         const frigatePlugin = systemManager.getDeviceByName<Settings>(FRIGATE_BRIDGE_PLUGIN_NAME);
