@@ -8,7 +8,7 @@ import { logLevelSetting } from "../../scrypted-apocaliss-base/src/basePlugin";
 import { FRIGATE_OBJECT_DETECTOR_INTERFACE, pluginId } from '../../scrypted-frigate-bridge/src/utils';
 import { loginScryptedClient } from "../../scrypted/packages/client/src";
 import { name, scrypted } from '../package.json';
-import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isAudioLabel, isFaceClassname, isLabelDetection, isPlateClassname } from "./detectionClasses";
+import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isAnimalClassname, isAudioLabel, isFaceClassname, isLabelDetection, isPlateClassname, isVehicleClassname } from "./detectionClasses";
 import AdvancedNotifierPlugin, { PluginSettingKey } from "./main";
 import { detectionClassForObjectsReporting } from "./mqtt-utils";
 const { endpointManager } = sdk;
@@ -777,6 +777,8 @@ export const filterAndSortValidDetections = (props: {
     );
     let isSensorEvent = false;
     let isAudioEvent = false;
+    let isAnimalEvent = false;
+    let isVehicleEvent = false;
     const faces = new Set<string>();
     const uniqueByClassName = uniqBy(sortedByPriorityAndScore, det => det.className);
 
@@ -824,6 +826,14 @@ export const filterAndSortValidDetections = (props: {
             isAudioEvent = true;
         }
 
+        if (!isAnimalEvent && groupClass === DetectionClass.Animal) {
+            isAnimalEvent = true;
+        }
+
+        if (!isVehicleEvent && groupClass === DetectionClass.Vehicle) {
+            isVehicleEvent = true;
+        }
+
         return true;
     });
 
@@ -832,6 +842,8 @@ export const filterAndSortValidDetections = (props: {
         isSensorEvent,
         facesFound: Array.from(faces),
         isAudioEvent,
+        isAnimalEvent,
+        isVehicleEvent,
     };
 }
 
@@ -1528,6 +1540,8 @@ export const getRuleKeys = (props: {
     const detectionClassesKey = `${prefix}:${ruleName}:detecionClasses`;
     const nvrEventsKey = `${prefix}:${ruleName}:nvrEvents`;
     const audioLabelsKey = `${prefix}:${ruleName}:audioLabels`;
+    const animalLabelsKey = `${prefix}:${ruleName}:animalLabels`;
+    const vehicleLabelsKey = `${prefix}:${ruleName}:vehicleLabels`;
     const detectionSourceKey = `${prefix}:${ruleName}:detectionSource`;
     const whitelistedZonesKey = `${prefix}:${ruleName}:whitelistedZones`;
     const blacklistedZonesKey = `${prefix}:${ruleName}:blacklistedZones`;
@@ -1620,6 +1634,8 @@ export const getRuleKeys = (props: {
             recordingTriggerSecondsKey,
             nvrEventsKey,
             audioLabelsKey,
+            animalLabelsKey,
+            vehicleLabelsKey,
             detectionClassesKey,
             peopleKey,
             platesKey,
@@ -2815,6 +2831,8 @@ export const getDetectionRulesSettings = async (props: {
             blacklistedZonesKey,
             nvrEventsKey,
             audioLabelsKey,
+            animalLabelsKey,
+            vehicleLabelsKey,
             recordingTriggerSecondsKey,
             detectionSourceKey,
             whitelistedZonesKey,
@@ -2887,6 +2905,42 @@ export const getDetectionRulesSettings = async (props: {
                         key: audioLabelsKey,
                         title: 'Audio labels',
                         description: 'Leave blank to trigger on every audio event',
+                        group,
+                        subgroup,
+                        multiple: true,
+                        combobox: true,
+                        immediate: true,
+                        choices,
+                        defaultValue: []
+                    }
+                );
+            }
+
+            if (isFrigate && detectionClasses.includes(DetectionClass.Animal)) {
+                const choices = frigateLabels?.filter(isAnimalClassname);
+                settings.push(
+                    {
+                        key: animalLabelsKey,
+                        title: 'Animal labels',
+                        description: 'Leave blank to trigger on every animal event',
+                        group,
+                        subgroup,
+                        multiple: true,
+                        combobox: true,
+                        immediate: true,
+                        choices,
+                        defaultValue: []
+                    }
+                );
+            }
+
+            if (isFrigate && detectionClasses.includes(DetectionClass.Vehicle)) {
+                const choices = frigateLabels?.filter(isVehicleClassname);
+                settings.push(
+                    {
+                        key: vehicleLabelsKey,
+                        title: 'Vehicle labels',
+                        description: 'Leave blank to trigger on every vehicle event',
                         group,
                         subgroup,
                         multiple: true,
@@ -3785,6 +3839,8 @@ export interface DetectionRule extends BaseRule {
     detectionClasses?: RuleDetectionClass[];
     nvrEvents?: NvrEvent[];
     audioLabels?: string[];
+    animalLabels?: string[];
+    vehicleLabels?: string[];
     scoreThreshold?: number;
     labelScoreThreshold?: number;
     whitelistedZones?: string[];
@@ -4249,6 +4305,8 @@ export const getDetectionRules = (props: {
                     blacklistedZonesKey,
                     nvrEventsKey,
                     audioLabelsKey,
+                    animalLabelsKey,
+                    vehicleLabelsKey,
                     recordingTriggerSecondsKey,
                     peopleKey,
                     plateMaxDistanceKey,
@@ -4277,6 +4335,8 @@ export const getDetectionRules = (props: {
 
             const nvrEvents = storage.getItem(nvrEventsKey) as NvrEvent[] ?? [];
             const audioLabels = safeParseJson<string[]>(storage.getItem(audioLabelsKey), []);
+            const animalLabels = safeParseJson<string[]>(storage.getItem(animalLabelsKey), []);
+            const vehicleLabels = safeParseJson<string[]>(storage.getItem(vehicleLabelsKey), []);
             const scoreThreshold = storage.getItem(scoreThresholdKey) as number || (isAudioOnly ? 0.5 : 0.7);
             const minDelay = storage.getItem(minDelayKey) as number;
             const aiFilter = storage.getItem(aiFilterKey) as string;
@@ -4310,6 +4370,8 @@ export const getDetectionRules = (props: {
                 minMqttPublishDelay,
                 detectionSource,
                 audioLabels,
+                animalLabels,
+                vehicleLabels,
                 aiFilter,
                 maxClipExtensionRange,
             };

@@ -3431,6 +3431,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         candidates: ObjectDetectionResult[],
         rule: DetectionRule,
         isAudioEvent: boolean,
+        isAnimalEvent: boolean,
+        isVehicleEvent: boolean,
         eventSource: ScryptedEventSource,
         image: MediaObject,
         detect: ObjectsDetected,
@@ -3440,6 +3442,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             rule,
             candidates,
             isAudioEvent,
+            isAnimalEvent,
+            isVehicleEvent,
             image,
             detect,
         } = props;
@@ -3456,6 +3460,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             plateMaxDistance,
             labelScoreThreshold,
             audioLabels,
+            animalLabels,
+            vehicleLabels,
             detectionSource,
             clipDescription,
             clipConfidence,
@@ -3521,6 +3527,22 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             if (audioLabels && isAudioEvent) {
                 if (audioLabels.length && !audioLabels.includes(label)) {
                     logger.debug(`Audio label ${label} not whitelisted ${audioLabels}`);
+
+                    continue;
+                }
+            }
+
+            if (animalLabels && isAnimalEvent) {
+                if (animalLabels.length && !animalLabels.includes(label)) {
+                    logger.debug(`Animal label ${label} not whitelisted ${animalLabels}`);
+
+                    continue;
+                }
+            }
+
+            if (vehicleLabels && isVehicleEvent) {
+                if (vehicleLabels.length && !vehicleLabels.includes(label)) {
+                    logger.debug(`Vehicle label ${label} not whitelisted ${vehicleLabels}`);
 
                     continue;
                 }
@@ -3670,6 +3692,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             candidates,
             facesFound,
             isAudioEvent,
+            isAnimalEvent,
+            isVehicleEvent,
         } = filterAndSortValidDetections({
             detect,
             logger,
@@ -3904,6 +3928,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     detect,
                     eventSource,
                     image: ruleImage,
+                    isAnimalEvent,
+                    isVehicleEvent,
                 });
 
                 if (matchRules?.length) {
