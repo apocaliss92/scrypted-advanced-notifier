@@ -2458,15 +2458,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                     objectsDetected: occupancyRuleTmpData.objectsDetected
                                 };
 
-                                logger.log(`Confirming occupancy rule ${name}: ${occupancyRuleTmpData.occupies} ${occupancyRuleTmpData.objectsDetected} (V ${currentState.confirmedFrames} / X ${currentState.rejectedFrames})`);
                                 const { b64Image: _, ...rest } = currentState;
                                 const { b64Image: __, image: ____, ...rest2 } = occupancyRuleTmpData;
                                 const { b64Image: ___, ...rest3 } = occupancyDataToUpdate;
-                                logger.log(JSON.stringify({
+
+                                logger.log(`Confirming occupancy rule ${name}: ${occupancyRuleTmpData.occupies} ${occupancyRuleTmpData.objectsDetected} (V ${currentState.confirmedFrames} / X ${currentState.rejectedFrames}): ${JSON.stringify({
                                     occupancyRuleTmpData: rest2,
                                     currentState: rest,
                                     occupancyData: rest3,
-                                }));
+                                })}`);
 
                                 occupancyRulesData.push({
                                     ...occupancyRuleTmpData,
@@ -2475,7 +2475,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                     b64Image: currentState.b64Image,
                                 });
 
-                                await this.mixinState.storageSettings.putSetting(occupiesKey, occupancyRuleTmpData.occupies);
+                                this.mixinState.storageSettings.values[occupiesKey] = occupancyRuleTmpData.occupies;
                             } else {
                                 this.mixinState.occupancyState[name] = {
                                     ...occupancyDataToUpdate,
@@ -2499,11 +2499,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
                 } else if (isChanged) {
                     const b64Image = await moToB64(image);
-                    logger.log(`Marking the rule to confirm ${occupancyRuleTmpData.occupies} for next iteration ${name}: ${occupancyRuleTmpData.objectsDetected} objects, score ${currentState.score}, image ${getB64ImageLog(b64Image)}`);
-                    logger.log(JSON.stringify({
+                    logger.log(`Marking the rule to confirm ${occupancyRuleTmpData.occupies} for next iteration ${name}: ${occupancyRuleTmpData.objectsDetected} objects, score ${currentState.score}, image ${getB64ImageLog(b64Image)}: ${JSON.stringify({
                         isChanged,
-                        currentOccupies: currentState.occupies,
-                    }))
+                        savedOccupies: currentState.occupies,
+                        nowOccupies: occupancyRuleTmpData.occupies
+                    })}`);
                     this.mixinState.occupancyState[name] = {
                         ...occupancyDataToUpdate,
                         confirmationStart: now,

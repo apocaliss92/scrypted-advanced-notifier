@@ -769,15 +769,23 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 cloudSecureEndpoint,
                 localInsecureUrl,
                 localSecureUrl,
-                privatePath,
-                publicPath
             } = await getAllAvailableUrls(false);
+            const {
+                assetsOrigin,
+                cloudEndpoint,
+                localEndpoint,
+                privatePathname,
+                publicPathnamePrefix,
+            } = await getAssetsParams({ plugin: this });
             logger.log(`Cloud plugin not found, URLs available: ${JSON.stringify({
                 cloudSecureEndpoint,
                 localInsecureUrl,
                 localSecureUrl,
-                privatePath,
-                publicPath
+                privatePathname,
+                publicPathnamePrefix,
+                assetsOrigin,
+                cloudEndpoint,
+                localEndpoint,
             })}`);
         }
 
@@ -2512,7 +2520,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 logger,
             });
 
-            logger.log(`${rule.notifiers.length} notifiers will be notified: ${JSON.stringify({ rule, gifUrl, videoUrl })} `);
+            logger.log(`${rule.notifiers.length} notifiers will be notified: ${JSON.stringify({
+                rule,
+                gifUrl,
+                videoUrl,
+                imageUrl,
+                assetsOriginSource: this.storageSettings.values.assetsOriginSource
+            })} `);
 
             for (const notifierId of rule.notifiers) {
                 const notifier = systemManager.getDeviceById<DeviceInterface>(notifierId);
@@ -2626,7 +2640,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             fileId: String(triggerTime),
             ruleName: rule.name,
             plugin: this,
-            device
+            device,
         });
 
         return imageRuleUrl;
@@ -2820,7 +2834,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 logger,
             });
 
-            logger.log(`${rule.notifiers.length} notifiers will be notified with image from ${imageSource}: ${JSON.stringify({ match, rule, videoUrl, gifUrl, imageUrl })} `);
+            logger.log(`${rule.notifiers.length} notifiers will be notified with image from ${imageSource}: ${JSON.stringify({
+                match,
+                rule,
+                videoUrl,
+                gifUrl,
+                imageUrl,
+                assetsOriginSource: this.storageSettings.values.assetsOriginSource
+            })} `);
 
             let message: string;
 
@@ -3101,7 +3122,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const cameraMixin = cameraId ? this.currentCameraMixinsMap[cameraId] : undefined;
         const notifierMixin = this.currentNotifierMixinsMap[notifierId];
         const { notifierActions, aiEnabled: cameraAiEnabled } = cameraMixin?.mixinState.storageSettings.values ?? {}
-        const { aiEnabled: notifierAiEnabled } = notifierMixin.storageSettings.values;
+        const { aiEnabled: notifierAiEnabled } = notifierMixin?.storageSettings?.values ?? {};
         const { haUrl, externalUrl, timelinePart } = this.getUrls(cameraId, triggerTime);
         const deviceLogger = this.getLogger(device);
 

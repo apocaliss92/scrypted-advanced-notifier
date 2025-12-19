@@ -4493,9 +4493,13 @@ export const getDeviceOccupancyRules = (
         const observeZone = deviceStorage.getItem(zoneKey) as string;
         const zoneMatchType = deviceStorage.getItem(zoneMatchTypeKey) as ZoneMatchType;
         const captureZone = deviceStorage.getItem(captureZoneKey) as Point[];
-        const occupies = deviceStorage.getItem(occupiesKey) as boolean;
+        let occupies = deviceStorage.getItem(occupiesKey) as boolean;
         const confirmWithAi = deviceStorage.getItem(confirmWithAiKey) as boolean;
         const detectedObjects = deviceStorage.getItem(detectedObjectsKey) as number;
+
+        if (typeof occupies === 'string') {
+            occupies = JSON.parse(occupies);
+        }
 
         const occupancyRule: OccupancyRule = {
             ...rule,
@@ -4853,7 +4857,10 @@ export const splitRules = (props: {
         const isCurrentlyActive = currentlyRunningRules.find(innerRule => rule.name === innerRule.name);
         const shouldBeActive = rulesToActivate.find(innerRule => rule.name === innerRule.name);
         const isPluginForDevice = rule.source === RuleSource.Plugin && !!device;
-        const isActuallyActive = rule.currentlyActive;
+        let isActuallyActive = rule.currentlyActive;
+        if(typeof isActuallyActive === 'string') {
+            isActuallyActive = JSON.parse(isActuallyActive);
+        }
 
         if (shouldBeActive && (!isCurrentlyActive || !isActuallyActive)) {
             rulesToEnable.push(cloneDeep(rule));
