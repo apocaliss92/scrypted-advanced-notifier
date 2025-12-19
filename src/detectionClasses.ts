@@ -213,9 +213,7 @@ export const objectClasses = [
     'object',
 ]
 
-export const audioClasses = [
-    DetectionClass.Audio,
-
+export const audioLabels = [
     "speech", "scream", "babbling", "yell", "bellow", "whoop", "whispering", "laughter", "snicker",
     "crying", "sigh", "singing", "choir", "sodeling", "chant", "mantra", "child_singing",
     "synthetic_singing", "rapping", "humming", "groan", "grunt", "whistling", "breathing",
@@ -283,6 +281,8 @@ export const audioClasses = [
     "white_noise", "pink_noise", "throbbing", "vibration", "television", "radio", "field_recording"
 ];
 
+export const audioClasses: string[] = [DetectionClass.Audio];
+
 export const doorbellClasses = [
     DetectionClass.Doorbell,
 
@@ -297,7 +297,8 @@ export const isVehicleClassname = (classname: string) => vehicleClasses.includes
 export const isMotionClassname = (classname: string) => motionClasses.includes(classname);
 export const isDoorbellClassname = (classname: string) => doorbellClasses.includes(classname);
 export const isPackageClassname = (classname: string) => packageClasses.includes(classname);
-export const isAudioClassname = (classname: string) => audioClasses.includes(classname);
+export const isAudioLabel = (label: string) => audioClasses.includes(label) || audioLabels.includes(label);
+export const isAudioClassname = (classname: string) => audioClasses.includes(classname) || isAudioLabel(classname);
 export const isLabelDetection = (classname: string) => isFaceClassname(classname) || isPlateClassname(classname);
 export const isObjectClassname = (classname: string) =>
     isPackageClassname(classname) ||

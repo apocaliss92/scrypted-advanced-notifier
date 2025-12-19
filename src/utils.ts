@@ -8,7 +8,7 @@ import { logLevelSetting } from "../../scrypted-apocaliss-base/src/basePlugin";
 import { FRIGATE_OBJECT_DETECTOR_INTERFACE, pluginId } from '../../scrypted-frigate-bridge/src/utils';
 import { loginScryptedClient } from "../../scrypted/packages/client/src";
 import { name, scrypted } from '../package.json';
-import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isFaceClassname, isLabelDetection, isPlateClassname } from "./detectionClasses";
+import { basicDetectionClasses, classnamePrio, defaultDetectionClasses, DetectionClass, detectionClassesDefaultMap, isAudioLabel, isFaceClassname, isLabelDetection, isPlateClassname } from "./detectionClasses";
 import AdvancedNotifierPlugin, { PluginSettingKey } from "./main";
 import { detectionClassForObjectsReporting } from "./mqtt-utils";
 const { endpointManager } = sdk;
@@ -1291,7 +1291,8 @@ export const getActiveRules = async (
         availableRules: availableDetectionRules,
         anyAllowedNvrRule: anyAllowedNvrDetectionRule,
         shouldListenDoorbell,
-        shouldListenAudioSensor,
+        shouldCheckAudioDetections,
+        shouldClassifyAudio,
         enabledAudioLabels,
     } = getDetectionRules({
         device,
@@ -1385,7 +1386,8 @@ export const getActiveRules = async (
         anyAllowedNvrDetectionRule,
         shouldListenDoorbell,
         hasClips,
-        shouldListenAudioSensor,
+        shouldCheckAudioDetections,
+        shouldClassifyAudio,
         enabledAudioLabels,
     }
 }
@@ -1525,7 +1527,6 @@ export const getRuleKeys = (props: {
     // Specific for detection rules
     const detectionClassesKey = `${prefix}:${ruleName}:detecionClasses`;
     const nvrEventsKey = `${prefix}:${ruleName}:nvrEvents`;
-    const frigateLabelsKey = `${prefix}:${ruleName}:frigateLabels`;
     const audioLabelsKey = `${prefix}:${ruleName}:audioLabels`;
     const detectionSourceKey = `${prefix}:${ruleName}:detectionSource`;
     const whitelistedZonesKey = `${prefix}:${ruleName}:whitelistedZones`;
@@ -1618,7 +1619,6 @@ export const getRuleKeys = (props: {
             blacklistedZonesKey,
             recordingTriggerSecondsKey,
             nvrEventsKey,
-            frigateLabelsKey,
             audioLabelsKey,
             detectionClassesKey,
             peopleKey,
@@ -2814,7 +2814,6 @@ export const getDetectionRulesSettings = async (props: {
         const {
             blacklistedZonesKey,
             nvrEventsKey,
-            frigateLabelsKey,
             audioLabelsKey,
             recordingTriggerSecondsKey,
             detectionSourceKey,
@@ -2880,28 +2879,9 @@ export const getDetectionRulesSettings = async (props: {
                 },
             );
 
-            if (isFrigate) {
-                const frigateLabelsChoices = frigateLabels?.filter(label => {
-                    const det = detectionClassesDefaultMap[label];
+            if ((isRawDetection || isFrigate) && detectionClasses.includes(DetectionClass.Audio)) {
+                const choices = isFrigate ? frigateLabels?.filter(isAudioLabel) : audioLabels;
 
-                    return det && detectionClasses.includes(det);
-                });
-                settings.push(
-                    {
-                        key: frigateLabelsKey,
-                        title: 'Frigate labels',
-                        group,
-                        subgroup,
-                        multiple: true,
-                        combobox: true,
-                        immediate: true,
-                        choices: frigateLabelsChoices,
-                        defaultValue: []
-                    }
-                );
-            }
-
-            if (isRawDetection && detectionClasses.includes(DetectionClass.Audio)) {
                 settings.push(
                     {
                         key: audioLabelsKey,
@@ -2912,7 +2892,7 @@ export const getDetectionRulesSettings = async (props: {
                         multiple: true,
                         combobox: true,
                         immediate: true,
-                        choices: audioLabels,
+                        choices,
                         defaultValue: []
                     }
                 );
@@ -3097,7 +3077,7 @@ export const getDetectionRulesSettings = async (props: {
                     combobox: true,
                     immediate: true,
                     choices: zonesToUse,
-                    readonly: !zonesToUse?.length,
+                    // readonly: !zonesToUse?.length,
                     defaultValue: []
                 },
                 {
@@ -3110,7 +3090,7 @@ export const getDetectionRulesSettings = async (props: {
                     combobox: true,
                     immediate: true,
                     choices: zonesToUse,
-                    readonly: !zonesToUse?.length,
+                    // readonly: !zonesToUse?.length,
                     defaultValue: []
                 },
             );
@@ -3235,7 +3215,7 @@ export const getOccupancyRulesSettings = async (props: {
                 group,
                 subgroup,
                 choices: zones,
-                readonly: !zones.length,
+                // readonly: !zones.length,
                 immediate: true
             },
             {
@@ -3804,7 +3784,6 @@ export interface BaseRule {
 export interface DetectionRule extends BaseRule {
     detectionClasses?: RuleDetectionClass[];
     nvrEvents?: NvrEvent[];
-    frigateLabels?: string[];
     audioLabels?: string[];
     scoreThreshold?: number;
     labelScoreThreshold?: number;
@@ -3900,27 +3879,26 @@ const initBasicRule = (props: {
     });
 
     const isEnabled = storage.getItem(enabledKey);
-    const currentlyActive = storage.getItem(currentlyActiveKey);
-    const useAi = storage.getItem(aiEnabledKey);
+    const currentlyActive = safeParseJson<boolean>(storage.getItem(currentlyActiveKey), false);
+    const useAi = safeParseJson<boolean>(storage.getItem(aiEnabledKey), false);
     const aiPrompt = storage.getItem(aiPromptKey);
     const customText = storage.getItem(textKey);
     const activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
     const generateClipSpeed = storage.getItem(generateClipSpeedKey) as VideoclipSpeed || VideoclipSpeed.Fast;
     const securitySystemModes = storage.getItem(securitySystemModesKey) as SecuritySystemMode[] ?? [];
-    const notifiers = storage.getItem(notifiersKey) as string[] ?? [];
-    const generateClip = storage.getItem(generateClipKey) as boolean ?? false;
-    const totalSnooze = storage.getItem(totalSnoozeKey) as boolean ?? false;
+    const notifiers = safeParseJson<string[]>(storage.getItem(notifiersKey), []);
+    const generateClip = safeParseJson<boolean>(storage.getItem(generateClipKey), false);
+    const totalSnooze = safeParseJson<boolean>(storage.getItem(totalSnoozeKey), false);
     const generateClipPostSeconds = safeParseJson<number>(storage.getItem(generateClipPostSecondsKey)) ?? (ruleType === RuleType.Occupancy ? defaultOccupancyClipPreSeconds : defaultClipPreSeconds);
     const generateClipPreSeconds = safeParseJson<number>(storage.getItem(generateClipPreSecondsKey)) ?? defaultClipPostSeconds;
     const generateClipType = storage.getItem(generateClipTypeKey) ?? defaultVideoclipType;
     const imageProcessing = (storage.getItem(imageProcessingKey) as ImagePostProcessing) || ImagePostProcessing.Default;
-    const showActiveZones = storage.getItem(showActiveZonesKey) as boolean ?? false;
-    const onActivationSequencesNames = storage.getItem(onActivationSequencesKey) as string[] ?? [];
-    const onDeactivationSequencesNames = storage.getItem(onDeactivationSequencesKey) as string[] ?? [];
-    const onTriggerSequencesNames = storage.getItem(onTriggerSequencesKey) as string[] ?? [];
-    const onResetSequencesNames = storage.getItem(onResetSequencesKey) as string[] ?? [];
-    const devices = storage.getItem(devicesKey) as string[] ?? [];
-
+    const showActiveZones = safeParseJson<boolean>(storage.getItem(showActiveZonesKey), false);
+    const onActivationSequencesNames = safeParseJson<string[]>(storage.getItem(onActivationSequencesKey), []);
+    const onDeactivationSequencesNames = safeParseJson<string[]>(storage.getItem(onDeactivationSequencesKey), []);
+    const onTriggerSequencesNames = safeParseJson<string[]>(storage.getItem(onTriggerSequencesKey), []);
+    const onResetSequencesNames = safeParseJson<string[]>(storage.getItem(onResetSequencesKey), []);
+    const devices = safeParseJson<string[]>(storage.getItem(devicesKey), []);
     const onActivationSequences: RuleActionsSequence[] = [];
     const onDeactivationSequences: RuleActionsSequence[] = [];
     if (activationType !== DetectionRuleActivation.Always) {
@@ -4240,7 +4218,8 @@ export const getDetectionRules = (props: {
     const enabledAudioLabelsSet: Set<string> = new Set();
     let anyAllowedNvrRule = false;
     let shouldListenDoorbell = false;
-    let shouldListenAudioSensor = false;
+    let shouldCheckAudioDetections = false;
+    let shouldClassifyAudio = false;
 
     const deviceId = device?.id;
 
@@ -4269,7 +4248,6 @@ export const getDetectionRules = (props: {
                     whitelistedZonesKey,
                     blacklistedZonesKey,
                     nvrEventsKey,
-                    frigateLabelsKey,
                     audioLabelsKey,
                     recordingTriggerSecondsKey,
                     peopleKey,
@@ -4298,8 +4276,7 @@ export const getDetectionRules = (props: {
             const isAudioOnly = detectionClasses.length === 1 && detectionClasses[0] === DetectionClass.Audio;
 
             const nvrEvents = storage.getItem(nvrEventsKey) as NvrEvent[] ?? [];
-            const frigateLabels = storage.getItem(frigateLabelsKey) as string[] ?? [];
-            const audioLabels = storage.getItem(audioLabelsKey) as string[] ?? [];
+            const audioLabels = safeParseJson<string[]>(storage.getItem(audioLabelsKey), []);
             const scoreThreshold = storage.getItem(scoreThresholdKey) as number || (isAudioOnly ? 0.5 : 0.7);
             const minDelay = storage.getItem(minDelayKey) as number;
             const aiFilter = storage.getItem(aiFilterKey) as string;
@@ -4332,7 +4309,6 @@ export const getDetectionRules = (props: {
                 clipConfidence,
                 minMqttPublishDelay,
                 detectionSource,
-                frigateLabels,
                 audioLabels,
                 aiFilter,
                 maxClipExtensionRange,
@@ -4390,11 +4366,21 @@ export const getDetectionRules = (props: {
                 availableRules.push(cloneDeep(detectionRule));
             }
 
+            const isFrigate = detectionSource === ScryptedEventSource.Frigate;
+            const isRawDetection = detectionSource === ScryptedEventSource.RawDetection;
+
             if (ruleAllowed) {
                 allowedRules.push(cloneDeep(detectionRule));
                 !anyAllowedNvrRule && (anyAllowedNvrRule = detectionRule.detectionSource === ScryptedEventSource.NVR);
                 !shouldListenDoorbell && (shouldListenDoorbell = detectionClasses.includes(DetectionClass.Doorbell));
-                !shouldListenAudioSensor && hasAudio && (shouldListenAudioSensor = true);
+                !shouldClassifyAudio &&
+                    hasAudio &&
+                    isRawDetection &&
+                    (shouldClassifyAudio = true);
+                !shouldCheckAudioDetections &&
+                    hasAudio &&
+                    isFrigate &&
+                    (shouldCheckAudioDetections = true);
                 for (const audioLabel of detectionRule.audioLabels || []) {
                     enabledAudioLabelsSet.add(audioLabel);
                 }
@@ -4414,7 +4400,8 @@ export const getDetectionRules = (props: {
         allowedRules,
         anyAllowedNvrRule,
         shouldListenDoorbell,
-        shouldListenAudioSensor,
+        shouldCheckAudioDetections,
+        shouldClassifyAudio,
         enabledAudioLabels: Array.from(enabledAudioLabelsSet)
     };
 }
@@ -4486,20 +4473,16 @@ export const getDeviceOccupancyRules = (
         const zoneOccupiedText = deviceStorage.getItem(zoneOccupiedTextKey) as string;
         const zoneNotOccupiedText = deviceStorage.getItem(zoneNotOccupiedTextKey) as string;
         const detectionClass = deviceStorage.getItem(detectionClassKey) as DetectionClass;
-        const scoreThreshold = deviceStorage.getItem(scoreThresholdKey) as number || 0.5;
-        const changeStateConfirm = deviceStorage.getItem(changeStateConfirmKey) as number || 30;
-        const forceUpdate = deviceStorage.getItem(forceUpdateKey) as number || 30;
-        const maxObjects = deviceStorage.getItem(maxObjectsKey) as number || 1;
+        const scoreThreshold = safeParseJson<number>(deviceStorage.getItem(scoreThresholdKey), 0.5);
+        const changeStateConfirm = safeParseJson<number>(deviceStorage.getItem(changeStateConfirmKey), 30);
+        const forceUpdate = safeParseJson<number>(deviceStorage.getItem(forceUpdateKey), 30);
+        const maxObjects = safeParseJson<number>(deviceStorage.getItem(maxObjectsKey), 1);
         const observeZone = deviceStorage.getItem(zoneKey) as string;
         const zoneMatchType = deviceStorage.getItem(zoneMatchTypeKey) as ZoneMatchType;
-        const captureZone = deviceStorage.getItem(captureZoneKey) as Point[];
-        let occupies = deviceStorage.getItem(occupiesKey) as boolean;
-        const confirmWithAi = deviceStorage.getItem(confirmWithAiKey) as boolean;
-        const detectedObjects = deviceStorage.getItem(detectedObjectsKey) as number;
-
-        if (typeof occupies === 'string') {
-            occupies = JSON.parse(occupies);
-        }
+        const captureZone = safeParseJson<Point[]>(deviceStorage.getItem(captureZoneKey), []);
+        const occupies = safeParseJson<boolean>(deviceStorage.getItem(occupiesKey), false);
+        const confirmWithAi = safeParseJson<boolean>(deviceStorage.getItem(confirmWithAiKey), false);
+        const detectedObjects = safeParseJson<number>(deviceStorage.getItem(detectedObjectsKey));
 
         const occupancyRule: OccupancyRule = {
             ...rule,
@@ -4857,14 +4840,10 @@ export const splitRules = (props: {
         const isCurrentlyActive = currentlyRunningRules.find(innerRule => rule.name === innerRule.name);
         const shouldBeActive = rulesToActivate.find(innerRule => rule.name === innerRule.name);
         const isPluginForDevice = rule.source === RuleSource.Plugin && !!device;
-        let isActuallyActive = rule.currentlyActive;
-        if(typeof isActuallyActive === 'string') {
-            isActuallyActive = JSON.parse(isActuallyActive);
-        }
 
-        if (shouldBeActive && (!isCurrentlyActive || !isActuallyActive)) {
+        if (shouldBeActive && (!isCurrentlyActive || !rule.currentlyActive)) {
             rulesToEnable.push(cloneDeep(rule));
-        } else if (!shouldBeActive && (isCurrentlyActive || (isActuallyActive && !isPluginForDevice))) {
+        } else if (!shouldBeActive && (isCurrentlyActive || (rule.currentlyActive && !isPluginForDevice))) {
             rulesToDisable.push(cloneDeep(rule));
         }
     }

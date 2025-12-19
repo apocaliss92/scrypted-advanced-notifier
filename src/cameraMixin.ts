@@ -16,7 +16,7 @@ import AdvancedNotifierPlugin from "./main";
 import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { CameraMixinState, CurrentOccupancyState, OccupancyRuleData, getInitOccupancyState } from "./states";
-import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, DecoderType, DelayType, DetectionRule, DeviceInterface, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, RecordingRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, cachedReaddir, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRecordingRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, DecoderType, DelayType, DetectionRule, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_ID, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, RecordingRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, cachedReaddir, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRecordingRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
 import { VideoRtspFfmpegRecorder, getVideoClipName, parseVideoFileName } from "./videoRecorderUtils";
 
 const { systemManager } = sdk;
@@ -799,7 +799,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     anyAllowedNvrDetectionRule,
                     shouldListenDoorbell: shouldListenDoorbellFromRules,
                     shouldListenAudio: shouldCheckAudioVolumes,
-                    shouldListenAudioSensor: shouldClassifyAudio,
+                    shouldCheckAudioDetections,
+                    shouldClassifyAudio,
                     enabledAudioLabels,
                 } = await getActiveRules({
                     device: this.cameraDevice,
@@ -808,7 +809,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     deviceStorage: this.mixinState.storageSettings
                 });
                 const shouldListenDoorbell = shouldListenDoorbellFromRules || this.cameraDevice.type === ScryptedDeviceType.Doorbell;
-                const shouldListenDetections = shouldListenDetectionsParent || this.plugin.storageSettings.values.storeEvents;
+                const shouldListenDetections = shouldListenDetectionsParent ||
+                    shouldCheckAudioDetections ||
+                    this.plugin.storageSettings.values.storeEvents;
 
                 const currentlyRunningRules = [
                     ...this.mixinState.runningDetectionRules,
@@ -1042,6 +1045,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 } else if (!isDetectionListenerRunning && shouldListenDetections) {
                     logger.log(`Starting detection listeners: ${JSON.stringify({
                         Detections: shouldListenDetections,
+                        AudioDetections: shouldCheckAudioDetections,
                         MQTT: isActiveForMqttReporting,
                         Doorbell: shouldListenDoorbell,
                         NotificationRules: allAllowedRules.length ? allAllowedRules.map(rule => rule.name).join(', ') : 'None',
@@ -1635,35 +1639,34 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const now = new Date().getTime();
             const frigateObjectDetector = systemManager.getDeviceById('@apocaliss92/scrypted-frigate-bridge', objectDetectorNativeId)?.id;
 
-            if (!this.cameraDevice.mixins.includes(frigateObjectDetector)) {
-                return {};
-            }
-
             let labels: string[];
             let zones: string[] = [];
             let cameraName: string;
-            const isUpdated = this.mixinState.lastFrigateDataFetched && (now - this.mixinState.lastFrigateDataFetched) <= (1000 * 60);
-            const settings = await this.mixinDevice.getSettings();
 
-            if (this.mixinState.frigateLabels && isUpdated) {
-                labels = this.mixinState.frigateLabels;
-            } else {
-                const labelsResponse = (settings.find((setting: { key: string; }) => setting.key === 'frigateObjectDetector:labels')?.value ?? []) as string[];
-                labels = labelsResponse.filter(label => label !== 'person');
-                this.mixinState.frigateLabels = labels;
+            if (this.cameraDevice.mixins.includes(frigateObjectDetector)) {
+                const isUpdated = this.mixinState.lastFrigateDataFetched && (now - this.mixinState.lastFrigateDataFetched) <= (1000 * 60);
+                const settings = await this.mixinDevice.getSettings();
+
+                if (this.mixinState.frigateLabels && isUpdated) {
+                    labels = this.mixinState.frigateLabels;
+                } else {
+                    const labelsResponse = (settings.find((setting: { key: string; }) => setting.key === 'frigateObjectDetector:labels')?.value ?? []) as string[];
+                    labels = labelsResponse.filter(label => label !== 'person');
+                    this.mixinState.frigateLabels = labels;
+                }
+
+                if (this.mixinState.frigateZones && this.mixinState.frigateCameraName && isUpdated) {
+                    zones = this.mixinState.frigateZones;
+                    cameraName = this.mixinState.frigateCameraName;
+                } else {
+                    cameraName = settings.find((setting: { key: string; }) => setting.key === 'frigateObjectDetector:cameraName')?.value as string;
+                    zones = settings.find((setting: { key: string; }) => setting.key === 'frigateObjectDetector:zones')?.value as string[] ?? [];
+                }
+
+                this.mixinState.lastFrigateDataFetched = now;
+                this.mixinState.frigateCameraName = cameraName;
+                this.mixinState.frigateZones = zones;
             }
-
-            if (this.mixinState.frigateZones && this.mixinState.frigateCameraName && isUpdated) {
-                zones = this.mixinState.frigateZones;
-                cameraName = this.mixinState.frigateCameraName;
-            } else {
-                cameraName = settings.find((setting: { key: string; }) => setting.key === 'frigateObjectDetector:cameraName')?.value as string;
-                zones = settings.find((setting: { key: string; }) => setting.key === 'frigateObjectDetector:zones')?.value as string[] ?? [];
-            }
-
-            this.mixinState.lastFrigateDataFetched = now;
-            this.mixinState.frigateCameraName = cameraName;
-            this.mixinState.frigateZones = zones;
 
             return { frigateLabels: labels, frigateZones: zones, cameraName };
         } catch (e) {
@@ -3197,7 +3200,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 } else {
                     image = croppedImage;
                 }
-            } else if (detectionSource === ScryptedEventSource.RawDetection) {
+            } else if ([ScryptedEventSource.RawDetection, ScryptedEventSource.Frigate].includes(detectionSource)) {
                 if ([ImagePostProcessing.Crop, ImagePostProcessing.MarkBoundaries].includes(imageProcessing)) {
                     imageToProcess = fullFrameImage;
                 } else {
@@ -3452,7 +3455,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             plates,
             plateMaxDistance,
             labelScoreThreshold,
-            frigateLabels,
             audioLabels,
             detectionSource,
             clipDescription,
@@ -3516,17 +3518,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
             }
 
-            if (isRuleFromFrigate && label) {
-                if (!frigateLabels?.length || !frigateLabels.includes(label)) {
-                    logger.debug(`Frigate label ${label} not whitelisted ${frigateLabels}`);
-
-                    continue;
-                }
-            }
-
             if (audioLabels && isAudioEvent) {
                 if (audioLabels.length && !audioLabels.includes(label)) {
-                    logger.debug(`Audio label ${label} not whitelisted ${frigateLabels}`);
+                    logger.debug(`Audio label ${label} not whitelisted ${audioLabels}`);
 
                     continue;
                 }
@@ -4042,8 +4036,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 let eventSource = ScryptedEventSource.RawDetection;
 
-                if ("frigateEvent" in detect) {
-                    detect = (detect as FrigateObjectDetection).frigateEvent;
+                if (detect.sourceId === FRIGATE_BRIDGE_PLUGIN_ID) {
+                    logger.info('Frigate detection event received', JSON.stringify(detect));
+                    detect = (detect as FrigateObjectDetection).frigateEvent ?? detect;
                     eventSource = ScryptedEventSource.Frigate;
                 }
 

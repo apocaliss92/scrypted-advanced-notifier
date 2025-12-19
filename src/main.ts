@@ -803,7 +803,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger.log(`Frigate API found ${serverUrl}`);
 
             try {
-                await axios.get(`${serverUrl}/api/config`, { timeout: 5000 });
+                await axios.get(`${serverUrl}/config`, { timeout: 5000 });
                 logger.log(`Frigate server is reachable`);
                 this.frigateApi = serverUrl;
 
