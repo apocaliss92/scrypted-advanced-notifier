@@ -2811,11 +2811,11 @@ export const getDetectionRulesSettings = async (props: {
         frigateZones,
         device,
         ruleSource,
-        frigateLabels,
+        frigateLabels = [],
         refreshSettings,
         logger,
         people,
-        audioLabels,
+        audioLabels = [],
         plugin
     } = props;
     const isPlugin = ruleSource === RuleSource.Plugin;

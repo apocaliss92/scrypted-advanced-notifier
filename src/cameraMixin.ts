@@ -6,7 +6,7 @@ import { cloneDeep, sortBy, uniq, uniqBy } from "lodash";
 import moment from "moment";
 import { getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
 import { filterOverlappedDetections } from '../../scrypted-basic-object-detector/src/util';
-import { objectDetectorNativeId, FrigateObjectDetection } from '../../scrypted-frigate-bridge/src/utils';
+import { objectDetectorNativeId, FrigateObjectDetection, audioDetectorNativeId } from '../../scrypted-frigate-bridge/src/utils';
 import { Deferred } from "../../scrypted/server/src/deferred";
 import { checkObjectsOccupancy, confirmDetection } from "./aiUtils";
 import { AudioAnalyzerSource, AudioChunkData, AudioRtspFfmpegStream, AudioSensitivity, executeAudioClassification, sensitivityDbThresholds } from "./audioAnalyzerUtils";
@@ -416,6 +416,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     isActiveForMqttReporting: boolean;
     isActiveForNvrNotifications: boolean;
     isActiveForDoorbelDetections: boolean;
+    isActiveForAudioVolumeControls: boolean;
     framesGeneratorSignal = new Deferred<void>().resolve();
     frameGenerationStartTime: number;
     mainLoopRunning = false;
@@ -638,6 +639,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const nvrObjectDetector = systemManager.getDeviceById('@scrypted/nvr', 'detection')?.id;
         const basicObjectDetector = systemManager.getDeviceById('@apocaliss92/scrypted-basic-object-detector')?.id;
         const frigateObjectDetector = systemManager.getDeviceById('@apocaliss92/scrypted-frigate-bridge', objectDetectorNativeId)?.id;
+        const frigateAudioDetector = systemManager.getDeviceById('@apocaliss92/scrypted-frigate-bridge', audioDetectorNativeId)?.id;
         const nvrId = systemManager.getDeviceById('@scrypted/nvr')?.id;
         let shouldBeMoved = false;
         const thisMixinOrder = this.mixins.indexOf(this.plugin.id);
@@ -649,6 +651,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             shouldBeMoved = true
         }
         if (frigateObjectDetector && this.mixins.indexOf(frigateObjectDetector) > thisMixinOrder) {
+            shouldBeMoved = true
+        }
+        if (frigateAudioDetector && this.mixins.indexOf(frigateAudioDetector) > thisMixinOrder) {
             shouldBeMoved = true
         }
         if (nvrId && this.mixins.indexOf(nvrId) > thisMixinOrder) {
@@ -798,7 +803,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     isActiveForMqttReporting,
                     anyAllowedNvrDetectionRule,
                     shouldListenDoorbell: shouldListenDoorbellFromRules,
-                    shouldListenAudio: shouldCheckAudioVolumes,
+                    shouldListenAudio,
                     shouldCheckAudioDetections,
                     shouldClassifyAudio,
                     enabledAudioLabels,
@@ -1062,13 +1067,25 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
                 this.isActiveForDoorbelDetections = shouldListenDoorbell;
 
-                const shouldStartAudioAnalyzer = shouldCheckAudioVolumes || shouldClassifyAudio;
+                // Audio analyzer should start if classification is needed
+                let shouldStartAudioAnalyzer = shouldClassifyAudio;
+                let shouldListenToVolumeControls = false;
+                if (!shouldStartAudioAnalyzer && shouldListenAudio) {
+                    // It should also start if Frigate audio is not enabled
+                    if (this.interfaces.includes(ScryptedInterface.AudioVolumeControl) &&
+                        !!this.audioVolumes?.dBFS) {
+                        shouldListenToVolumeControls = true;
+                    } else {
+                        shouldStartAudioAnalyzer = true;
+                    }
+                }
+
                 this.shouldClassifyAudio = shouldClassifyAudio;
                 this.audioClassificationLabels = enabledAudioLabels;
 
                 if (shouldStartAudioAnalyzer && !this.isActiveForAudioAnalysis) {
                     logger.log(`Starting audio analyzer: ${JSON.stringify({
-                        shouldCheckAudioVolumes,
+                        shouldStartAudioAnalyzer,
                         shouldClassifyAudio,
                         enabledAudioLabels,
                     })}`);
@@ -1078,6 +1095,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     await this.stopAudioAnalysis();
                 }
                 this.isActiveForAudioAnalysis = shouldStartAudioAnalyzer;
+
+                if (shouldListenToVolumeControls && !this.isActiveForAudioVolumeControls) {
+                    logger.log(`Starting Audio Volume Controls listener`);
+                    await this.startAudioVolumeControlsListener();
+                } else if (!shouldListenToVolumeControls && this.isActiveForAudioVolumeControls) {
+                    logger.log(`Stopping Audio Volume Controls listener`);
+                    await this.stopAudioVolumeControlsListener();
+                }
+                this.isActiveForAudioVolumeControls = shouldListenToVolumeControls;
 
                 if (anyAllowedNvrDetectionRule && !this.isActiveForNvrNotifications) {
                     logger.log(`Starting NVR events listener`);
@@ -1286,6 +1312,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     async stopDoorbellListener() {
         this.binaryListener?.removeListener && this.binaryListener.removeListener();
         this.binaryListener = undefined;
+    }
+
+    async stopAudioVolumeControlsListener() {
+        this.audioVolumesListener?.removeListener && this.audioVolumesListener.removeListener();
+        this.audioVolumesListener = undefined;
     }
 
     resetListeners() {
@@ -1650,8 +1681,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 if (this.mixinState.frigateLabels && isUpdated) {
                     labels = this.mixinState.frigateLabels;
                 } else {
-                    const labelsResponse = (settings.find((setting: { key: string; }) => setting.key === 'frigateObjectDetector:labels')?.value ?? []) as string[];
-                    labels = labelsResponse.filter(label => label !== 'person');
+                    const objectLabels = (settings.find((setting: { key: string; }) => setting.key === `${objectDetectorNativeId}:labels`)?.value ?? []) as string[];
+                    const audioLabels = (settings.find((setting: { key: string; }) => setting.key === `${audioDetectorNativeId}:labels`)?.value ?? []) as string[];
+                    labels = [...audioLabels, ...objectLabels];
                     this.mixinState.frigateLabels = labels;
                 }
 
@@ -1866,6 +1898,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const findFromDetector = () => async () => {
             try {
+                if (!detectionId && !eventId) {
+                    return null;
+                }
+
                 const detectImage = await this.cameraDevice.getDetectionInput(detectionId, eventId);
 
                 if (detectImage) {
@@ -2624,11 +2660,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     public async processAudioDetection(props: {
         dBs: number,
-        dev: number,
     }) {
         const logger = this.getLogger();
-        const { dBs, dev } = props;
-        logger.debug(`Audio detection: ${dBs} dB, dev ${dev}`);
+        const { dBs } = props;
+        logger.debug(`Audio detection: ${dBs} dB`);
         const now = Date.now();
 
         let image: MediaObject;
@@ -2654,7 +2689,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             let windowReached = false;
             this.mixinState.audioRuleSamples[name] = [
                 ...samples,
-                { dBs, dev, timestamp: now }
+                { dBs, timestamp: now }
             ].filter(sample => {
                 const isOverWindow = (now - sample.timestamp) > (audioDuration * 1000);
                 if (isOverWindow && !windowReached) {
@@ -3758,7 +3793,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let mqttFsImageSource = ImageSource.NotFound;
 
         try {
-            const canUpdateDetectionsOnMqtt = eventSource === detectionSourceForMqtt;
+            // const canUpdateDetectionsOnMqtt = (eventSource === detectionSourceForMqtt) ||
+            //     isDetectionFromFrigate;
+            const canUpdateDetectionsOnMqtt = true;
 
             if (isDetectionFromNvr) {
                 mqttFsB64Image = croppedNvrB64Image;
@@ -4047,6 +4084,28 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             });
         } catch (e) {
             this.getLogger().log('Error in startBinaryListener', e);
+        }
+    }
+
+    async startAudioVolumeControlsListener() {
+        try {
+            const logger = this.getLogger();
+
+            this.stopAudioVolumeControlsListener();
+
+            this.audioVolumesListener = systemManager.listenDevice(this.id, {
+                event: ScryptedInterface.AudioVolumeControl,
+            }, async (_, __, data) => {
+                const now = Date.now();
+
+                if (data) {
+                    this.processAudioDetection({
+                        dBs: data?.dBFS,
+                    }).catch(logger.log);
+                }
+            });
+        } catch (e) {
+            this.getLogger().log('Error in startAudioVolumeControlsListener', e);
         }
     }
 
@@ -4353,7 +4412,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             if (db !== undefined) {
                 this.processAudioDetection({
                     dBs: db,
-                    dev: stddev
                 }).catch(logger.error);
             }
 

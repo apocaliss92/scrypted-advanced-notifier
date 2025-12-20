@@ -66,7 +66,6 @@ export class CameraMixinState {
     audioRuleSamples: Record<string, {
         timestamp: number;
         dBs: number;
-        dev: number;
     }[]> = {};
     detectionRuleListeners: Record<string, {
         disableNvrRecordingTimeout?: NodeJS.Timeout;

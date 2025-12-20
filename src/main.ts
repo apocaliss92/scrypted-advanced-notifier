@@ -1465,10 +1465,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             if (!isUpdated) {
                 const frigatePlugin = systemManager.getDeviceByName<Settings>(FRIGATE_BRIDGE_PLUGIN_NAME);
                 const settings = await frigatePlugin.getSettings();
-                const labels = settings.find(setting => setting.key === 'labels')?.value as string[];
+                const objectLabels = (settings.find(setting => setting.key === 'objectLabels')?.value ?? []) as string[];
+                const audioLabels = (settings.find(setting => setting.key === 'audioLabels')?.value ?? []) as string[];
                 const cameras = settings.find(setting => setting.key === 'cameras')?.value as string[];
 
-                this.frigateLabels = labels.filter(label => label !== 'person');
+                const labels = [...objectLabels, ...audioLabels];
+                this.frigateLabels = labels?.filter(label => label !== 'person');
                 this.frigateCameras = cameras;
                 this.lastFrigateDataFetched = now;
             }
@@ -2203,7 +2205,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             frigateLabels,
             audioLabels,
             people,
-            refreshSettings: async () => await this.refreshSettings(),
+            refreshSettings: this.refreshSettings.bind(this),
             plugin: this,
         });
         dynamicSettings.push(...detectionRulesSettings);
@@ -2316,6 +2318,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const defaultSource = this.defaultDetectionSource;
         this.storageSettings.settings.detectionSourceForMqtt.defaultValue = defaultSource;
         this.storageSettings.settings.facesSourceForMqtt.defaultValue = defaultSource;
+
+        this.onDeviceEvent(ScryptedInterface.Settings, 'settingsChanged');
     }
 
     get defaultDetectionSource() {

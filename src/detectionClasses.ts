@@ -298,6 +298,7 @@ export const isMotionClassname = (classname: string) => motionClasses.includes(c
 export const isDoorbellClassname = (classname: string) => doorbellClasses.includes(classname);
 export const isPackageClassname = (classname: string) => packageClasses.includes(classname);
 export const isAudioLabel = (label: string) => audioClasses.includes(label) || audioLabels.includes(label);
+export const isObjectLabel = (label: string) => !isAudioLabel(label);
 export const isAudioClassname = (classname: string) => audioClasses.includes(classname) || isAudioLabel(classname);
 export const isLabelDetection = (classname: string) => isFaceClassname(classname) || isPlateClassname(classname);
 export const isObjectClassname = (classname: string) =>

@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.7.10
+- Audio labels standardized to be used from Frigate or onboard classifier
+- Vehicle/animal labels added for Frigate source only
+
 ### 4.7.3
 - New setting `Inlude user token` added in the advanced section, activate it if you face problems authenticating urls
 
