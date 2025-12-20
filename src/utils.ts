@@ -199,6 +199,7 @@ export interface SnoozeItem {
 export interface ImageData {
     fullFrameImage?: MediaObject,
     croppedImage?: MediaObject,
+    markedImage?: MediaObject,
     image?: MediaObject,
     imageSource: ImageSource,
 }
@@ -217,6 +218,7 @@ export interface NotifyDetectionProps {
 
 export enum ScryptedEventSource {
     Default = 'Default',
+    All = 'All',
     RawDetection = 'RawDetection',
     NVR = 'NVR',
     Frigate = 'Frigate'

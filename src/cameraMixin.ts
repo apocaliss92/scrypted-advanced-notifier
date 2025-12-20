@@ -950,6 +950,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         const lastGlobal = this.plugin.lastCameraAutodiscoveryMap[this.id];
                         if (!lastGlobal || (now - lastGlobal) > 1000 * 60 * 60) {
                             this.plugin.enqueueCameraAutodiscovery(this.id, async () => {
+                                // TODO: Add support to Frigate zones on MQTT
                                 const zones = (await this.getObserveZones()).map(item => item.name);
                                 logger.log('Starting MQTT autodiscovery (queued)');
                                 const activeTopics = await setupCameraAutodiscovery({
@@ -2838,7 +2839,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let imageSource: ImageSource;
         for (const data of dataToAnalyze) {
             const { detectionId, eventId, eventSource } = data;
-            if (detectionId && eventId && eventSource !== ScryptedEventSource.Frigate) {
+            if (detectionId && eventSource !== ScryptedEventSource.Frigate) {
                 const imageData = await this.getImage({
                     detectionId,
                     eventId,
@@ -2983,7 +2984,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             source = detectionSourceForMqttPlugin;
         }
 
-        return source ?? ScryptedEventSource.RawDetection;
+        return source ?? ScryptedEventSource.All;
     }
 
     get facesSourceForMqtt() {
@@ -2997,7 +2998,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             source = facesSourceForMqttPlugin;
         }
 
-        return source ?? ScryptedEventSource.RawDetection;
+        return source ?? ScryptedEventSource.All;
     }
 
     async executeDetection(image: MediaObject) {
@@ -3204,11 +3205,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         if (forceExecution || timePassed) {
             let croppedImage = imageData?.croppedImage;
             let fullFrameImage = imageData?.fullFrameImage;
+            let markedImage = imageData?.markedImage;
             let imageSource = imageData?.imageSource;
             let image: MediaObject;
             let shouldReDetect = false;
 
-            if (!imageData || !imageData.fullFrameImage) {
+            if (!imageData || !fullFrameImage) {
                 let { image: newImage, imageSource: newImageSource } = await this.getImage({
                     reason: GetImageReason.Notification,
                     skipResize: imageProcessing === ImagePostProcessing.Crop
@@ -3224,21 +3226,37 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             let imageToProcess: MediaObject;
 
             if (detectionSource === ScryptedEventSource.NVR) {
-                if (imageProcessing === ImagePostProcessing.MarkBoundaries) {
+                if ([ImagePostProcessing.MarkBoundaries].includes(imageProcessing)) {
                     imageToProcess = fullFrameImage;
 
-                    if (!imageData?.fullFrameImage) {
+                    if (!fullFrameImage) {
                         shouldReDetect = true;
                     }
                 } else if (imageProcessing === ImagePostProcessing.FullFrame) {
                     image = fullFrameImage;
-                } else {
+                } else if ([ImagePostProcessing.Default, ImagePostProcessing.Crop].includes(imageProcessing)) {
                     image = croppedImage;
                 }
-            } else if ([ScryptedEventSource.RawDetection, ScryptedEventSource.Frigate].includes(detectionSource)) {
+            } else if (detectionSource === ScryptedEventSource.RawDetection) {
                 if ([ImagePostProcessing.Crop, ImagePostProcessing.MarkBoundaries].includes(imageProcessing)) {
                     imageToProcess = fullFrameImage;
-                } else {
+
+                    if (!fullFrameImage) {
+                        shouldReDetect = true;
+                    }
+                } else if ([ImagePostProcessing.Default, ImagePostProcessing.FullFrame].includes(imageProcessing)) {
+                    image = fullFrameImage;
+                }
+            } else if (detectionSource === ScryptedEventSource.Frigate) {
+                if (imageProcessing === ImagePostProcessing.Crop) {
+                    imageToProcess = fullFrameImage;
+
+                    if (!fullFrameImage) {
+                        shouldReDetect = true;
+                    }
+                } else if ([ImagePostProcessing.MarkBoundaries, ImagePostProcessing.Default].includes(imageProcessing)) {
+                    image = markedImage;
+                } else if (imageProcessing === ImagePostProcessing.FullFrame) {
                     image = fullFrameImage;
                 }
             }
@@ -3314,6 +3332,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
 
                     if (zonesToShow.length) {
+                        // TODO: Add Frigate zones support
                         logger.log(`Adding active zones to image: ${zonesToShow.join(', ')}`);
                         const zonesData = await this.getObserveZones();
                         const clipPaths = zonesData.filter(
@@ -3760,18 +3779,25 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             });
         }
 
-        let croppedNvrImage: MediaObject;
-        let croppedNvrB64Image: string;
-        let decoderImage: MediaObject;
-        let decoderB64Image: string;
+        let croppedImage: MediaObject;
+        let croppedImageB64Image: string;
+        let markedImage: MediaObject;
+        let markedImageB64Image: string;
+        let fullFrameImage: MediaObject;
+        let fullFrameB64Image: string;
         let imageSource: ImageSource;
 
-        if (parentImage && isDetectionFromNvr) {
-            croppedNvrImage = parentImage;
-            croppedNvrB64Image = await moToB64(parentImage);
+        if (parentImage) {
+            if (isDetectionFromNvr) {
+                croppedImage = parentImage;
+                croppedImageB64Image = await moToB64(parentImage);
+            } else if (isDetectionFromFrigate) {
+                markedImage = parentImage;
+                markedImageB64Image = await moToB64(parentImage);
+            }
         }
 
-        if (eventId && detectionId) {
+        if (detectionId) {
             this.mixinState.detectionIdEventIdMap[detectionId] = eventId;
             const classnamesLog = getDetectionsLog(detections);
 
@@ -3782,26 +3808,32 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 skipResize: true
             });
 
-            decoderB64Image = decoderB64ImagFound;
-            decoderImage = decoderImageFound;
+            fullFrameB64Image = decoderB64ImagFound;
+            fullFrameImage = decoderImageFound;
             imageSource = newImageSource;
 
             logger.info(`${eventSource} detections received, classnames ${classnamesLog}`);
         }
 
+        let mqttFsImage: MediaObject;
         let mqttFsB64Image: string;
         let mqttFsImageSource = ImageSource.NotFound;
 
         try {
-            // const canUpdateDetectionsOnMqtt = (eventSource === detectionSourceForMqtt) ||
-            //     isDetectionFromFrigate;
-            const canUpdateDetectionsOnMqtt = true;
+            const canUpdateDetectionsOnMqtt = (eventSource === detectionSourceForMqtt) ||
+                detectionSourceForMqtt === ScryptedEventSource.All;
 
             if (isDetectionFromNvr) {
-                mqttFsB64Image = croppedNvrB64Image;
+                mqttFsImage = croppedImage;
+                mqttFsB64Image = croppedImageB64Image;
                 mqttFsImageSource = ImageSource.Input;
-            } else if (decoderImage) {
-                mqttFsB64Image = decoderB64Image;
+            } if (isDetectionFromFrigate) {
+                mqttFsImage = markedImage;
+                mqttFsB64Image = markedImageB64Image;
+                mqttFsImageSource = ImageSource.Input;
+            } else if (fullFrameImage) {
+                mqttFsImage = fullFrameImage;
+                mqttFsB64Image = fullFrameB64Image;
                 mqttFsImageSource = ImageSource.Decoder;
             }
 
@@ -3811,11 +3843,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     if (facesSourceForMqtt === ScryptedEventSource.NVR && facesFound.length) {
                         const room = this.cameraDevice.room;
                         if (room) {
+                            // TODO Add support to frigate faces
                             publishPeopleData({
                                 mqttClient,
                                 console: logger,
                                 faces: facesFound,
-                                b64Image: croppedNvrB64Image,
+                                b64Image: croppedImageB64Image,
                                 room: this.cameraDevice.room,
                                 imageSource: ImageSource.Input,
                                 triggerTime,
@@ -3909,7 +3942,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 });
             }
 
-            if (decoderB64Image && decoderImage && this.plugin.storageSettings.values.storeEvents) {
+            if (fullFrameB64Image && fullFrameImage && this.plugin.storageSettings.values.storeEvents) {
                 logger.info(`Storing ${eventSource} event image: ${JSON.stringify({
                     detections,
                     candidates,
@@ -3918,13 +3951,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const storeEventId = getDetectionEventKey({ detectionId, eventId });
 
                 this.plugin.storeEventImage({
-                    b64Image: decoderB64Image,
+                    b64Image: fullFrameB64Image,
                     detections: originalCandidates,
                     device: this.cameraDevice,
                     eventSource,
                     logger,
                     timestamp: triggerTime,
-                    image: decoderImage,
+                    image: fullFrameImage,
                     eventId: storeEventId,
                 }).catch(logger.error);
             }
@@ -3948,15 +3981,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             })}`);
 
             for (const rule of rules) {
-                const ruleImage = isDetectionFromNvr ? croppedNvrImage : decoderImage;
-                const ruleB64Image = isDetectionFromNvr ? croppedNvrB64Image : decoderB64Image;
-
-                // if (!this.isDelayPassed({
-                //     type: DelayType.RuleMinCheck,
-                //     rule,
-                // })?.timePassed) {
-                //     continue
-                // }
+                // const ruleImage = isDetectionFromNvr ? croppedImage :
+                //     isDetectionFromFrigate ? markedImage :
+                //         fullFrameImage;
+                // const ruleB64Image = isDetectionFromNvr ? croppedImageB64Image :
+                //     isDetectionFromFrigate ? markedImageB64Image :
+                //         fullFrameB64Image;
+                const ruleImage = mqttFsImage;
+                const ruleB64Image = mqttFsB64Image;
 
                 const { report, matchRules } = await this.checkDetectionRuleMatches({
                     rule,
@@ -3978,8 +4010,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 eventSource: NotifyRuleSource.Decoder,
                                 matchRule,
                                 imageData: {
-                                    croppedImage: croppedNvrImage,
-                                    fullFrameImage: decoderImage,
+                                    croppedImage,
+                                    markedImage,
+                                    fullFrameImage,
                                     imageSource,
                                 },
                                 eventType: detectionClassesDefaultMap[matchRule.match.className],
