@@ -226,6 +226,11 @@ export enum ScryptedEventSource {
     Frigate = 'Frigate'
 }
 
+export enum ZonesSourceForMqtt {
+    Scrypted = 'Scrypted',
+    Frigate = 'Frigate',
+}
+
 export enum AssetOriginSource {
     CloudSecure = 'CloudSecure',
     LocalSecure = 'LocalSecure',

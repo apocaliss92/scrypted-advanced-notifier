@@ -16,7 +16,7 @@ import AdvancedNotifierPlugin from "./main";
 import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { CameraMixinState, CurrentOccupancyState, OccupancyRuleData, getInitOccupancyState } from "./states";
-import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, DecoderType, DelayType, DetectionRule, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_ID, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, RecordingRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, ZoneWithPath, b64ToMo, cachedReaddir, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRecordingRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, DecoderType, DelayType, DetectionRule, DetectionsPerZone, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_ID, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, RecordingRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, ZoneWithPath, ZonesSourceForMqtt, b64ToMo, cachedReaddir, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRecordingRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
 import { VideoRtspFfmpegRecorder, getVideoClipName, parseVideoFileName } from "./videoRecorderUtils";
 
 const { systemManager } = sdk;
@@ -33,6 +33,7 @@ type CameraSettingKey =
     | 'minMqttPublishDelay'
     | 'detectionSourceForMqtt'
     | 'facesSourceForMqtt'
+    | 'zonesSourceForMqtt'
     | 'motionDuration'
     | 'decoderFrequency'
     | 'decoderStreamDestination'
@@ -181,6 +182,15 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             immediate: true,
             combobox: true,
             defaultValue: ScryptedEventSource.Default,
+            choices: [],
+        },
+        zonesSourceForMqtt: {
+            title: 'Zones source',
+            description: 'Which zone list should be used for MQTT zone entities. Scrypted uses Observe zones; Frigate uses zones defined in the Frigate interface.',
+            type: 'string',
+            immediate: true,
+            combobox: true,
+            defaultValue: ZonesSourceForMqtt.Scrypted,
             choices: [],
         },
         motionDuration: {
@@ -950,8 +960,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         const lastGlobal = this.plugin.lastCameraAutodiscoveryMap[this.id];
                         if (!lastGlobal || (now - lastGlobal) > 1000 * 60 * 60) {
                             this.plugin.enqueueCameraAutodiscovery(this.id, async () => {
-                                // TODO: Add support to Frigate zones on MQTT
-                                const zones = (await this.getObserveZones()).map(item => item.name);
+                                const zones = await this.getMqttZones();
                                 logger.log('Starting MQTT autodiscovery (queued)');
                                 const activeTopics = await setupCameraAutodiscovery({
                                     mqttClient,
@@ -1570,6 +1579,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             ]
         }
 
+        if (this.mixinState.storageSettings.settings.zonesSourceForMqtt) {
+            const choices: ZonesSourceForMqtt[] = [ZonesSourceForMqtt.Scrypted];
+            if (this.plugin.frigateApi) {
+                choices.push(ZonesSourceForMqtt.Frigate);
+            }
+            this.mixinState.storageSettings.settings.zonesSourceForMqtt.choices = choices;
+        }
+
         const isAudioClassifierEnabled = audioClassifierSource !== AudioAnalyzerSource.Disabled;
         if (this.mixinState.storageSettings.settings.audioClassifierSource) {
             this.mixinState.storageSettings.settings.audioClassifierSource.hide = !audioAnalyzerEnabled;
@@ -1639,6 +1656,25 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             this.getLogger().log('Error in getObserveZones', e);
             return [];
         }
+    }
+
+    async getMqttZones(): Promise<string[]> {
+        const source = this.mixinState.storageSettings.values.zonesSourceForMqtt as ZonesSourceForMqtt;
+
+        if (source === ZonesSourceForMqtt.Frigate) {
+            try {
+                const { frigateZones } = await this.getFrigateData();
+                const zoneNames = (frigateZones || []).map(z => z.name).filter(Boolean);
+                if (zoneNames.length) {
+                    return zoneNames;
+                }
+            } catch (e) {
+                this.getLogger().debug?.(`Error fetching Frigate zones for MQTT, falling back to Observe zones: ${e}`);
+            }
+        }
+
+        const zonesData = await this.getObserveZones();
+        return (zonesData || []).map(z => z.name).filter(Boolean);
     }
 
     async getAudioData() {
@@ -3808,6 +3844,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const {
             minDelayTime,
             ignoreCameraDetections,
+            zonesSourceForMqtt
         } = this.mixinState.storageSettings.values;
 
         const {
@@ -3965,7 +4002,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 }
 
                                 logger.info(`Triggering basic detections ${getDetectionsLog(spamBlockedDetections)}`);
-                                const detectionsPerZone = getDetectionsPerZone(spamBlockedDetections);
+                                let detectionsPerZone: DetectionsPerZone | undefined;
+                                const canUpdateZonesOnMqtt = zonesSourceForMqtt === ZonesSourceForMqtt.Frigate ? isDetectionFromFrigate : true;
+
+                                if (canUpdateZonesOnMqtt) {
+                                    detectionsPerZone = getDetectionsPerZone(spamBlockedDetections);
+                                }
 
                                 for (const detection of spamBlockedDetections) {
                                     const { className, label } = detection;
@@ -4324,7 +4366,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const funct = async () => {
             logger.info(`Resetting basic detections ${classnames ?? 'All'}, signal coming from ${resetSource}`);
-            const zones = (await this.getObserveZones()).map(item => item.name);;
+            const zones = await this.getMqttZones();
 
             await publishResetDetectionsEntities({
                 mqttClient,

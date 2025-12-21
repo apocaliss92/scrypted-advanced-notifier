@@ -1577,7 +1577,7 @@ export const publishBasicDetectionData = async (props: {
     device: DeviceInterface,
     console: Console,
     detection?: ObjectDetectionResult,
-    detectionsPerZone: DetectionsPerZone,
+    detectionsPerZone?: DetectionsPerZone,
     triggerTime: number,
 }) => {
     const {
@@ -1599,7 +1599,9 @@ export const publishBasicDetectionData = async (props: {
             device
         });
 
-        classEntries.push(...getZoneEntities(detectionsPerZone));
+        if (detectionsPerZone) {
+            classEntries.push(...getZoneEntities(detectionsPerZone));
+        }
 
         console.debug(`Relevant detections to publish: ${JSON.stringify({ detection, classEntries })}`);
 
