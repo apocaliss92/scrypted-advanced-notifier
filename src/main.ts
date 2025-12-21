@@ -28,7 +28,6 @@ import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { CameraMixinState, OccupancyRuleData } from "./states";
 import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, calculateSize, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, defaultClipPostSeconds, defaultClipPreSeconds, defaultOccupancyClipPreSeconds, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, DevNotifications, ExtendedNotificationAction, formatSize, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllAvailableUrls, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRecordingRules, getRecordingRulesSettings, getRuleKeys, getSequenceObject, getSequencesSettings, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RecordingRule, RuleActionsSequence, RuleActionType, ruleSequencesGroup, ruleSequencesKey, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType, ZENTIK_PLUGIN_ID } from "./utils";
 import { parseVideoFileName } from "./videoRecorderUtils";
-import mqtt from "mqtt";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -52,6 +51,7 @@ export type PluginSettingKey =
     | 'snoozes'
     | 'testDevice'
     | 'testNotifier'
+    | 'testEventSource'
     | 'testEventType'
     | 'testLabel'
     | 'testPriority'
@@ -336,6 +336,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             type: 'device',
             deviceFilter: notifierFilter,
             immediate: true,
+        },
+        testEventSource: {
+            group: 'Test',
+            title: 'Event source',
+            type: 'string',
+            immediate: true,
+            defaultValue: ScryptedEventSource.RawDetection,
+            choices: [],
+            onPut: async () => await this.refreshSettings(),
         },
         testEventType: {
             group: 'Test',
@@ -2269,6 +2278,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 this.storageSettings.settings.detectionSourceForMqtt.choices = this.enabledDetectionSources;
                 this.storageSettings.settings.facesSourceForMqtt.choices = this.enabledDetectionSources;
             }
+            this.storageSettings.settings.testEventSource.choices = this.enabledDetectionSources
+                .filter(s => s !== ScryptedEventSource.All);
+
             this.storageSettings.settings.detectionSourceForMqtt.hide = !mqttEnabled;
             this.storageSettings.settings.facesSourceForMqtt.hide = !mqttEnabled;
             this.storageSettings.settings.mqttActiveEntitiesTopic.hide = !mqttEnabled;
@@ -2282,6 +2294,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         const { isCamera } = testDevice ? isDeviceSupported(testDevice) : {};
         this.storageSettings.settings.testEventType.hide = !isCamera;
+        this.storageSettings.settings.testEventSource.hide = !isCamera;
         this.storageSettings.settings.testZones.hide = !isCamera;
         this.storageSettings.settings.testGenerateClipSpeed.hide = !testGenerateClip;
         this.storageSettings.settings.testGenerateClipType.hide = !testGenerateClip;
@@ -2294,14 +2307,21 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.storageSettings.settings.testPriority.choices = priorityChoices;
         }
 
-        // Update testZones choices based on selected camera observe zones
+        // Update testEventSource choices and testZones list based on selected camera and source.
         if (isCamera && testDevice) {
             const cameraMixin = this.currentCameraMixinsMap[testDevice.id];
             if (cameraMixin) {
                 try {
-                    const zonesData = await cameraMixin.getObserveZones();
-                    const zoneNames = (zonesData || []).map(z => z.name).filter(Boolean);
-                    this.storageSettings.settings.testZones.choices = zoneNames;
+                    const testEventSource = this.storageSettings.values.testEventSource as ScryptedEventSource;
+                    if (testEventSource === ScryptedEventSource.Frigate) {
+                        const { frigateZones } = await cameraMixin.getFrigateData();
+                        const zoneNames = (frigateZones || []).map(z => z.name).filter(Boolean);
+                        this.storageSettings.settings.testZones.choices = zoneNames;
+                    } else {
+                        const zonesData = await cameraMixin.getObserveZones();
+                        const zoneNames = (zonesData || []).map(z => z.name).filter(Boolean);
+                        this.storageSettings.settings.testZones.choices = zoneNames;
+                    }
                 } catch (e) {
                     logger.log('Error fetching zones for testZones setting', e);
                 }
@@ -2325,12 +2345,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     get defaultDetectionSource() {
         return this.nvrObjectDetectionDevice ?
             ScryptedEventSource.NVR :
-            ScryptedEventSource.RawDetection;
+            ScryptedEventSource.All;
     }
 
     get enabledDetectionSources() {
         const sources: ScryptedEventSource[] = [
-            ScryptedEventSource.RawDetection
+            ScryptedEventSource.All,
+            ScryptedEventSource.RawDetection,
         ];
         if (this.nvrObjectDetectionDevice) {
             sources.push(ScryptedEventSource.NVR);
@@ -3677,6 +3698,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             testAddSnoozing,
             testBypassSnooze,
             testDevice,
+            testEventSource,
             testEventType,
             testGenerateClip,
             testGenerateClipSpeed,
@@ -3708,6 +3730,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     testAddActions,
                     testAddSnoozing,
                     testBypassSnooze,
+                    testEventSource,
                     testEventType,
                     testGenerateClip,
                     testGenerateClipSpeed,
@@ -3755,7 +3778,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     source: RuleSource.Plugin,
                     isEnabled: true,
                     name: 'Test rule',
-                    detectionSource: ScryptedEventSource.RawDetection,
+                    detectionSource: (testEventSource as ScryptedEventSource) ?? ScryptedEventSource.RawDetection,
                     notifiers: [testNotifier?.id],
                     showActiveZones: testShowActiveZones,
                 } as DetectionRule;
@@ -4316,6 +4339,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const deviceMixin = this.currentCameraMixinsMap[device.id];
         const { maxSpaceInGb, storageRetentionDays, storageEventsRetentionDays } = deviceMixin.mixinState.storageSettings.values;
 
+        if (additionalCutoffDays && additionalCutoffDays >= storageRetentionDays) {
+            logger.log(`Skipping cleanup, additionalCutoffDays ${additionalCutoffDays} >= storageRetentionDays ${storageRetentionDays}`);
+            return;
+        }
+        
         const now = Date.now();
         const videoclipsThreshold = now - (1000 * 60 * 60 * 24 * (storageRetentionDays - additionalCutoffDays));
         const { cameraPath } = this.getFsPaths({ cameraId: device.id });
@@ -4449,10 +4477,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const clips: string[] = [];
             const snapshots: string[] = [];
 
-            for (const filename of recordedEvents) {
-                if (filename.endsWith('.mp4')) {
+            for (const fullFileName of recordedEvents) {
+                const [filename, ext] = fullFileName.split('.');
+                if (ext === 'mp4') {
                     clips.push(filename);
-                } else if (filename.endsWith('.jpg')) {
+                } else if (ext === 'jpg') {
                     snapshots.push(filename);
                 }
             }

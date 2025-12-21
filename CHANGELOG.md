@@ -1,6 +1,11 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.7.11
+- Frigate zones handling completed
+- Frigate faces handling preparation
+- Fix cleanup of recorded events not working and looping
+
 ### 4.7.10
 - Audio labels standardized to be used from Frigate or onboard classifier
 - Vehicle/animal labels added for Frigate source only

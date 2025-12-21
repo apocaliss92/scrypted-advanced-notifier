@@ -2,7 +2,7 @@ import sdk, { EventDetails, EventListenerRegister, Image, MediaObject, Notifier,
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import fs from 'fs';
-import { cloneDeep, sortBy, uniq, uniqBy } from "lodash";
+import { cloneDeep, keyBy, sortBy, uniq, uniqBy } from "lodash";
 import moment from "moment";
 import { getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
 import { filterOverlappedDetections } from '../../scrypted-basic-object-detector/src/util';
@@ -16,7 +16,7 @@ import AdvancedNotifierPlugin from "./main";
 import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { CameraMixinState, CurrentOccupancyState, OccupancyRuleData, getInitOccupancyState } from "./states";
-import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, DecoderType, DelayType, DetectionRule, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_ID, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, RecordingRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, b64ToMo, cachedReaddir, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRecordingRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, DecoderType, DelayType, DetectionRule, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_ID, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, RecordingRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, ZoneWithPath, b64ToMo, cachedReaddir, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRecordingRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
 import { VideoRtspFfmpegRecorder, getVideoClipName, parseVideoFileName } from "./videoRecorderUtils";
 
 const { systemManager } = sdk;
@@ -1672,19 +1672,21 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const frigateObjectDetector = systemManager.getDeviceById('@apocaliss92/scrypted-frigate-bridge', objectDetectorNativeId)?.id;
 
             let labels: string[];
-            let zones: string[] = [];
+            let zones: ZoneWithPath[] = [];
             let cameraName: string;
 
             if (this.cameraDevice.mixins.includes(frigateObjectDetector)) {
                 const isUpdated = this.mixinState.lastFrigateDataFetched && (now - this.mixinState.lastFrigateDataFetched) <= (1000 * 60);
                 const settings = await this.mixinDevice.getSettings();
 
+                const settingsDict = keyBy(settings, 'key');
+
                 if (this.mixinState.frigateLabels && isUpdated) {
                     labels = this.mixinState.frigateLabels;
                 } else {
-                    const objectLabels = (settings.find((setting: { key: string; }) => setting.key === `${objectDetectorNativeId}:labels`)?.value ?? []) as string[];
-                    const audioLabels = (settings.find((setting: { key: string; }) => setting.key === `${audioDetectorNativeId}:labels`)?.value ?? []) as string[];
-                    labels = [...audioLabels, ...objectLabels];
+                    const objectsLabels = settingsDict[`${objectDetectorNativeId}:labels`]?.value ?? [];
+                    const audioLabels = settingsDict[`${audioDetectorNativeId}:labels`]?.value ?? [];
+                    labels = [...audioLabels, ...objectsLabels];
                     this.mixinState.frigateLabels = labels;
                 }
 
@@ -1692,8 +1694,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     zones = this.mixinState.frigateZones;
                     cameraName = this.mixinState.frigateCameraName;
                 } else {
-                    cameraName = settings.find((setting: { key: string; }) => setting.key === 'frigateObjectDetector:cameraName')?.value as string;
-                    zones = settings.find((setting: { key: string; }) => setting.key === 'frigateObjectDetector:zones')?.value as string[] ?? [];
+                    cameraName = settingsDict[`${objectDetectorNativeId}:cameraName`]?.value as string;
+                    zones = settingsDict[`${objectDetectorNativeId}:zonesWithPath`]?.value as ZoneWithPath[] ?? [];
                 }
 
                 this.mixinState.lastFrigateDataFetched = now;
@@ -2804,7 +2806,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 eventSource: det.eventSource
             });
 
-            if (det.eventSource === facesSourceForMqtt) {
+            if (
+                det.eventSource === facesSourceForMqtt ||
+                facesSourceForMqtt === ScryptedEventSource.All
+            ) {
                 for (const innerDet of det.detect.detections) {
                     const { className, label } = innerDet;
                     if (isFaceClassname(className) && !facesSet.has(label)) {
@@ -3044,8 +3049,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let error: string;
 
         if (image) {
-            logger.log(`Post-processing set to ${imageProcessing}, objectDetector is set to ${objectDetector ? objectDetector.name : 'NOT_DEFINED'}`);
-
             if (objectDetector && image) {
                 let transformedDetections: ObjectDetectionResult[];
 
@@ -3116,50 +3119,61 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     transformedDetections = [match];
                 }
 
-                logger.log(`Post-processing starting with: ${JSON.stringify({
-                    transformedDetections,
-                    image: !!image,
-                    shouldReDetect,
-                })}`);
-
                 const canContinue = transformedDetections?.length || eventSource === NotifyRuleSource.Test;
                 if (canContinue && image) {
                     const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(image, ScryptedMimeTypes.Image);
                     const inputDimensions: [number, number] = [convertedImage.width, convertedImage.height];
-                    logger.info(`Post-processing starting with: inputDimensions ${inputDimensions}`);
+                    logger.log(`Post-processing starting with: ${JSON.stringify({
+                        transformedDetections,
+                        image: !!image,
+                        shouldReDetect,
+                        inputDimensions,
+                        eventSource,
+                        imageProcessing,
+                    })}`);
+
+                    let shouldFallback = false;
 
                     try {
                         if (imageProcessing === ImagePostProcessing.MarkBoundaries) {
-                            const { newImage, newB64Image } = await addBoundingBoxesToImage({
-                                image,
-                                detections: transformedDetections,
-                                inputDimensions,
-                                plugin: this.plugin
-                            });
-                            processedB64Image = newB64Image;
-                            processedImage = newImage;
-                        } else if (imageProcessing === ImagePostProcessing.Crop) {
-                            try {
-                                const { newB64Image, newImage } = await cropImageToDetection({
+                            if (transformedDetections.length) {
+                                const { newImage, newB64Image } = await addBoundingBoxesToImage({
                                     image,
-                                    boundingBox: transformedDetections[0].boundingBox,
+                                    detections: transformedDetections,
                                     inputDimensions,
-                                    plugin: this.plugin,
-                                    console: logger
+                                    plugin: this.plugin
                                 });
-
-                                processedImage = newImage;
                                 processedB64Image = newB64Image;
-                            } catch (e) {
-                                error = e.message;
-                                logger.error('Failed to crop image', JSON.stringify({
-                                    transformedDetections,
-                                    inputDimensions,
-                                    error,
-                                    match,
-                                    imageProcessing,
-                                }));
+                                processedImage = newImage;
+                            } else {
+                                shouldFallback = true;
+                            }
+                        } else if (imageProcessing === ImagePostProcessing.Crop) {
+                            if (transformedDetections.length) {
 
+                                try {
+                                    const { newB64Image, newImage } = await cropImageToDetection({
+                                        image,
+                                        boundingBox: transformedDetections[0].boundingBox,
+                                        inputDimensions,
+                                        plugin: this.plugin,
+                                        console: logger
+                                    });
+
+                                    processedImage = newImage;
+                                    processedB64Image = newB64Image;
+                                } catch (e) {
+                                    error = e.message;
+                                    logger.error('Failed to crop image', JSON.stringify({
+                                        transformedDetections,
+                                        inputDimensions,
+                                        error,
+                                        match,
+                                        imageProcessing,
+                                    }));
+                                }
+                            } else {
+                                shouldFallback = true;
                             }
                         }
                     } catch (e) {
@@ -3173,6 +3187,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             imageSource
                         }), e);
                     }
+
+                    if (shouldFallback) {
+                        processedB64Image = await moToB64(image);
+                        processedImage = image;
+                    }
+                } else {
+                    logger.log(`Post-processing interrupted: ${JSON.stringify({
+                        transformedDetections,
+                        image: !!image,
+                        shouldReDetect,
+                    })}`);
+
+                    processedImage = image;
+                    processedB64Image = await moToB64(image);
                 }
             }
         } else {
@@ -3195,7 +3223,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const { matchRule, imageData, eventSource, forceExecution } = props;
         const logger = this.getLogger();
         const { rule, match } = matchRule;
-        const { detectionSource, imageProcessing } = rule as DetectionRule;
+        const { detectionSource, imageProcessing: imageProcessingParent } = rule as DetectionRule;
+
+        let imageProcessing = imageProcessingParent;
 
         const { timePassed, lastSetInSeconds, minDelayInSeconds } = this.isDelayPassed({
             type: DelayType.RuleNotification,
@@ -3236,6 +3266,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     image = fullFrameImage;
                 } else if ([ImagePostProcessing.Default, ImagePostProcessing.Crop].includes(imageProcessing)) {
                     image = croppedImage;
+                    imageProcessing = ImagePostProcessing.Crop;
+
+                    if (!image) {
+                        imageToProcess = fullFrameImage;
+                    }
                 }
             } else if (detectionSource === ScryptedEventSource.RawDetection) {
                 if ([ImagePostProcessing.Crop, ImagePostProcessing.MarkBoundaries].includes(imageProcessing)) {
@@ -3246,6 +3281,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
                 } else if ([ImagePostProcessing.Default, ImagePostProcessing.FullFrame].includes(imageProcessing)) {
                     image = fullFrameImage;
+                    imageProcessing = ImagePostProcessing.FullFrame;
                 }
             } else if (detectionSource === ScryptedEventSource.Frigate) {
                 if (imageProcessing === ImagePostProcessing.Crop) {
@@ -3256,15 +3292,33 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
                 } else if ([ImagePostProcessing.MarkBoundaries, ImagePostProcessing.Default].includes(imageProcessing)) {
                     image = markedImage;
+                    imageProcessing = ImagePostProcessing.MarkBoundaries;
+
+                    if (!image) {
+                        imageToProcess = fullFrameImage;
+                    }
                 } else if (imageProcessing === ImagePostProcessing.FullFrame) {
                     image = fullFrameImage;
                 }
             }
 
+            logger.log(`Preprocess notification image: ${JSON.stringify({
+                shouldReDetect,
+                imageSource,
+                image: !!image,
+                fullFrameImage: !!fullFrameImage,
+                imageToProcess: !!imageToProcess,
+                croppedImage: !!croppedImage,
+                markedImage: !!markedImage,
+                detectionSource,
+                imageProcessing,
+                imageProcessingParent,
+            })}`);
+
             if (imageToProcess) {
                 const { error, processedImage } = await this.executeImagePostProcessing({
                     image: imageToProcess,
-                    imageProcessing: rule.imageProcessing,
+                    imageProcessing,
                     shouldReDetect,
                     imageSource,
                     eventSource,
@@ -3272,6 +3326,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     className: match.className,
                     label: match.label,
                 });
+                logger.log(`Post-processing result: ${JSON.stringify({
+                    hasError: !!error,
+                    error,
+                    processedImage: !!processedImage,
+                })}`);
 
                 if (error) {
                     if (rule.imageProcessing !== ImagePostProcessing.Crop) {
@@ -3322,7 +3381,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 }
 
                 if (image && rule.showActiveZones && match.zones?.length) {
-                    const zoneRules = (rule as DetectionRule).whitelistedZones;
+                    const detectionRule = rule as DetectionRule;
+                    const zoneRules = detectionRule.whitelistedZones;
                     let zonesToShow: string[] = [];
 
                     if (eventSource === NotifyRuleSource.Test) {
@@ -3332,12 +3392,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     }
 
                     if (zonesToShow.length) {
-                        // TODO: Add Frigate zones support
                         logger.log(`Adding active zones to image: ${zonesToShow.join(', ')}`);
-                        const zonesData = await this.getObserveZones();
-                        const clipPaths = zonesData.filter(
-                            zone => zonesToShow.includes(zone.name)
-                        ).map(zone => zone.path);
+                        let clipPaths: number[][][] = [];
+
+                        if (detectionRule.detectionSource === ScryptedEventSource.Frigate) {
+                            const { frigateZones } = await this.getFrigateData();
+                            clipPaths = frigateZones.filter(
+                                zone => zonesToShow.includes(zone.name)
+                            ).map(zone => zone.path);
+                        } else {
+                            const zonesData = await this.getObserveZones();
+                            clipPaths = zonesData.filter(
+                                zone => zonesToShow.includes(zone.name)
+                            ).map(zone => zone.path);
+                        }
                         const { newImage } = await addZoneClipPathToImage({
                             image,
                             clipPaths,
@@ -3822,6 +3890,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         try {
             const canUpdateDetectionsOnMqtt = (eventSource === detectionSourceForMqtt) ||
                 detectionSourceForMqtt === ScryptedEventSource.All;
+            const canUpdateFacesOnMqtt = (eventSource === facesSourceForMqtt) ||
+                facesSourceForMqtt === ScryptedEventSource.All;
 
             if (isDetectionFromNvr) {
                 mqttFsImage = croppedImage;
@@ -3840,19 +3910,30 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             if (this.isActiveForMqttReporting) {
                 const mqttClient = await this.getMqttClient();
                 if (mqttClient) {
-                    if (facesSourceForMqtt === ScryptedEventSource.NVR && facesFound.length) {
+                    if (facesFound.length) {
                         const room = this.cameraDevice.room;
                         if (room) {
-                            // TODO Add support to frigate faces
-                            publishPeopleData({
-                                mqttClient,
-                                console: logger,
-                                faces: facesFound,
-                                b64Image: croppedImageB64Image,
-                                room: this.cameraDevice.room,
-                                imageSource: ImageSource.Input,
-                                triggerTime,
-                            }).catch(logger.error);
+                            let b64Image = croppedImageB64Image;
+                            if (canUpdateFacesOnMqtt) {
+                                if (eventSource === ScryptedEventSource.Frigate) {
+                                    logger.log(
+                                        `Face tracker from Frigat not yet supported`
+                                    )
+                                    b64Image = undefined;
+                                }
+
+                                if (b64Image) {
+                                    publishPeopleData({
+                                        mqttClient,
+                                        console: logger,
+                                        faces: facesFound,
+                                        b64Image,
+                                        room: this.cameraDevice.room,
+                                        imageSource: ImageSource.Input,
+                                        triggerTime,
+                                    }).catch(logger.error);
+                                }
+                            }
                         }
                     }
 
@@ -4040,10 +4121,19 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     rule.currentlyActive &&
                     rule.detectionClasses?.length &&
                     rule.detectionClasses.some(dc =>
-                        candidates.some(c =>
-                            detectionClassesDefaultMap[c.className] === dc &&
-                                rule.scoreThreshold ? (!c.score || c.score >= rule.scoreThreshold) : true
-                        )
+                        candidates.some(c => {
+                            const mappedClass = detectionClassesDefaultMap[c.className];
+                            if (mappedClass !== dc) {
+                                return false;
+                            }
+
+                            const hasScoreThreshold = rule.scoreThreshold !== undefined && rule.scoreThreshold !== null;
+                            if (!hasScoreThreshold) {
+                                return true;
+                            }
+
+                            return c.score === undefined || c.score >= rule.scoreThreshold;
+                        })
                     )
                 )
             ) ?? [];

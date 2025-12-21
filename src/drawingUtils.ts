@@ -29,6 +29,13 @@ export const addBoundingBoxesToImage = async (props: {
         postProcessingShowScore: showScore
     } = plugin.storageSettings.values;
 
+    if (!detections.length) {
+        return {
+            newB64Image: await moToB64(image),
+            newImage: image,
+        }
+    }
+
     try {
         const svgRectsAndTexts = detections.map(({ boundingBox, label, className, score }) => {
             let labelText = `${label || className}`;

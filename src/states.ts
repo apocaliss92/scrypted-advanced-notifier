@@ -1,5 +1,5 @@
 import { MediaObject, MediaStreamDestination, ObjectsDetected, VideoClip } from "@scrypted/sdk";
-import { AudioRule, BaseRule, DetectionRule, MatchRule, ObserveZoneData, OccupancyRule, RecordingRule, ScryptedEventSource, TimelapseRule } from "./utils";
+import { AudioRule, BaseRule, DetectionRule, MatchRule, ObserveZoneData, OccupancyRule, RecordingRule, ScryptedEventSource, TimelapseRule, ZoneWithPath } from "./utils";
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
@@ -76,7 +76,7 @@ export class CameraMixinState {
     observeZoneData: ObserveZoneData[];
     audioLabels: string[];
     frigateLabels: string[];
-    frigateZones: string[];
+    frigateZones: ZoneWithPath[];
     frigateCameraName: string;
     lastFrigateDataFetched: number;
     occupancyState: Record<string, CurrentOccupancyState> = {};

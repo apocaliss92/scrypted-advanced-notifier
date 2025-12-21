@@ -196,6 +196,8 @@ export interface SnoozeItem {
     minutes: number,
 }
 
+export interface ZoneWithPath { name: string, path: number[][] }
+
 export interface ImageData {
     fullFrameImage?: MediaObject,
     croppedImage?: MediaObject,
@@ -2797,7 +2799,7 @@ export const getSequencesSettings = async (props: {
 export const getDetectionRulesSettings = async (props: {
     storage: StorageSettings<any>,
     zones?: string[],
-    frigateZones?: string[],
+    frigateZones?: ZoneWithPath[],
     people?: string[],
     frigateLabels?: string[],
     audioLabels?: string[],
@@ -3116,7 +3118,7 @@ export const getDetectionRulesSettings = async (props: {
                 }
             }
         } else {
-            zonesToUse = isFrigate ? frigateZones : zones;
+            zonesToUse = isFrigate ? frigateZones.map(zone => zone.name) : zones;
         }
 
         const zonesDescription = isFrigate ? 'Zones defined on the Frigate interface' :
