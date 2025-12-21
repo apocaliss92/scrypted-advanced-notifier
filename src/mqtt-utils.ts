@@ -678,13 +678,109 @@ const publishMqttEntitiesDiscovery = async (props: { mqttClient?: MqttClient, mq
     return autodiscoveryTopics;
 }
 
+interface MqttOriginInfo {
+    name: string;
+    sw?: string;
+    url?: string;
+}
+
+interface MqttDeviceDiscoveryPayload {
+    dev: AutodiscoveryConfig['dev'];
+    o: MqttOriginInfo;
+    cmps: Record<string, Omit<AutodiscoveryConfig, 'dev'>>;
+}
+
+const mqttDiscoveryOrigin: MqttOriginInfo = {
+    name: '@apocaliss92/scrypted-advanced-notifier',
+};
+
+const toDeviceDiscoveryComponentId = (mqttEntity: MqttEntity) => {
+    const raw = `${mqttEntity.domain}-${mqttEntity.entity}`;
+    const kebab = toKebabCase(raw);
+    return kebab.replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+// V2: Home Assistant device-based MQTT discovery (single device topic with cmps).
+// Not used by default to avoid altering existing users' MQTT discovery behavior.
+export const publishMqttDeviceDiscoveryV2 = async (props: { mqttClient?: MqttClient, mqttEntities: MqttEntity[], device: MqttDeviceType, console: Console }) => {
+    const { mqttClient, mqttEntities, device, console } = props;
+
+    if (!mqttClient) {
+        return;
+    }
+
+    const deviceIdParent = typeof device === 'string' ? device : device?.id;
+    const deviceDiscoveryTopic = `homeassistant/device/${idPrefix}-${deviceIdParent}/config`;
+
+    const { mqttDevice, deviceId } = await getMqttDevice(device);
+
+    const cmps: Record<string, Omit<AutodiscoveryConfig, 'dev'>> = {};
+    const legacyDiscoveryTopics: string[] = [];
+    const statePublishes: Array<{ topic: string; payload: string; retain?: boolean }> = [];
+    const entitiesEnsuredReset: string[] = [];
+
+    for (const mqttEntity of mqttEntities) {
+        const { commandTopic, stateTopic, infoTopic, discoveryTopic } = getMqttTopics({ mqttEntity, device });
+        legacyDiscoveryTopics.push(discoveryTopic);
+
+        const config = getBasicMqttAutodiscoveryConfiguration({
+            deviceId,
+            mqttDevice,
+            mqttEntity,
+            stateTopic,
+            commandTopic,
+            infoTopic,
+        });
+
+        const { dev: _dev, ...componentConfig } = config;
+        const componentId = toDeviceDiscoveryComponentId(mqttEntity);
+        cmps[componentId] = componentConfig;
+
+        if (mqttEntity.valueToDispatch !== undefined) {
+            statePublishes.push({ topic: stateTopic, payload: mqttEntity.valueToDispatch, retain: mqttEntity.retain });
+        }
+
+        if (['switch', 'button'].includes(mqttEntity.domain)) {
+            entitiesEnsuredReset.push(commandTopic);
+        }
+    }
+
+    // Migrate from legacy single-component discovery to device-based discovery.
+    for (const discoveryTopic of legacyDiscoveryTopics) {
+        await mqttClient.publish(discoveryTopic, JSON.stringify({ migrate_discovery: true }), true);
+    }
+
+    const payload: MqttDeviceDiscoveryPayload = {
+        dev: mqttDevice,
+        o: mqttDiscoveryOrigin,
+        cmps,
+    };
+
+    console.debug(`Discovering device ${JSON.stringify({ deviceDiscoveryTopic, components: Object.keys(cmps).length })}`);
+    await mqttClient.publish(deviceDiscoveryTopic, JSON.stringify(payload), true);
+
+    // After configs have been published, state topics need an update.
+    for (const { topic, payload, retain } of statePublishes) {
+        await mqttClient.publish(topic, payload, retain);
+    }
+
+    // Ensure command topics are not retained.
+    for (const commandTopic of entitiesEnsuredReset) {
+        await mqttClient.publish(commandTopic, '', true);
+    }
+
+    console.info(`Entities ensured to not be retained: ${entitiesEnsuredReset}`);
+    return [deviceDiscoveryTopic];
+}
+
 export const setupPluginAutodiscovery = async (props: {
     mqttClient?: MqttClient,
     people: string[],
     console: Console,
     rules: BaseRule[];
+    useV2?: boolean;
 }) => {
-    const { people, mqttClient, rules, console } = props;
+    const { people, mqttClient, rules, console, useV2 } = props;
 
     if (!mqttClient) {
         return;
@@ -735,21 +831,23 @@ export const setupPluginAutodiscovery = async (props: {
         pendingResultsEntity,
     );
 
-    const pluginTopics = await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, console, device: pluginId });
-    const peopleTopics = await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities: peopleEntities, device: peopleTrackerId, console });
+    const publish = useV2 ? publishMqttDeviceDiscoveryV2 : publishMqttEntitiesDiscovery;
+    const pluginTopics = await publish({ mqttClient, mqttEntities, console, device: pluginId });
+    const peopleTopics = await publish({ mqttClient, mqttEntities: peopleEntities, device: peopleTrackerId, console });
 
     return [
-        ...pluginTopics,
-        ...peopleTopics,
-    ]
+        ...(pluginTopics ?? []),
+        ...(peopleTopics ?? []),
+    ];
 }
 
 export const setupAlarmSystemAutodiscovery = async (props: {
     mqttClient?: MqttClient,
     console: Console,
     supportedModes: SecuritySystemMode[],
+    useV2?: boolean;
 }) => {
-    const { mqttClient, console, supportedModes } = props;
+    const { mqttClient, console, supportedModes, useV2 } = props;
 
     if (!mqttClient) {
         return;
@@ -766,7 +864,8 @@ export const setupAlarmSystemAutodiscovery = async (props: {
         supportedFeatures: supportedModes.map(mode => AlarmSupportedFeatureToHaMap[mode]),
     });
 
-    return await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, device: alarmSystemId, console, });
+    const publish = useV2 ? publishMqttDeviceDiscoveryV2 : publishMqttEntitiesDiscovery;
+    return await publish({ mqttClient, mqttEntities, device: alarmSystemId, console, });
 }
 
 export const subscribeToPluginMqttTopics = async (
@@ -1329,8 +1428,9 @@ export const setupCameraAutodiscovery = async (props: {
     rules: BaseRule[],
     zones: string[],
     occupancyEnabled: boolean,
+    useV2?: boolean,
 }) => {
-    const { device, mqttClient, rules, console, occupancyEnabled, zones } = props;
+    const { device, mqttClient, rules, console, occupancyEnabled, zones, useV2 } = props;
 
     if (!mqttClient) {
         return;
@@ -1427,15 +1527,17 @@ export const setupCameraAutodiscovery = async (props: {
 
     mqttEntities.push(...getDetectionZoneEntities(zones));
 
-    return await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, device, console });
+    const publish = useV2 ? publishMqttDeviceDiscoveryV2 : publishMqttEntitiesDiscovery;
+    return await publish({ mqttClient, mqttEntities, device, console });
 }
 
 export const setupNotifierAutodiscovery = async (props: {
     mqttClient?: MqttClient,
     device: ScryptedDeviceBase & Notifier,
     console: Console,
+    useV2?: boolean,
 }) => {
-    const { device, mqttClient, console } = props;
+    const { device, mqttClient, console, useV2 } = props;
 
     if (!mqttClient) {
         return;
@@ -1449,7 +1551,8 @@ export const setupNotifierAutodiscovery = async (props: {
         notificationsEnabledEntity,
     ];
 
-    return await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, device, console });
+    const publish = useV2 ? publishMqttDeviceDiscoveryV2 : publishMqttEntitiesDiscovery;
+    return await publish({ mqttClient, mqttEntities, device, console });
 }
 
 export const setupSensorAutodiscovery = async (props: {
@@ -1457,8 +1560,9 @@ export const setupSensorAutodiscovery = async (props: {
     device: ScryptedDeviceBase,
     rules: BaseRule[],
     console: Console,
+    useV2?: boolean,
 }) => {
-    const { device, mqttClient, console, rules } = props;
+    const { device, mqttClient, console, rules, useV2 } = props;
 
     if (!mqttClient) {
         return;
@@ -1489,7 +1593,8 @@ export const setupSensorAutodiscovery = async (props: {
         }
     }
 
-    return await publishMqttEntitiesDiscovery({ mqttClient, mqttEntities, device, console });
+    const publish = useV2 ? publishMqttDeviceDiscoveryV2 : publishMqttEntitiesDiscovery;
+    return await publish({ mqttClient, mqttEntities, device, console });
 }
 
 export const publishResetDetectionsEntities = async (props: {

@@ -227,6 +227,7 @@ export enum ScryptedEventSource {
 }
 
 export enum ZonesSourceForMqtt {
+    Default = 'Default',
     Scrypted = 'Scrypted',
     Frigate = 'Frigate',
 }

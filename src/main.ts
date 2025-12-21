@@ -5,7 +5,7 @@ import child_process from 'child_process';
 import { once } from "events";
 import fs from 'fs';
 import https from 'https';
-import { cloneDeep, isEqual, max, sortBy, uniq } from 'lodash';
+import { cloneDeep, isEqual, keyBy, max, sortBy, uniq } from 'lodash';
 import path from 'path';
 import { applySettingsShow, BasePlugin, BaseSettingsKey, getBaseSettings, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { getRpcData } from '../../scrypted-monitor/src/utils';
@@ -26,10 +26,12 @@ import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { CameraMixinState, OccupancyRuleData } from "./states";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, calculateSize, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, defaultClipPostSeconds, defaultClipPreSeconds, defaultOccupancyClipPreSeconds, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, DevNotifications, ExtendedNotificationAction, formatSize, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllAvailableUrls, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRecordingRules, getRecordingRulesSettings, getRuleKeys, getSequenceObject, getSequencesSettings, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RecordingRule, RuleActionsSequence, RuleActionType, ruleSequencesGroup, ruleSequencesKey, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType, ZENTIK_PLUGIN_ID } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, calculateSize, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, defaultClipPostSeconds, defaultClipPreSeconds, defaultOccupancyClipPreSeconds, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, DevNotifications, ExtendedNotificationAction, formatSize, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllAvailableUrls, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRecordingRules, getRecordingRulesSettings, getRuleKeys, getSequenceObject, getSequencesSettings, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RecordingRule, RuleActionsSequence, RuleActionType, ruleSequencesGroup, ruleSequencesKey, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType, ZENTIK_PLUGIN_ID, ZonesSourceForMqtt } from "./utils";
 import { parseVideoFileName } from "./videoRecorderUtils";
 
 const { systemManager, mediaManager } = sdk;
+
+interface FrigateData { cameras: string[]; faces: string[]; labels: string[] };
 
 export type PluginSettingKey =
     | 'pluginEnabled'
@@ -44,6 +46,7 @@ export type PluginSettingKey =
     | 'mqttActiveEntitiesTopic'
     | 'detectionSourceForMqtt'
     | 'facesSourceForMqtt'
+    | 'zonesSourceForMqtt'
     | 'onActiveDevices'
     | 'objectDetectionDevice'
     | 'clipDevice'
@@ -216,6 +219,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             combobox: true,
             choices: [],
             defaultValue: ScryptedEventSource.NVR
+        },
+        zonesSourceForMqtt: {
+            title: 'Zones source',
+            description: 'Which zone list should be used for MQTT zone entities. Scrypted uses Observe zones; Frigate uses zones defined in the Frigate interface.',
+            type: 'string',
+            subgroup: 'MQTT',
+            immediate: true,
+            combobox: true,
+            choices: [],
+            defaultValue: ZonesSourceForMqtt.Scrypted,
         },
         ...getTextSettings({ forMixin: false }),
         [ruleTypeMetadataMap[RuleType.Detection].rulesKey]: {
@@ -689,8 +702,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     restartRequested = false;
     public aiMessageResponseMap: Record<string, string> = {};
     audioLabels: string[];
-    frigateLabels: string[];
-    frigateCameras: string[];
+    frigateData: FrigateData;
     lastFrigateDataFetched: number;
     lastAudioDataFetched: number;
     localEndpointInternal: string;
@@ -816,9 +828,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 logger.log(`Frigate server is reachable`);
                 this.frigateApi = serverUrl;
 
-                const { frigateLabels, frigateCameras } = await this.getFrigateData();
-                logger.log(`Frigate labels found ${frigateLabels}`);
-                logger.log(`Frigate cameras found ${frigateCameras}`);
+                const frigateData = await this.getFrigateData();
+                logger.log(`Frigate data found ${JSON.stringify(frigateData)}`);
             } catch (e) {
                 logger.log(`Frigate server not reachable: ${e.message}`);
                 this.frigateApi = undefined;
@@ -1434,39 +1445,56 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         return this.onRequest(request, undefined);
     }
 
-    async getKnownPeople() {
+    async getKnownPeople(facesSourceForMqtt: ScryptedEventSource) {
         const logger = this.getLogger();
         try {
             const now = new Date().getTime();
             const isUpdated = this.lastKnownPeopleFetched && (now - this.lastKnownPeopleFetched) <= (1000 * 60);
+
             if (this.knownPeople && isUpdated) {
                 return this.knownPeople;
             }
 
-            if (!this.nvrObjectDetectionDevice) {
-                return [];
+            const faces: string[] = [];
+            const isAll = facesSourceForMqtt === ScryptedEventSource.All;
+
+            if (facesSourceForMqtt === ScryptedEventSource.NVR || isAll) {
+                if (this.nvrObjectDetectionDevice) {
+
+                    const settings = await this.nvrObjectDetectionDevice.getSettings();
+                    const knownPeople = settings?.find(setting => setting.key === 'knownPeople')?.choices
+                        ?.filter(choice => !!choice)
+                        .map(person => person.trim());
+
+                    faces.push(...knownPeople);
+                }
             }
 
-            const settings = await this.nvrObjectDetectionDevice.getSettings();
-            const knownPeople = settings?.find(setting => setting.key === 'knownPeople')?.choices
-                ?.filter(choice => !!choice)
-                .map(person => person.trim());
+            if (facesSourceForMqtt === ScryptedEventSource.Frigate || isAll) {
+                const { faces } = await this.getFrigateData();
+                faces.push(...faces);
+            }
 
-            this.knownPeople = knownPeople;
+            this.knownPeople = uniq(faces);
             this.lastKnownPeopleFetched = now;
-            return this.knownPeople;
+
+            return this.knownPeople
         } catch (e) {
             logger.log('Error in getKnownPeople', e.message);
             return [];
         }
     }
 
-    async getFrigateData() {
+    async getFrigateData(): Promise<FrigateData> {
         try {
             const now = new Date().getTime();
 
             if (!this.frigateApi) {
-                return {};
+                return {
+                    cameras: [],
+                    labels: [],
+                    faces: [],
+                };
             }
 
             const isUpdated = this.lastFrigateDataFetched && (now - this.lastFrigateDataFetched) <= (1000 * 60);
@@ -1474,23 +1502,29 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             if (!isUpdated) {
                 const frigatePlugin = systemManager.getDeviceByName<Settings>(FRIGATE_BRIDGE_PLUGIN_NAME);
                 const settings = await frigatePlugin.getSettings();
-                const objectLabels = (settings.find(setting => setting.key === 'objectLabels')?.value ?? []) as string[];
-                const audioLabels = (settings.find(setting => setting.key === 'audioLabels')?.value ?? []) as string[];
-                const cameras = settings.find(setting => setting.key === 'cameras')?.value as string[];
+                const settingsDic = keyBy(settings, 'key');
+                const objectLabels = (settingsDic['objectLabels']?.value ?? []) as string[];
+                const audioLabels = (settingsDic['audioLabels']?.value ?? []) as string[];
+                const cameras = settingsDic['cameras']?.value as string[];
+                const faces = settingsDic['faces']?.value as string[];
 
                 const labels = [...objectLabels, ...audioLabels];
-                this.frigateLabels = labels?.filter(label => label !== 'person');
-                this.frigateCameras = cameras;
                 this.lastFrigateDataFetched = now;
+                this.frigateData = {
+                    labels: labels?.filter(label => label !== 'person'),
+                    cameras,
+                    faces,
+                }
             }
 
-            return {
-                frigateLabels: this.frigateLabels,
-                frigateCameras: this.frigateCameras,
-            }
+            return this.frigateData;
         } catch (e) {
             this.getLogger().log('Error in getObserveZones', e.message);
-            return {};
+            return {
+                cameras: [],
+                labels: [],
+                faces: [],
+            };
         }
     }
 
@@ -1814,7 +1848,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 await this.checkPluginConfigurations(false);
             }
 
-            const { mqttEnabled, notificationsEnabled, devNotifications, devNotifier } = this.storageSettings.values;
+            const { mqttEnabled, notificationsEnabled, devNotifications, devNotifier, facesSourceForMqtt } = this.storageSettings.values;
             if (mqttEnabled) {
                 const mqttClient = await this.getMqttClient();
                 if (mqttClient) {
@@ -1826,7 +1860,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         logger.log('Starting MQTT autodiscovery');
                         setupPluginAutodiscovery({
                             mqttClient,
-                            people: await this.getKnownPeople(),
+                            people: await this.getKnownPeople(facesSourceForMqtt),
                             console: logger,
                             rules: availableRules,
                         }).then(async (activeTopics) => {
@@ -2203,8 +2237,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     async refreshSettings() {
         const logger = this.getLogger();
         const dynamicSettings: StorageSetting[] = [];
-        const people = (await this.getKnownPeople());
-        const { frigateLabels } = await this.getFrigateData();
+        const people = (await this.getKnownPeople(this.storageSettings.values.facesSourceForMqtt));
+        const { labels: frigateLabels } = await this.getFrigateData();
         const { labels: audioLabels } = await this.getAudioData();
 
         const detectionRulesSettings = await getDetectionRulesSettings({
@@ -2277,12 +2311,18 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             if (mqttEnabled) {
                 this.storageSettings.settings.detectionSourceForMqtt.choices = this.enabledDetectionSources;
                 this.storageSettings.settings.facesSourceForMqtt.choices = this.enabledDetectionSources;
+                const zonesChoices: ZonesSourceForMqtt[] = [ZonesSourceForMqtt.Scrypted];
+                if (this.frigateApi) {
+                    zonesChoices.push(ZonesSourceForMqtt.Frigate);
+                }
+                this.storageSettings.settings.zonesSourceForMqtt.choices = zonesChoices;
             }
             this.storageSettings.settings.testEventSource.choices = this.enabledDetectionSources
                 .filter(s => s !== ScryptedEventSource.All);
 
             this.storageSettings.settings.detectionSourceForMqtt.hide = !mqttEnabled;
             this.storageSettings.settings.facesSourceForMqtt.hide = !mqttEnabled;
+            this.storageSettings.settings.zonesSourceForMqtt.hide = !mqttEnabled;
             this.storageSettings.settings.mqttActiveEntitiesTopic.hide = !mqttEnabled;
 
             this.storageSettings.settings.scryptedToken.hide = !haEnabled;
@@ -4343,7 +4383,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger.log(`Skipping cleanup, additionalCutoffDays ${additionalCutoffDays} >= storageRetentionDays ${storageRetentionDays}`);
             return;
         }
-        
+
         const now = Date.now();
         const videoclipsThreshold = now - (1000 * 60 * 60 * 24 * (storageRetentionDays - additionalCutoffDays));
         const { cameraPath } = this.getFsPaths({ cameraId: device.id });

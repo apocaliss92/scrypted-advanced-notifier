@@ -186,11 +186,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         },
         zonesSourceForMqtt: {
             title: 'Zones source',
-            description: 'Which zone list should be used for MQTT zone entities. Scrypted uses Observe zones; Frigate uses zones defined in the Frigate interface.',
+            description: 'Which zone list should be used for MQTT zone entities. Default will use the plugin setting. Scrypted uses Observe zones; Frigate uses zones defined in the Frigate interface.',
             type: 'string',
             immediate: true,
             combobox: true,
-            defaultValue: ZonesSourceForMqtt.Scrypted,
+            defaultValue: ZonesSourceForMqtt.Default,
             choices: [],
         },
         motionDuration: {
@@ -1443,7 +1443,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
         const dynamicSettings: StorageSetting[] = [];
         const zones = (await this.getObserveZones()).map(item => item.name);
-        const people = await this.plugin.getKnownPeople();
+        const people = await this.plugin.getKnownPeople(this.facesSourceForMqtt);
         const { frigateLabels, frigateZones } = await this.getFrigateData();
         const { labels: audioLabels } = await this.getAudioData();
 
@@ -1580,7 +1580,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
 
         if (this.mixinState.storageSettings.settings.zonesSourceForMqtt) {
-            const choices: ZonesSourceForMqtt[] = [ZonesSourceForMqtt.Scrypted];
+            const choices: ZonesSourceForMqtt[] = [
+                ZonesSourceForMqtt.Default,
+                ZonesSourceForMqtt.Scrypted,
+            ];
             if (this.plugin.frigateApi) {
                 choices.push(ZonesSourceForMqtt.Frigate);
             }
@@ -1659,7 +1662,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async getMqttZones(): Promise<string[]> {
-        const source = this.mixinState.storageSettings.values.zonesSourceForMqtt as ZonesSourceForMqtt;
+        const source = this.zonesSourceForMqtt;
 
         if (source === ZonesSourceForMqtt.Frigate) {
             try {
@@ -3042,6 +3045,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         return source ?? ScryptedEventSource.All;
     }
 
+    get zonesSourceForMqtt() {
+        const { zonesSourceForMqtt } = this.mixinState.storageSettings.values;
+        const { zonesSourceForMqtt: zonesSourceForMqttPlugin } = (this.plugin.storageSettings.values as any);
+
+        let source: ZonesSourceForMqtt;
+        if (zonesSourceForMqtt !== ZonesSourceForMqtt.Default) {
+            source = zonesSourceForMqtt as ZonesSourceForMqtt;
+        } else {
+            source = zonesSourceForMqttPlugin as ZonesSourceForMqtt;
+        }
+
+        return source ?? ZonesSourceForMqtt.Scrypted;
+    }
+
     async executeDetection(image: MediaObject) {
         const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
 
@@ -3844,7 +3861,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const {
             minDelayTime,
             ignoreCameraDetections,
-            zonesSourceForMqtt
         } = this.mixinState.storageSettings.values;
 
         const {
@@ -4003,6 +4019,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                                 logger.info(`Triggering basic detections ${getDetectionsLog(spamBlockedDetections)}`);
                                 let detectionsPerZone: DetectionsPerZone | undefined;
+                                const zonesSourceForMqtt = this.zonesSourceForMqtt;
                                 const canUpdateZonesOnMqtt = zonesSourceForMqtt === ZonesSourceForMqtt.Frigate ? isDetectionFromFrigate : true;
 
                                 if (canUpdateZonesOnMqtt) {
