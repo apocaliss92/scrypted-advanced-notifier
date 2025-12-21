@@ -796,7 +796,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }
             this.mainLoopRunning = true;
             try {
-                if (this.mixinState.storageSettings.values.enabledToMqtt) {
+                const { enabledToMqtt } = this.mixinState.storageSettings.values;
+                if (enabledToMqtt) {
                     await this.getMqttClient();
                 }
 
@@ -968,9 +969,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                     console: logger,
                                     rules: allAvailableRules,
                                     occupancyEnabled: checkOccupancy,
-                                    zones
+                                    zones,
+                                    migrateLegacyDiscovery: !this.plugin.storageSettings.values.mqttDiscoveryMigratedV2,
                                 });
-                                await this.mixinState.mqttClient.cleanupAutodiscoveryTopics(activeTopics);
+                                if (!this.plugin.storageSettings.values.mqttDiscoveryMigratedV2) {
+                                    await this.mixinState.mqttClient.cleanupAutodiscoveryTopics(activeTopics);
+                                }
+
+                                if (!this.plugin.storageSettings.values.mqttDiscoveryMigratedV2) {
+                                    await this.plugin.storageSettings.putSetting('mqttDiscoveryMigratedV2', true);
+                                }
 
                                 logger.debug(`Subscribing to mqtt topics`);
                                 await subscribeToCameraMqttTopics({

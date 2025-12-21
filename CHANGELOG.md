@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.8.0
+- Migrated to Homeassistant MQTT auto-discovery device-based. Will help to keep control on new/old entries and auto cleanup. Should migrate the plugin without any effort, if any problems, click on the new button under the main plugin page, MQTT section -> `Reset all MQTT topics` 
+
 ### 4.7.11
 - Frigate zones handling completed
 - Frigate faces handling preparation

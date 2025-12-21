@@ -252,8 +252,15 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
                                 mqttClient,
                                 device: this.notifierDevice,
                                 console: logger,
+                                migrateLegacyDiscovery: !this.plugin.storageSettings.values.mqttDiscoveryMigratedV2,
                             }).then(async (activeTopics) => {
-                                await this.mqttClient.cleanupAutodiscoveryTopics(activeTopics);
+                                if (!this.plugin.storageSettings.values.mqttDiscoveryMigratedV2) {
+                                    await this.mqttClient.cleanupAutodiscoveryTopics(activeTopics);
+                                }
+
+                                if (!this.plugin.storageSettings.values.mqttDiscoveryMigratedV2) {
+                                    this.plugin.storageSettings.values.mqttDiscoveryMigratedV2 = true;
+                                }
                             }).catch(logger.error);
 
                             logger.log(`Subscribing to mqtt topics`);

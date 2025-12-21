@@ -21,12 +21,12 @@ import { AdvancedNotifierDataFetcher } from "./dataFetcher";
 import { addEvent, cleanupEvents, cleanupOldEvents } from "./db";
 import { DetectionClass, detectionClassesDefaultMap, isLabelDetection, isMotionClassname, isPlateClassname } from "./detectionClasses";
 import { serveGif, serveImage, servePluginGeneratedVideoclip } from "./httpUtils";
-import { idPrefix, publishPluginValues, publishRuleEnabled, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
+import { idPrefix, publishPluginValues, publishRuleEnabled, resetAllPluginMqttTopicsAndRediscover, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { CameraMixinState, OccupancyRuleData } from "./states";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, calculateSize, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, defaultClipPostSeconds, defaultClipPreSeconds, defaultOccupancyClipPreSeconds, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, DevNotifications, ExtendedNotificationAction, formatSize, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getAllAvailableUrls, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRecordingRules, getRecordingRulesSettings, getRuleKeys, getSequenceObject, getSequencesSettings, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RecordingRule, RuleActionsSequence, RuleActionType, ruleSequencesGroup, ruleSequencesKey, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType, ZENTIK_PLUGIN_ID, ZonesSourceForMqtt } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, calculateSize, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, defaultClipPostSeconds, defaultClipPreSeconds, defaultOccupancyClipPreSeconds, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, DevNotifications, ExtendedNotificationAction, formatSize, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getActiveRules, getAllAvailableUrls, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRecordingRules, getRecordingRulesSettings, getRuleKeys, getSequenceObject, getSequencesSettings, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RecordingRule, RuleActionsSequence, RuleActionType, ruleSequencesGroup, ruleSequencesKey, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType, ZENTIK_PLUGIN_ID, ZonesSourceForMqtt } from "./utils";
 import { parseVideoFileName } from "./videoRecorderUtils";
 
 const { systemManager, mediaManager } = sdk;
@@ -44,6 +44,8 @@ export type PluginSettingKey =
     | 'scryptedToken'
     | 'nvrUrl'
     | 'mqttActiveEntitiesTopic'
+    | 'mqttResetAllTopics'
+    | 'mqttDiscoveryMigratedV2'
     | 'detectionSourceForMqtt'
     | 'facesSourceForMqtt'
     | 'zonesSourceForMqtt'
@@ -199,6 +201,21 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             onPut: async () => {
                 await this.setupMqttEntities();
             },
+        },
+        mqttResetAllTopics: {
+            title: 'Reset all MQTT topics',
+            subgroup: 'MQTT',
+            type: 'button',
+            description: 'Clears retained MQTT topics for ALL Advanced Notifier devices (plugin, people tracker, alarm system, cameras, sensors, notifiers) including Home Assistant discovery topics, then republishes discovery (V2). Use if entities are missing/duplicated or discovery is out of sync. This may take a few seconds and Home Assistant may need a short time to refresh entities.',
+            onPut: async () => {
+                await this.resetAllMqttTopicsAndRediscover();
+            },
+        },
+        mqttDiscoveryMigratedV2: {
+            type: 'boolean',
+            hide: true,
+            defaultValue: false,
+            immediate: true,
         },
         detectionSourceForMqtt: {
             title: 'Detections source',
@@ -1662,6 +1679,77 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
     }
 
+    private async resetAllMqttTopicsAndRediscover() {
+        const logger = this.getLogger();
+        const mqttClient = await this.getMqttClient();
+        if (!mqttClient) {
+            logger.log('MQTT client not available, cannot reset topics');
+            return;
+        }
+
+        const pluginStorage = this.storageSettings;
+        const { availableRules: availableDetectionRules } = getDetectionRules({ pluginStorage, console: logger, plugin: this });
+        const { availableRules: availableRecordingRules } = getRecordingRules({ pluginStorage, console: logger });
+        const rules = [...availableDetectionRules, ...availableRecordingRules];
+
+        const people = await this.getKnownPeople(this.storageSettings.values.facesSourceForMqtt);
+
+        const cameras: Array<{ device: any, rules: BaseRule[], zones: string[], occupancyEnabled: boolean }> = [];
+        for (const mixin of Object.values(this.currentCameraMixinsMap)) {
+            try {
+                const zones = await mixin.getMqttZones();
+                const occupancyEnabled = !!mixin.mixinState?.storageSettings?.values?.checkOccupancy;
+                cameras.push({ device: mixin.cameraDevice as any, rules, zones, occupancyEnabled });
+            } catch (e) {
+                logger.error('Error collecting camera data for MQTT reset', e);
+            }
+        }
+
+        const sensors: Array<{ device: any, rules: BaseRule[] }> = [];
+        for (const mixin of Object.values(this.currentSensorMixinsMap)) {
+            try {
+                const { availableDetectionRules } = await getActiveRules({
+                    device: mixin as any,
+                    console: logger,
+                    plugin: this,
+                    deviceStorage: mixin.storageSettings,
+                });
+                sensors.push({ device: mixin.sensorDevice as any, rules: availableDetectionRules });
+            } catch (e) {
+                logger.error('Error collecting sensor data for MQTT reset', e);
+            }
+        }
+
+        const notifiers: Array<{ device: any }> = [];
+        for (const mixin of Object.values(this.currentNotifierMixinsMap)) {
+            notifiers.push({ device: mixin.notifierDevice as any });
+        }
+
+        let alarmSupportedModes: any[] | undefined;
+        try {
+            const alarm = await this.getDevice(ALARM_SYSTEM_NATIVE_ID) as any;
+            alarmSupportedModes = alarm?.securitySystemState?.supportedModes;
+        } catch (e) {
+            logger.error('Error collecting alarm system data for MQTT reset', e);
+        }
+
+        await resetAllPluginMqttTopicsAndRediscover({
+            mqttClient,
+            console: logger,
+            rules,
+            people,
+            cameras,
+            sensors,
+            notifiers,
+            alarmSupportedModes,
+            includeLegacyDiscoveryTopics: true,
+        });
+
+        if (!this.storageSettings.values.mqttDiscoveryMigratedV2) {
+            await this.storageSettings.putSetting('mqttDiscoveryMigratedV2', true);
+        }
+    }
+
     private async updateOnActiveDevices(deviceIdentifiers: string[]) {
         const logger = this.getLogger();
         const deviceIds: string[] = [];
@@ -1848,7 +1936,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 await this.checkPluginConfigurations(false);
             }
 
-            const { mqttEnabled, notificationsEnabled, devNotifications, devNotifier, facesSourceForMqtt } = this.storageSettings.values;
+            const { mqttEnabled, notificationsEnabled, devNotifications, devNotifier, facesSourceForMqtt, mqttDiscoveryMigratedV2 } = this.storageSettings.values;
             if (mqttEnabled) {
                 const mqttClient = await this.getMqttClient();
                 if (mqttClient) {
@@ -1863,8 +1951,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                             people: await this.getKnownPeople(facesSourceForMqtt),
                             console: logger,
                             rules: availableRules,
+                            migrateLegacyDiscovery: !mqttDiscoveryMigratedV2,
                         }).then(async (activeTopics) => {
-                            await this.mqttClient.cleanupAutodiscoveryTopics(activeTopics);
+                            if (!this.storageSettings.values.mqttDiscoveryMigratedV2) {
+                                await this.mqttClient.cleanupAutodiscoveryTopics(activeTopics);
+                            }
+
+                            if (!this.storageSettings.values.mqttDiscoveryMigratedV2) {
+                                await this.storageSettings.putSetting('mqttDiscoveryMigratedV2', true);
+                            }
                         }).catch(logger.error);
 
                         await this.setupMqttEntities();
@@ -2324,6 +2419,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.storageSettings.settings.facesSourceForMqtt.hide = !mqttEnabled;
             this.storageSettings.settings.zonesSourceForMqtt.hide = !mqttEnabled;
             this.storageSettings.settings.mqttActiveEntitiesTopic.hide = !mqttEnabled;
+            this.storageSettings.settings.mqttResetAllTopics.hide = !mqttEnabled;
 
             this.storageSettings.settings.scryptedToken.hide = !haEnabled;
 

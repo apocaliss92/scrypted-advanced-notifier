@@ -175,9 +175,16 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                             mqttClient,
                             device: this.sensorDevice,
                             console: logger,
-                            rules: availableDetectionRules
+                            rules: availableDetectionRules,
+                            migrateLegacyDiscovery: !this.plugin.storageSettings.values.mqttDiscoveryMigratedV2,
                         }).then(async (activeTopics) => {
-                            await this.mqttClient.cleanupAutodiscoveryTopics(activeTopics);
+                            if (!this.plugin.storageSettings.values.mqttDiscoveryMigratedV2) {
+                                await this.mqttClient.cleanupAutodiscoveryTopics(activeTopics);
+                            }
+
+                            if (!this.plugin.storageSettings.values.mqttDiscoveryMigratedV2) {
+                                await this.plugin.storageSettings.putSetting('mqttDiscoveryMigratedV2', true);
+                            }
                         }).catch(logger.error);
 
                         logger.debug(`Subscribing to mqtt topics`);
@@ -185,19 +192,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                             mqttClient,
                             device: this.sensorDevice,
                             console: logger,
-                            // switchNotificationsEnabledCb: async (active) => {
-                            //     logger.log(`Setting notifications active to ${!active}`);
-
-                            //     if (this.isNvrNotifier) {
-                            //         if (active) {
-                            //             this.notifierDevice.turnOn();
-                            //         } else {
-                            //             this.notifierDevice.turnOff();
-                            //         }
-                            //     } else {
-                            //         await this.storageSettings.putSetting(`enabled`, active);
-                            //     }
-                            // },
                         }).catch(logger.error);
 
                         this.lastAutoDiscovery = now;
