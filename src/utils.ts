@@ -215,7 +215,7 @@ export interface NotifyDetectionProps {
     forceAi?: boolean,
     matchRule: Partial<MatchRule>;
     eventSource: NotifyRuleSource;
-    imageData?: ImageData
+    imageData?: ImageData;
 }
 
 export enum ScryptedEventSource {
@@ -246,10 +246,10 @@ export interface ObserveZoneData {
 };
 
 export interface MatchRule {
-    match?: ObjectDetectionResult,
-    rule: BaseRule,
-    inputDimensions: [number, number],
-    dataToReport?: any
+    match?: ObjectDetectionResult;
+    rule: BaseRule;
+    dataToReport?: any;
+    event?: ObjectsDetected;
 }
 
 export enum DecoderType {

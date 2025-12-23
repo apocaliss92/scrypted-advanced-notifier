@@ -4001,7 +4001,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     snoozeId,
                     forceExecution: true,
                     matchRule: {
-                        inputDimensions: [0, 0],
                         match,
                         rule,
                     },

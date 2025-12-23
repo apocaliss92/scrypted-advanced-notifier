@@ -2687,7 +2687,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 const { timePassed } = this.isDelayPassed({
                     type: DelayType.OccupancyNotification,
-                    matchRule: { rule, inputDimensions: [0, 0] },
+                    matchRule: { rule },
                     eventSource: ScryptedEventSource.RawDetection
                 });
 
@@ -2837,7 +2837,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         });
 
                         this.triggerRule({
-                            matchRule: { rule, inputDimensions: [0, 0] },
+                            matchRule: { rule },
                             b64Image,
                             device: this.cameraDevice,
                             triggerTime: now,
@@ -2871,10 +2871,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
         const dataToAnalyze:
             {
-                triggerTime: number,
-                detectionId?: string,
-                eventId?: string,
-                detections?: ObjectDetectionResult[],
+                eventId: string,
+                event: ObjectsDetected,
                 eventSource: ScryptedEventSource,
             }[] = [];
         const faceDetections: {
@@ -2887,11 +2885,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         for (const det of this.mixinState.accumulatedDetections) {
             const facesSet = new Set<string>();
             dataToAnalyze.push({
-                triggerTime: det.detect.timestamp,
-                detectionId: det.detect.detectionId,
+                event: det.detect,
+                eventSource: det.eventSource,
                 eventId: det.eventId,
-                detections: det.detect.detections,
-                eventSource: det.eventSource
             });
 
             if (
@@ -2920,8 +2916,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.mixinState.accumulatedRules = undefined;
         this.mixinState.accumulatedRules = [];
 
-        const triggerTime = dataToAnalyze[0]?.triggerTime;
-        const detections = uniqBy(dataToAnalyze.flatMap(item => item.detections), item => `${item.className}-${item.label}`);
+        const triggerTime = dataToAnalyze[0]?.event.timestamp;
+        const detections = uniqBy(dataToAnalyze.flatMap(item => item.event.detections), item => `${item.className}-${item.label}`);
 
         const isOnlyMotion = !rulesToUpdate.length && detections.length === 1 && detectionClassesDefaultMap[detections[0]?.className] === DetectionClass.Motion;
 
@@ -2931,8 +2927,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let b64Image: string;
         let imageSource: ImageSource;
         for (const data of dataToAnalyze) {
-            const { detectionId, eventId, eventSource } = data;
-            if (detectionId && eventSource !== ScryptedEventSource.Frigate) {
+            const { event: { detectionId }, eventId } = data;
+            if (detectionId) {
                 const imageData = await this.getImage({
                     detectionId,
                     eventId,
@@ -3163,21 +3159,19 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     })}`);
 
                     if (detection.detections.length) {
-                        if (isAudio) {
-                            if (label) {
-                                if (['crying', 'yell'].includes(label)) {
-                                    transformedDetections = detection.detections.filter(
-                                        det => det.className === DetectionClass.Person
-                                    )
-                                } else if (['bark'].includes(label)) {
-                                    transformedDetections = detection.detections.filter(
-                                        det => det.className === DetectionClass.Animal
-                                    )
-                                } else {
-                                    transformedDetections = detection.detections.filter(
-                                        det => det.className !== DetectionClass.Motion
-                                    )
-                                }
+                        if (isAudio && label) {
+                            if (['crying', 'yell'].includes(label)) {
+                                transformedDetections = detection.detections.filter(
+                                    det => det.className === DetectionClass.Person
+                                )
+                            } else if (['bark'].includes(label)) {
+                                transformedDetections = detection.detections.filter(
+                                    det => det.className === DetectionClass.Animal
+                                )
+                            } else {
+                                transformedDetections = detection.detections.filter(
+                                    det => det.className !== DetectionClass.Motion
+                                )
                             }
                         } else {
                             const matchingDetections = detection.detections.filter(det =>
@@ -3303,6 +3297,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                     processedImage = image;
                     processedB64Image = await moToB64(image);
+                    error = 'No matching detections re-detected';
                 }
             }
         } else {
@@ -3391,8 +3386,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     shouldReDetect = true;
                 } else if ([ImagePostProcessing.MarkBoundaries, ImagePostProcessing.Default].includes(imageProcessing)) {
                     image = markedImage;
-                    imageProcessing = ImagePostProcessing.MarkBoundaries;
-                    shouldReDetect = true;
 
                     if (!image) {
                         imageToProcess = fullFrameImage;
@@ -3474,7 +3467,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     })}`);
                 }
 
-                logger.log(`Starting notifiers for detection rule (${eventSource}) ${getDetectionKey(matchRule as MatchRule)}, decoder ${this.decoderType} image from ${imageSource}, last check ${lastSetInSeconds ? lastSetInSeconds + 's ago' : '-'} with delay ${minDelayInSeconds}s`);
+                logger.log(`Starting notifiers for detection rule (${eventSource}) ${getDetectionKey(matchRule as MatchRule)}, detectionId ${matchRule.event.detectionId || '-'}, decoder ${this.decoderType} image from ${imageSource}, last check ${lastSetInSeconds ? lastSetInSeconds + 's ago' : '-'} with delay ${minDelayInSeconds}s`);
+                logger.log(`Original event: ${JSON.stringify(matchRule.event)}`);
 
                 if (match.id) {
                     this.mixinState.objectIdLastReport[match.id] = Date.now();
@@ -3853,8 +3847,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const matchRule: MatchRule = {
                 match: d,
                 rule,
-                inputDimensions: detect.inputDimensions,
-                dataToReport
+                dataToReport,
+                event: detect,
             };
             matchRules.push(matchRule);
 
@@ -4168,12 +4162,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             })}`);
 
             for (const rule of rules) {
-                // const ruleImage = isDetectionFromNvr ? croppedImage :
-                //     isDetectionFromFrigate ? markedImage :
-                //         fullFrameImage;
-                // const ruleB64Image = isDetectionFromNvr ? croppedImageB64Image :
-                //     isDetectionFromFrigate ? markedImageB64Image :
-                //         fullFrameB64Image;
                 const ruleImage = mqttFsImage;
                 const ruleB64Image = mqttFsB64Image;
 
@@ -4243,6 +4231,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     )
                 )
             ) ?? [];
+
             if (recordingRules.length) {
                 await this.startRecording({
                     triggerTime,
