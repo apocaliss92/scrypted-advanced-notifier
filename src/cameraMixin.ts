@@ -2388,7 +2388,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         let top = convertedImage.height;
                         let right = 0;
                         let bottom = 0;
-                        for (const point of zone.path) {
+                        for (const point of captureZone) {
                             left = Math.min(left, point[0]);
                             top = Math.min(top, point[1]);
                             right = Math.max(right, point[0]);

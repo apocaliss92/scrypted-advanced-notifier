@@ -3279,11 +3279,12 @@ export const getOccupancyRulesSettings = async (props: {
             manualCheckKey
         } = occupancy;
         const detectionSource = storage.getItem(detectionSourceKey) as ScryptedEventSource;
+        const isFrigate = detectionSource === ScryptedEventSource.Frigate;
 
         let zones: string[] = [];
 
         if (cameraMixin) {
-            const zonesSource = detectionSource === ScryptedEventSource.Frigate ?
+            const zonesSource = isFrigate ?
                 ZonesSource.Frigate : ZonesSource.Scrypted;
 
             zones = await cameraMixin.getMqttZones(zonesSource);
@@ -3320,7 +3321,6 @@ export const getOccupancyRulesSettings = async (props: {
                 group,
                 subgroup,
                 choices: zones,
-                // readonly: !zones.length,
                 immediate: true
             },
             {
@@ -3338,7 +3338,7 @@ export const getOccupancyRulesSettings = async (props: {
                 group,
                 subgroup,
                 type: 'clippath',
-                hide: !showMore
+                hide: !showMore || isFrigate
             },
             {
                 key: zoneMatchTypeKey,
@@ -3347,7 +3347,8 @@ export const getOccupancyRulesSettings = async (props: {
                 subgroup,
                 choices: Object.values(ZoneMatchType),
                 defaultValue: ZoneMatchType.Intersect,
-                immediate: true
+                immediate: true,
+                hide: isFrigate
             },
             {
                 key: scoreThresholdKey,
@@ -3356,6 +3357,7 @@ export const getOccupancyRulesSettings = async (props: {
                 subgroup,
                 type: 'number',
                 placeholder: '0.5',
+                hide: isFrigate
             },
             {
                 key: changeStateConfirmKey,
