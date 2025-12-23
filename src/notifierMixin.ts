@@ -5,7 +5,7 @@ import { getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, reportNotifierValues, setupNotifierAutodiscovery, subscribeToNotifierMqttTopics } from "./mqtt-utils";
-import { convertSettingsToStorageSettings, DetectionRule, DeviceInterface, GetImageReason, getMixinBaseSettings, getTextSettings, getWebHookUrls, isSchedulerActive, MixinBaseSettingKey, moToB64, NotifierPayloadKey, NVR_NOTIFIER_INTERFACE, parseNvrNotificationMessage, TextSettingKey } from "./utils";
+import { convertSettingsToStorageSettings, DeviceInterface, GetImageReason, getMixinBaseSettings, getTextSettings, getWebHookUrls, isSchedulerActive, MixinBaseSettingKey, moToB64, NotifierPayloadKey, NVR_NOTIFIER_INTERFACE, parseNvrNotificationMessage, TextSettingKey } from "./utils";
 
 export type SendNotificationToPluginFn = (notifierId: string, title: string, options?: NotifierOptions, media?: MediaObject, icon?: MediaObject | string) => Promise<void>
 
@@ -253,11 +253,7 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
                                 device: this.notifierDevice,
                                 console: logger,
                                 migrateLegacyDiscovery: !this.plugin.storageSettings.values.mqttDiscoveryMigratedV2,
-                            }).then(async (activeTopics) => {
-                                if (!this.plugin.storageSettings.values.mqttDiscoveryMigratedV2) {
-                                    await this.mqttClient.cleanupAutodiscoveryTopics(activeTopics);
-                                }
-
+                            }).then(async () => {
                                 if (!this.plugin.storageSettings.values.mqttDiscoveryMigratedV2) {
                                     this.plugin.storageSettings.values.mqttDiscoveryMigratedV2 = true;
                                 }

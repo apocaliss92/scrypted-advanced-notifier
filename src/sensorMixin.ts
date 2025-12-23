@@ -4,10 +4,10 @@ import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/
 import { cloneDeep } from "lodash";
 import { getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
+import { DetectionClass } from "./detectionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, reportSensorValues, setupSensorAutodiscovery, subscribeToSensorMqttTopics } from "./mqtt-utils";
 import { BinarySensorMetadata, binarySensorMetadataMap, cameraFilter, convertSettingsToStorageSettings, DetectionRule, DeviceInterface, getActiveRules, getDetectionRulesSettings, GetImageReason, getMixinBaseSettings, getRuleKeys, MixinBaseSettingKey, NotifyRuleSource, RuleSource, RuleType, ScryptedEventSource, splitRules, SupportedSensorType } from "./utils";
-import { DetectionClass } from "./detectionClasses";
 
 const { systemManager } = sdk;
 
@@ -177,13 +177,9 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                             console: logger,
                             rules: availableDetectionRules,
                             migrateLegacyDiscovery: !this.plugin.storageSettings.values.mqttDiscoveryMigratedV2,
-                        }).then(async (activeTopics) => {
+                        }).then(async () => {
                             if (!this.plugin.storageSettings.values.mqttDiscoveryMigratedV2) {
-                                await this.mqttClient.cleanupAutodiscoveryTopics(activeTopics);
-                            }
-
-                            if (!this.plugin.storageSettings.values.mqttDiscoveryMigratedV2) {
-                                await this.plugin.storageSettings.putSetting('mqttDiscoveryMigratedV2', true);
+                                this.plugin.storageSettings.values.mqttDiscoveryMigratedV2 = true;
                             }
                         }).catch(logger.error);
 

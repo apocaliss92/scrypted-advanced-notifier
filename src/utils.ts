@@ -1,4 +1,4 @@
-import sdk, { BinarySensor, Camera, DeviceBase, EntrySensor, HttpRequest, ImageEmbedding, LockState, MediaObject, Notifier, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, OnOff, PanTiltZoom, Point, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SecuritySystem, SecuritySystemMode, Settings, TextEmbedding, VideoCamera } from "@scrypted/sdk";
+import sdk, { BinarySensor, Camera, ClipPath, DeviceBase, EntrySensor, HttpRequest, ImageEmbedding, LockState, MediaObject, Notifier, NotifierOptions, ObjectDetectionResult, ObjectDetector, ObjectsDetected, OnOff, PanTiltZoom, Point, Reboot, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SecuritySystem, SecuritySystemMode, Settings, TextEmbedding, VideoCamera } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettings, StorageSettingsDevice, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import crypto from 'crypto';
@@ -196,7 +196,7 @@ export interface SnoozeItem {
     minutes: number,
 }
 
-export interface ZoneWithPath { name: string, path: number[][] }
+export interface ZoneWithPath { name: string, path: ClipPath }
 
 export interface ImageData {
     fullFrameImage?: MediaObject,
@@ -226,8 +226,9 @@ export enum ScryptedEventSource {
     Frigate = 'Frigate'
 }
 
-export enum ZonesSourceForMqtt {
+export enum ZonesSource {
     Default = 'Default',
+    All = 'All',
     Scrypted = 'Scrypted',
     Frigate = 'Frigate',
 }
@@ -1545,6 +1546,7 @@ export const getRuleKeys = (props: {
     const totalSnoozeKey = `${prefix}:${ruleName}:totalSnooze`;
     const onActivationSequencesKey = `${prefix}:${ruleName}:onActivationSequences`;
     const onDeactivationSequencesKey = `${prefix}:${ruleName}:onDeactivationSequences`;
+    const detectionSourceKey = `${prefix}:${ruleName}:detectionSource`;
 
     // Specific for detection rules
     const detectionClassesKey = `${prefix}:${ruleName}:detecionClasses`;
@@ -1552,7 +1554,6 @@ export const getRuleKeys = (props: {
     const audioLabelsKey = `${prefix}:${ruleName}:audioLabels`;
     const animalLabelsKey = `${prefix}:${ruleName}:animalLabels`;
     const vehicleLabelsKey = `${prefix}:${ruleName}:vehicleLabels`;
-    const detectionSourceKey = `${prefix}:${ruleName}:detectionSource`;
     const whitelistedZonesKey = `${prefix}:${ruleName}:whitelistedZones`;
     const blacklistedZonesKey = `${prefix}:${ruleName}:blacklistedZones`;
     const recordingTriggerSecondsKey = `${prefix}:${ruleName}:recordingTriggerSeconds`;
@@ -1636,9 +1637,9 @@ export const getRuleKeys = (props: {
             onTriggerSequencesKey,
             onResetSequencesKey,
             showActiveZonesKey,
+            detectionSourceKey,
         },
         detection: {
-            detectionSourceKey,
             whitelistedZonesKey,
             blacklistedZonesKey,
             recordingTriggerSecondsKey,
@@ -2125,9 +2126,10 @@ export const getRuleSettings = async (props: {
     device: DeviceBase,
     getSpecificRules: GetSpecificRules,
     refreshSettings: OnRefreshSettings,
-    logger: Console
+    logger: Console,
+    plugin: AdvancedNotifierPlugin
 }) => {
-    const { ruleType, storage, ruleSource, getSpecificRules, refreshSettings } = props;
+    const { device, plugin, ruleType, storage, ruleSource, getSpecificRules, refreshSettings } = props;
     const isPlugin = ruleSource === RuleSource.Plugin;
     const group = isPlugin ? pluginRulesGroup : mixinRulesGroup;
     const settings: StorageSetting[] = [];
@@ -2136,6 +2138,7 @@ export const getRuleSettings = async (props: {
     const isOccupancyRule = ruleType === RuleType.Occupancy;
     const isAudioRule = ruleType === RuleType.Audio;
     const isRecordingRule = ruleType === RuleType.Recording;
+    const { isCamera } = !isPlugin ? isDeviceSupported(device) : {};
 
     const rules = storage.getItem(rulesKey) ?? [];
     for (const ruleName of rules) {
@@ -2169,6 +2172,7 @@ export const getRuleSettings = async (props: {
                 onTriggerSequencesKey,
                 onResetSequencesKey,
                 showActiveZonesKey,
+                detectionSourceKey,
             }
         } = getRuleKeys({ ruleName, ruleType });
 
@@ -2210,6 +2214,34 @@ export const getRuleSettings = async (props: {
         );
 
         if ((isOccupancyRule || isDetectionRule)) {
+            if (isCamera || isPlugin) {
+                let choices = plugin.enabledDetectionSources;
+                if (isOccupancyRule) {
+                    choices = choices.filter(source => ![
+                        ScryptedEventSource.All,
+                        ScryptedEventSource.Default,
+                        ScryptedEventSource.NVR,
+                    ].includes(source));
+                }
+                settings.push(
+                    {
+                        key: detectionSourceKey,
+                        title: 'Detections source',
+                        description: 'Select which detections should be used. The snapshots will come from the same source',
+                        type: 'string',
+                        defaultValue: plugin.defaultDetectionSource,
+                        group,
+                        subgroup,
+                        immediate: true,
+                        combobox: true,
+                        onPut: async () => {
+                            await refreshSettings()
+                        },
+                        choices
+                    }
+                );
+            }
+
             settings.push(
                 {
                     key: generateClipKey,
@@ -2804,11 +2836,6 @@ export const getSequencesSettings = async (props: {
 
 export const getDetectionRulesSettings = async (props: {
     storage: StorageSettings<any>,
-    zones?: string[],
-    frigateZones?: ZoneWithPath[],
-    people?: string[],
-    frigateLabels?: string[],
-    audioLabels?: string[],
     ruleSource: RuleSource,
     device?: DeviceBase,
     refreshSettings: OnRefreshSettings,
@@ -2817,26 +2844,29 @@ export const getDetectionRulesSettings = async (props: {
 }) => {
     const {
         storage,
-        zones,
-        frigateZones,
         device,
         ruleSource,
-        frigateLabels = [],
         refreshSettings,
         logger,
-        people,
-        audioLabels = [],
         plugin
     } = props;
     const isPlugin = ruleSource === RuleSource.Plugin;
     const { isCamera } = !isPlugin ? isDeviceSupported(device) : {};
+    const cameraMixin = isCamera ? plugin.currentCameraMixinsMap[device.id] : undefined;
 
     const getSpecificRules: GetSpecificRules = async ({ group, ruleName, subgroup, showMore }) => {
         const settings: StorageSetting[] = [];
 
         const { detection, common, } = getRuleKeys({ ruleName, ruleType: RuleType.Detection });
 
-        const { scoreThresholdKey, activationKey, minDelayKey, minMqttPublishDelayKey, devicesKey } = common;
+        const {
+            scoreThresholdKey,
+            activationKey,
+            minDelayKey,
+            minMqttPublishDelayKey,
+            devicesKey,
+            detectionSourceKey,
+        } = common;
         const {
             blacklistedZonesKey,
             nvrEventsKey,
@@ -2844,7 +2874,6 @@ export const getDetectionRulesSettings = async (props: {
             animalLabelsKey,
             vehicleLabelsKey,
             recordingTriggerSecondsKey,
-            detectionSourceKey,
             whitelistedZonesKey,
             detectionClassesKey,
             peopleKey,
@@ -2862,29 +2891,52 @@ export const getDetectionRulesSettings = async (props: {
         const showCameraSettings = isPlugin || isCamera;
         const detectionSource = storage.getItem(detectionSourceKey) as ScryptedEventSource;
 
-        if (isCamera || isPlugin) {
-            settings.push(
-                {
-                    key: detectionSourceKey,
-                    title: 'Detections source',
-                    description: 'Select which detections should be used. The snapshots will come from the same source',
-                    type: 'string',
-                    defaultValue: plugin.defaultDetectionSource,
-                    group,
-                    subgroup,
-                    immediate: true,
-                    combobox: true,
-                    onPut: async () => {
-                        await refreshSettings()
-                    },
-                    choices: plugin.enabledDetectionSources
-                }
-            );
-        }
-
         const isFrigate = detectionSource === ScryptedEventSource.Frigate;
         const isNvr = detectionSource === ScryptedEventSource.NVR;
         const isRawDetection = detectionSource === ScryptedEventSource.RawDetection;
+
+        let audioLabels: string[] = [];
+        let zones: string[] = [];
+
+        if (isPlugin) {
+            const zonesToUse: string[] = [];
+            const devices = storage.getItem(devicesKey) as string[] ?? [];
+
+            for (const deviceId of devices) {
+                const deviceMixin = plugin.currentCameraMixinsMap[deviceId];
+                if (deviceMixin) {
+                    const zones = (await deviceMixin.getObserveZones());
+                    const { frigateZones } = await deviceMixin.getFrigateData();
+
+                    const cameraZones = isFrigate ? frigateZones : zones;
+                    for (const cameraZone of cameraZones.map(item => item.name)) {
+                        zonesToUse.push(`${deviceMixin.name}::${cameraZone}`);
+                    }
+                }
+            }
+
+            zones = zonesToUse;
+
+            if (isFrigate) {
+                const { labels: pluginLabels } = await plugin.getFrigateData();
+                audioLabels = pluginLabels;
+            } else {
+                const { labels: pluginLabels } = await plugin.getAudioData();
+                audioLabels = pluginLabels;
+            }
+        } else if (cameraMixin) {
+            if (isFrigate) {
+                const { frigateLabels, frigateZones } = await cameraMixin.getFrigateData();
+                audioLabels = frigateLabels;
+                zones = frigateZones.map(zone => zone.name);
+            } else {
+                const cameraZones = await cameraMixin.getObserveZones();
+                const { labels: mixinLabels } = await cameraMixin.getAudioData();
+
+                audioLabels = mixinLabels;
+                zones = cameraZones.map(zone => zone.name);
+            }
+        }
 
         if (showCameraSettings) {
             settings.push(
@@ -2908,8 +2960,6 @@ export const getDetectionRulesSettings = async (props: {
             );
 
             if ((isRawDetection || isFrigate) && detectionClasses.includes(DetectionClass.Audio)) {
-                const choices = isFrigate ? frigateLabels?.filter(isAudioLabel) : audioLabels;
-
                 settings.push(
                     {
                         key: audioLabelsKey,
@@ -2920,14 +2970,13 @@ export const getDetectionRulesSettings = async (props: {
                         multiple: true,
                         combobox: true,
                         immediate: true,
-                        choices,
+                        choices: audioLabels.filter(isAudioLabel),
                         defaultValue: []
                     }
                 );
             }
 
             if (isFrigate && detectionClasses.includes(DetectionClass.Animal)) {
-                const choices = frigateLabels?.filter(isAnimalClassname);
                 settings.push(
                     {
                         key: animalLabelsKey,
@@ -2938,14 +2987,13 @@ export const getDetectionRulesSettings = async (props: {
                         multiple: true,
                         combobox: true,
                         immediate: true,
-                        choices,
+                        choices: audioLabels.filter(isAnimalClassname),
                         defaultValue: []
                     }
                 );
             }
 
             if (isFrigate && detectionClasses.includes(DetectionClass.Vehicle)) {
-                const choices = frigateLabels?.filter(isVehicleClassname);
                 settings.push(
                     {
                         key: vehicleLabelsKey,
@@ -2956,7 +3004,7 @@ export const getDetectionRulesSettings = async (props: {
                         multiple: true,
                         combobox: true,
                         immediate: true,
-                        choices,
+                        choices: audioLabels.filter(isVehicleClassname),
                         defaultValue: []
                     }
                 );
@@ -3048,10 +3096,12 @@ export const getDetectionRulesSettings = async (props: {
             }
 
             if (hasFace) {
+                const people = await plugin.getKnownPeople(detectionSource);
+
                 settings.push({
                     key: peopleKey,
                     title: 'Whitelisted faces',
-                    description: 'Leave blank to match faces',
+                    description: 'Leave blank to match all faces',
                     group,
                     subgroup,
                     multiple: true,
@@ -3106,30 +3156,9 @@ export const getDetectionRulesSettings = async (props: {
             });
         }
 
-        let zonesToUse: string[] = [];
-
-        if (!isCamera) {
-            const devices = storage.getItem(devicesKey) as string[] ?? [];
-
-            for (const deviceId of devices) {
-                const deviceMixin = plugin.currentCameraMixinsMap[deviceId];
-                if (deviceMixin) {
-                    const zones = (await deviceMixin.getObserveZones()).map(item => item.name);
-                    const { frigateZones } = await deviceMixin.getFrigateData();
-
-                    const cameraZones = isFrigate ? frigateZones : zones;
-                    for (const cameraZone of cameraZones) {
-                        zonesToUse.push(`${deviceMixin.name}::${cameraZone}`);
-                    }
-                }
-            }
-        } else {
-            zonesToUse = isFrigate ? frigateZones.map(zone => zone.name) : zones;
-        }
-
         const zonesDescription = isFrigate ? 'Zones defined on the Frigate interface' :
             'Zones defined in the `Object detection` section of type `Observe`';
-        if (zonesToUse) {
+        if (zones) {
             settings.push(
                 {
                     key: whitelistedZonesKey,
@@ -3140,7 +3169,7 @@ export const getDetectionRulesSettings = async (props: {
                     multiple: true,
                     combobox: true,
                     immediate: true,
-                    choices: zonesToUse,
+                    choices: zones,
                     // readonly: !zonesToUse?.length,
                     defaultValue: []
                 },
@@ -3153,7 +3182,7 @@ export const getDetectionRulesSettings = async (props: {
                     multiple: true,
                     combobox: true,
                     immediate: true,
-                    choices: zonesToUse,
+                    choices: zones,
                     // readonly: !zonesToUse?.length,
                     defaultValue: []
                 },
@@ -3210,6 +3239,7 @@ export const getDetectionRulesSettings = async (props: {
         refreshSettings,
         logger,
         device,
+        plugin,
     });
 }
 
@@ -3217,21 +3247,22 @@ export const nvrAcceleratedMotionSensorId = sdk.systemManager.getDeviceById(NVR_
 
 export const getOccupancyRulesSettings = async (props: {
     storage: StorageSettings<any>,
-    zones?: string[],
     ruleSource: RuleSource,
     refreshSettings: OnRefreshSettings,
     onManualCheck: (ruleName: string) => Promise<void>,
     logger: Console,
     device: DeviceBase,
+    plugin: AdvancedNotifierPlugin,
 }) => {
-    const { storage, zones, ruleSource, refreshSettings, logger, device, onManualCheck } = props;
+    const { plugin, storage, ruleSource, refreshSettings, logger, device, onManualCheck } = props;
+    const cameraMixin = plugin.currentCameraMixinsMap[device.id];
 
     const getSpecificRules: GetSpecificRules = async ({ group, ruleName, subgroup, showMore }) => {
         const settings: StorageSetting[] = [];
 
         const { occupancy, common } = getRuleKeys({ ruleName, ruleType: RuleType.Occupancy });
 
-        const { scoreThresholdKey } = common;
+        const { scoreThresholdKey, detectionSourceKey } = common;
         const {
             captureZoneKey,
             changeStateConfirmKey,
@@ -3247,6 +3278,16 @@ export const getOccupancyRulesSettings = async (props: {
             occupiesKey,
             manualCheckKey
         } = occupancy;
+        const detectionSource = storage.getItem(detectionSourceKey) as ScryptedEventSource;
+
+        let zones: string[] = [];
+
+        if (cameraMixin) {
+            const zonesSource = detectionSource === ScryptedEventSource.Frigate ?
+                ZonesSource.Frigate : ZonesSource.Scrypted;
+
+            zones = await cameraMixin.getMqttZones(zonesSource);
+        }
 
         settings.push(
             {
@@ -3381,6 +3422,7 @@ export const getOccupancyRulesSettings = async (props: {
         refreshSettings,
         logger,
         device,
+        plugin,
     });
 }
 
@@ -3392,8 +3434,9 @@ export const getTimelapseRulesSettings = async (props: {
     refreshSettings: OnRefreshSettings,
     logger: Console,
     device: DeviceBase,
+    plugin: AdvancedNotifierPlugin,
 }) => {
-    const { storage, ruleSource, onCleanDataTimelapse, onGenerateTimelapse, refreshSettings, logger, device } = props;
+    const { plugin, storage, ruleSource, onCleanDataTimelapse, onGenerateTimelapse, refreshSettings, logger, device } = props;
 
     const getSpecificRules: GetSpecificRules = async ({ group, ruleName, subgroup, showMore }) => {
         const settings: StorageSetting[] = [];
@@ -3508,6 +3551,7 @@ export const getTimelapseRulesSettings = async (props: {
         refreshSettings,
         logger,
         device,
+        plugin,
     });
 }
 
@@ -3517,8 +3561,9 @@ export const getAudioRulesSettings = async (props: {
     refreshSettings: OnRefreshSettings,
     logger: Console,
     device: DeviceBase,
+    plugin: AdvancedNotifierPlugin,
 }) => {
-    const { storage, ruleSource, refreshSettings, logger, device } = props;
+    const { plugin, storage, ruleSource, refreshSettings, logger, device } = props;
 
     const getSpecificRules: GetSpecificRules = async ({ group, ruleName, subgroup }) => {
         const settings: StorageSetting[] = [];
@@ -3590,6 +3635,7 @@ export const getAudioRulesSettings = async (props: {
         refreshSettings,
         logger,
         device,
+        plugin,
     });
 }
 
@@ -3683,8 +3729,9 @@ export const getRecordingRulesSettings = async (props: {
     refreshSettings: OnRefreshSettings,
     logger: Console,
     device?: DeviceBase,
+    plugin: AdvancedNotifierPlugin,
 }) => {
-    const { storage, ruleSource, refreshSettings, logger, device } = props;
+    const { plugin, storage, ruleSource, refreshSettings, logger, device } = props;
 
     const getSpecificRules: GetSpecificRules = async ({ group, ruleName, subgroup }) => {
         const settings: StorageSetting[] = [];
@@ -3785,6 +3832,7 @@ export const getRecordingRulesSettings = async (props: {
         refreshSettings,
         logger,
         device,
+        plugin,
     });
 }
 
@@ -3803,6 +3851,7 @@ export interface BaseRule {
     activationType: DetectionRuleActivation;
     source: RuleSource;
     isEnabled: boolean;
+    detectionSource?: ScryptedEventSource;
     currentlyActive?: boolean;
     useAi: boolean;
     aiPrompt: string;
@@ -3862,7 +3911,6 @@ export interface DetectionRule extends BaseRule {
     clipConfidence?: SimilarityConfidence;
     plateMaxDistance?: number;
     disableNvrRecordingSeconds?: number;
-    detectionSource?: ScryptedEventSource;
     maxClipExtensionRange?: number;
 }
 
@@ -3939,6 +3987,7 @@ const initBasicRule = (props: {
         onResetSequencesKey,
         devicesKey,
         showActiveZonesKey,
+        detectionSourceKey,
     } } = getRuleKeys({
         ruleType,
         ruleName,
@@ -3955,6 +4004,7 @@ const initBasicRule = (props: {
     const notifiers = safeParseJson<string[]>(storage.getItem(notifiersKey), []);
     const generateClip = safeParseJson<boolean>(storage.getItem(generateClipKey), false);
     const totalSnooze = safeParseJson<boolean>(storage.getItem(totalSnoozeKey), false);
+    const detectionSource = storage.getItem(detectionSourceKey) as ScryptedEventSource;
     const generateClipPostSeconds = safeParseJson<number>(storage.getItem(generateClipPostSecondsKey)) ?? (ruleType === RuleType.Occupancy ? defaultOccupancyClipPreSeconds : defaultClipPreSeconds);
     const generateClipPreSeconds = safeParseJson<number>(storage.getItem(generateClipPreSecondsKey)) ?? defaultClipPostSeconds;
     const generateClipType = storage.getItem(generateClipTypeKey) ?? defaultVideoclipType;
@@ -4022,7 +4072,8 @@ const initBasicRule = (props: {
         onActivationSequences,
         onDeactivationSequences,
         onTriggerSequences,
-        onResetSequences
+        onResetSequences,
+        detectionSource
     };
 
     for (const notifierId of notifiers) {
@@ -4307,9 +4358,9 @@ export const getDetectionRules = (props: {
                     minMqttPublishDelayKey,
                     generateClipMaxExtensionRangeKey,
                     devicesKey,
+                    detectionSourceKey,
                 },
                 detection: {
-                    detectionSourceKey,
                     detectionClassesKey,
                     whitelistedZonesKey,
                     blacklistedZonesKey,

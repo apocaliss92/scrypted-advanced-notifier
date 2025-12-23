@@ -6,7 +6,7 @@ import { cloneDeep, keyBy, sortBy, uniq, uniqBy } from "lodash";
 import moment from "moment";
 import { getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
 import { filterOverlappedDetections } from '../../scrypted-basic-object-detector/src/util';
-import { objectDetectorNativeId, FrigateObjectDetection, audioDetectorNativeId } from '../../scrypted-frigate-bridge/src/utils';
+import { FrigateObjectDetection, audioDetectorNativeId, objectDetectorNativeId } from '../../scrypted-frigate-bridge/src/utils';
 import { Deferred } from "../../scrypted/server/src/deferred";
 import { checkObjectsOccupancy, confirmDetection } from "./aiUtils";
 import { AudioAnalyzerSource, AudioChunkData, AudioRtspFfmpegStream, AudioSensitivity, executeAudioClassification, sensitivityDbThresholds } from "./audioAnalyzerUtils";
@@ -16,8 +16,9 @@ import AdvancedNotifierPlugin from "./main";
 import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { CameraMixinState, CurrentOccupancyState, OccupancyRuleData, getInitOccupancyState } from "./states";
-import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, DecoderType, DelayType, DetectionRule, DetectionsPerZone, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_ID, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, RecordingRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, ZoneWithPath, ZonesSourceForMqtt, b64ToMo, cachedReaddir, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRecordingRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, DecoderType, DelayType, DetectionRule, DetectionsPerZone, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_ID, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, RecordingRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, ZoneWithPath, ZonesSource, b64ToMo, cachedReaddir, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRecordingRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
 import { VideoRtspFfmpegRecorder, getVideoClipName, parseVideoFileName } from "./videoRecorderUtils";
+import { FrigateZoneObjectCountsMap } from "../../scrypted-frigate-bridge/src/mqttSettingsTypes";
 
 const { systemManager } = sdk;
 
@@ -190,7 +191,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             type: 'string',
             immediate: true,
             combobox: true,
-            defaultValue: ZonesSourceForMqtt.Default,
+            defaultValue: ZonesSource.Default,
             choices: [],
         },
         motionDuration: {
@@ -648,8 +649,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
         const nvrObjectDetector = systemManager.getDeviceById('@scrypted/nvr', 'detection')?.id;
         const basicObjectDetector = systemManager.getDeviceById('@apocaliss92/scrypted-basic-object-detector')?.id;
-        const frigateObjectDetector = systemManager.getDeviceById('@apocaliss92/scrypted-frigate-bridge', objectDetectorNativeId)?.id;
-        const frigateAudioDetector = systemManager.getDeviceById('@apocaliss92/scrypted-frigate-bridge', audioDetectorNativeId)?.id;
+        const frigateObjectDetector = systemManager.getDeviceById(FRIGATE_BRIDGE_PLUGIN_ID, objectDetectorNativeId)?.id;
+        const frigateAudioDetector = systemManager.getDeviceById(FRIGATE_BRIDGE_PLUGIN_ID, audioDetectorNativeId)?.id;
         const nvrId = systemManager.getDeviceById('@scrypted/nvr')?.id;
         let shouldBeMoved = false;
         const thisMixinOrder = this.mixins.indexOf(this.plugin.id);
@@ -963,7 +964,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             this.plugin.enqueueCameraAutodiscovery(this.id, async () => {
                                 const zones = await this.getMqttZones();
                                 logger.log('Starting MQTT autodiscovery (queued)');
-                                const activeTopics = await setupCameraAutodiscovery({
+                                await setupCameraAutodiscovery({
                                     mqttClient,
                                     device: this.cameraDevice,
                                     console: logger,
@@ -972,12 +973,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                     zones,
                                     migrateLegacyDiscovery: !this.plugin.storageSettings.values.mqttDiscoveryMigratedV2,
                                 });
-                                if (!this.plugin.storageSettings.values.mqttDiscoveryMigratedV2) {
-                                    await this.mixinState.mqttClient.cleanupAutodiscoveryTopics(activeTopics);
-                                }
 
                                 if (!this.plugin.storageSettings.values.mqttDiscoveryMigratedV2) {
-                                    await this.plugin.storageSettings.putSetting('mqttDiscoveryMigratedV2', true);
+                                    this.plugin.storageSettings.values.mqttDiscoveryMigratedV2 = true;
                                 }
 
                                 logger.debug(`Subscribing to mqtt topics`);
@@ -1450,20 +1448,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     async refreshSettings() {
         const logger = this.getLogger();
         const dynamicSettings: StorageSetting[] = [];
-        const zones = (await this.getObserveZones()).map(item => item.name);
-        const people = await this.plugin.getKnownPeople(this.facesSourceForMqtt);
-        const { frigateLabels, frigateZones } = await this.getFrigateData();
-        const { labels: audioLabels } = await this.getAudioData();
 
         const detectionRulesSettings = await getDetectionRulesSettings({
             storage: this.mixinState.storageSettings,
-            zones,
-            frigateZones,
-            people,
             device: this,
             logger,
-            frigateLabels,
-            audioLabels,
             ruleSource: RuleSource.Device,
             refreshSettings: this.refreshSettings.bind(this),
             plugin: this.plugin,
@@ -1472,12 +1461,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const occupancyRulesSettings = await getOccupancyRulesSettings({
             storage: this.mixinState.storageSettings,
-            zones,
             ruleSource: RuleSource.Device,
             logger,
             refreshSettings: this.refreshSettings.bind(this),
             onManualCheck: async (ruleName: string) => await this.manualCheckOccupancyRule(ruleName),
             device: this,
+            plugin: this.plugin,
         });
         dynamicSettings.push(...occupancyRulesSettings);
 
@@ -1486,6 +1475,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             ruleSource: RuleSource.Device,
             logger,
             device: this,
+            plugin: this.plugin,
             refreshSettings: this.refreshSettings.bind(this),
             onCleanDataTimelapse: async (ruleName) => {
                 const rule = this.mixinState.availableTimelapseRules?.find(rule => rule.name === ruleName);
@@ -1514,6 +1504,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             ruleSource: RuleSource.Device,
             logger,
             device: this,
+            plugin: this.plugin,
             refreshSettings: this.refreshSettings.bind(this),
         });
         dynamicSettings.push(...audioRulesSettings);
@@ -1525,6 +1516,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             logger,
             refreshSettings: this.refreshSettings.bind(this),
             device: this,
+            plugin: this.plugin,
         });
         dynamicSettings.push(...recordingRulesSettings);
 
@@ -1586,16 +1578,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 ...this.plugin.enabledDetectionSources,
             ]
         }
-
         if (this.mixinState.storageSettings.settings.zonesSourceForMqtt) {
-            const choices: ZonesSourceForMqtt[] = [
-                ZonesSourceForMqtt.Default,
-                ZonesSourceForMqtt.Scrypted,
-            ];
-            if (this.plugin.frigateApi) {
-                choices.push(ZonesSourceForMqtt.Frigate);
-            }
-            this.mixinState.storageSettings.settings.zonesSourceForMqtt.choices = choices;
+            this.mixinState.storageSettings.settings.zonesSourceForMqtt.choices = [
+                ScryptedEventSource.Default,
+                ...this.plugin.enabledZonesSources,
+            ]
         }
 
         const isAudioClassifierEnabled = audioClassifierSource !== AudioAnalyzerSource.Disabled;
@@ -1669,23 +1656,42 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    async getMqttZones(): Promise<string[]> {
-        const source = this.zonesSourceForMqtt;
+    async getOccupancyZones(detectionSource: ScryptedEventSource) {
+        const isFrigate = detectionSource === ScryptedEventSource.Frigate;
+        const zonesData = isFrigate ? (await this.getFrigateData()).frigateZones : await this.getObserveZones();
 
-        if (source === ZonesSourceForMqtt.Frigate) {
+        return zonesData;
+    }
+
+    async getMqttZones(sourceParent?: ZonesSource): Promise<string[]> {
+        const source = sourceParent ?? this.zonesSourceForMqtt;
+        const zones: string[] = [];
+
+        const isAll = source === ZonesSource.All;
+
+        if (isAll || source === ZonesSource.Frigate) {
             try {
                 const { frigateZones } = await this.getFrigateData();
                 const zoneNames = (frigateZones || []).map(z => z.name).filter(Boolean);
-                if (zoneNames.length) {
-                    return zoneNames;
-                }
+
+                zones.push(...zoneNames);
             } catch (e) {
                 this.getLogger().debug?.(`Error fetching Frigate zones for MQTT, falling back to Observe zones: ${e}`);
             }
         }
 
-        const zonesData = await this.getObserveZones();
-        return (zonesData || []).map(z => z.name).filter(Boolean);
+        if (isAll || source === ZonesSource.Scrypted) {
+            try {
+                const zonesData = await this.getObserveZones();
+                const zoneNames = (zonesData || []).map(z => z.name).filter(Boolean);
+
+                zones.push(...zoneNames);
+            } catch (e) {
+                this.getLogger().debug?.(`Error fetching Frigate zones for MQTT, falling back to Observe zones: ${e}`);
+            }
+        }
+
+        return zones;
     }
 
     async getAudioData() {
@@ -1716,7 +1722,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     async getFrigateData() {
         try {
             const now = new Date().getTime();
-            const frigateObjectDetector = systemManager.getDeviceById('@apocaliss92/scrypted-frigate-bridge', objectDetectorNativeId)?.id;
+            const frigateObjectDetector = systemManager.getDeviceById(FRIGATE_BRIDGE_PLUGIN_ID, objectDetectorNativeId)?.id;
 
             let labels: string[];
             let zones: ZoneWithPath[] = [];
@@ -2233,41 +2239,45 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async manualCheckOccupancyRule(ruleName: string) {
-        const logger = this.getLogger();
-        const rule = this.mixinState.runningOccupancyRules.find(rule => rule.name === ruleName);
+        try {
+            const logger = this.getLogger();
+            const rule = this.mixinState.runningOccupancyRules.find(rule => rule.name === ruleName);
 
-        logger.log(`Starting AI check for occupancy rule ${ruleName}`);
+            logger.log(`Starting AI check for occupancy rule ${ruleName}`);
 
-        const { image } = await this.getImage({
-            reason: GetImageReason.Sensor,
-        });
+            const { image } = await this.getImage({
+                reason: GetImageReason.Sensor,
+            });
 
-        const zonesData = await this.getObserveZones();
-        const zone = zonesData.find(zoneData => zoneData.name === rule.observeZone);
+            const zonesData = await this.getOccupancyZones(rule.detectionSource);
+            const zone = zonesData.find(zoneData => zoneData.name === rule.observeZone);
 
-        const { newB64Image, newImage } = await addZoneClipPathToImage({
-            image,
-            clipPaths: [zone.path],
-            console: logger,
-            plugin: this.plugin,
-        });
-        const occupiesFromAi = await checkObjectsOccupancy({
-            b64Image: newB64Image,
-            logger,
-            plugin: this.plugin,
-            detectionClass: rule.detectionClass
-        });
+            const { newB64Image, newImage } = await addZoneClipPathToImage({
+                image,
+                clipPaths: [zone.path],
+                console: logger,
+                plugin: this.plugin,
+            });
+            const occupiesFromAi = await checkObjectsOccupancy({
+                b64Image: newB64Image,
+                logger,
+                plugin: this.plugin,
+                detectionClass: rule.detectionClass
+            });
 
-        const detectedObjectsFromAi = Number(occupiesFromAi.response);
+            const detectedObjectsFromAi = Number(occupiesFromAi.response);
 
-        const currentState = this.mixinState.occupancyState[ruleName];
-        const message = `AI detected ${detectedObjectsFromAi}, current state ${JSON.stringify(currentState)}`;
-        logger.log(message);
+            const currentState = this.mixinState.occupancyState[ruleName];
+            const message = `AI detected ${detectedObjectsFromAi}, current state ${JSON.stringify(currentState)}`;
+            logger.log(message);
 
-        const { devNotifier } = this.plugin.storageSettings.values;
-        (devNotifier as Notifier).sendNotification(`Occupancy AI check ${ruleName}`, {
-            body: message,
-        }, newImage);
+            const { devNotifier } = this.plugin.storageSettings.values;
+            (devNotifier as Notifier).sendNotification(`Occupancy AI check ${ruleName}`, {
+                body: message,
+            }, newImage);
+        } catch (e) {
+            this.getLogger().log(`Error in manualCheckOccupancyRule for rule ${ruleName}`, e);
+        }
     }
 
     async checkOccupancyData(props: {
@@ -2309,7 +2319,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             logger.info(`Checking occupancy for reason ${source}`);
 
             const occupancyRulesDataTmpMap: Record<string, OccupancyRuleData> = {};
-            const zonesData = await this.getObserveZones();
 
             const objectDetector: ObjectDetection & ScryptedDeviceBase = this.plugin.storageSettings.values.objectDetectionDevice;
 
@@ -2327,102 +2336,132 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             for (const occupancyRule of this.mixinState.runningOccupancyRules) {
                 let image = imageParent;
 
-                const { name, zoneType, observeZone, scoreThreshold, detectionClass, maxObjects, captureZone } = occupancyRule;
+                const {
+                    name,
+                    zoneType,
+                    observeZone,
+                    scoreThreshold,
+                    detectionClass,
+                    maxObjects,
+                    captureZone,
+                    detectionSource,
+                } = occupancyRule;
 
-                let detectedResult = detectedResultParent;
+                const isFrigate = detectionSource === ScryptedEventSource.Frigate;
+                const zonesData = await this.getOccupancyZones(detectionSource);
+
                 const zone = zonesData.find(zoneData => zoneData.name === observeZone);
 
                 if (!zone) {
-                    logger.log(`Zone ${zone} for rule ${name} not found, skipping checks`);
+                    logger.log(`Zone ${zone} for rule ${name} not found, skipping checks. Available data: ${JSON.stringify({ zonesData, rule: occupancyRule })}`);
                     continue;
-                }
-
-                if (captureZone?.length >= 3) {
-                    const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(imageParent, ScryptedMimeTypes.Image);
-                    let left = convertedImage.width;
-                    let top = convertedImage.height;
-                    let right = 0;
-                    let bottom = 0;
-                    for (const point of zone.path) {
-                        left = Math.min(left, point[0]);
-                        top = Math.min(top, point[1]);
-                        right = Math.max(right, point[0]);
-                        bottom = Math.max(bottom, point[1]);
-                    }
-
-                    left = left * convertedImage.width;
-                    top = top * convertedImage.height;
-                    right = right * convertedImage.width;
-                    bottom = bottom * convertedImage.height;
-
-                    let width = right - left;
-                    let height = bottom - top;
-                    // square it for standard detection
-                    width = height = Math.max(width, height);
-                    // recenter it
-                    left = left + (right - left - width) / 2;
-                    top = top + (bottom - top - height) / 2;
-                    // ensure bounds are within image.
-                    left = Math.max(0, left);
-                    top = Math.max(0, top);
-                    width = Math.min(width, convertedImage.width - left);
-                    height = Math.min(height, convertedImage.height - top);
-
-                    if (!Number.isNaN(left) && !Number.isNaN(top) && !Number.isNaN(width) && !Number.isNaN(height)) {
-                        const croppedImage = await convertedImage.toImage({
-                            crop: {
-                                left,
-                                top,
-                                width,
-                                height,
-                            },
-                        });
-                        detectedResult = await this.executeDetection(croppedImage);
-                    }
-
-                    if (!objectDetector.interfaces.includes(ScryptedInterface.ObjectDetectionGenerator)) {
-                        detectedResult.detections = filterOverlappedDetections(detectedResult.detections);
-                    }
-
-                    // adjust the origin of the bounding boxes for the crop.
-                    for (const d of detectedResult.detections) {
-                        d.boundingBox[0] += left;
-                        d.boundingBox[1] += top;
-                    }
-                    detectedResult.inputDimensions = [convertedImage.width, convertedImage.height];
                 }
 
                 let objectsDetected = 0;
                 let maxScore = 0;
+                let detectedResult = detectedResultParent;
 
-                for (const detection of detectedResult.detections) {
-                    const className = detectionClassesDefaultMap[detection.className];
-                    if (detection.score >= scoreThreshold && detectionClass === className) {
-                        if (!maxScore || detection.score > maxScore) {
-                            maxScore = detection.score;
+                let updatedState: CurrentOccupancyState = {
+                    ...this.mixinState.occupancyState[name] ?? {} as CurrentOccupancyState,
+                    referenceZone: zone
+                };
+
+                if (isFrigate) {
+                    const settings = await this.cameraDevice.getSettings();
+                    const settingsDict = keyBy(settings, 'key');
+                    const zoneActiveObjectMap: FrigateZoneObjectCountsMap = (settingsDict[`${objectDetectorNativeId}:zoneActiveObjectMap`]?.value ?? {}) as FrigateZoneObjectCountsMap;
+
+                    const zoneEntries = zoneActiveObjectMap[observeZone];
+                    const filteredEntries = Object.entries(zoneEntries).filter(([zoneClass, inner]) => {
+                        const defaultClass = detectionClassesDefaultMap[zoneClass];
+
+                        return defaultClass === detectionClass;
+                    });
+                    const totalFromEntries = filteredEntries.reduce((acc, [_zoneClass, entry]) => acc + (entry.total ?? 0), 0);
+                    objectsDetected = totalFromEntries;
+
+                    updatedState.frigateOccupancy = zoneActiveObjectMap;
+                } else {
+                    if (captureZone?.length >= 3) {
+                        const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(imageParent, ScryptedMimeTypes.Image);
+                        let left = convertedImage.width;
+                        let top = convertedImage.height;
+                        let right = 0;
+                        let bottom = 0;
+                        for (const point of zone.path) {
+                            left = Math.min(left, point[0]);
+                            top = Math.min(top, point[1]);
+                            right = Math.max(right, point[0]);
+                            bottom = Math.max(bottom, point[1]);
                         }
-                        const boundingBoxInCoords = normalizeBox(detection.boundingBox, detectedResult.inputDimensions);
-                        let zoneMatches = false;
 
-                        if (zoneType === ZoneMatchType.Intersect) {
-                            zoneMatches = polygonIntersectsBoundingBox(zone.path, boundingBoxInCoords);
-                        } else {
-                            zoneMatches = polygonContainsBoundingBox(zone.path, boundingBoxInCoords);
+                        left = left * convertedImage.width;
+                        top = top * convertedImage.height;
+                        right = right * convertedImage.width;
+                        bottom = bottom * convertedImage.height;
+
+                        let width = right - left;
+                        let height = bottom - top;
+                        // square it for standard detection
+                        width = height = Math.max(width, height);
+                        // recenter it
+                        left = left + (right - left - width) / 2;
+                        top = top + (bottom - top - height) / 2;
+                        // ensure bounds are within image.
+                        left = Math.max(0, left);
+                        top = Math.max(0, top);
+                        width = Math.min(width, convertedImage.width - left);
+                        height = Math.min(height, convertedImage.height - top);
+
+                        if (!Number.isNaN(left) && !Number.isNaN(top) && !Number.isNaN(width) && !Number.isNaN(height)) {
+                            const croppedImage = await convertedImage.toImage({
+                                crop: {
+                                    left,
+                                    top,
+                                    width,
+                                    height,
+                                },
+                            });
+                            detectedResult = await this.executeDetection(croppedImage);
                         }
 
-                        if (zoneMatches) {
-                            objectsDetected += 1;
+                        if (!objectDetector.interfaces.includes(ScryptedInterface.ObjectDetectionGenerator)) {
+                            detectedResult.detections = filterOverlappedDetections(detectedResult.detections);
+                        }
+
+                        // adjust the origin of the bounding boxes for the crop.
+                        for (const d of detectedResult.detections) {
+                            d.boundingBox[0] += left;
+                            d.boundingBox[1] += top;
+                        }
+                        detectedResult.inputDimensions = [convertedImage.width, convertedImage.height];
+                    }
+
+                    for (const detection of detectedResult.detections) {
+                        const className = detectionClassesDefaultMap[detection.className];
+                        if (detection.score >= scoreThreshold && detectionClass === className) {
+                            if (!maxScore || detection.score > maxScore) {
+                                maxScore = detection.score;
+                            }
+                            const boundingBoxInCoords = normalizeBox(detection.boundingBox, detectedResult.inputDimensions);
+                            let zoneMatches = false;
+
+                            if (zoneType === ZoneMatchType.Intersect) {
+                                zoneMatches = polygonIntersectsBoundingBox(zone.path, boundingBoxInCoords);
+                            } else {
+                                zoneMatches = polygonContainsBoundingBox(zone.path, boundingBoxInCoords);
+                            }
+
+                            if (zoneMatches) {
+                                objectsDetected += 1;
+                            }
                         }
                     }
+
+                    updatedState.score = maxScore
                 }
 
                 const occupies = ((maxObjects || 1) - objectsDetected) <= 0;
-
-                const updatedState: CurrentOccupancyState = {
-                    ...this.mixinState.occupancyState[name] ?? {} as CurrentOccupancyState,
-                    score: maxScore,
-                    referenceZone: zone
-                };
 
                 this.mixinState.occupancyState[name] = updatedState;
 
@@ -2512,6 +2551,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                             if (rule.confirmWithAi) {
                                 try {
+                                    const zonesData = await this.getOccupancyZones(rule.detectionSource);
                                     const zone = zonesData.find(zoneData => zoneData.name === rule.observeZone);
 
                                     const { newB64Image } = await addZoneClipPathToImage({
@@ -2678,6 +2718,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     if (rule.showActiveZones) {
                         logger.log(`Adding active zone to image: ${rule.observeZone}`);
 
+                        const zonesData = await this.getOccupancyZones(rule.detectionSource);
                         const zone = zonesData.find(zoneData => zoneData.name === rule.observeZone);
 
                         const { newB64Image, newImage } = await addZoneClipPathToImage({
@@ -3025,7 +3066,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
     }
 
-    get detectionSourceForMqtt() {
+    get detectionSourceForMqtt(): ScryptedEventSource {
         const { detectionSourceForMqtt } = this.mixinState.storageSettings.values;
         const { detectionSourceForMqtt: detectionSourceForMqttPlugin } = this.plugin.storageSettings.values;
 
@@ -3039,7 +3080,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         return source ?? ScryptedEventSource.All;
     }
 
-    get facesSourceForMqtt() {
+    get facesSourceForMqtt(): ScryptedEventSource {
         const { facesSourceForMqtt } = this.mixinState.storageSettings.values;
         const { facesSourceForMqtt: facesSourceForMqttPlugin } = this.plugin.storageSettings.values;
 
@@ -3053,18 +3094,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         return source ?? ScryptedEventSource.All;
     }
 
-    get zonesSourceForMqtt() {
+    get zonesSourceForMqtt(): ZonesSource {
         const { zonesSourceForMqtt } = this.mixinState.storageSettings.values;
         const { zonesSourceForMqtt: zonesSourceForMqttPlugin } = (this.plugin.storageSettings.values as any);
 
-        let source: ZonesSourceForMqtt;
-        if (zonesSourceForMqtt !== ZonesSourceForMqtt.Default) {
-            source = zonesSourceForMqtt as ZonesSourceForMqtt;
+        let source: ZonesSource;
+        if (zonesSourceForMqtt !== ZonesSource.Default) {
+            source = zonesSourceForMqtt as ZonesSource;
         } else {
-            source = zonesSourceForMqttPlugin as ZonesSourceForMqtt;
+            source = zonesSourceForMqttPlugin as ZonesSource;
         }
 
-        return source ?? ZonesSourceForMqtt.Scrypted;
+        return source ?? ZonesSource.All;
     }
 
     async executeDetection(image: MediaObject) {
@@ -3347,13 +3388,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             } else if (detectionSource === ScryptedEventSource.Frigate) {
                 if (imageProcessing === ImagePostProcessing.Crop) {
                     imageToProcess = fullFrameImage;
-
-                    if (!fullFrameImage) {
-                        shouldReDetect = true;
-                    }
+                    shouldReDetect = true;
                 } else if ([ImagePostProcessing.MarkBoundaries, ImagePostProcessing.Default].includes(imageProcessing)) {
                     image = markedImage;
                     imageProcessing = ImagePostProcessing.MarkBoundaries;
+                    shouldReDetect = true;
 
                     if (!image) {
                         imageToProcess = fullFrameImage;
@@ -4028,7 +4067,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 logger.info(`Triggering basic detections ${getDetectionsLog(spamBlockedDetections)}`);
                                 let detectionsPerZone: DetectionsPerZone | undefined;
                                 const zonesSourceForMqtt = this.zonesSourceForMqtt;
-                                const canUpdateZonesOnMqtt = zonesSourceForMqtt === ZonesSourceForMqtt.Frigate ? isDetectionFromFrigate : true;
+                                const canUpdateZonesOnMqtt = zonesSourceForMqtt === ZonesSource.Frigate ? isDetectionFromFrigate : true;
 
                                 if (canUpdateZonesOnMqtt) {
                                     detectionsPerZone = getDetectionsPerZone(spamBlockedDetections);

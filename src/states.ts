@@ -3,6 +3,7 @@ import { AudioRule, BaseRule, DetectionRule, MatchRule, ObserveZoneData, Occupan
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
+import { FrigateZoneObjectCountsMap } from "../../scrypted-frigate-bridge/src/mqttSettingsTypes";
 
 export interface CurrentOccupancyState {
     occupancyToConfirm?: boolean,
@@ -16,6 +17,7 @@ export interface CurrentOccupancyState {
     referenceZone: ObserveZoneData;
     occupies: boolean;
     objectsDetected: number;
+    frigateOccupancy?: FrigateZoneObjectCountsMap
 }
 
 export const getInitOccupancyState = (rule: OccupancyRule): CurrentOccupancyState => {

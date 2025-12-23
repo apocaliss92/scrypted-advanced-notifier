@@ -318,11 +318,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                                 console: logger,
                                 supportedModes: this.securitySystemState.supportedModes,
                                 migrateLegacyDiscovery: !this.plugin.storageSettings.values.mqttDiscoveryMigratedV2,
-                            }).then(async (activeTopics) => {
-                                if (!this.plugin.storageSettings.values.mqttDiscoveryMigratedV2) {
-                                    await mqttClient.cleanupAutodiscoveryTopics(activeTopics);
-                                }
-
+                            }).then(async () => {
                                 if (!this.plugin.storageSettings.values.mqttDiscoveryMigratedV2) {
                                     await this.plugin.storageSettings.putSetting('mqttDiscoveryMigratedV2', true);
                                 }
