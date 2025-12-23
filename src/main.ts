@@ -3180,7 +3180,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { zones } = detection ?? {};
         let zone: string;
         if (rule?.whitelistedZones) {
-            zone = detection?.zones?.find(zoneInner => rule.whitelistedZones.includes(zoneInner));
+            zone = detection?.zones?.find(zoneInner => rule.whitelistedZones.find(whiltelistedZone => {
+                if (rule.source === RuleSource.Device) {
+                    return whiltelistedZone === zoneInner;
+                } else {
+                    const [_, zonePart] = zoneInner.split('::');
+                    return zonePart === zoneInner;
+                }
+            }));
         } else {
             zone = zones?.[0];
         }
@@ -3196,6 +3203,51 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         return this.currentNotifierMixinsMap[notifierId]?.storageSettings.values[textKey] || this.storageSettings.values[textKey];
     }
 
+    private applyNotificationPlaceholders(props: {
+        text?: string;
+        device: DeviceInterface;
+        detectionTime: number;
+        detection?: ObjectDetectionResult;
+        eventType?: DetectionEvent;
+        notifierId: string;
+        externalUrl?: string;
+        rule?: DetectionRule;
+    }) {
+        const { text, detection, detectionTime, notifierId, device, externalUrl, rule, eventType } = props;
+        if (!text) {
+            return undefined;
+        }
+
+        const { label: labelRaw, className } = detection ?? {};
+
+        let label = labelRaw;
+        if (!isLabelDetection(className)) {
+            const labelAttemptKey = getFrigateTextKey(labelRaw);
+            label = this.getTextKey({ notifierId, textKey: labelAttemptKey }) ?? label;
+        }
+
+        const roomName = device?.room;
+        const { subKey } = getEventTextKey({ eventType, hasLabel: !!label });
+        const subkeyText = subKey ? this.getTextKey({ notifierId, textKey: subKey }) : undefined;
+
+        const detectionTimeText = this.getTextKey({ notifierId, textKey: 'detectionTimeText' });
+        const time = eval(detectionTimeText.replace('${time}', detectionTime));
+
+        const zone = this.getTriggerZone(detection, rule);
+
+        return text.toString()
+            .replaceAll('${time}', String(time ?? ''))
+            .replaceAll('${classnameText}', subkeyText ?? '')
+            .replaceAll('${classname}', subkeyText ?? '')
+            .replaceAll('${nvrLink}', externalUrl ?? '')
+            .replaceAll('${person}', label ?? '')
+            .replaceAll('${plate}', label ?? '')
+            .replaceAll('${streamName}', label ?? '')
+            .replaceAll('${label}', label ?? '')
+            .replaceAll('${zone}', zone ?? '')
+            .replaceAll('${room}', roomName ?? '');
+    }
+
     private async getNotificationText(
         props: {
             device: DeviceInterface,
@@ -3208,36 +3260,19 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
     ) {
         const { detection, detectionTime, notifierId, device, externalUrl, rule, eventType } = props;
-        const { label: labelRaw, className } = detection ?? {};
-
-        let label = labelRaw;
-        if (!isLabelDetection(className)) {
-            const labelAttemptKey = getFrigateTextKey(labelRaw);
-            label = this.getTextKey({ notifierId, textKey: labelAttemptKey }) ?? label;
-        }
-
-        const roomName = device?.room;
-
-        const { key, subKey } = getEventTextKey({ eventType, hasLabel: !!label });
-
+        const { key } = getEventTextKey({ eventType, hasLabel: !!(detection?.label) });
         const textToUse = rule?.customText || this.getTextKey({ notifierId, textKey: key });
-        const subkeyText = subKey ? this.getTextKey({ notifierId, textKey: subKey }) : undefined;
 
-        const detectionTimeText = this.getTextKey({ notifierId, textKey: 'detectionTimeText' });
-        const time = eval(detectionTimeText.replace('${time}', detectionTime));
-
-        const zone = this.getTriggerZone(detection, rule);
-
-        return textToUse?.toString()
-            .replace('${time}', time)
-            .replace('${classnameText}', subkeyText ?? '')
-            .replace('${nvrLink}', externalUrl ?? '')
-            .replace('${person}', label ?? '')
-            .replace('${plate}', label ?? '')
-            .replace('${streamName}', label ?? '')
-            .replace('${label}', label ?? '')
-            .replace('${zone}', zone ?? '')
-            .replace('${room}', roomName ?? '');
+        return this.applyNotificationPlaceholders({
+            text: textToUse,
+            detection,
+            detectionTime,
+            notifierId,
+            device,
+            externalUrl,
+            rule,
+            eventType,
+        });
     }
 
     async buildSnoozes(props: { notifierId: string }) {
@@ -3653,12 +3688,23 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
 
         let message = messageParent;
-        if (!message) {
-            const { externalUrl } = this.getUrls(device?.id, triggerTime);
+        const { externalUrl: externalUrlForText } = this.getUrls(device?.id, triggerTime);
 
+        if (message) {
+            message = this.applyNotificationPlaceholders({
+                text: message,
+                detection,
+                externalUrl: externalUrlForText,
+                detectionTime: triggerTime,
+                notifierId: notifier.id,
+                eventType,
+                device,
+                rule: rule as DetectionRule,
+            }) ?? message;
+        } else {
             message = await this.getNotificationText({
                 detection,
-                externalUrl,
+                externalUrl: externalUrlForText,
                 detectionTime: triggerTime,
                 notifierId: notifier.id,
                 eventType,
