@@ -3180,12 +3180,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { zones } = detection ?? {};
         let zone: string;
         if (rule?.whitelistedZones) {
-            zone = detection?.zones?.find(zoneInner => rule.whitelistedZones.find(whiltelistedZone => {
+            zone = detection?.zones?.find(detectedZone => rule.whitelistedZones.find(whiltelistedZone => {
                 if (rule.source === RuleSource.Device) {
-                    return whiltelistedZone === zoneInner;
+                    return whiltelistedZone === detectedZone;
                 } else {
-                    const [_, zonePart] = zoneInner.split('::');
-                    return zonePart === zoneInner;
+                    const [_, zonePart] = whiltelistedZone.split('::');
+                    return zonePart === detectedZone;
                 }
             }));
         } else {
