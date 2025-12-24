@@ -3147,7 +3147,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let error: string;
 
         if (image) {
-            if (objectDetector && image) {
+            if (objectDetector) {
                 let transformedDetections: ObjectDetectionResult[];
 
                 const isAudio = isAudioClassname(className);
@@ -3271,6 +3271,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                             } else {
                                 shouldFallback = true;
                             }
+                        } else {
+                            shouldFallback = true;
                         }
                     } catch (e) {
                         error = e.message;
@@ -3384,12 +3386,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 if (imageProcessing === ImagePostProcessing.Crop) {
                     imageToProcess = fullFrameImage;
                     shouldReDetect = true;
-                } else if ([ImagePostProcessing.MarkBoundaries, ImagePostProcessing.Default].includes(imageProcessing)) {
-                    image = markedImage;
-
-                    if (!image) {
-                        imageToProcess = fullFrameImage;
-                    }
+                } else if (imageProcessing === ImagePostProcessing.MarkBoundaries) {
+                    imageToProcess = fullFrameImage;
+                    shouldReDetect = true;
+                } else if (imageProcessing === ImagePostProcessing.Default) {
+                    image = markedImage ?? fullFrameImage;
                 } else if (imageProcessing === ImagePostProcessing.FullFrame) {
                     image = fullFrameImage;
                 }
