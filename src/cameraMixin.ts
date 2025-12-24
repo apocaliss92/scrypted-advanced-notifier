@@ -602,43 +602,53 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async getVideoClip(videoId: string): Promise<MediaObject> {
         const logger = this.getLogger();
-        const { videoUrl } = await this.plugin.decodeFileId({ fileId: videoId });
 
-        let videoclipMo: MediaObject;
+        try {
+            const { videoUrl } = await this.plugin.decodeFileId({ fileId: videoId });
 
-        if (videoUrl) {
-            logger.info('Fetching videoclip ', videoId, videoUrl);
+            let videoclipMo: MediaObject;
 
-            videoclipMo = await sdk.mediaManager.createMediaObject(Buffer.from(videoUrl), ScryptedMimeTypes.LocalUrl, {
-                sourceId: this.plugin.id
-            })
-        }
+            if (videoUrl) {
+                logger.info('Fetching videoclip ', videoId, videoUrl);
 
-        if (videoclipMo) {
-            return videoclipMo;
-        } else {
+                videoclipMo = await sdk.mediaManager.createMediaObject(Buffer.from(videoUrl), ScryptedMimeTypes.LocalUrl, {
+                    sourceId: this.plugin.id
+                });
+
+                if (videoclipMo) {
+                    return videoclipMo;
+                }
+            }
+        } catch {
             return this.mixinDevice.getVideoClip(videoId);
         }
+
+        return this.mixinDevice.getVideoClip(videoId);
     }
 
     async getVideoClipThumbnail(thumbnailId: string, options?: VideoClipThumbnailOptions): Promise<MediaObject> {
         const logger = this.getLogger();
-        const { imageUrl } = await this.plugin.decodeFileId({ fileId: thumbnailId });
 
-        let thumbnailMo: MediaObject;
+        try {
+            const { imageUrl } = await this.plugin.decodeFileId({ fileId: thumbnailId });
 
-        if (imageUrl) {
-            logger.info('Fetching thumbnail ', thumbnailId, imageUrl);
+            let thumbnailMo: MediaObject;
 
-            const imageBuf = await fs.promises.readFile(imageUrl);
-            thumbnailMo = await sdk.mediaManager.createMediaObject(imageBuf, 'image/jpeg');
-        }
+            if (imageUrl) {
+                logger.info('Fetching thumbnail ', thumbnailId, imageUrl);
 
-        if (thumbnailMo) {
-            return thumbnailMo;
-        } else {
+                const imageBuf = await fs.promises.readFile(imageUrl);
+                thumbnailMo = await sdk.mediaManager.createMediaObject(imageBuf, 'image/jpeg');
+            }
+
+            if (thumbnailMo) {
+                return thumbnailMo;
+            }
+        } catch {
             return this.mixinDevice.getVideoClipThumbnail(thumbnailId, options);
         }
+
+        return this.mixinDevice.getVideoClipThumbnail(thumbnailId, options);
     }
 
     removeVideoClips(...videoClipIds: string[]): Promise<void> {
@@ -3442,6 +3452,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 return;
             } else {
+                if (!image) {
+                    image = imageData?.fullFrameImage
+                }
+
                 if (!image) {
                     logger.log(`Skipping notification, image was not provided: ${JSON.stringify({
                         imageToProcess: !!imageToProcess,
