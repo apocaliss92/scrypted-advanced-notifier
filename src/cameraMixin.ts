@@ -2382,13 +2382,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     const zoneActiveObjectMap: FrigateZoneObjectCountsMap = (settingsDict[`${objectDetectorNativeId}:zoneActiveObjectMap`]?.value ?? {}) as FrigateZoneObjectCountsMap;
 
                     const zoneEntries = zoneActiveObjectMap[observeZone];
-                    const filteredEntries = Object.entries(zoneEntries).filter(([zoneClass, inner]) => {
+                    const filteredEntries = Object.entries(zoneEntries).filter(([zoneClass]) => {
                         const defaultClass = detectionClassesDefaultMap[zoneClass];
 
                         return defaultClass === detectionClass;
                     });
                     const totalFromEntries = filteredEntries.reduce((acc, [_zoneClass, entry]) => acc + (entry.total ?? 0), 0);
                     objectsDetected = totalFromEntries;
+
+                    logger.info(`Frigate data status: ${JSON.stringify({
+                        zoneEntries,
+                        filteredEntries,
+                        totalFromEntries,
+                        zoneActiveObjectMap,
+                    })}`);
 
                     updatedState.frigateOccupancy = zoneActiveObjectMap;
                 } else {
@@ -2491,7 +2498,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }
 
             const occupancyRulesData: OccupancyRuleData[] = [];
-            const rulesToNotNotify: string[] = [];
+            const notifiedRules: string[] = [];
             for (const occupancyRuleTmpData of Object.values(occupancyRulesDataTmpMap)) {
                 const { rule, image } = occupancyRuleTmpData;
                 const { name, changeStateConfirm } = rule;
@@ -2661,7 +2668,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         changed: false
                     });
 
-                    rulesToNotNotify.push(occupancyRuleTmpData.rule.name);
+                    notifiedRules.push(occupancyRuleTmpData.rule.name);
                     this.mixinState.occupancyState[name] = {
                         ...occupancyDataToUpdate,
                     };
@@ -2701,7 +2708,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     eventSource: ScryptedEventSource.RawDetection
                 });
 
-                if (!rulesToNotNotify.includes(rule.name) && timePassed) {
+                if (!notifiedRules.includes(rule.name) && timePassed) {
                     let image = b64Image ? await b64ToMo(b64Image) : imageParent;
                     const triggerTime = (occupancyRuleData?.triggerTime ?? now);
                     let imageToUse: MediaObject = image;
@@ -3581,7 +3588,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             delayKey += `-${lastDetectionkey}`;
             minDelayInSeconds = matchRule.rule.minDelay ?? minDelayTime;
         } else if (type === DelayType.EventRecording) {
-            const { minDelay } = props;
+            const { minDelay, lastEnd } = props;
+
+            if (lastEnd) {
+                referenceTime = lastEnd;
+            }
 
             minDelayInSeconds = minDelay;
         } else if (type === DelayType.RuleMinCheck) {
@@ -3931,11 +3942,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             objectIdLastReport: this.mixinState.objectIdLastReport,
         });
 
-        if (this.mixinState.recordingStartTime) {
+        if (this.mixinState.recordingState.recordingStartTime) {
             candidates.forEach(c => {
                 const dc = detectionClassesDefaultMap[c.className];
                 if (dc) {
-                    this.mixinState.recordingClassesDetected.add(dc);
+                    this.mixinState.recordingState.recordingClassesDetected.add(dc);
                 }
             });
         }
@@ -4155,6 +4166,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     timestamp: triggerTime,
                     image: fullFrameImage,
                     eventId: storeEventId,
+                    detectionId,
                 }).catch(logger.error);
             }
         } catch (e) {
@@ -4675,9 +4687,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async startRecording(props: {
-        triggerTime: number,
-        rules: RecordingRule[],
-        candidates?: ObjectsDetected['detections']
+        triggerTime: number;
+        rules: RecordingRule[];
+        candidates?: ObjectDetectionResult[];
     }) {
         const { triggerTime, rules, candidates } = props;
         const logger = this.getLogger();
@@ -4689,16 +4701,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const now = Date.now();
 
         if (this.videoRecorder) {
-            if (now - this.mixinState.lastRecordingProlongLog > 2500) {
+            if (now - this.mixinState.recordingState.lastRecordingProlongLog > 2500) {
                 logger.log(`Recording already active, extending: ${getDetectionsLog(candidates)}`);
-                this.mixinState.lastRecordingProlongLog = now;
+                this.mixinState.recordingState.lastRecordingProlongLog = now;
             }
 
-            if (this.mixinState.recordingTimeout) {
-                clearTimeout(this.mixinState.recordingTimeout);
+            if (this.mixinState.recordingState.recordingTimeout) {
+                clearTimeout(this.mixinState.recordingState.recordingTimeout);
             }
 
-            const startTime = this.mixinState.recordingStartTime || now;
+            const startTime = this.mixinState.recordingState.recordingStartTime || now;
             const elapsedSeconds = (now - startTime) / 1000;
 
             let durationToRecord = maxPostEvent;
@@ -4710,7 +4722,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             }
 
             if (durationToRecord > 0) {
-                this.mixinState.recordingTimeout = setTimeout(() => {
+                this.mixinState.recordingState.recordingTimeout = setTimeout(() => {
                     this.stopRecording();
                 }, durationToRecord * 1000);
                 logger.info(`Recording extended by ${durationToRecord}s`);
@@ -4725,6 +4737,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         if (!this.isDelayPassed({
             type: DelayType.EventRecording,
             minDelay: maxClipRecordingDelay,
+            lastEnd: this.mixinState.recordingState.lastRecordingEndTime,
         })?.timePassed) {
             return;
         }
@@ -4775,20 +4788,20 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             this.mixinState.storageSettings.values.videoRecorderProcessPid = String(pid);
         }
 
-        this.mixinState.recordingStartTime = triggerTime;
-        this.mixinState.recordingClassesDetected.clear();
+        this.mixinState.recordingState.recordingStartTime = triggerTime;
+        this.mixinState.recordingState.recordingClassesDetected.clear();
         if (candidates) {
             candidates.forEach(c => {
                 const dc = detectionClassesDefaultMap[c.className];
                 if (dc) {
-                    this.mixinState.recordingClassesDetected.add(dc);
+                    this.mixinState.recordingState.recordingClassesDetected.add(dc);
                 }
             });
         }
 
         const duration = Math.min(maxPostEvent, maxClipLength);
 
-        this.mixinState.recordingTimeout = setTimeout(() => {
+        this.mixinState.recordingState.recordingTimeout = setTimeout(() => {
             this.stopRecording();
         }, duration * 1000);
 
@@ -4797,12 +4810,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async stopRecording() {
         if (this.videoRecorder) {
-            if (this.mixinState.recordingTimeout) {
-                clearTimeout(this.mixinState.recordingTimeout);
-                this.mixinState.recordingTimeout = undefined;
+            const endTime = Date.now();
+            this.mixinState.recordingState.lastRecordingEndTime = endTime;
+            if (this.mixinState.recordingState.recordingTimeout) {
+                clearTimeout(this.mixinState.recordingState.recordingTimeout);
+                this.mixinState.recordingState.recordingTimeout = undefined;
             }
-            const startTime = this.mixinState.recordingStartTime;
-            const classesDetected = Array.from(this.mixinState.recordingClassesDetected);
+            const startTime = this.mixinState.recordingState.recordingStartTime;
+            const classesDetected = Array.from(this.mixinState.recordingState.recordingClassesDetected);
 
             const {
                 recordedClipPath,
@@ -4812,15 +4827,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 fileName: `${startTime}`,
             });
 
-            this.mixinState.recordingStartTime = undefined;
-            this.mixinState.recordingClassesDetected.clear();
+            this.mixinState.recordingState.recordingStartTime = undefined;
+            this.mixinState.recordingState.recordingClassesDetected.clear();
 
             await this.videoRecorder.stop(recordedThumbnailPath);
             this.videoRecorder = undefined;
             this.mixinState.storageSettings.values.videoRecorderProcessPid = undefined;
 
             if (startTime) {
-                const endTime = Date.now();
                 const newFilename = getVideoClipName({
                     startTime,
                     endTime,
@@ -4850,9 +4864,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 if (videoRecorderProcessPid) {
                     try {
                         process.kill(parseInt(videoRecorderProcessPid), 'SIGINT');
-                    } catch (e) {
-                        // ignore if process not found
-                    }
+                    } catch { }
                     this.mixinState.storageSettings.values.videoRecorderProcessPid = undefined;
                 }
             } catch (e) {

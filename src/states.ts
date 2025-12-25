@@ -47,6 +47,15 @@ export type OccupancyRuleData = {
     objectsDetectedResult: ObjectsDetected[];
 };
 
+export type CurrentRecordingState = {
+    recordingRules: RecordingRule[];
+    recordingStartTime: number;
+    lastRecordingEndTime: number;
+    recordingClassesDetected: Set<string>;
+    lastRecordingProlongLog: number;
+    recordingTimeout: NodeJS.Timeout;
+};
+
 export interface AccumulatedDetection { detect: ObjectsDetected, eventId: string, eventSource: ScryptedEventSource };
 
 export class CameraMixinState {
@@ -82,6 +91,14 @@ export class CameraMixinState {
     frigateCameraName: string;
     lastFrigateDataFetched: number;
     occupancyState: Record<string, CurrentOccupancyState> = {};
+    recordingState: CurrentRecordingState = {
+        lastRecordingEndTime: undefined,
+        lastRecordingProlongLog: undefined,
+        recordingClassesDetected: new Set<string>(),
+        recordingRules: [],
+        recordingStartTime: undefined,
+        recordingTimeout: undefined,
+    };
     timelapseLastCheck: Record<string, number> = {};
     timelapseLastGenerated: Record<string, number> = {};
     lastImage?: MediaObject;
@@ -98,8 +115,6 @@ export class CameraMixinState {
 
     accumulatedDetections: AccumulatedDetection[] = [];
     accumulatedRules: MatchRule[] = [];
-    recordingClassesDetected: Set<string> = new Set();
-    lastRecordingProlongLog: number = 0;
     clientId: string;
 
     snoozeUntilDic: Record<string, number> = {};
@@ -110,9 +125,6 @@ export class CameraMixinState {
     clipGenerationTimeout: Record<string, NodeJS.Timeout> = {};
     detectionIdEventIdMap: Record<string, string> = {};
     objectIdLastReport: Record<string, number> = {};
-
-    recordingStartTime: number;
-    recordingTimeout: NodeJS.Timeout;
 
     decoderEnablementLogged = false;
 

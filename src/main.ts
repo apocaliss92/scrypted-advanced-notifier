@@ -5060,22 +5060,36 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         detections: ObjectDetectionResult[],
         timestamp: number,
         eventSource: ScryptedEventSource,
-        eventId?: string
+        eventId?: string,
+        detectionId?: string
     }) {
-        const { triggerDevice, device, timestamp, logger, b64Image, detections, eventSource, image, eventId } = props;
+        const {
+            triggerDevice,
+            device,
+            timestamp,
+            logger,
+            b64Image,
+            detections,
+            eventSource,
+            image,
+            eventId,
+            detectionId
+        } = props;
         const classNames = uniq(detections.map(det => det.className));
         const label = detections.find(det => det.label)?.label;
         const deviceMixin = this.currentCameraMixinsMap[device.id];
 
         const identifiers = detections.map(det => {
-            let identifier = det.className;
+            let identifier = `${eventSource}_${det.className}`;
             if (isMotionClassname(det.className)) {
-                return identifier;
+                return det.className;
             }
             if (det.label) {
                 identifier += `_${det.label}`;
             }
-            if (det.id) {
+            if (detectionId) {
+                identifier += `_${detectionId}`;
+            } else if (det.id) {
                 identifier += `_${det.id}`;
             }
 

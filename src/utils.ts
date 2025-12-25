@@ -351,7 +351,7 @@ export type IsDelayPassedProps =
     { type: DelayType.RuleImageUpdate, matchRule: MatchRule, eventSource: ScryptedEventSource } |
     { type: DelayType.RuleNotification, matchRule: MatchRule } |
     { type: DelayType.RuleMinCheck, rule: BaseRule } |
-    { type: DelayType.EventRecording, minDelay: number };
+    { type: DelayType.EventRecording, minDelay: number, lastEnd?: number };
 
 export const getElegibleDevices = (isFrigate?: boolean) => {
     const allDevices = Object.keys(sdk.systemManager.getSystemState()).map(deviceId => sdk.systemManager.getDeviceById<DeviceInterface>(deviceId));
