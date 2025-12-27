@@ -1,4 +1,4 @@
-import sdk, { EventDetails, EventListenerRegister, Image, MediaObject, Notifier, ObjectDetection, ObjectDetectionResult, ObjectsDetected, PanTiltZoomCommand, ResponseMediaStreamOptions, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoClip, VideoClipOptions, VideoClipThumbnailOptions, VideoClips, VideoFrame, VideoFrameGenerator } from "@scrypted/sdk";
+import sdk, { EventDetails, EventListenerRegister, Image, MediaObject, Notifier, ObjectDetection, ObjectDetectionResult, ObjectsDetected, PanTiltZoomCommand, ResponseMediaStreamOptions, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, Setting, SettingValue, Settings, VideoClip, VideoClipOptions, VideoClipThumbnailOptions, VideoClips, VideoFrame, VideoFrameGenerator } from "@scrypted/sdk";
 import { SettingsMixinDeviceBase, SettingsMixinDeviceOptions } from "@scrypted/sdk/settings-mixin";
 import { StorageSetting, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
 import fs from 'fs';
@@ -13,12 +13,12 @@ import { AudioAnalyzerSource, AudioChunkData, AudioRtspFfmpegStream, AudioSensit
 import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, isAudioClassname, isFaceClassname, isMotionClassname, isObjectClassname, isPlateClassname, levenshteinDistance } from "./detectionClasses";
 import { addBoundingBoxesToImage, addZoneClipPathToImage, cropImageToDetection } from "./drawingUtils";
 import AdvancedNotifierPlugin from "./main";
-import { idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
+import { ClassOccupancy, ClassZoneOccupancy, detectionClassForObjectsReporting, idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { CameraMixinState, CurrentOccupancyState, OccupancyRuleData, getInitOccupancyState } from "./states";
-import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, DecoderType, DelayType, DetectionRule, DetectionsPerZone, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_ID, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, RecordingRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, ZoneWithPath, ZonesSource, b64ToMo, cachedReaddir, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRecordingRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, DecoderType, DelayType, DetectionRule, DetectionsPerZone, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_ID, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, OccupancySource, RecordingRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, ZoneWithPath, ZonesSource, b64ToMo, cachedReaddir, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRecordingRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
 import { VideoRtspFfmpegRecorder, getVideoClipName, parseVideoFileName } from "./videoRecorderUtils";
-import { FrigateZoneObjectCountsMap } from "../../scrypted-frigate-bridge/src/mqttSettingsTypes";
+import { CameraActiveObjectsSetting, FrigateZoneObjectCountsMap } from "../../scrypted-frigate-bridge/src/mqttSettingsTypes";
 
 const { systemManager } = sdk;
 
@@ -39,7 +39,7 @@ type CameraSettingKey =
     | 'decoderFrequency'
     | 'decoderStreamDestination'
     | 'resizeDecoderFrames'
-    | 'checkOccupancy'
+    | 'occupancySourceForMqtt'
     | 'decoderType'
     | 'audioAnalyzerEnabled'
     | 'audioClassifierSource'
@@ -194,6 +194,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             defaultValue: ZonesSource.Default,
             choices: [],
         },
+        occupancySourceForMqtt: {
+            title: 'Source for objects occupancy data',
+            description: 'Select the source of the frame occupancy check, i.e. how many cars are on a camera',
+            type: 'string',
+            immediate: true,
+            choices: [],
+            defaultValue: OccupancySource.Off,
+        },
         motionDuration: {
             title: 'Off motion duration',
             type: 'number',
@@ -232,12 +240,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             immediate: true,
             subgroup: 'Advanced',
             hide: true,
-        },
-        checkOccupancy: {
-            title: 'Check objects occupancy',
-            description: 'Regularly check objects presence and report it to MQTT, performance intensive',
-            type: 'boolean',
-            immediate: true,
         },
         decoderType: {
             title: 'Snapshot from Decoder',
@@ -441,6 +443,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     audioClassifier: ObjectDetection;
 
     streams: any[] = [];
+    hasFrigateObjectDetectorMixin: boolean;
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -665,13 +668,16 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         let shouldBeMoved = false;
         const thisMixinOrder = this.mixins.indexOf(this.plugin.id);
 
+        const frigateObjectDetectorMixinOrder = this.mixins.indexOf(frigateObjectDetector);
+        this.hasFrigateObjectDetectorMixin = frigateObjectDetectorMixinOrder >= 0;
+
         if (nvrObjectDetector && this.mixins.indexOf(nvrObjectDetector) > thisMixinOrder) {
             shouldBeMoved = true
         }
         if (basicObjectDetector && this.mixins.indexOf(basicObjectDetector) > thisMixinOrder) {
             shouldBeMoved = true
         }
-        if (frigateObjectDetector && this.mixins.indexOf(frigateObjectDetector) > thisMixinOrder) {
+        if (frigateObjectDetector && frigateObjectDetectorMixinOrder > thisMixinOrder) {
             shouldBeMoved = true
         }
         if (frigateAudioDetector && this.mixins.indexOf(frigateAudioDetector) > thisMixinOrder) {
@@ -939,7 +945,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 const isDetectionListenerRunning = !!this.detectionListener || !!this.motionListener;
 
-                const { checkOccupancy, notificationsEnabled } = this.mixinState.storageSettings.values;
+                const { notificationsEnabled } = this.mixinState.storageSettings.values;
                 const decoderType = this.decoderType;
 
                 // Cleanup decoder frames every 2 minutes
@@ -967,6 +973,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                 // MQTT report
                 if (isActiveForMqttReporting) {
+                    const { occupancySourceForMqtt } = this.mixinState.storageSettings.values;
                     const mqttClient = await this.getMqttClient();
                     if (mqttClient) {
                         const lastGlobal = this.plugin.lastCameraAutodiscoveryMap[this.id];
@@ -979,7 +986,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                     device: this.cameraDevice,
                                     console: logger,
                                     rules: allAvailableRules,
-                                    occupancyEnabled: checkOccupancy,
                                     zones,
                                     migrateLegacyDiscovery: !this.plugin.storageSettings.values.mqttDiscoveryMigratedV2,
                                 });
@@ -1002,10 +1008,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                     switchNotificationsEnabledCb: async (active) => {
                                         logger.log(`Setting notifications active to ${active}`);
                                         await this.mixinState.storageSettings.putSetting(`notificationsEnabled`, active);
-                                    },
-                                    switchOccupancyCheckCb: async (active) => {
-                                        logger.log(`Setting occupancy check to ${active}`);
-                                        await this.mixinState.storageSettings.putSetting(`checkOccupancy`, active);
                                     },
                                     switchRecordingCb: this.cameraDevice.interfaces.includes(ScryptedInterface.VideoRecorder) ?
                                         async (active) => {
@@ -1062,7 +1064,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                 isRecording,
                                 rulesToEnable,
                                 rulesToDisable,
-                                checkOccupancy,
                                 isRebroadcastEnabled,
                                 isSnapshotsEnabled
                             }).catch(logger.error);
@@ -1566,9 +1567,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         if (this.mixinState.storageSettings.settings.minMqttPublishDelay) {
             this.mixinState.storageSettings.settings.minMqttPublishDelay.hide = !enabledToMqtt;
         }
-        if (this.mixinState.storageSettings.settings.checkOccupancy) {
-            this.mixinState.storageSettings.settings.checkOccupancy.hide = !enabledToMqtt;
-        }
 
         if (this.mixinState.storageSettings.settings.startTime) {
             this.mixinState.storageSettings.settings.startTime.hide = !schedulerEnabled;
@@ -1593,6 +1591,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 ScryptedEventSource.Default,
                 ...this.plugin.enabledZonesSources,
             ]
+        }
+        if (this.mixinState.storageSettings.settings.occupancySourceForMqtt) {
+            this.mixinState.storageSettings.settings.occupancySourceForMqtt.choices = [
+                ...this.plugin.enabledOccupancySources,
+            ];
+            this.mixinState.storageSettings.settings.occupancySourceForMqtt.defaultValue = this.hasFrigateObjectDetectorMixin ?
+                OccupancySource.Frigate : OccupancySource.Off;
         }
 
         const isAudioClassifierEnabled = audioClassifierSource !== AudioAnalyzerSource.Disabled;
@@ -1732,13 +1737,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     async getFrigateData() {
         try {
             const now = new Date().getTime();
-            const frigateObjectDetector = systemManager.getDeviceById(FRIGATE_BRIDGE_PLUGIN_ID, objectDetectorNativeId)?.id;
+            const frigateObjectDetector = systemManager.getDeviceById(FRIGATE_BRIDGE_PLUGIN_ID, objectDetectorNativeId);
 
             let labels: string[];
             let zones: ZoneWithPath[] = [];
             let cameraName: string;
 
-            if (this.cameraDevice.mixins.includes(frigateObjectDetector)) {
+            if (frigateObjectDetector && this.cameraDevice.mixins.includes(frigateObjectDetector.id)) {
                 const isUpdated = this.mixinState.lastFrigateDataFetched && (now - this.mixinState.lastFrigateDataFetched) <= (1000 * 60);
                 const settings = await this.mixinDevice.getSettings();
 
@@ -2170,6 +2175,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.mixinState.checkingOutatedRules = true;
         const now = new Date().getTime();
         const logger = this.getLogger();
+        const { occupancySourceForMqtt } = this.mixinState.storageSettings.values;
 
         try {
             const anyOutdatedOccupancyRule = this.mixinState.runningOccupancyRules.some(rule => {
@@ -2199,7 +2205,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 })}`);
 
                 return shouldForceFrame && isMotionOk;
-            }) || this.mixinState.storageSettings.values.checkOccupancy;
+            }) || occupancySourceForMqtt !== OccupancySource.Off;
 
             const timelapsesToRefresh = (this.mixinState.runningTimelapseRules || []).filter(rule => {
                 const { regularSnapshotInterval, name } = rule;
@@ -2296,7 +2302,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         source: 'Detections' | 'MainFlow'
     }) {
         const { image: imageParent, source } = props;
-        const shouldRun = !!this.mixinState.runningOccupancyRules.length || this.mixinState.storageSettings.values.checkOccupancy;
+        const { occupancySourceForMqtt, enabledToMqtt } = this.mixinState.storageSettings.values;
+
+        const shouldRun = !!this.mixinState.runningOccupancyRules.length || occupancySourceForMqtt !== OccupancySource.Off;
 
         if (!shouldRun) {
             return;
@@ -2679,21 +2687,64 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const mqttClient = await this.getMqttClient();
 
             if (
-                this.mixinState.storageSettings.values.enabledToMqtt &&
+                enabledToMqtt &&
                 this.isActiveForMqttReporting &&
                 detectedResultParent &&
                 mqttClient
             ) {
+                let classOccupancy: ClassOccupancy = {};
+                let classZoneOccupancy: ClassZoneOccupancy = {};
+                if (occupancySourceForMqtt === OccupancySource.Scrypted) {
+                    for (const className of detectionClassForObjectsReporting) {
+                        const classObjects = detectedResultParent.detections
+                            .filter(det => className === detectionClassesDefaultMap[det.className])?.length;
+
+                        classOccupancy[className] = classObjects;
+                        // TODO: Implement scrypted parsing
+                    }
+                } else if (occupancySourceForMqtt === OccupancySource.Frigate) {
+                    const settings = await this.cameraDevice.getSettings();
+                    const settingsDict = keyBy(settings, 'key');
+                    const activeObjects = (settingsDict[`${objectDetectorNativeId}:activeObjects`]?.value ?? {}) as CameraActiveObjectsSetting;
+                    const zoneActiveObjectMap: FrigateZoneObjectCountsMap = (settingsDict[`${objectDetectorNativeId}:zoneActiveObjectMap`]?.value ?? {}) as FrigateZoneObjectCountsMap;
+
+                    Object.entries(activeObjects).forEach(([zoneClass]) => {
+                        const className = detectionClassesDefaultMap[zoneClass];
+                        if (className) {
+                            if (!classOccupancy[className]) {
+                                classOccupancy[className] = 0;
+                            }
+
+                            classOccupancy[className] += activeObjects[zoneClass].total ?? 0;
+                        }
+                    });
+                    Object.entries(zoneActiveObjectMap).forEach(([zoneName, zoneActiveObjects]) => {
+                        classZoneOccupancy[zoneName] = {};
+
+                        Object.entries(zoneActiveObjects).forEach(([zoneClass]) => {
+                            const className = detectionClassesDefaultMap[zoneClass];
+                            if (className) {
+                                if (!classZoneOccupancy[zoneName][className]) {
+                                    classZoneOccupancy[zoneName][className] = 0;
+                                }
+
+                                classZoneOccupancy[zoneName][className] += zoneActiveObjects[zoneClass].total ?? 0;
+                            }
+                        });
+                    });
+                }
+
                 const logData = occupancyRulesData.map(elem => {
                     const { rule, b64Image, image, ...rest } = elem;
                     return rest
                 });
-                logger.info(`Publishing occupancy data from source ${source}. ${JSON.stringify(logData)}`);
+                logger.info(`Publishing occupancy data from source ${source}. ${JSON.stringify(logData)} with class occupancy: ${JSON.stringify({ classOccupancy, classZoneOccupancy })}`);
                 publishOccupancy({
                     console: logger,
                     device: this.cameraDevice,
                     mqttClient,
-                    objectsDetected: detectedResultParent,
+                    classOccupancy,
+                    classZoneOccupancy,
                     occupancyRulesData,
 
                 }).catch(logger.error);
@@ -3109,7 +3160,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     get zonesSourceForMqtt(): ZonesSource {
         const { zonesSourceForMqtt } = this.mixinState.storageSettings.values;
-        const { zonesSourceForMqtt: zonesSourceForMqttPlugin } = (this.plugin.storageSettings.values as any);
+        const { zonesSourceForMqtt: zonesSourceForMqttPlugin } = this.plugin.storageSettings.values;
 
         let source: ZonesSource;
         if (zonesSourceForMqtt !== ZonesSource.Default) {
@@ -3619,7 +3670,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         } else if (type === DelayType.DecoderFrameOnStorage) {
             minDelayInSeconds = this.mixinState.storageSettings.values.decoderFrequency / 1000;
         } else if (type === DelayType.OccupancyRegularCheck) {
-            minDelayInSeconds = !!this.mixinState.runningOccupancyRules.length || this.mixinState.storageSettings.values.checkOccupancy ? 0.3 : 0;
+            const { occupancySourceForMqtt } = this.mixinState.storageSettings.values;
+            minDelayInSeconds = !!this.mixinState.runningOccupancyRules.length || occupancySourceForMqtt !== OccupancySource.Off ? 0.3 : 0;
         } else if (type === DelayType.SequenceExecution) {
             const { delay, postFix } = props;
             delayKey += `-${postFix}`;

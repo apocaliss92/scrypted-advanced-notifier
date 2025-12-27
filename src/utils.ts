@@ -233,6 +233,13 @@ export enum ZonesSource {
     Frigate = 'Frigate',
 }
 
+export enum OccupancySource {
+    Default = 'Default',
+    Off = 'Off',
+    Scrypted = 'Scrypted',
+    Frigate = 'Frigate',
+}
+
 export enum AssetOriginSource {
     CloudSecure = 'CloudSecure',
     LocalSecure = 'LocalSecure',

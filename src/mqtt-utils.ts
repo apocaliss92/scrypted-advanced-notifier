@@ -1,9 +1,12 @@
-import sdk, { Notifier, ObjectDetectionResult, ObjectDetectionTypes, ObjectDetector, ObjectsDetected, PanTiltZoomCommand, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SecuritySystemMode } from '@scrypted/sdk';
+import sdk, { Notifier, ObjectDetectionResult, ObjectDetector, PanTiltZoomCommand, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SecuritySystemMode } from '@scrypted/sdk';
 import { cloneDeep, uniq } from 'lodash';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 import { DetectionClass, detectionClassesDefaultMap, getParentDetectionClass, isAudioClassname, isLabelDetection } from './detectionClasses';
-import { BaseRule, DetectionsPerZone, DeviceInterface, ImageSource, isDetectionRule, RuleSource, RuleType, safeParseJson, toKebabCase, toSnakeCase, toTitleCase } from './utils';
 import { OccupancyRuleData } from './states';
+import { BaseRule, DetectionsPerZone, DeviceInterface, ImageSource, isDetectionRule, RuleSource, RuleType, safeParseJson, toKebabCase, toSnakeCase, toTitleCase } from './utils';
+
+export type ClassOccupancy = Partial<Record<DetectionClass, number>>;
+export type ClassZoneOccupancy = Record<string, ClassOccupancy>;
 
 export enum MqttEntityIdentifier {
     Triggered = 'Triggered',
@@ -91,6 +94,11 @@ interface AutodiscoveryConfig {
 }
 
 export const detectionClassForObjectsReporting = [DetectionClass.Animal, DetectionClass.Person, DetectionClass.Vehicle];
+const detectionClassMdiIconMap: Partial<Record<DetectionClass, string>> = {
+    [DetectionClass.Animal]: 'mdi:dog-side',
+    [DetectionClass.Vehicle]: 'mdi:car',
+    [DetectionClass.Person]: 'mdi:walk',
+}
 
 export const idPrefix = 'scrypted-an';
 const namePrefix = 'Scrypted AN';
@@ -135,14 +143,6 @@ const getBasicMqttEntities = () => {
         entityCategory: 'diagnostic',
         retain: false,
         icon: 'mdi:bell'
-    };
-    const occupancyCheckEnabledEntity: MqttEntity = {
-        domain: 'switch',
-        entity: 'occupancy_check_enabled',
-        name: 'Occupancy detection enabled',
-        entityCategory: 'diagnostic',
-        retain: false,
-        icon: 'mdi:camera-metering-spot'
     };
     const audioPressureEntity: MqttEntity = {
         domain: 'sensor',
@@ -296,7 +296,6 @@ const getBasicMqttEntities = () => {
         batteryEntity,
         sleepingEntity,
         notificationsEnabledEntity,
-        occupancyCheckEnabledEntity,
         audioPressureEntity,
         onlineEntity,
         recordingEntity,
@@ -471,6 +470,7 @@ const getDetectionClassMqttEntities = (classes: string[]) => classes.flatMap(cla
             entity: `${className}_objects`,
             name: `${parsedClassName} objects`,
             domain: 'sensor',
+            icon: detectionClassMdiIconMap[className],
             className,
             identifier: MqttEntityIdentifier.Object
         });
@@ -897,7 +897,6 @@ export const resetAllPluginMqttTopicsAndRediscover = async (props: {
         });
 
         const {
-            occupancyCheckEnabledEntity,
             audioPressureEntity,
             batteryEntity,
             notificationsEnabledEntity,
@@ -919,9 +918,6 @@ export const resetAllPluginMqttTopicsAndRediscover = async (props: {
             ...detectionMqttEntities,
         ];
 
-        if (camera.device.interfaces.includes(ScryptedInterface.ObjectDetector)) {
-            mqttEntities.push(cloneDeep(occupancyCheckEnabledEntity));
-        }
         if (camera.device.interfaces.includes(ScryptedInterface.Battery)) {
             mqttEntities.push(cloneDeep(batteryEntity));
         }
@@ -1004,7 +1000,6 @@ export const resetAllPluginMqttTopicsAndRediscover = async (props: {
             console,
             rules: camera.rules,
             zones: camera.zones,
-            occupancyEnabled: camera.occupancyEnabled,
             migrateLegacyDiscovery: false,
         });
     }
@@ -1252,7 +1247,6 @@ export const subscribeToCameraMqttTopics = async (
         switchSnapshotsCb?: (active: boolean) => void,
         switchRebroadcastCb?: (active: boolean) => void,
         switchNotificationsEnabledCb: (active: boolean) => void,
-        switchOccupancyCheckCb: (active: boolean) => void,
         rebootCb?: () => void,
         ptzCommandCb?: (command: PanTiltZoomCommand) => void,
         activationRuleCb: (props: {
@@ -1270,7 +1264,6 @@ export const subscribeToCameraMqttTopics = async (
         switchSnapshotsCb,
         switchRebroadcastCb,
         switchNotificationsEnabledCb,
-        switchOccupancyCheckCb,
         rebootCb,
         ptzCommandCb,
         device,
@@ -1308,7 +1301,6 @@ export const subscribeToCameraMqttTopics = async (
     }
 
     const {
-        occupancyCheckEnabledEntity,
         notificationsEnabledEntity,
         ptzDownEntity,
         ptzLeftEntity,
@@ -1429,21 +1421,6 @@ export const subscribeToCameraMqttTopics = async (
                 }
             });
         }
-    }
-
-    if (switchOccupancyCheckCb) {
-        const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: occupancyCheckEnabledEntity, device });
-        await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
-            if (messageTopic === commandTopic) {
-                if (message === PAYLOAD_ON) {
-                    switchOccupancyCheckCb(true);
-                } else if (message === PAYLOAD_OFF) {
-                    switchOccupancyCheckCb(false);
-                }
-
-                await mqttClient.publish(stateTopic, message, occupancyCheckEnabledEntity.retain);
-            }
-        });
     }
 }
 
@@ -1655,6 +1632,14 @@ const getDetectionZoneEntities = (zones: string[]) => {
                     disabled: true,
                     identifier: MqttEntityIdentifier.LastDetection
                 },
+                {
+                    entity: `${entityZoneName}_${className}_objects`,
+                    name: `${zone} - ${friendlyClassName} objects`,
+                    domain: 'sensor',
+                    className,
+                    icon: detectionClassMdiIconMap[className],
+                    identifier: MqttEntityIdentifier.Object
+                }
             );
         }
     }
@@ -1668,25 +1653,17 @@ export const setupCameraAutodiscovery = async (props: {
     console: Console,
     rules: BaseRule[],
     zones: string[],
-    occupancyEnabled: boolean,
     migrateLegacyDiscovery?: boolean,
 }) => {
-    const { device, mqttClient, rules, console, occupancyEnabled, zones, migrateLegacyDiscovery } = props;
+    const { device, mqttClient, rules, console, zones, migrateLegacyDiscovery } = props;
 
     if (!mqttClient) {
         return;
     }
 
-    const detectionMqttEntities = (await getCameraClassEntities({ device, console })).filter(entity => {
-        if (entity.identifier === MqttEntityIdentifier.Object && !occupancyEnabled) {
-            return false;
-        } else {
-            return true;
-        }
-    });
+    const detectionMqttEntities = await getCameraClassEntities({ device, console });
 
     const {
-        occupancyCheckEnabledEntity,
         audioPressureEntity,
         batteryEntity,
         notificationsEnabledEntity,
@@ -1707,10 +1684,6 @@ export const setupCameraAutodiscovery = async (props: {
         snapshotsEntity,
         ...detectionMqttEntities
     ];
-
-    if (device.interfaces.includes(ScryptedInterface.ObjectDetector)) {
-        mqttEntities.push(cloneDeep(occupancyCheckEnabledEntity));
-    }
 
     if (device.interfaces.includes(ScryptedInterface.Battery)) {
         mqttEntities.push(cloneDeep(batteryEntity));
@@ -2096,7 +2069,6 @@ export const publishCameraValues = async (props: {
     isRecording?: boolean,
     isSnapshotsEnabled?: boolean,
     isRebroadcastEnabled?: boolean,
-    checkOccupancy?: boolean,
     notificationsEnabled: boolean,
     console: Console,
     rulesToEnable: BaseRule[],
@@ -2112,7 +2084,6 @@ export const publishCameraValues = async (props: {
         rulesToDisable,
         rulesToEnable,
         console,
-        checkOccupancy,
     } = props;
 
     if (!mqttClient) {
@@ -2120,7 +2091,6 @@ export const publishCameraValues = async (props: {
     }
 
     const {
-        occupancyCheckEnabledEntity,
         batteryEntity,
         notificationsEnabledEntity,
         onlineEntity,
@@ -2162,9 +2132,6 @@ export const publishCameraValues = async (props: {
 
         const { stateTopic: notificationsEnabledStateTopic } = getMqttTopics({ mqttEntity: notificationsEnabledEntity, device });
         await mqttClient.publish(notificationsEnabledStateTopic, notificationsEnabled ? PAYLOAD_ON : PAYLOAD_OFF, notificationsEnabledEntity.retain);
-
-        const { stateTopic: occupancyCheckEnabledEntityTopic } = getMqttTopics({ mqttEntity: occupancyCheckEnabledEntity, device });
-        await mqttClient.publish(occupancyCheckEnabledEntityTopic, checkOccupancy ? PAYLOAD_ON : PAYLOAD_OFF, occupancyCheckEnabledEntity.retain);
     }
 
     for (const rule of rulesToEnable) {
@@ -2430,23 +2397,44 @@ export const publishOccupancy = async (props: {
     mqttClient?: MqttClient,
     device: ScryptedDeviceBase,
     console: Console,
-    objectsDetected: ObjectsDetected,
     occupancyRulesData: OccupancyRuleData[],
+    classOccupancy: ClassOccupancy,
+    classZoneOccupancy: ClassZoneOccupancy,
 }) => {
-    const { mqttClient, device, objectsDetected, occupancyRulesData, console } = props;
+    const {
+        mqttClient,
+        device,
+        occupancyRulesData,
+        console,
+        classOccupancy,
+        classZoneOccupancy
+    } = props;
 
     if (!mqttClient) {
         return;
     }
 
     try {
-        // Publish the occupancy data for each detection class
-        const entities = getDetectionClassMqttEntities(detectionClassForObjectsReporting).filter(entity => entity.identifier === MqttEntityIdentifier.Object);
+        const entities = getDetectionClassMqttEntities(detectionClassForObjectsReporting)
+            .filter(entity => entity.identifier === MqttEntityIdentifier.Object);
+        const zones = Object.keys(classZoneOccupancy);
+
         for (const mqttEntity of entities) {
             const { stateTopic } = getMqttTopics({ mqttEntity, device });
-            const classObjects = objectsDetected.detections.filter(det => mqttEntity.className === detectionClassesDefaultMap[det.className])?.length;
+            const classObjects = classOccupancy[mqttEntity.className] || 0;
 
             await mqttClient.publish(stateTopic, classObjects, mqttEntity.retain);
+        }
+
+        for (const zone of zones) {
+            const zoneEntities = getDetectionZoneEntities([zone]);
+
+            for (const zoneEntity of zoneEntities.filter(entry => entry.identifier === MqttEntityIdentifier.Object)) {
+                const { stateTopic: zoneStateTopic } = getMqttTopics({ mqttEntity: zoneEntity, device });
+                const zoneObjects = classZoneOccupancy[zone][zoneEntity.className] ?? 0;
+
+                await mqttClient.publish(zoneStateTopic, zoneObjects, zoneEntity.retain);
+            }
         }
 
         for (const occupancyRuleData of occupancyRulesData) {
@@ -2465,7 +2453,7 @@ export const publishOccupancy = async (props: {
         }
     } catch (e) {
         console.log(`Error in publishOccupancy ${JSON.stringify({
-            objectsDetected,
+            classOccupancy,
             occupancyRulesData
         })}`, e);
     }
