@@ -1379,8 +1379,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     plugin: this.plugin
                 });
 
-                await this.mixinState.storageSettings.putSetting('lastSnapshotWebhookCloudUrl', lastSnapshotCloudUrl);
-                await this.mixinState.storageSettings.putSetting('lastSnapshotWebhookLocalUrl', lastSnapshotLocalUrl);
+                this.mixinState.storageSettings.values.lastSnapshotWebhookCloudUrl = lastSnapshotCloudUrl;
+                this.mixinState.storageSettings.values.lastSnapshotWebhookLocalUrl = lastSnapshotLocalUrl;
             }
 
             const deviceSettings = await this.cameraDevice.getSettings();
@@ -1428,7 +1428,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const snoozedUntil = moment().add(snoozeTime, 'minutes').toDate().getTime();
         this.mixinState.snoozeUntilDic[snoozeId] = snoozedUntil;
-        await this.mixinState.storageSettings.putSetting('snoozedData', JSON.stringify(this.mixinState.snoozeUntilDic));
+        this.mixinState.storageSettings.values.snoozedData = JSON.stringify(this.mixinState.snoozeUntilDic);
 
         return res;
     }
@@ -2629,7 +2629,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                     b64Image: currentState.b64Image,
                                 });
 
-                                this.mixinState.storageSettings.values[occupiesKey] = occupancyRuleTmpData.occupies;
+                                if (currentState.occupies !== occupancyRuleTmpData.occupies) {
+                                    await this.mixinState.storageSettings.putSetting(occupiesKey, occupancyRuleTmpData.occupies);
+                                }
                             } else {
                                 this.mixinState.occupancyState[name] = {
                                     ...occupancyDataToUpdate,
@@ -3718,7 +3720,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async onRestart() {
-        this.mixinState.storageSettings.putSetting('delayPassedData', JSON.stringify(this.mixinState.lastDelaySet));
+        this.mixinState.storageSettings.values.delayPassedData = JSON.stringify(this.mixinState.lastDelaySet);
     }
 
     async checkDetectionRuleMatches(props: {

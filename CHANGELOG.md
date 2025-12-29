@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.8.5
+- Added topic for each zone + class combination for the total amount of objects detected. Will use frigate data for frigate zones if available
+
 ### 4.8.0
 - Migrated to Homeassistant MQTT auto-discovery device-based. Will help to keep control on new/old entries and auto cleanup. Should migrate the plugin without any effort, if any problems, click on the new button under the main plugin page, MQTT section -> `Reset all MQTT topics` 
 

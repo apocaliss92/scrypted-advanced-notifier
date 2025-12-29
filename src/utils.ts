@@ -332,9 +332,6 @@ export enum VideoclipType {
     GIF = 'GIF',
 }
 const defaultVideoclipType = VideoclipType.GIF;
-export const defaultClipPreSeconds = 5;
-export const defaultOccupancyClipPreSeconds = 12;
-export const defaultClipPostSeconds = 5;
 
 export const videoclipSpeedMultiplier: Record<VideoclipSpeed, number> = {
     [VideoclipSpeed.SuperSlow]: 0.25,
@@ -2184,12 +2181,18 @@ export const getRuleSettings = async (props: {
         } = getRuleKeys({ ruleName, ruleType });
 
         const currentActivation = storage.getItem(activationKey as any) as DetectionRuleActivation || DetectionRuleActivation.Always;
+        const detectionSource = storage.getItem(detectionSourceKey as any) as ScryptedEventSource;
         const showMoreConfigurations = safeParseJson<boolean>(storage.getItem(showMoreConfigurationsKey), false);
         const aiEnabled = safeParseJson<boolean>(storage.getItem(aiEnabledKey), false);
         const generateClip = safeParseJson<boolean>(storage.getItem(generateClipKey), false);
         const notifiers = safeParseJson<string[]>(storage.getItem(notifiersKey), []);
         const advancedSecurityEnabled = ruleType === RuleType.Detection;
         const isAdvancedSecuritySystem = advancedSecurityEnabled && currentActivation === DetectionRuleActivation.AdvancedSecuritySystem;
+
+        const { postClips, preClips } = getBaseRuleDefaults({
+            ruleType,
+            source: detectionSource,
+        });
 
         settings.push(
             {
@@ -2287,9 +2290,7 @@ export const getRuleSettings = async (props: {
                         group,
                         subgroup,
                         type: 'number',
-                        defaultValue: isOccupancyRule ?
-                            defaultOccupancyClipPreSeconds :
-                            defaultClipPreSeconds,
+                        defaultValue: preClips,
                     },
                     {
                         key: generateClipPostSecondsKey,
@@ -2298,7 +2299,7 @@ export const getRuleSettings = async (props: {
                         group,
                         subgroup,
                         type: 'number',
-                        defaultValue: defaultClipPostSeconds
+                        defaultValue: postClips
                     },
                     {
                         key: generateClipTypeKey,
@@ -3252,6 +3253,34 @@ export const getDetectionRulesSettings = async (props: {
 
 export const nvrAcceleratedMotionSensorId = sdk.systemManager.getDeviceById(NVR_PLUGIN_ID, 'motion')?.id;
 
+export const getBaseRuleDefaults = (props: { source: ScryptedEventSource, ruleType: RuleType }) => {
+    const { ruleType, source } = props;
+    const isFrigate = source === ScryptedEventSource.Frigate;
+    const isOccupancy = ruleType === RuleType.Occupancy;
+
+    const preClips = isOccupancy ?
+        (isFrigate ? 20 : 12) :
+        (isFrigate ? 15 : 5);
+    const postClips = isFrigate ? 10 : 5;
+
+    return {
+        preClips,
+        postClips,
+    };
+}
+
+const getOccupancyDefaults = (source: ScryptedEventSource) => {
+    const isFrigate = source === ScryptedEventSource.Frigate;
+
+    const confirmation = isFrigate ? 5 : 15;
+    const forceCheck = isFrigate ? 5 : 20;
+
+    return {
+        confirmation,
+        forceCheck,
+    };
+}
+
 export const getOccupancyRulesSettings = async (props: {
     storage: StorageSettings<any>,
     ruleSource: RuleSource,
@@ -3287,6 +3316,7 @@ export const getOccupancyRulesSettings = async (props: {
         } = occupancy;
         const detectionSource = storage.getItem(detectionSourceKey) as ScryptedEventSource;
         const isFrigate = detectionSource === ScryptedEventSource.Frigate;
+        const { confirmation, forceCheck } = getOccupancyDefaults(detectionSource);
 
         let zones: string[] = [];
 
@@ -3324,7 +3354,7 @@ export const getOccupancyRulesSettings = async (props: {
             },
             {
                 key: zoneKey,
-                title: 'Observe zone',
+                title: isFrigate ? 'Motion zopne' : 'Observe zone',
                 group,
                 subgroup,
                 choices: zones,
@@ -3373,7 +3403,8 @@ export const getOccupancyRulesSettings = async (props: {
                 group,
                 subgroup,
                 type: 'number',
-                placeholder: '30',
+                defaultValue: confirmation,
+                placeholder: String(confirmation),
             },
             {
                 key: forceUpdateKey,
@@ -3382,7 +3413,8 @@ export const getOccupancyRulesSettings = async (props: {
                 group,
                 subgroup,
                 type: 'number',
-                placeholder: '30',
+                defaultValue: forceCheck,
+                placeholder: String(forceCheck),
             },
             {
                 key: maxObjectsKey,
@@ -4002,6 +4034,13 @@ const initBasicRule = (props: {
         ruleName,
     });
 
+    const detectionSource = storage.getItem(detectionSourceKey) as ScryptedEventSource;
+
+    const { postClips, preClips } = getBaseRuleDefaults({
+        ruleType,
+        source: detectionSource,
+    });
+
     const isEnabled = storage.getItem(enabledKey);
     const currentlyActive = safeParseJson<boolean>(storage.getItem(currentlyActiveKey), false);
     const useAi = safeParseJson<boolean>(storage.getItem(aiEnabledKey), false);
@@ -4013,9 +4052,8 @@ const initBasicRule = (props: {
     const notifiers = safeParseJson<string[]>(storage.getItem(notifiersKey), []);
     const generateClip = safeParseJson<boolean>(storage.getItem(generateClipKey), false);
     const totalSnooze = safeParseJson<boolean>(storage.getItem(totalSnoozeKey), false);
-    const detectionSource = storage.getItem(detectionSourceKey) as ScryptedEventSource;
-    const generateClipPostSeconds = safeParseJson<number>(storage.getItem(generateClipPostSecondsKey)) ?? (ruleType === RuleType.Occupancy ? defaultOccupancyClipPreSeconds : defaultClipPreSeconds);
-    const generateClipPreSeconds = safeParseJson<number>(storage.getItem(generateClipPreSecondsKey)) ?? defaultClipPostSeconds;
+    const generateClipPostSeconds = safeParseJson<number>(storage.getItem(generateClipPostSecondsKey), postClips);
+    const generateClipPreSeconds = safeParseJson<number>(storage.getItem(generateClipPreSecondsKey), preClips);
     const generateClipType = storage.getItem(generateClipTypeKey) ?? defaultVideoclipType;
     const imageProcessing = (storage.getItem(imageProcessingKey) as ImagePostProcessing) || ImagePostProcessing.Default;
     const showActiveZones = safeParseJson<boolean>(storage.getItem(showActiveZonesKey), false);
@@ -4602,12 +4640,14 @@ export const getDeviceOccupancyRules = (
             logger: console
         });
 
+        const { confirmation, forceCheck } = getOccupancyDefaults(rule.detectionSource);
+
         const zoneOccupiedText = deviceStorage.getItem(zoneOccupiedTextKey) as string;
         const zoneNotOccupiedText = deviceStorage.getItem(zoneNotOccupiedTextKey) as string;
         const detectionClass = deviceStorage.getItem(detectionClassKey) as DetectionClass;
         const scoreThreshold = safeParseJson<number>(deviceStorage.getItem(scoreThresholdKey), 0.5);
-        const changeStateConfirm = safeParseJson<number>(deviceStorage.getItem(changeStateConfirmKey), 30);
-        const forceUpdate = safeParseJson<number>(deviceStorage.getItem(forceUpdateKey), 30);
+        const changeStateConfirm = safeParseJson<number>(deviceStorage.getItem(changeStateConfirmKey), confirmation);
+        const forceUpdate = safeParseJson<number>(deviceStorage.getItem(forceUpdateKey), forceCheck);
         const maxObjects = safeParseJson<number>(deviceStorage.getItem(maxObjectsKey), 1);
         const observeZone = deviceStorage.getItem(zoneKey) as string;
         const zoneMatchType = deviceStorage.getItem(zoneMatchTypeKey) as ZoneMatchType;
