@@ -3542,7 +3542,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     })}`);
                 }
 
-                logger.log(`Starting notifiers for detection rule (${eventSource}) ${getDetectionKey(matchRule as MatchRule)}, detectionId ${matchRule.event.detectionId || '-'}, decoder ${this.decoderType} image from ${imageSource}, last check ${lastSetInSeconds ? lastSetInSeconds + 's ago' : '-'} with delay ${minDelayInSeconds}s`);
+                logger.log(`Starting notifiers for detection rule (${eventSource}) ${getDetectionKey(matchRule as MatchRule)}, detectionId ${matchRule.event?.detectionId || '-'}, decoder ${this.decoderType} image from ${imageSource}, last check ${lastSetInSeconds ? lastSetInSeconds + 's ago' : '-'} with delay ${minDelayInSeconds}s`);
                 logger.log(`Original event: ${JSON.stringify(matchRule.event)}`);
 
                 if (match.id) {
