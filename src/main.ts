@@ -922,6 +922,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         await this.initPluginSettings();
 
+        const { dbsPath } = this.getEventPaths({});
+        try {
+            await fs.promises.access(dbsPath);
+        } catch {
+            logger.log(`Creating dbs folder at ${dbsPath}`);
+            await fs.promises.mkdir(dbsPath, { recursive: true });
+        }
+
         if (!this.storageSettings.values.eventsDbsRemoved612) {
             logger.log(`Initiating old DBs migration`);
             const pluginVolume = process.env.SCRYPTED_PLUGIN_VOLUME;
