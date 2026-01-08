@@ -28,6 +28,7 @@ import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { CameraMixinState, OccupancyRuleData } from "./states";
 import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, calculateSize, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, DevNotifications, ExtendedNotificationAction, formatSize, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getActiveRules, getAllAvailableUrls, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getBaseRuleDefaults, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRecordingRules, getRecordingRulesSettings, getRuleKeys, getSequenceObject, getSequencesSettings, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, OccupancySource, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RecordingRule, RuleActionsSequence, RuleActionType, ruleSequencesGroup, ruleSequencesKey, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType, ZENTIK_PLUGIN_ID, ZonesSource } from "./utils";
 import { parseVideoFileName } from "./videoRecorderUtils";
+import { getFrigatePluginSettings } from "../../scrypted-frigate-bridge/src/utils";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -1546,18 +1547,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const isUpdated = this.lastFrigateDataFetched && (now - this.lastFrigateDataFetched) <= (1000 * 10);
 
             if (!isUpdated) {
-                const frigatePlugin = systemManager.getDeviceByName<Settings>(FRIGATE_BRIDGE_PLUGIN_NAME);
-                const settings = await frigatePlugin.getSettings();
-                const settingsDic = keyBy(settings, 'key');
-                const objectLabels = (settingsDic['objectLabels']?.value ?? []) as string[];
-                const audioLabels = (settingsDic['audioLabels']?.value ?? []) as string[];
-                const cameras = settingsDic['cameras']?.value as string[];
-                const faces = settingsDic['faces']?.value as string[];
+                const { audioLabels, cameras, faces, objectLabels } = await getFrigatePluginSettings();
 
                 const labels = [...objectLabels, ...audioLabels];
                 this.lastFrigateDataFetched = now;
                 this.frigateData = {
-                    // labels: labels?.filter(label => label !== 'person'),
                     labels,
                     cameras,
                     faces,

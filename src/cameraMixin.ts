@@ -6,8 +6,7 @@ import { cloneDeep, keyBy, sortBy, uniq, uniqBy } from "lodash";
 import moment from "moment";
 import { getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
 import { filterOverlappedDetections } from '../../scrypted-basic-object-detector/src/util';
-import { CameraActiveObjectsSetting, FrigateZoneObjectCountsMap } from "../../scrypted-frigate-bridge/src/mqttSettingsTypes";
-import { audioDetectorNativeId, objectDetectorNativeId } from '../../scrypted-frigate-bridge/src/utils';
+import { audioDetectorNativeId, buildOccupancyZoneId, getFrigateMixinSettings, objectDetectorNativeId } from '../../scrypted-frigate-bridge/src/utils';
 import { Deferred } from "../../scrypted/server/src/deferred";
 import { checkObjectsOccupancy, confirmDetection } from "./aiUtils";
 import { AudioAnalyzerSource, AudioChunkData, AudioRtspFfmpegStream, AudioSensitivity, executeAudioClassification, sensitivityDbThresholds } from "./audioAnalyzerUtils";
@@ -1739,39 +1738,36 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             const now = new Date().getTime();
             const frigateObjectDetector = systemManager.getDeviceById(FRIGATE_BRIDGE_PLUGIN_ID, objectDetectorNativeId);
 
-            let labels: string[];
+            let audioLabels: string[];
+            let objectLabels: string[];
             let zones: ZoneWithPath[] = [];
             let cameraName: string;
 
             if (frigateObjectDetector && this.cameraDevice.mixins.includes(frigateObjectDetector.id)) {
                 const isUpdated = this.mixinState.lastFrigateDataFetched && (now - this.mixinState.lastFrigateDataFetched) <= (1000 * 60);
-                const settings = await this.mixinDevice.getSettings();
 
-                const settingsDict = keyBy(settings, 'key');
-
-                if (this.mixinState.frigateLabels && isUpdated) {
-                    labels = this.mixinState.frigateLabels;
-                } else {
-                    const objectsLabels = settingsDict[`${objectDetectorNativeId}:labels`]?.value ?? [];
-                    const audioLabels = settingsDict[`${audioDetectorNativeId}:labels`]?.value ?? [];
-                    labels = [...audioLabels, ...objectsLabels];
-                    this.mixinState.frigateLabels = labels;
-                }
-
-                if (this.mixinState.frigateZones && this.mixinState.frigateCameraName && isUpdated) {
-                    zones = this.mixinState.frigateZones;
+                if (this.mixinState.frigateCameraName && isUpdated) {
+                    audioLabels = this.mixinState.frigateAudioLabels;
+                    objectLabels = this.mixinState.frigateObjectLabels;
                     cameraName = this.mixinState.frigateCameraName;
+                    zones = this.mixinState.frigateZones;
                 } else {
-                    cameraName = settingsDict[`${objectDetectorNativeId}:cameraName`]?.value as string;
-                    zones = settingsDict[`${objectDetectorNativeId}:zonesWithPath`]?.value as ZoneWithPath[] ?? [];
+                    const frigateCurrentData = await getFrigateMixinSettings(this.id);
+
+                    cameraName = frigateCurrentData.cameraName;
+                    objectLabels = frigateCurrentData.objectLabels;
+                    audioLabels = frigateCurrentData.audioLabels;
+                    zones = frigateCurrentData.zones;
                 }
 
                 this.mixinState.lastFrigateDataFetched = now;
                 this.mixinState.frigateCameraName = cameraName;
+                this.mixinState.frigateObjectLabels = objectLabels;
+                this.mixinState.frigateAudioLabels = audioLabels;
                 this.mixinState.frigateZones = zones;
             }
 
-            return { frigateLabels: labels, frigateZones: zones, cameraName };
+            return { frigateAudioLabels: audioLabels, frigateObjectLabels: objectLabels, frigateZones: zones, cameraName };
         } catch (e) {
             this.getLogger().log('Error in getFrigateData', e.message);
             return {};
@@ -2385,27 +2381,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 };
 
                 if (isFrigate) {
-                    const settings = await this.cameraDevice.getSettings();
-                    const settingsDict = keyBy(settings, 'key');
-                    const zoneActiveObjectMap: FrigateZoneObjectCountsMap = (settingsDict[`${objectDetectorNativeId}:zoneActiveObjectMap`]?.value ?? {}) as FrigateZoneObjectCountsMap;
-
-                    const zoneEntries = zoneActiveObjectMap[observeZone];
-                    const filteredEntries = Object.entries(zoneEntries).filter(([zoneClass]) => {
-                        const defaultClass = detectionClassesDefaultMap[zoneClass];
-
-                        return defaultClass === detectionClass;
-                    });
-                    const totalFromEntries = filteredEntries.reduce((acc, [_zoneClass, entry]) => acc + (entry.total ?? 0), 0);
-                    objectsDetected = totalFromEntries;
-
-                    logger.info(`Frigate data status: ${JSON.stringify({
-                        zoneEntries,
-                        filteredEntries,
-                        totalFromEntries,
-                        zoneActiveObjectMap,
-                    })}`);
-
-                    updatedState.frigateOccupancy = zoneActiveObjectMap;
+                    const sensorId = buildOccupancyZoneId({ className: detectionClass, zoneName: observeZone })?.totalId;
+                    objectsDetected = Number(this.sensors?.[sensorId]?.value ?? 0);
                 } else {
                     if (captureZone?.length >= 3) {
                         const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(imageParent, ScryptedMimeTypes.Image);
@@ -2705,35 +2682,24 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         // TODO: Implement scrypted parsing
                     }
                 } else if (occupancySourceForMqtt === OccupancySource.Frigate) {
-                    const settings = await this.cameraDevice.getSettings();
-                    const settingsDict = keyBy(settings, 'key');
-                    const activeObjects = (settingsDict[`${objectDetectorNativeId}:activeObjects`]?.value ?? {}) as CameraActiveObjectsSetting;
-                    const zoneActiveObjectMap: FrigateZoneObjectCountsMap = (settingsDict[`${objectDetectorNativeId}:zoneActiveObjectMap`]?.value ?? {}) as FrigateZoneObjectCountsMap;
+                    const { frigateZones } = await this.getFrigateData();
 
-                    Object.entries(activeObjects).forEach(([zoneClass]) => {
-                        const className = detectionClassesDefaultMap[zoneClass];
-                        if (className) {
-                            if (!classOccupancy[className]) {
-                                classOccupancy[className] = 0;
+                    for (const className of detectionClassForObjectsReporting) {
+                        const totalClassSensorId = buildOccupancyZoneId({ className })?.totalId;
+                        const classTotalObjects = Number(this.sensors?.[totalClassSensorId]?.value ?? 0);
+                        classOccupancy[className] = classTotalObjects;
+
+                        for (const zone of frigateZones) {
+                            const totalZoneClassSensorId = buildOccupancyZoneId({ className, zoneName: zone.name })?.totalId;
+                            const zoneClassTotalObjects = Number(this.sensors?.[totalZoneClassSensorId]?.value ?? 0);
+
+                            if (!classZoneOccupancy[zone.name]) {
+                                classZoneOccupancy[zone.name] = {};
                             }
-
-                            classOccupancy[className] += activeObjects[zoneClass].total ?? 0;
+                            classZoneOccupancy[zone.name][className] = zoneClassTotalObjects;
                         }
-                    });
-                    Object.entries(zoneActiveObjectMap).forEach(([zoneName, zoneActiveObjects]) => {
-                        classZoneOccupancy[zoneName] = {};
 
-                        Object.entries(zoneActiveObjects).forEach(([zoneClass]) => {
-                            const className = detectionClassesDefaultMap[zoneClass];
-                            if (className) {
-                                if (!classZoneOccupancy[zoneName][className]) {
-                                    classZoneOccupancy[zoneName][className] = 0;
-                                }
-
-                                classZoneOccupancy[zoneName][className] += zoneActiveObjects[zoneClass].total ?? 0;
-                            }
-                        });
-                    });
+                    }
                 }
 
                 const logData = occupancyRulesData.map(elem => {

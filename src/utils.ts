@@ -2903,7 +2903,7 @@ export const getDetectionRulesSettings = async (props: {
         const isNvr = detectionSource === ScryptedEventSource.NVR;
         const isRawDetection = detectionSource === ScryptedEventSource.RawDetection;
 
-        let audioLabels: string[] = [];
+        let allLabels: string[] = [];
         let zones: string[] = [];
 
         if (isPlugin) {
@@ -2927,21 +2927,21 @@ export const getDetectionRulesSettings = async (props: {
 
             if (isFrigate) {
                 const { labels: pluginLabels } = await plugin.getFrigateData();
-                audioLabels = pluginLabels;
+                allLabels = pluginLabels;
             } else {
                 const { labels: pluginLabels } = await plugin.getAudioData();
-                audioLabels = pluginLabels;
+                allLabels = pluginLabels;
             }
         } else if (cameraMixin) {
             if (isFrigate) {
-                const { frigateLabels, frigateZones } = await cameraMixin.getFrigateData();
-                audioLabels = frigateLabels;
+                const { frigateAudioLabels, frigateObjectLabels, frigateZones } = await cameraMixin.getFrigateData();
+                allLabels = [...frigateAudioLabels, ...frigateObjectLabels];
                 zones = frigateZones.map(zone => zone.name);
             } else {
                 const cameraZones = await cameraMixin.getObserveZones();
                 const { labels: mixinLabels } = await cameraMixin.getAudioData();
 
-                audioLabels = mixinLabels;
+                allLabels = mixinLabels;
                 zones = cameraZones.map(zone => zone.name);
             }
         }
@@ -2978,7 +2978,7 @@ export const getDetectionRulesSettings = async (props: {
                         multiple: true,
                         combobox: true,
                         immediate: true,
-                        choices: audioLabels.filter(isAudioLabel),
+                        choices: allLabels.filter(isAudioLabel),
                         defaultValue: []
                     }
                 );
@@ -2995,7 +2995,7 @@ export const getDetectionRulesSettings = async (props: {
                         multiple: true,
                         combobox: true,
                         immediate: true,
-                        choices: audioLabels.filter(isAnimalClassname),
+                        choices: allLabels.filter(isAnimalClassname),
                         defaultValue: []
                     }
                 );
@@ -3012,7 +3012,7 @@ export const getDetectionRulesSettings = async (props: {
                         multiple: true,
                         combobox: true,
                         immediate: true,
-                        choices: audioLabels.filter(isVehicleClassname),
+                        choices: allLabels.filter(isVehicleClassname),
                         defaultValue: []
                     }
                 );

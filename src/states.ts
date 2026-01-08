@@ -1,9 +1,9 @@
-import { MediaObject, MediaStreamDestination, ObjectsDetected, VideoClip } from "@scrypted/sdk";
-import { AudioRule, BaseRule, DetectionRule, MatchRule, ObserveZoneData, OccupancyRule, RecordingRule, ScryptedEventSource, TimelapseRule, ZoneWithPath } from "./utils";
-import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
+import { MediaObject, MediaStreamDestination, ObjectsDetected } from "@scrypted/sdk";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
+import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
-import { FrigateZoneObjectCountsMap } from "../../scrypted-frigate-bridge/src/mqttSettingsTypes";
+import { ClassOccupancy } from "./mqtt-utils";
+import { AudioRule, BaseRule, DetectionRule, MatchRule, ObserveZoneData, OccupancyRule, RecordingRule, ScryptedEventSource, TimelapseRule, ZoneWithPath } from "./utils";
 
 export interface CurrentOccupancyState {
     occupancyToConfirm?: boolean,
@@ -17,7 +17,6 @@ export interface CurrentOccupancyState {
     referenceZone: ObserveZoneData;
     occupies: boolean;
     objectsDetected: number;
-    frigateOccupancy?: FrigateZoneObjectCountsMap
 }
 
 export const getInitOccupancyState = (rule: OccupancyRule): CurrentOccupancyState => {
@@ -86,7 +85,8 @@ export class CameraMixinState {
     lastAudioDataFetched: number;
     observeZoneData: ObserveZoneData[];
     audioLabels: string[];
-    frigateLabels: string[];
+    frigateAudioLabels: string[];
+    frigateObjectLabels: string[];
     frigateZones: ZoneWithPath[];
     frigateCameraName: string;
     lastFrigateDataFetched: number;
