@@ -50,6 +50,7 @@ type CameraSettingKey =
     | 'videoRecorderStreamName'
     | 'videoRecorderCustomStreamUrl'
     | 'videoRecorderH264'
+    | 'showVideoclips'
     | 'lastSnapshotWebhook'
     | 'lastSnapshotWebhookCloudUrl'
     | 'lastSnapshotWebhookLocalUrl'
@@ -107,13 +108,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             description: 'If checked, the detections reported by the camera will be ignored. Make sure to have an object detector mixin enabled',
             type: 'boolean',
             immediate: true,
+            defaultValue: true,
             subgroup: 'Advanced',
         },
         notificationsEnabled: {
             title: 'Notifications enabled',
             description: 'Enable notifications related to this camera',
             type: 'boolean',
-            subgroup: 'Notifier',
+            subgroup: 'MQTT',
             immediate: true,
             defaultValue: true,
         },
@@ -164,12 +166,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             description: 'Minimum amount of seconds to wait a new image is published to MQTT for the basic detections',
             type: 'number',
             defaultValue: 5,
-            subgroup: 'Advanced',
+            subgroup: 'MQTT',
         },
         detectionSourceForMqtt: {
             title: 'Detections source',
             description: 'Which source should be used to update MQTT. Default will use the plugin setting',
             type: 'string',
+            subgroup: 'MQTT',
             immediate: true,
             combobox: true,
             defaultValue: ScryptedEventSource.Default,
@@ -181,6 +184,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             type: 'string',
             immediate: true,
             combobox: true,
+            subgroup: 'MQTT',
             defaultValue: ScryptedEventSource.Default,
             choices: [],
         },
@@ -189,6 +193,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             description: 'Which zone list should be used for MQTT zone entities. Default will use the plugin setting. Scrypted uses Observe zones; Frigate uses zones defined in the Frigate interface.',
             type: 'string',
             immediate: true,
+            subgroup: 'MQTT',
             combobox: true,
             defaultValue: ZonesSource.Default,
             choices: [],
@@ -198,6 +203,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             description: 'Select the source of the frame occupancy check, i.e. how many cars are on a camera',
             type: 'string',
             immediate: true,
+            subgroup: 'MQTT',
             choices: [],
             defaultValue: OccupancySource.Off,
         },
@@ -347,6 +353,14 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             description: 'Convert the recorded video to H264. Useful if the source stream is H265 and you want to view it in browsers that do not support it.',
             type: 'boolean',
             subgroup: 'Video recorder',
+            defaultValue: false,
+            immediate: true,
+        },
+        showVideoclips: {
+            title: 'Show videoclips',
+            description: 'Show recorded videoclips',
+            type: 'boolean',
+            subgroup: 'Video recorder',
             defaultValue: true,
             immediate: true,
         },
@@ -473,14 +487,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
     async getVideoClips(options?: VideoClipOptions): Promise<VideoClip[]> {
         const videoClips: VideoClip[] = [];
+        const { showVideoclips } = this.mixinState.storageSettings.values;
 
         try {
             const deviceClips = await this.mixinDevice.getVideoClips(options);
             videoClips.push(...deviceClips);
         } catch { }
 
-        const internalClips = await this.getVideoClipsInternal(options);
-        videoClips.push(...internalClips);
+
+        if (showVideoclips) {
+            const internalClips = await this.getVideoClipsInternal(options);
+            videoClips.push(...internalClips);
+        }
 
         return sortBy(videoClips, 'startTime');
     }
