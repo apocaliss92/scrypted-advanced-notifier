@@ -4434,21 +4434,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         this.startDecoder('StartMotion').catch(logger.error);
                     }
 
-                    if (this.videoRecorder) {
-                        const recordingRules = cloneDeep(
-                            this.mixinState.runningRecordingRules.filter(rule =>
-                                rule.currentlyActive && rule.detectionClasses?.length && rule.prolongClipOnMotion
-                            )
-                        ) ?? [];
-                        if (recordingRules.length) {
-                            await this.startRecording({
-                                triggerTime: now,
-                                rules: recordingRules,
-                                candidates: detections,
-                            });
-                        }
-                    }
-
                 } else {
                     this.plugin.cameraMotionActive.delete(this.id);
                     this.mixinState.detectionIdEventIdMap = {};
@@ -4732,6 +4717,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const logger = this.getLogger();
         const { videoRecorderCustomStreamUrl, videoRecorderStreamName, videoRecorderH264 } = this.mixinState.storageSettings.values;
 
+        const hasAnyProlongRule = rules?.some(r => r.currentlyActive && r.prolongClipOnMotion);
+        if (hasAnyProlongRule) {
+            this.ensureRecordingMotionCheckInterval();
+        } else {
+            this.clearRecordingMotionCheckInterval();
+        }
+
         const maxPostEvent = Math.max(...rules.map(r => r.postEventSeconds));
         const maxClipLength = Math.max(...rules.map(r => r.maxClipLength));
         const maxClipRecordingDelay = Math.max(...rules.map(r => r.minDelay));
@@ -4842,10 +4834,59 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             this.stopRecording();
         }, duration * 1000);
 
+        if (hasAnyProlongRule) {
+            this.ensureRecordingMotionCheckInterval();
+        }
+
         logger.log(`Starting event videoclip recordings for rules: ${rules.map(r => r.name).join(', ')} with duration ${duration}s`);
     }
 
+    private ensureRecordingMotionCheckInterval() {
+        if (this.mixinState.recordingState.motionCheckInterval) {
+            return;
+        }
+
+        const logger = this.getLogger();
+
+        this.mixinState.recordingState.motionCheckInterval = setInterval(() => {
+            try {
+                if (!this.videoRecorder || !this.mixinState.recordingState.recordingStartTime) {
+                    this.clearRecordingMotionCheckInterval();
+                    return;
+                }
+
+                const prolongRules =
+                    this.mixinState.runningRecordingRules?.filter(rule =>
+                        rule.currentlyActive && rule.detectionClasses?.length && rule.prolongClipOnMotion
+                    );
+
+                if (!prolongRules.length) {
+                    return;
+                }
+
+                if (!this.cameraDevice.motionDetected) {
+                    return;
+                }
+
+                this.startRecording({
+                    triggerTime: Date.now(),
+                    rules: prolongRules,
+                }).catch(logger.error);
+            } catch (e) {
+                logger.error('Error during recording motion interval check', e);
+            }
+        }, 1000);
+    }
+
+    private clearRecordingMotionCheckInterval() {
+        if (this.mixinState.recordingState.motionCheckInterval) {
+            clearInterval(this.mixinState.recordingState.motionCheckInterval);
+            this.mixinState.recordingState.motionCheckInterval = undefined;
+        }
+    }
+
     async stopRecording() {
+        this.clearRecordingMotionCheckInterval();
         if (this.videoRecorder) {
             const endTime = Date.now();
             this.mixinState.recordingState.lastRecordingEndTime = endTime;

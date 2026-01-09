@@ -47,12 +47,12 @@ export type OccupancyRuleData = {
 };
 
 export type CurrentRecordingState = {
-    recordingRules: RecordingRule[];
     recordingStartTime: number;
     lastRecordingEndTime: number;
     recordingClassesDetected: Set<string>;
     lastRecordingProlongLog: number;
     recordingTimeout: NodeJS.Timeout;
+    motionCheckInterval: NodeJS.Timeout;
 };
 
 export interface AccumulatedDetection { detect: ObjectsDetected, eventId: string, eventSource: ScryptedEventSource };
@@ -95,9 +95,9 @@ export class CameraMixinState {
         lastRecordingEndTime: undefined,
         lastRecordingProlongLog: undefined,
         recordingClassesDetected: new Set<string>(),
-        recordingRules: [],
         recordingStartTime: undefined,
         recordingTimeout: undefined,
+        motionCheckInterval: undefined,
     };
     timelapseLastCheck: Record<string, number> = {};
     timelapseLastGenerated: Record<string, number> = {};
