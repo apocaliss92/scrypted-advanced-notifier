@@ -10,6 +10,7 @@ export enum DetectionClass {
     Package = 'package',
     Doorbell = 'doorbell',
     Sensor = 'sensor',
+    Things = 'things',
 }
 
 export const classnamePrio: Partial<Record<DetectionClass, number>> = {
@@ -19,6 +20,7 @@ export const classnamePrio: Partial<Record<DetectionClass, number>> = {
     [DetectionClass.Vehicle]: 3,
     [DetectionClass.Animal]: 4,
     [DetectionClass.Package]: 5,
+    [DetectionClass.Things]: 5,
     [DetectionClass.Motion]: 6,
 }
 
@@ -281,6 +283,12 @@ export const audioLabels = [
     "white_noise", "pink_noise", "throbbing", "vibration", "television", "radio", "field_recording"
 ];
 
+export const thingsClasses = [
+    DetectionClass.Things,
+
+    'waste_bind',
+];
+
 export const audioClasses: string[] = [DetectionClass.Audio];
 
 export const doorbellClasses = [
@@ -300,6 +308,7 @@ export const isPackageClassname = (classname: string) => packageClasses.includes
 export const isAudioLabel = (label: string) => audioClasses.includes(label) || audioLabels.includes(label);
 export const isObjectLabel = (label: string) => !isAudioLabel(label);
 export const isAudioClassname = (classname: string) => audioClasses.includes(classname) || isAudioLabel(classname);
+export const isThingClassname = (classname: string) => thingsClasses.includes(classname);
 export const isLabelDetection = (classname: string) => isFaceClassname(classname) || isPlateClassname(classname);
 export const isObjectClassname = (classname: string) =>
     isPackageClassname(classname) ||
@@ -318,6 +327,7 @@ export const detectionClassesDefaultMap: Record<string, DetectionClass> = {
     ...objectClasses.reduce((tot, curr) => ({ ...tot, [curr]: DetectionClass.AnyObject }), {}),
     ...audioClasses.reduce((tot, curr) => ({ ...tot, [curr]: DetectionClass.Audio }), {}),
     ...doorbellClasses.reduce((tot, curr) => ({ ...tot, [curr]: DetectionClass.Doorbell }), {}),
+    ...thingsClasses.reduce((tot, curr) => ({ ...tot, [curr]: DetectionClass.Things }), {}),
 }
 
 export const getParentDetectionClass = (det: { label?: string, className: string }) => {

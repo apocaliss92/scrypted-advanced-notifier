@@ -1,6 +1,6 @@
 import { SecuritySystemMode } from "@scrypted/sdk";
 import { StorageSetting, StorageSettings } from "@scrypted/sdk/storage-settings";
-import { ExtendedNotificationAction, getAssetsParams, getWebhooks, sensorsFilter } from "./utils";
+import { ExtendedNotificationAction, getAssetsParams, getWebhooks, safeParseJson, sensorsFilter } from "./utils";
 import AdvancedNotifierPlugin from "./main";
 
 export enum AlarmEvent {
@@ -144,11 +144,11 @@ export const getModeEntity = (props: {
         autoRiarmTime: autoRiarmTimeDefault,
         preactivationTime: preactivationTimeDefault } = getAlarmDefaults({ mode });
 
-    const bypassableDevices = storage.getItem(bypassableDevicesKey) as string[] ?? [];
-    const preActivationTime = storage.getItem(preActivationTimeKey) as number ?? preactivationTimeDefault;
-    const autoDisarmTime = storage.getItem(autoDisarmTimeKey) as number ?? autoDisarmTimeDefault;
-    const autoRiarmTime = storage.getItem(autoRiarmTimeKey) as number ?? autoRiarmTimeDefault;
-    const currentMode = storage.getItem('activeMode') as SecuritySystemMode;
+    const bypassableDevices = safeParseJson<string[]>(storage.getItem(bypassableDevicesKey), []);
+    const preActivationTime = safeParseJson<number>(storage.getItem(preActivationTimeKey), preactivationTimeDefault);
+    const autoDisarmTime = safeParseJson<number>(storage.getItem(autoDisarmTimeKey), autoDisarmTimeDefault);
+    const autoRiarmTime = safeParseJson<number>(storage.getItem(autoRiarmTimeKey), autoRiarmTimeDefault);
+    const currentMode = safeParseJson<SecuritySystemMode>(storage.getItem('activeMode'));
 
     const data: ModeData = {
         autoDisarmTime,

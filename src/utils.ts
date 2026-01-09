@@ -381,10 +381,25 @@ export const getDefaultEntityId = (name: string) => {
 }
 
 export const safeParseJson = <T = any>(maybeStringValue: string | object, fallback?: any) => {
+    if (maybeStringValue === undefined || maybeStringValue === null || maybeStringValue === '')
+        return fallback as T;
+
+    if (typeof maybeStringValue !== 'string')
+        return (maybeStringValue ?? fallback) as T;
+
+    const trimmed = maybeStringValue.trim();
+    if (!trimmed)
+        return fallback as T;
+
     try {
-        return (typeof maybeStringValue === 'string' ? JSON.parse(maybeStringValue) : maybeStringValue) ?? fallback as T;
-    } catch {
-        return maybeStringValue;
+        return (JSON.parse(trimmed) ?? fallback) as T;
+    }
+    catch {
+        // If it is not valid JSON, return the raw string to preserve legacy/plain-string settings.
+        // Only fall back when the caller provided a non-string fallback (arrays, objects, booleans, numbers).
+        if (fallback !== undefined && typeof fallback !== 'string')
+            return fallback as T;
+        return maybeStringValue as any as T;
     }
 }
 
@@ -714,7 +729,7 @@ export const parseNvrNotificationMessage = async (cameraDevice: DeviceInterface,
         }
 
         // Remove this when nvr will provide trigger IDs
-        if ([SupportedSensorType.Binary, SupportedSensorType.Lock].includes(eventType as any)) {
+        if ([SupportedSensorType.Binary, SupportedSensorType.Lock].includes(eventType as SupportedSensorType)) {
             const systemState = sdk.systemManager.getSystemState();
 
             const foundSensor = deviceSensors.find(deviceId => {
@@ -1368,8 +1383,7 @@ export const getActiveRules = async (
         device,
     });
 
-    const isPluginEnabled = pluginStorage.getItem('pluginEnabled');
-    const isMqttActive = pluginStorage.getItem('mqttEnabled');
+    const { pluginEnabled, mqttEnabled } = plugin.storageSettings.values;
     const isDeviceEnabledToMqtt = deviceStorage?.values.enabledToMqtt;
 
     const allAvailableRules = [
@@ -1391,7 +1405,7 @@ export const getActiveRules = async (
     const hasClips = allAllowedRules.some(rule => rule.generateClip);
 
     const shouldListenAudio = !!allowedAudioRules.length;
-    const isActiveForMqttReporting = isPluginEnabled && isMqttActive && isDeviceEnabledToMqtt;
+    const isActiveForMqttReporting = pluginEnabled && mqttEnabled && isDeviceEnabledToMqtt;
     const shouldListenDetections = !!allowedDetectionRules.length || isActiveForMqttReporting;
 
     return {
@@ -2144,7 +2158,7 @@ export const getRuleSettings = async (props: {
     const isRecordingRule = ruleType === RuleType.Recording;
     const { isCamera } = !isPlugin ? isDeviceSupported(device) : {};
 
-    const rules = storage.getItem(rulesKey) ?? [];
+    const rules = safeParseJson<string[]>(storage.getItem(rulesKey), []);
     for (const ruleName of rules) {
         const subgroup = `${subgroupPrefix}: ${ruleName}`;
         const {
@@ -2180,8 +2194,8 @@ export const getRuleSettings = async (props: {
             }
         } = getRuleKeys({ ruleName, ruleType });
 
-        const currentActivation = storage.getItem(activationKey as any) as DetectionRuleActivation || DetectionRuleActivation.Always;
-        const detectionSource = storage.getItem(detectionSourceKey as any) as ScryptedEventSource;
+        const currentActivation = safeParseJson<DetectionRuleActivation>(storage.getItem(activationKey), DetectionRuleActivation.Always);
+        const detectionSource = safeParseJson<ScryptedEventSource>(storage.getItem(detectionSourceKey), ScryptedEventSource.Default);
         const showMoreConfigurations = safeParseJson<boolean>(storage.getItem(showMoreConfigurationsKey), false);
         const aiEnabled = safeParseJson<boolean>(storage.getItem(aiEnabledKey), false);
         const generateClip = safeParseJson<boolean>(storage.getItem(generateClipKey), false);
@@ -2483,7 +2497,7 @@ export const getRuleSettings = async (props: {
         const specificSettings = await getSpecificRules({ ruleName, subgroup, group, showMore: showMoreConfigurations });
         settings.push(...specificSettings);
 
-        const sequenceNames = storage.getItem(ruleSequencesKey) as string[] || [];
+        const sequenceNames = safeParseJson<string[]>(storage.getItem(ruleSequencesKey), []);
         if (currentActivation !== DetectionRuleActivation.Always) {
             settings.push(
                 {
@@ -2644,7 +2658,7 @@ export const getSequencesSettings = async (props: {
 
     const settings: StorageSetting[] = [];
 
-    const sequenceNames = storage.getItem(ruleSequencesKey) as string[] || [];
+    const sequenceNames = safeParseJson<string[]>(storage.getItem(ruleSequencesKey), []);
     const group = ruleSequencesGroup;
 
     for (const sequenceName of sequenceNames) {
@@ -2698,8 +2712,8 @@ export const getSequencesSettings = async (props: {
                 lockStateKey,
                 entryStateKey,
             } = getSequenceKeys({ sequenceName, actionName });
-            const currentType = storage.getItem(typeKey as any) as RuleActionType;
-            const device = storage.getItem(deviceIdKey as any) as DeviceBase;
+            const currentType = safeParseJson<RuleActionType>(storage.getItem(typeKey));
+            const device = safeParseJson<DeviceBase>(storage.getItem(deviceIdKey));
 
             settings.push(
                 {
@@ -2893,11 +2907,11 @@ export const getDetectionRulesSettings = async (props: {
             aiFilterKey,
         } = detection;
 
-        const clipDescription = storage.getItem(clipDescriptionKey) as string ?? '';
+        const clipDescription = safeParseJson<string>(storage.getItem(clipDescriptionKey), '');
         const detectionClasses = safeParseJson<DetectionClass[]>(storage.getItem(detectionClassesKey), []);
-        const activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
+        const activationType = safeParseJson<DetectionRuleActivation>(storage.getItem(activationKey), DetectionRuleActivation.Always);
         const showCameraSettings = isPlugin || isCamera;
-        const detectionSource = storage.getItem(detectionSourceKey) as ScryptedEventSource;
+        const detectionSource = safeParseJson<ScryptedEventSource>(storage.getItem(detectionSourceKey), ScryptedEventSource.Default);
 
         const isFrigate = detectionSource === ScryptedEventSource.Frigate;
         const isNvr = detectionSource === ScryptedEventSource.NVR;
@@ -2908,7 +2922,7 @@ export const getDetectionRulesSettings = async (props: {
 
         if (isPlugin) {
             const zonesToUse: string[] = [];
-            const devices = storage.getItem(devicesKey) as string[] ?? [];
+            const devices = safeParseJson<string[]>(storage.getItem(devicesKey), []);
 
             for (const deviceId of devices) {
                 const deviceMixin = plugin.currentCameraMixinsMap[deviceId];
@@ -3314,7 +3328,7 @@ export const getOccupancyRulesSettings = async (props: {
             occupiesKey,
             manualCheckKey
         } = occupancy;
-        const detectionSource = storage.getItem(detectionSourceKey) as ScryptedEventSource;
+        const detectionSource = safeParseJson<ScryptedEventSource>(storage.getItem(detectionSourceKey), ScryptedEventSource.Default);
         const isFrigate = detectionSource === ScryptedEventSource.Frigate;
         const { confirmation, forceCheck } = getOccupancyDefaults(detectionSource);
 
@@ -3499,7 +3513,7 @@ export const getTimelapseRulesSettings = async (props: {
                 title: 'Notification message',
                 group,
                 subgroup,
-                value: storage.getItem(textKey),
+                value: safeParseJson<string>(storage.getItem(textKey)),
                 type: 'string',
             },
             {
@@ -3620,7 +3634,7 @@ export const getAudioRulesSettings = async (props: {
                 title: 'Notification message',
                 group,
                 subgroup,
-                value: storage.getItem(textKey),
+                value: safeParseJson<string>(storage.getItem(textKey)),
                 type: 'string',
             },
             {
@@ -3695,8 +3709,8 @@ export function getRecordingRules(props: {
     const availableRules: RecordingRule[] = [];
     const allowedRules: RecordingRule[] = [];
 
-    const deviceRules = deviceStorage?.getItem(rulesKey) as string[] || [];
-    const pluginRules = pluginStorage?.getItem(rulesKey) as string[] || [];
+    const deviceRules = safeParseJson<string[]>(deviceStorage?.getItem(rulesKey), []);
+    const pluginRules = safeParseJson<string[]>(pluginStorage?.getItem(rulesKey), []);
 
     const processRules = (rules: string[], source: RuleSource) => {
         const isPlugin = source === RuleSource.Plugin;
@@ -3714,12 +3728,12 @@ export function getRecordingRules(props: {
                 prolongClipOnMotionKey,
             } = recording;
 
-            const detectionClasses = storage.getItem(recordingDetectionClassesKey) as string[] || [];
-            const scoreThreshold = storage.getItem(recordingScoreThresholdKey) as number;
-            const postEventSeconds = storage.getItem(postEventSecondsKey) as number;
-            const maxClipLength = storage.getItem(maxClipLengthKey) as number;
-            const prolongClipOnMotion = storage.getItem(prolongClipOnMotionKey) as boolean;
-            const mainDevices = storage.getItem(devicesKey) as string[] ?? [];
+            const detectionClasses = safeParseJson<string[]>(storage.getItem(recordingDetectionClassesKey), []);
+            const scoreThreshold = safeParseJson<number>(storage.getItem(recordingScoreThresholdKey));
+            const postEventSeconds = safeParseJson<number>(storage.getItem(postEventSecondsKey));
+            const maxClipLength = safeParseJson<number>(storage.getItem(maxClipLengthKey));
+            const prolongClipOnMotion = safeParseJson<boolean>(storage.getItem(prolongClipOnMotionKey), false);
+            const mainDevices = safeParseJson<string[]>(storage.getItem(devicesKey), []);
             const allDevices = getElegibleDevices().map(device => device.id);
 
             const devices = !isPlugin ? [deviceId] : mainDevices.length ? mainDevices : allDevices;
@@ -4034,28 +4048,28 @@ const initBasicRule = (props: {
         ruleName,
     });
 
-    const detectionSource = storage.getItem(detectionSourceKey) as ScryptedEventSource;
+    const detectionSource = safeParseJson<ScryptedEventSource>(storage.getItem(detectionSourceKey), ScryptedEventSource.Default);
 
     const { postClips, preClips } = getBaseRuleDefaults({
         ruleType,
         source: detectionSource,
     });
 
-    const isEnabled = storage.getItem(enabledKey);
+    const isEnabled = safeParseJson<boolean>(storage.getItem(enabledKey), false);
     const currentlyActive = safeParseJson<boolean>(storage.getItem(currentlyActiveKey), false);
     const useAi = safeParseJson<boolean>(storage.getItem(aiEnabledKey), false);
-    const aiPrompt = storage.getItem(aiPromptKey);
-    const customText = storage.getItem(textKey);
-    const activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
-    const generateClipSpeed = storage.getItem(generateClipSpeedKey) as VideoclipSpeed || VideoclipSpeed.Fast;
-    const securitySystemModes = storage.getItem(securitySystemModesKey) as SecuritySystemMode[] ?? [];
+    const aiPrompt = safeParseJson<string>(storage.getItem(aiPromptKey));
+    const customText = safeParseJson<string>(storage.getItem(textKey));
+    const activationType = safeParseJson<DetectionRuleActivation>(storage.getItem(activationKey), DetectionRuleActivation.Always);
+    const generateClipSpeed = safeParseJson<VideoclipSpeed>(storage.getItem(generateClipSpeedKey), VideoclipSpeed.Fast);
+    const securitySystemModes = safeParseJson<SecuritySystemMode[]>(storage.getItem(securitySystemModesKey), []);
     const notifiers = safeParseJson<string[]>(storage.getItem(notifiersKey), []);
     const generateClip = safeParseJson<boolean>(storage.getItem(generateClipKey), false);
     const totalSnooze = safeParseJson<boolean>(storage.getItem(totalSnoozeKey), false);
     const generateClipPostSeconds = safeParseJson<number>(storage.getItem(generateClipPostSecondsKey), postClips);
     const generateClipPreSeconds = safeParseJson<number>(storage.getItem(generateClipPreSecondsKey), preClips);
-    const generateClipType = storage.getItem(generateClipTypeKey) ?? defaultVideoclipType;
-    const imageProcessing = (storage.getItem(imageProcessingKey) as ImagePostProcessing) || ImagePostProcessing.Default;
+    const generateClipType = safeParseJson<VideoclipType>(storage.getItem(generateClipTypeKey), defaultVideoclipType);
+    const imageProcessing = safeParseJson<ImagePostProcessing>(storage.getItem(imageProcessingKey), ImagePostProcessing.Default);
     const showActiveZones = safeParseJson<boolean>(storage.getItem(showActiveZonesKey), false);
     const onActivationSequencesNames = safeParseJson<string[]>(storage.getItem(onActivationSequencesKey), []);
     const onDeactivationSequencesNames = safeParseJson<string[]>(storage.getItem(onDeactivationSequencesKey), []);
@@ -4153,18 +4167,18 @@ const initBasicRule = (props: {
             deleteNotificationKey,
             openNotificationKey,
         } = getNotifierKeys({ notifierId, ruleName, ruleType });
-        const actions = storage.getItem(actionsKey) as string[] ?? [];
-        const priority = storage.getItem(priorityKey) as NotificationPriority;
-        const addSnooze = withSnoozing ? storage.getItem(addSnoozeKey) ?? snoozingDefault : false;
-        const openInApp = withOpenInApp ? storage.getItem(openInAppKey) ?? openInAppDefault : false;
-        const sound = withSound ? storage.getItem(soundKey) : undefined;
-        const channel = withChannel ? storage.getItem(channelKey) : undefined;
-        const notificationIcon = withNotificationIcon ? storage.getItem(notificationIconKey) : undefined;
-        const iconColor = withIconColor ? storage.getItem(iconColorKey) : undefined;
-        const addCameraActions = storage.getItem(addCameraActionsKey) ?? addCameraActionsDefault;
-        const addDeleteNotificationAction = storage.getItem(deleteNotificationKey) ?? withDeleteNotificationDefault;
-        const addClearNotificationAction = storage.getItem(clearNotificationKey) ?? withClearNotificationDefault;
-        const addOpenNotificationAction = storage.getItem(openNotificationKey) ?? withOpenNotificationDefault;
+        const actions = safeParseJson<string[]>(storage.getItem(actionsKey), []);
+        const priority = safeParseJson<NotificationPriority>(storage.getItem(priorityKey), NotificationPriority.Normal);
+        const addSnooze = withSnoozing ? safeParseJson<boolean>(storage.getItem(addSnoozeKey), snoozingDefault) : false;
+        const openInApp = withOpenInApp ? safeParseJson<boolean>(storage.getItem(openInAppKey), openInAppDefault) : false;
+        const sound = withSound ? safeParseJson<string>(storage.getItem(soundKey)) : undefined;
+        const channel = withChannel ? safeParseJson<string>(storage.getItem(channelKey)) : undefined;
+        const notificationIcon = withNotificationIcon ? safeParseJson<string>(storage.getItem(notificationIconKey)) : undefined;
+        const iconColor = withIconColor ? safeParseJson<string>(storage.getItem(iconColorKey)) : undefined;
+        const addCameraActions = safeParseJson<boolean>(storage.getItem(addCameraActionsKey), addCameraActionsDefault);
+        const addDeleteNotificationAction = safeParseJson<boolean>(storage.getItem(deleteNotificationKey), withDeleteNotificationDefault);
+        const addClearNotificationAction = safeParseJson<boolean>(storage.getItem(clearNotificationKey), withClearNotificationDefault);
+        const addOpenNotificationAction = safeParseJson<boolean>(storage.getItem(openNotificationKey), withOpenNotificationDefault);
         rule.notifierData[notifierId] = {
             actions: withActions ? actions.map(action => safeParseJson(action)) : [],
             priority,
@@ -4184,9 +4198,9 @@ const initBasicRule = (props: {
     let timeAllowed = true;
 
     if (activationType === DetectionRuleActivation.Schedule || ruleType === RuleType.Timelapse) {
-        const days = storage.getItem(dayKey) as number[];
-        const startTime = storage.getItem(startTimeKey) as number;
-        const endTime = storage.getItem(endTimeKey) as number;
+        const days = safeParseJson<number[]>(storage.getItem(dayKey), []);
+        const startTime = safeParseJson<number>(storage.getItem(startTimeKey));
+        const endTime = safeParseJson<number>(storage.getItem(endTimeKey));
 
         const currentDate = new Date();
         const currentDay = currentDate.getDay();
@@ -4200,8 +4214,8 @@ const initBasicRule = (props: {
     }
 
     let sensorsOk = true;
-    const enabledSensors = storage.getItem(enabledSensorsKey) as string[] ?? [];
-    const disabledSensors = storage.getItem(disabledSensorsKey) as string[] ?? [];
+    const enabledSensors = safeParseJson<string[]>(storage.getItem(enabledSensorsKey), []);
+    const disabledSensors = safeParseJson<string[]>(storage.getItem(disabledSensorsKey), []);
 
     if (!!enabledSensors.length || !!disabledSensors.length) {
         if (!!enabledSensors.length) {
@@ -4313,17 +4327,17 @@ export const getSequenceObject = (props: {
             lockStateKey,
             entryStateKey
         } = getSequenceKeys({ sequenceName, actionName });
-        const currentType = storage.getItem(typeKey as any) as RuleActionType;
+        const currentType = safeParseJson<RuleActionType>(storage.getItem(typeKey));
 
         if (currentType === RuleActionType.Wait) {
             sequence.actions.push({
                 actionName,
                 deviceId: '',
                 type: currentType,
-                seconds: safeParseJson<number>(storage.getItem(waitSecondsKey as any))
+                seconds: safeParseJson<number>(storage.getItem(waitSecondsKey))
             })
         } if (currentType === RuleActionType.Script) {
-            const device = storage.getItem(deviceIdKey as any) as DeviceBase;
+            const device = storage.getItem(deviceIdKey) as DeviceBase;
 
             sequence.actions.push({
                 actionName,
@@ -4331,35 +4345,35 @@ export const getSequenceObject = (props: {
                 type: currentType,
             })
         } else {
-            const device = storage.getItem(deviceIdKey as any) as DeviceBase;
+            const device = storage.getItem(deviceIdKey) as DeviceBase;
             if (device) {
                 if (currentType === RuleActionType.Ptz) {
                     sequence.actions.push({
                         actionName,
                         deviceId: device.id,
                         type: currentType,
-                        presetName: storage.getItem(presetNameKey as any) as string
+                        presetName: safeParseJson<string>(storage.getItem(presetNameKey))
                     })
                 } else if (currentType === RuleActionType.Switch) {
                     sequence.actions.push({
                         actionName,
                         deviceId: device.id,
                         type: currentType,
-                        turnOn: safeParseJson<number>(storage.getItem(switchEnabledKey as any))
+                        turnOn: safeParseJson<boolean>(storage.getItem(switchEnabledKey))
                     })
                 } else if (currentType === RuleActionType.Lock) {
                     sequence.actions.push({
                         actionName,
                         deviceId: device.id,
                         type: currentType,
-                        lock: safeParseJson<number>(storage.getItem(lockStateKey as any))
+                        lock: safeParseJson<boolean>(storage.getItem(lockStateKey))
                     })
                 } else if (currentType === RuleActionType.Entry) {
                     sequence.actions.push({
                         actionName,
                         deviceId: device.id,
                         type: currentType,
-                        openEntry: safeParseJson<number>(storage.getItem(entryStateKey as any))
+                        openEntry: safeParseJson<boolean>(storage.getItem(entryStateKey))
                     })
                 }
             }
@@ -4392,7 +4406,7 @@ export const getDetectionRules = (props: {
     const { rulesKey } = ruleTypeMetadataMap[RuleType.Detection];
 
     const processDetectionRules = (storage: StorageSettings<any>, ruleSource: RuleSource) => {
-        const detectionRuleNames = storage.getItem(rulesKey) ?? [];
+        const detectionRuleNames = safeParseJson<string[]>(storage.getItem(rulesKey), []);
         const isPlugin = ruleSource === RuleSource.Plugin;
 
         for (const detectionRuleName of detectionRuleNames) {
@@ -4428,31 +4442,33 @@ export const getDetectionRules = (props: {
                     ruleName: detectionRuleName,
                 });
 
-            const detectionSource = storage.getItem(detectionSourceKey) as ScryptedEventSource ||
-                (plugin.defaultDetectionSource);
-            const activationType = storage.getItem(activationKey) as DetectionRuleActivation || DetectionRuleActivation.Always;
-            const customText = storage.getItem(textKey) as string || undefined;
-            const mainDevices = storage.getItem(devicesKey) as string[] ?? [];
+            const detectionSource = safeParseJson<ScryptedEventSource>(
+                storage.getItem(detectionSourceKey),
+                plugin.defaultDetectionSource,
+            );
+            const activationType = safeParseJson<DetectionRuleActivation>(storage.getItem(activationKey), DetectionRuleActivation.Always);
+            const customText = safeParseJson<string>(storage.getItem(textKey));
+            const mainDevices = safeParseJson<string[]>(storage.getItem(devicesKey), []);
             const allDevices = getElegibleDevices(detectionSource === ScryptedEventSource.Frigate).map(device => device.id);
 
             const devices = !isPlugin ? [deviceId] : mainDevices.length ? mainDevices : allDevices;
             const devicesToUse = activationType === DetectionRuleActivation.OnActive ? onActiveDevices : devices;
 
-            const detectionClasses = storage.getItem(detectionClassesKey) as RuleDetectionClass[] ?? [];
+            const detectionClasses = safeParseJson<RuleDetectionClass[]>(storage.getItem(detectionClassesKey), []);
             const isAudioOnly = detectionClasses.length === 1 && detectionClasses[0] === DetectionClass.Audio;
 
-            const nvrEvents = storage.getItem(nvrEventsKey) as NvrEvent[] ?? [];
+            const nvrEvents = safeParseJson<NvrEvent[]>(storage.getItem(nvrEventsKey), []);
             const audioLabels = safeParseJson<string[]>(storage.getItem(audioLabelsKey), []);
             const animalLabels = safeParseJson<string[]>(storage.getItem(animalLabelsKey), []);
             const vehicleLabels = safeParseJson<string[]>(storage.getItem(vehicleLabelsKey), []);
-            const scoreThreshold = storage.getItem(scoreThresholdKey) as number || (isAudioOnly ? 0.5 : 0.7);
-            const minDelay = storage.getItem(minDelayKey) as number;
-            const aiFilter = storage.getItem(aiFilterKey) as string;
-            const clipDescription = storage.getItem(clipDescriptionKey) as string;
-            const clipConfidence = storage.getItem(clipConfidenceKey) as SimilarityConfidence;
-            const minMqttPublishDelay = storage.getItem(minMqttPublishDelayKey) as number || 15;
-            const disableNvrRecordingSeconds = storage.getItem(recordingTriggerSecondsKey) as number;
-            const maxClipExtensionRange = storage.getItem(generateClipMaxExtensionRangeKey) as number ?? 30;
+            const scoreThreshold = safeParseJson<number>(storage.getItem(scoreThresholdKey), (isAudioOnly ? 0.5 : 0.7));
+            const minDelay = safeParseJson<number>(storage.getItem(minDelayKey));
+            const aiFilter = safeParseJson<string>(storage.getItem(aiFilterKey));
+            const clipDescription = safeParseJson<string>(storage.getItem(clipDescriptionKey));
+            const clipConfidence = safeParseJson<SimilarityConfidence>(storage.getItem(clipConfidenceKey), SimilarityConfidence.Medium);
+            const minMqttPublishDelay = safeParseJson<number>(storage.getItem(minMqttPublishDelayKey), 15);
+            const disableNvrRecordingSeconds = safeParseJson<number>(storage.getItem(recordingTriggerSecondsKey));
+            const maxClipExtensionRange = safeParseJson<number>(storage.getItem(generateClipMaxExtensionRangeKey), 30);
 
             const { rule, basicRuleAllowed, ...restCriterias } = initBasicRule({
                 ruleName: detectionRuleName,
@@ -4484,24 +4500,24 @@ export const getDetectionRules = (props: {
                 maxClipExtensionRange,
             };
 
-            detectionRule.whitelistedZones = storage.getItem(whitelistedZonesKey) as string[] ?? [];
-            detectionRule.blacklistedZones = storage.getItem(blacklistedZonesKey) as string[] ?? [];
+            detectionRule.whitelistedZones = safeParseJson<string[]>(storage.getItem(whitelistedZonesKey), []);
+            detectionRule.blacklistedZones = safeParseJson<string[]>(storage.getItem(blacklistedZonesKey), []);
 
             const hasFace = detectionClasses.includes(DetectionClass.Face);
             const hasPlate = detectionClasses.includes(DetectionClass.Plate);
             const hasAudio = detectionClasses.includes(DetectionClass.Audio);
 
             if (hasFace || hasPlate) {
-                detectionRule.labelScoreThreshold = storage.getItem(labelScoreKey) as number ?? 0;
+                detectionRule.labelScoreThreshold = safeParseJson<number>(storage.getItem(labelScoreKey), 0);
             }
 
             if (hasFace) {
-                detectionRule.people = storage.getItem(peopleKey) as string[] ?? [];
+                detectionRule.people = safeParseJson<string[]>(storage.getItem(peopleKey), []);
             }
 
             if (hasPlate) {
-                detectionRule.plates = storage.getItem(platesKey) as string[] ?? [];
-                detectionRule.plateMaxDistance = storage.getItem(plateMaxDistanceKey) as number ?? 0;
+                detectionRule.plates = safeParseJson<string[]>(storage.getItem(platesKey), []);
+                detectionRule.plateMaxDistance = safeParseJson<number>(storage.getItem(plateMaxDistanceKey), 0);
             }
 
             let isSensorEnabled = true;
@@ -4605,7 +4621,7 @@ export const getDeviceOccupancyRules = (
 
     const { securitySystem } = pluginStorage.values;
     const { rulesKey } = ruleTypeMetadataMap[RuleType.Occupancy];
-    const occupancyRuleNames = deviceStorage.getItem(rulesKey) ?? [];
+    const occupancyRuleNames = safeParseJson<string[]>(deviceStorage.getItem(rulesKey), []);
 
     for (const occupancyRuleName of occupancyRuleNames) {
         const {
@@ -4642,15 +4658,15 @@ export const getDeviceOccupancyRules = (
 
         const { confirmation, forceCheck } = getOccupancyDefaults(rule.detectionSource);
 
-        const zoneOccupiedText = deviceStorage.getItem(zoneOccupiedTextKey) as string;
-        const zoneNotOccupiedText = deviceStorage.getItem(zoneNotOccupiedTextKey) as string;
-        const detectionClass = deviceStorage.getItem(detectionClassKey) as DetectionClass;
+        const zoneOccupiedText = safeParseJson<string>(deviceStorage.getItem(zoneOccupiedTextKey));
+        const zoneNotOccupiedText = safeParseJson<string>(deviceStorage.getItem(zoneNotOccupiedTextKey));
+        const detectionClass = safeParseJson<DetectionClass>(deviceStorage.getItem(detectionClassKey));
         const scoreThreshold = safeParseJson<number>(deviceStorage.getItem(scoreThresholdKey), 0.5);
         const changeStateConfirm = safeParseJson<number>(deviceStorage.getItem(changeStateConfirmKey), confirmation);
         const forceUpdate = safeParseJson<number>(deviceStorage.getItem(forceUpdateKey), forceCheck);
         const maxObjects = safeParseJson<number>(deviceStorage.getItem(maxObjectsKey), 1);
-        const observeZone = deviceStorage.getItem(zoneKey) as string;
-        const zoneMatchType = deviceStorage.getItem(zoneMatchTypeKey) as ZoneMatchType;
+        const observeZone = safeParseJson<string>(deviceStorage.getItem(zoneKey));
+        const zoneMatchType = safeParseJson<ZoneMatchType>(deviceStorage.getItem(zoneMatchTypeKey), ZoneMatchType.Intersect);
         const captureZone = safeParseJson<Point[]>(deviceStorage.getItem(captureZoneKey), []);
         const occupies = safeParseJson<boolean>(deviceStorage.getItem(occupiesKey), false);
         const confirmWithAi = safeParseJson<boolean>(deviceStorage.getItem(confirmWithAiKey), false);
@@ -4717,7 +4733,7 @@ export const getDeviceTimelapseRules = (
     const { securitySystem } = pluginStorage.values;
     const { rulesKey } = ruleTypeMetadataMap[RuleType.Timelapse];
 
-    const timelapseRuleNames = deviceStorage.getItem(rulesKey) ?? [];
+    const timelapseRuleNames = safeParseJson<string[]>(deviceStorage.getItem(rulesKey), []);
     for (const timelapseRuleName of timelapseRuleNames) {
         const {
             common: {
@@ -4743,11 +4759,11 @@ export const getDeviceTimelapseRules = (
             logger: console
         });
 
-        const customText = deviceStorage.getItem(textKey) as string;
-        const minDelay = deviceStorage.getItem(framesAcquisitionDelayKey) as number;
-        const timelapseFramerate = deviceStorage.getItem(timelapseFramerateKey) as number;
-        const lastGenerated = deviceStorage.getItem(lastGeneratedKey) as number;
-        const regularSnapshotInterval = deviceStorage.getItem(regularSnapshotIntervalKey) as number;
+        const customText = safeParseJson<string>(deviceStorage.getItem(textKey));
+        const minDelay = safeParseJson<number>(deviceStorage.getItem(framesAcquisitionDelayKey));
+        const timelapseFramerate = safeParseJson<number>(deviceStorage.getItem(timelapseFramerateKey));
+        const lastGenerated = safeParseJson<number>(deviceStorage.getItem(lastGeneratedKey));
+        const regularSnapshotInterval = safeParseJson<number>(deviceStorage.getItem(regularSnapshotIntervalKey));
 
         const timelapseRule: TimelapseRule = {
             ...rule,
@@ -4794,7 +4810,7 @@ export const getDeviceAudioRules = (
         const { securitySystem } = pluginStorage.values;
         const { rulesKey } = ruleTypeMetadataMap[RuleType.Audio];
 
-        const audioRuleNames = deviceStorage.getItem(rulesKey) ?? [];
+        const audioRuleNames = safeParseJson<string[]>(deviceStorage.getItem(rulesKey), []);
         for (const audioRuleName of audioRuleNames) {
             const {
                 common: {
@@ -4820,11 +4836,11 @@ export const getDeviceAudioRules = (
                 logger: console
             });
 
-            const customText = deviceStorage.getItem(textKey) as string;
-            const decibelThreshold = deviceStorage.getItem(decibelThresholdKey) as number ?? -30;
-            const audioDuration = deviceStorage.getItem(audioDurationKey) as number ?? 6;
-            const hitPercentage = deviceStorage.getItem(hitPercentageKey) as number || 80;
-            const minDelay = deviceStorage.getItem(minDelayKey) as number;
+            const customText = safeParseJson<string>(deviceStorage.getItem(textKey));
+            const decibelThreshold = safeParseJson<number>(deviceStorage.getItem(decibelThresholdKey), -30);
+            const audioDuration = safeParseJson<number>(deviceStorage.getItem(audioDurationKey), 6);
+            const hitPercentage = safeParseJson<number>(deviceStorage.getItem(hitPercentageKey), 80);
+            const minDelay = safeParseJson<number>(deviceStorage.getItem(minDelayKey));
 
             const audioRule: AudioRule = {
                 ...rule,
