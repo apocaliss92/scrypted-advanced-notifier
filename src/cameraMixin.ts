@@ -2243,7 +2243,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const { image, b64Image, imageSource } = await this.getImage({ reason: GetImageReason.RulesRefresh });
                 if (image && b64Image) {
                     if (anyOutdatedOccupancyRule) {
-                        this.checkOccupancyData({ image, b64Image, source: 'MainFlow' }).catch(logger.log);
+                        this.checkOccupancyData({ image, b64Image, imageSource, source: 'MainFlow' }).catch(logger.log);
                     }
 
                     if (anyTimelapseToRefresh) {
@@ -2313,9 +2313,11 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     async checkOccupancyData(props: {
         image: MediaObject,
         b64Image: string,
+        imageSource: ImageSource,
         source: 'Detections' | 'MainFlow'
     }) {
-        const { image: imageParent, source } = props;
+        const { source } = props;
+        let { image: imageParent, b64Image, imageSource } = props;
         const { occupancySourceForMqtt, enabledToMqtt } = this.mixinState.storageSettings.values;
 
         const shouldRun = !!this.mixinState.runningOccupancyRules.length || occupancySourceForMqtt !== OccupancySource.Off;
@@ -2326,7 +2328,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         const logger = this.getLogger();
 
-        logger.info(`CheckOccupancyData from source ${source}: ${JSON.stringify({ hasImage: !!imageParent, processingOccupanceData: this.mixinState.processingOccupanceData })}`);
+        logger.info(`CheckOccupancyData from source ${source}: ${JSON.stringify({ hasImage: !!imageParent, imageSource, processingOccupanceData: this.mixinState.processingOccupanceData })}`);
         if (this.mixinState.processingOccupanceData) {
             return;
         }
@@ -2336,8 +2338,22 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
 
         const now = Date.now();
+        const frigateTriggerTimeShiftMs = 5_000;
 
         try {
+            if (imageParent && imageSource === ImageSource.Input) {
+                const logger = this.getLogger();
+                logger.info(`Incoming occupancy imageSource is Input, refetching image without eventId/detectionId`);
+
+                const refetchReason = source === 'MainFlow' ? GetImageReason.RulesRefresh : GetImageReason.ObjectUpdate;
+                const refetched = await this.getImage({ reason: refetchReason });
+                if (refetched?.image && refetched?.b64Image) {
+                    imageParent = refetched.image;
+                    b64Image = refetched.b64Image;
+                    imageSource = refetched.imageSource;
+                }
+            }
+
             if (
                 !this.isDelayPassed({
                     type: DelayType.OccupancyRegularCheck
@@ -2490,7 +2506,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     occupancyRulesDataTmpMap[name] = {
                         rule: occupancyRule,
                         occupies,
-                        triggerTime: now,
+                        triggerTime: isFrigate ? (now - frigateTriggerTimeShiftMs) : now,
                         objectsDetected: objectsDetected,
                         image,
                         objectsDetectedResult: [detectedResult]
@@ -2505,6 +2521,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             for (const occupancyRuleTmpData of Object.values(occupancyRulesDataTmpMap)) {
                 const { rule, image } = occupancyRuleTmpData;
                 const { name, changeStateConfirm } = rule;
+                const isFrigate = rule.detectionSource === ScryptedEventSource.Frigate;
                 const currentState = this.mixinState.occupancyState[name];
                 const lastChangeElpasedMs = now - (currentState?.lastChange ?? 0);
                 const tooOld = !currentState || lastChangeElpasedMs >= (1000 * 60 * 10); // Force an update every 10 minutes
@@ -2619,7 +2636,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                                 occupancyRulesData.push({
                                     ...occupancyRuleTmpData,
-                                    triggerTime: currentState.confirmationStart,
+                                    triggerTime: isFrigate ? ((currentState.confirmationStart ?? now) - frigateTriggerTimeShiftMs) : currentState.confirmationStart,
                                     changed: true,
                                     b64Image: currentState.b64Image,
                                 });
@@ -2669,7 +2686,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
                     occupancyRulesData.push({
                         ...occupancyRuleTmpData,
-                        triggerTime: currentState.confirmationStart,
+                        triggerTime: isFrigate ? ((currentState.confirmationStart ?? now) - frigateTriggerTimeShiftMs) : currentState.confirmationStart,
                         changed: false
                     });
 
@@ -3047,6 +3064,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 this.checkOccupancyData({
                     image,
                     b64Image,
+                    imageSource,
                     source: 'Detections'
                 }).catch(logger.log);
 

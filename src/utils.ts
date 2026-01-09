@@ -316,7 +316,6 @@ export enum ImageSource {
     Latest = 'Latest',
     Detector = 'Detector',
     Decoder = 'Decoder',
-    Frigate = 'Frigate',
 }
 
 export enum VideoclipSpeed {
