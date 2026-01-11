@@ -430,15 +430,30 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
                             b64Image = newB64Image;
                         }
 
-                        const { message } = await this.plugin.getNotificationContent({
-                            device: cameraDevice,
-                            notifier: this.notifierDevice,
-                            triggerTime,
-                            logger,
-                            b64Image,
-                            detection,
-                            eventType,
-                        });
+                        let message = '';
+
+                        if (aiEnabled) {
+                            const { transformedMessage } = await this.plugin.applyAiToMessage({
+                                b64Image,
+                                device: cameraDevice,
+                                logger,
+                                match: detection,
+                                message,
+                                triggerTime
+                            });
+                            message = transformedMessage;
+                        } else if (enableTranslations) {
+                            const { message: transformedMessage } = await this.plugin.getNotificationContent({
+                                device: cameraDevice,
+                                notifier: this.notifierDevice,
+                                triggerTime,
+                                logger,
+                                b64Image,
+                                detection,
+                                eventType,
+                            });
+                            message = transformedMessage;
+                        }
                         const tapToViewText = this.plugin.getTextKey({ notifierId: this.id, textKey: 'tapToViewText' });
 
                         if (keyToEdit === NotifierPayloadKey.Body) {
