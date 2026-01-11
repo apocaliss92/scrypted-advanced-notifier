@@ -5059,7 +5059,7 @@ export const getSnoozeId = (props: {
     }
 
     if (rule?.totalSnooze) {
-        return `${cameraId}_${specificIdentifier}_${priority}`;
+        return `${cameraId}_${specificIdentifier}`;
     } else {
         return `${cameraId}_${notifierId}_${specificIdentifier}_${priority}`;
     }
