@@ -1438,6 +1438,7 @@ export const subscribeToNotifierMqttTopics = async (
         device,
         switchNotificationsEnabledCb,
         snoozeCb,
+        console,
     } = props;
 
     if (!mqttClient) {
@@ -1469,11 +1470,15 @@ export const subscribeToNotifierMqttTopics = async (
         await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
             if (messageTopic === commandTopic) {
                 const payload = safeParseJson(message);
-                const { snoozeId, snoozeTime, cameraId } = payload;
+                try {
+                    const { snoozeId, snoozeTime, cameraId } = payload;
 
-                if (cameraId && snoozeId && snoozeTime) {
-                    snoozeCb({ cameraId, snoozeId, snoozeTime: Number(snoozeTime) });
-                    await mqttClient.publish(commandTopic, '', true);
+                    if (cameraId && snoozeId && snoozeTime) {
+                        snoozeCb({ cameraId, snoozeId, snoozeTime: Number(snoozeTime) });
+                        await mqttClient.publish(commandTopic, '', true);
+                    }
+                } catch (e) {
+                    console.error(`Error processing snooze command: ${message} ${commandTopic} ${stateTopic} ${snoozeEntity}`, e);
                 }
             }
         });
