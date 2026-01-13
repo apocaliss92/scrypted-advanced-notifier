@@ -480,7 +480,7 @@ export const getAssetsParams = async (props: {
     const { plugin } = props;
 
     const logger = plugin.getLogger();
-    
+
     try {
         const hasCloudPlugin = plugin.hasCloudPlugin;
         const { assetsOriginSource } = plugin.storageSettings.values;
@@ -519,9 +519,6 @@ export const getAssetsParams = async (props: {
         const localEndpointUrl = new URL(localSecureUrl);
         const localAssetsOrigin = localEndpointUrl.origin;
 
-        const cloudEndpointUrl = new URL(cloudSecureEndpoint);
-        const cloudAssetsOrigin = cloudEndpointUrl.origin;
-
         const { privateKey } = plugin.storageSettings.values;
         const searchParams = new URLSearchParams();
         searchParams.set('secret', privateKey);
@@ -533,7 +530,6 @@ export const getAssetsParams = async (props: {
         return {
             paramString,
             assetsOrigin,
-            cloudAssetsOrigin,
             localAssetsOrigin,
             localEndpoint,
             cloudEndpoint: cloudSecureEndpoint,

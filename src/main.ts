@@ -845,7 +845,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 localEndpoint,
             })}`);
 
-            if (localInsecureUrl) {
+            if (localInsecureUrl && this.storageSettings.values.assetsOriginSource === AssetOriginSource.CloudSecure) {
                 this.storageSettings.values.assetsOriginSource = AssetOriginSource.LocalInsecure;
             }
         }
