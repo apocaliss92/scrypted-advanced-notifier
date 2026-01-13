@@ -5,9 +5,10 @@ import child_process from 'child_process';
 import { once } from "events";
 import fs from 'fs';
 import https from 'https';
-import { cloneDeep, isEqual, keyBy, max, sortBy, uniq } from 'lodash';
+import { cloneDeep, isEqual, max, sortBy, uniq } from 'lodash';
 import path from 'path';
 import { applySettingsShow, BasePlugin, BaseSettingsKey, getBaseSettings, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { getFrigatePluginSettings } from "../../scrypted-frigate-bridge/src/utils";
 import { getRpcData } from '../../scrypted-monitor/src/utils';
 import { ffmpegFilterImageBuffer } from "../../scrypted/plugins/snapshot/src/ffmpeg-image-filter";
 import { name as pluginName } from '../package.json';
@@ -28,7 +29,6 @@ import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { CameraMixinState, OccupancyRuleData } from "./states";
 import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, calculateSize, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, DevNotifications, ExtendedNotificationAction, formatSize, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getActiveRules, getAllAvailableUrls, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getBaseRuleDefaults, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRecordingRules, getRecordingRulesSettings, getRuleKeys, getSequenceObject, getSequencesSettings, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, OccupancySource, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RecordingRule, RuleActionsSequence, RuleActionType, ruleSequencesGroup, ruleSequencesKey, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType, ZENTIK_PLUGIN_ID, ZonesSource } from "./utils";
 import { parseVideoFileName } from "./videoRecorderUtils";
-import { getFrigatePluginSettings } from "../../scrypted-frigate-bridge/src/utils";
 
 const { systemManager, mediaManager } = sdk;
 
@@ -105,7 +105,6 @@ export type PluginSettingKey =
     | 'postProcessingZonesColor'
     | 'postProcessingZonesStrokeWidth'
     | 'includeUserToken'
-    | 'eventsDbsRemoved612'
     | BaseSettingsKey
     | TextSettingKey;
 
@@ -706,10 +705,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             type: 'number',
             defaultValue: 3,
         },
-        eventsDbsRemoved612: {
-            type: 'boolean',
-            hide: true,
-        }
     };
     storageSettings = new StorageSettings(this, this.initStorage);
 
@@ -929,34 +924,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         } catch {
             logger.log(`Creating dbs folder at ${dbsPath}`);
             await fs.promises.mkdir(dbsPath, { recursive: true });
-        }
-
-        if (!this.storageSettings.values.eventsDbsRemoved612) {
-            logger.log(`Initiating old DBs migration`);
-            const pluginVolume = process.env.SCRYPTED_PLUGIN_VOLUME;
-            const oldDbsPath = path.join(pluginVolume, 'dbs', 'events');
-            const { dbsPath } = this.getEventPaths({});
-
-            try {
-                const files = await fs.promises.readdir(oldDbsPath);
-                logger.log(`Found old DB files: ${files}`);
-                for (const file of files) {
-                    if (file.endsWith('.json')) {
-                        const src = path.join(oldDbsPath, file);
-                        const dest = path.join(dbsPath, file);
-                        logger.log(`Copying old DB file from ${src} to ${dest}`);
-                        await fs.promises.copyFile(src, dest);
-                    }
-                }
-
-                await fs.promises.rm(path.join(pluginVolume, 'dbs'), { recursive: true, force: true });
-
-                logger.log(`${files.length} DBs moved`);
-            } catch (e) {
-                logger.log('Error moving old DBs', e);
-            } finally {
-                this.storageSettings.values.eventsDbsRemoved612 = true;
-            }
         }
     }
 
