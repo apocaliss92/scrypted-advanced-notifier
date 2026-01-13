@@ -3977,6 +3977,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const facesSourceForMqtt = this.facesSourceForMqtt;
         let triggerTime = triggerTimeParent ?? Date.now();
 
+        logger.info(`Raw detections received: ${JSON.stringify({ detect, eventDetails, hasImage: !!parentImage, eventSource })}`)
+
         if (!detections?.length) {
             return;
         }

@@ -2026,7 +2026,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     const pluginPendingResults = pluginStats?.pendingResults;
                     const pluginRpcObjects = pluginStats?.rpcObjects;
 
-                    logger.info(`PLUGIN-STUCK-CHECK: active devices ${activeDevices}, pending results ${pluginPendingResults} RPC objects ${pluginRpcObjects}`);
+                    logger.debug(`PLUGIN-STUCK-CHECK: active devices ${activeDevices}, pending results ${pluginPendingResults} RPC objects ${pluginRpcObjects}`);
 
                     const camerasHardCap = MAX_RPC_OBJECTS_PER_CAMERA * activeCameras;
                     const sensorsHardCap = MAX_RPC_OBJECTS_PER_SENSOR * activeSensors;
