@@ -844,10 +844,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 cloudEndpoint,
                 localEndpoint,
             })}`);
-
-            if (localInsecureUrl && this.storageSettings.values.assetsOriginSource === AssetOriginSource.CloudSecure) {
-                this.storageSettings.values.assetsOriginSource = AssetOriginSource.LocalInsecure;
-            }
         }
 
         const objDetectionPlugin = systemManager.getDeviceByName<Settings>(SCRYPTED_NVR_OBJECT_DETECTION_NAME);
@@ -1811,7 +1807,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     private async initPluginSettings() {
         const logger = this.getLogger();
-        let defaultAssetOriginSource = AssetOriginSource.LocalSecure;
+        let defaultAssetOriginSource = AssetOriginSource.LocalInsecure;
+
         const assetsOriginSources = [
             AssetOriginSource.LocalSecure,
             AssetOriginSource.LocalInsecure,
@@ -1819,18 +1816,19 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         ];
 
         if (this.hasCloudPlugin) {
-            const localAddresses = await sdk.endpointManager.getLocalAddresses();
             const mo = await mediaManager.createMediaObject('', 'text/plain')
             const serverId: string = await mediaManager.convertMediaObject(mo, ScryptedMimeTypes.ServerId);
 
             logger.log(`Server id found: ${serverId}`);
             await this.putSetting('serverId', serverId);
 
-            logger.log(`Local addresses found: ${localAddresses}`);
-            await this.putSetting('localAddresses', localAddresses);
             assetsOriginSources.unshift(AssetOriginSource.CloudSecure);
             defaultAssetOriginSource = AssetOriginSource.CloudSecure;
         }
+
+        const localAddresses = await sdk.endpointManager.getLocalAddresses();
+        logger.log(`Local addresses found: ${localAddresses}`);
+        await this.putSetting('localAddresses', localAddresses);
 
         const {
             assetsOriginSource,
@@ -1840,11 +1838,13 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             clipDevice
         } = this.storageSettings.values;
 
-        this.storageSettings.settings.assetsOriginSource.choices = assetsOriginSources;
         if (!assetsOriginSources.includes(assetsOriginSource)) {
             logger.log(`Setting assets origin to ${defaultAssetOriginSource}`);
             this.storageSettings.values.assetsOriginSource = defaultAssetOriginSource;
         }
+
+        this.storageSettings.settings.assetsOriginSource.choices = assetsOriginSources;
+        this.storageSettings.settings.assetsOriginSource.defaultValue = defaultAssetOriginSource;
 
         if (haEnabled) {
             await this.generateHomeassistantHelpers();
