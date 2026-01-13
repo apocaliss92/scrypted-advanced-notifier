@@ -844,6 +844,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 cloudEndpoint,
                 localEndpoint,
             })}`);
+
+            if (localInsecureUrl) {
+                this.storageSettings.values.assetsOriginSource = AssetOriginSource.LocalInsecure;
+            }
         }
 
         const objDetectionPlugin = systemManager.getDeviceByName<Settings>(SCRYPTED_NVR_OBJECT_DETECTION_NAME);

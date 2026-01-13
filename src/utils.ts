@@ -438,11 +438,27 @@ export const getWebhooks = async () => {
 }
 
 export const getAllAvailableUrls = async (hasCloudPlugin: boolean) => {
-    const cloudSecureEndpoint = hasCloudPlugin ? await sdk.endpointManager.getCloudEndpoint(undefined, { public: true }) : undefined;
-    const localSecureUrl = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true });
-    const localInsecureUrl = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true, insecure: true });
-    const privatePath = await endpointManager.getPath(undefined, { public: false });
-    const publicPath = await endpointManager.getPath(undefined, { public: true });
+    let cloudSecureEndpoint: string;
+    let localSecureUrl: string;
+    let localInsecureUrl: string;
+    let privatePath: string;
+    let publicPath: string;
+
+    if (hasCloudPlugin) {
+        try {
+            cloudSecureEndpoint = await sdk.endpointManager.getCloudEndpoint(undefined, { public: true })
+        } catch { }
+    }
+    try {
+        localSecureUrl = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true });
+    } catch { }
+    try {
+        localInsecureUrl = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true, insecure: true });
+    } catch { }
+    try {
+        privatePath = await endpointManager.getPath(undefined, { public: false });
+        publicPath = await endpointManager.getPath(undefined, { public: true });
+    } catch { }
 
     return {
         cloudSecureEndpoint,
@@ -461,10 +477,12 @@ export const isDetectionRule = (rule: BaseRule) => [
 export const getAssetsParams = async (props: {
     plugin: AdvancedNotifierPlugin,
 }) => {
+    const { plugin } = props;
+
+    const logger = plugin.getLogger();
+    
     try {
-        const { plugin } = props;
         const hasCloudPlugin = plugin.hasCloudPlugin;
-        const logger = plugin.getLogger();
         const { assetsOriginSource } = plugin.storageSettings.values;
         const localEndpoint = await sdk.endpointManager.getLocalEndpoint(undefined, { public: true });
 
@@ -475,6 +493,7 @@ export const getAssetsParams = async (props: {
             privatePath,
             publicPath
         } = await getAllAvailableUrls(hasCloudPlugin);
+
         let endpointRaw: string;
 
         if (assetsOriginSource === AssetOriginSource.LocalSecure) {
@@ -521,7 +540,8 @@ export const getAssetsParams = async (props: {
             privatePathname: privatePath,
             publicPathnamePrefix: publicPath
         };
-    } catch {
+    } catch (e) {
+        logger.error('Error getting assets params', e);
         return {}
     }
 }
