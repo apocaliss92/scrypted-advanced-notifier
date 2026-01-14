@@ -1872,9 +1872,13 @@ export const publishResetRuleEntities = async (props: {
 
 export const getClassnameEntities = async (props: { device: DeviceInterface, detection: ObjectDetectionResult }) => {
     const { detection, device } = props;
-    const objectTypes = await device.getObjectTypes();
+    let objectTypes: string[] = [];
 
-    let detectionClass = objectTypes.classes.includes(detection.className) ?
+    if (device.interfaces.includes(ScryptedInterface.ObjectDetector)) {
+        objectTypes = (await device.getObjectTypes()).classes;
+    }
+
+    let detectionClass = objectTypes.includes(detection.className) ?
         detection.className :
         detectionClassesDefaultMap[detection.className];
 
