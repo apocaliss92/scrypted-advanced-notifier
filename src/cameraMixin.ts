@@ -729,6 +729,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                         mqttUsename,
                         mqttPassword,
                         clientId: this.mixinState.clientId,
+                        cache: this.plugin.storageSettings.values.mqttMemoryCacheEnabled,
                         configTopicPattern: `homeassistant/+/${idPrefix}-${this.id}/+/config`
                     });
                     await this.mixinState.mqttClient?.getMqttClient();
@@ -1004,12 +1005,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                                     console: logger,
                                     rules: allAvailableRules,
                                     zones,
-                                    migrateLegacyDiscovery: !this.plugin.storageSettings.values.mqttDiscoveryMigratedV2,
                                 });
-
-                                if (!this.plugin.storageSettings.values.mqttDiscoveryMigratedV2) {
-                                    this.plugin.storageSettings.values.mqttDiscoveryMigratedV2 = true;
-                                }
 
                                 logger.debug(`Subscribing to mqtt topics`);
                                 await subscribeToCameraMqttTopics({

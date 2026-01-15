@@ -46,11 +46,10 @@ export type PluginSettingKey =
     | 'nvrUrl'
     | 'mqttActiveEntitiesTopic'
     | 'mqttResetAllTopics'
-    | 'mqttDiscoveryMigratedV2'
+    | 'mqttMemoryCacheEnabled'
     | 'detectionSourceForMqtt'
     | 'facesSourceForMqtt'
     | 'zonesSourceForMqtt'
-    // | 'occupancySourceForMqtt'
     | 'onActiveDevices'
     | 'objectDetectionDevice'
     | 'clipDevice'
@@ -212,11 +211,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 await this.resetAllMqttTopicsAndRediscover();
             },
         },
-        mqttDiscoveryMigratedV2: {
+        mqttMemoryCacheEnabled: {
+            title: 'Cache topics in memory',
+            description: 'Enable caching of MQTT topics in memory to reduce MQTT broker load. Recommended for large installations or when using cloud MQTT brokers.',
+            subgroup: 'MQTT',
             type: 'boolean',
-            hide: true,
-            defaultValue: false,
-            immediate: true,
+            defaultValue: true,
         },
         detectionSourceForMqtt: {
             title: 'Detections source',
@@ -1566,7 +1566,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     async getMqttClient() {
         try {
             if (!this.mqttClient && !this.initializingMqtt) {
-                const { mqttEnabled, useMqttPluginCredentials, pluginEnabled, mqttHost, mqttUsename, mqttPassword } = this.storageSettings.values;
+                const { mqttMemoryCacheEnabled, mqttEnabled, useMqttPluginCredentials, pluginEnabled, mqttHost, mqttUsename, mqttPassword } = this.storageSettings.values;
                 if (mqttEnabled && pluginEnabled) {
                     this.initializingMqtt = true;
                     const logger = this.getLogger();
@@ -1584,6 +1584,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                             mqttUsename,
                             mqttPassword,
                             clientId: `scrypted_an`,
+                            cache: mqttMemoryCacheEnabled,
                             configTopicPattern: `homeassistant/+/${idPrefix}-${this.pluginId}/+/config`
                         });
                         await this.mqttClient?.getMqttClient();
@@ -1733,12 +1734,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             sensors,
             notifiers,
             alarmSupportedModes,
-            includeLegacyDiscoveryTopics: true,
         });
-
-        if (!this.storageSettings.values.mqttDiscoveryMigratedV2) {
-            await this.storageSettings.putSetting('mqttDiscoveryMigratedV2', true);
-        }
     }
 
     private async updateOnActiveDevices(deviceIdentifiers: string[]) {
@@ -1931,7 +1927,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 await this.checkPluginConfigurations(false);
             }
 
-            const { mqttEnabled, notificationsEnabled, devNotifications, devNotifier, facesSourceForMqtt, mqttDiscoveryMigratedV2 } = this.storageSettings.values;
+            const { mqttEnabled, notificationsEnabled, devNotifications, devNotifier, facesSourceForMqtt } = this.storageSettings.values;
             if (mqttEnabled) {
                 const mqttClient = await this.getMqttClient();
                 if (mqttClient) {
@@ -1946,11 +1942,6 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                             people: await this.getKnownPeople(facesSourceForMqtt),
                             console: logger,
                             rules: availableRules,
-                            migrateLegacyDiscovery: !mqttDiscoveryMigratedV2,
-                        }).then(async () => {
-                            if (!this.storageSettings.values.mqttDiscoveryMigratedV2) {
-                                await this.storageSettings.putSetting('mqttDiscoveryMigratedV2', true);
-                            }
                         }).catch(logger.error);
 
                         await this.setupMqttEntities();

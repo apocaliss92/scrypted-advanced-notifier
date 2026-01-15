@@ -788,9 +788,8 @@ const clearTopicsForEntities = async (props: {
     mqttClient: MqttClient,
     device: MqttDeviceType,
     mqttEntities: MqttEntity[],
-    includeLegacyDiscoveryTopics?: boolean,
 }) => {
-    const { mqttClient, device, mqttEntities, includeLegacyDiscoveryTopics = true } = props;
+    const { mqttClient, device, mqttEntities } = props;
 
     // Clear V2 device discovery topic.
     await clearRetainedTopic(mqttClient, getDeviceDiscoveryTopicV2(device));
@@ -800,10 +799,6 @@ const clearTopicsForEntities = async (props: {
         await clearRetainedTopic(mqttClient, stateTopic);
         await clearRetainedTopic(mqttClient, commandTopic);
         await clearRetainedTopic(mqttClient, infoTopic);
-
-        if (includeLegacyDiscoveryTopics) {
-            await clearRetainedTopic(mqttClient, discoveryTopic);
-        }
     }
 }
 
@@ -816,7 +811,6 @@ export const resetAllPluginMqttTopicsAndRediscover = async (props: {
     sensors?: Array<{ device: ScryptedDeviceBase, rules: BaseRule[] }>,
     notifiers?: Array<{ device: ScryptedDeviceBase & Notifier }>,
     alarmSupportedModes?: SecuritySystemMode[],
-    includeLegacyDiscoveryTopics?: boolean,
 }) => {
     const {
         mqttClient,
@@ -827,7 +821,6 @@ export const resetAllPluginMqttTopicsAndRediscover = async (props: {
         sensors = [],
         notifiers = [],
         alarmSupportedModes,
-        includeLegacyDiscoveryTopics = true,
     } = props;
 
     if (!mqttClient) {
@@ -872,8 +865,8 @@ export const resetAllPluginMqttTopicsAndRediscover = async (props: {
 
     // Clear retained topics for all devices.
     console.log('Resetting all plugin MQTT retained topics and rediscovering');
-    await clearTopicsForEntities({ mqttClient, device: pluginId, mqttEntities: pluginEntities, includeLegacyDiscoveryTopics });
-    await clearTopicsForEntities({ mqttClient, device: peopleTrackerId, mqttEntities: peopleEntities, includeLegacyDiscoveryTopics });
+    await clearTopicsForEntities({ mqttClient, device: pluginId, mqttEntities: pluginEntities });
+    await clearTopicsForEntities({ mqttClient, device: peopleTrackerId, mqttEntities: peopleEntities });
 
     if (alarmSupportedModes) {
         const {
@@ -885,7 +878,7 @@ export const resetAllPluginMqttTopicsAndRediscover = async (props: {
             supportedFeatures: alarmSupportedModes.map(mode => AlarmSupportedFeatureToHaMap[mode]),
         }];
 
-        await clearTopicsForEntities({ mqttClient, device: alarmSystemId, mqttEntities: alarmEntities, includeLegacyDiscoveryTopics });
+        await clearTopicsForEntities({ mqttClient, device: alarmSystemId, mqttEntities: alarmEntities });
     }
 
     for (const camera of cameras) {
@@ -958,7 +951,7 @@ export const resetAllPluginMqttTopicsAndRediscover = async (props: {
         }
 
         mqttEntities.push(...getDetectionZoneEntities(camera.zones));
-        await clearTopicsForEntities({ mqttClient, device: camera.device, mqttEntities, includeLegacyDiscoveryTopics });
+        await clearTopicsForEntities({ mqttClient, device: camera.device, mqttEntities });
     }
 
     for (const sensor of sensors) {
@@ -975,7 +968,7 @@ export const resetAllPluginMqttTopicsAndRediscover = async (props: {
                 }
             }
         }
-        await clearTopicsForEntities({ mqttClient, device: sensor.device, mqttEntities, includeLegacyDiscoveryTopics });
+        await clearTopicsForEntities({ mqttClient, device: sensor.device, mqttEntities });
     }
 
     for (const notifier of notifiers) {
@@ -984,7 +977,6 @@ export const resetAllPluginMqttTopicsAndRediscover = async (props: {
             mqttClient,
             device: notifier.device,
             mqttEntities: [notificationsEnabledEntity],
-            includeLegacyDiscoveryTopics,
         });
     }
 

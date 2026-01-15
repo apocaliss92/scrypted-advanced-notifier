@@ -92,6 +92,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                         mqttUsename,
                         mqttPassword,
                         clientId: this.clientId,
+                        cache: this.plugin.storageSettings.values.mqttMemoryCacheEnabled,
                         configTopicPattern: `homeassistant/+/${idPrefix}-${this.id}/+/config`
                     });
                     await this.mqttClient?.getMqttClient();
@@ -176,11 +177,6 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                             device: this.sensorDevice,
                             console: logger,
                             rules: availableDetectionRules,
-                            migrateLegacyDiscovery: !this.plugin.storageSettings.values.mqttDiscoveryMigratedV2,
-                        }).then(async () => {
-                            if (!this.plugin.storageSettings.values.mqttDiscoveryMigratedV2) {
-                                this.plugin.storageSettings.values.mqttDiscoveryMigratedV2 = true;
-                            }
                         }).catch(logger.error);
 
                         logger.debug(`Subscribing to mqtt topics`);

@@ -317,11 +317,6 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                                 mqttClient,
                                 console: logger,
                                 supportedModes: this.securitySystemState.supportedModes,
-                                migrateLegacyDiscovery: !this.plugin.storageSettings.values.mqttDiscoveryMigratedV2,
-                            }).then(async () => {
-                                if (!this.plugin.storageSettings.values.mqttDiscoveryMigratedV2) {
-                                    await this.plugin.storageSettings.putSetting('mqttDiscoveryMigratedV2', true);
-                                }
                             }).catch(logger.error);
 
                             logger.log(`Subscribing to mqtt topics`);
@@ -479,6 +474,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                         mqttUsename,
                         mqttPassword,
                         clientId: this.clientId,
+                        cache: this.plugin.storageSettings.values.mqttMemoryCacheEnabled,
                         configTopicPattern: `homeassistant/+/${idPrefix}-${this.id}/+/config`
                     });
                     await this.mqttClient?.getMqttClient();
