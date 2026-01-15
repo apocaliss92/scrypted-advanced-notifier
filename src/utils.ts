@@ -5096,6 +5096,7 @@ export const getDetectionKey = (matchRule: MatchRule) => {
     return key;
 };
 export const getB64ImageLog = (b64Image: string) => `${b64Image ? b64Image?.substring(0, 10) + '...' : 'NO_IMAGE'}`;
+export const getUrlLog = (url?: string) => `${url ? url?.substring(0, 10) + '...' : 'NO_URL'}`;
 export const getDetectionsLog = (detections: ObjectDetectionResult[]) => uniq(detections.map(item => `${item.className}${item.label ? '-' + item.label : ''}`)).join(', ');
 export const getDetectionsLogShort = (detections: ObjectDetectionResult[]) => uniq(detections.map(item => `${(item.label ?? item.className)}`)).join('_');
 export const getRulesLog = (rulesToUpdate: MatchRule[]) => uniq(rulesToUpdate.map(getDetectionKey)).join(', ');

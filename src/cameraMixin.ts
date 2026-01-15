@@ -16,7 +16,7 @@ import AdvancedNotifierPlugin from "./main";
 import { ClassOccupancy, ClassZoneOccupancy, detectionClassForObjectsReporting, idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { CameraMixinState, CurrentOccupancyState, OccupancyRuleData, getInitOccupancyState } from "./states";
-import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, DecoderType, DelayType, DetectionRule, DetectionsPerZone, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_ID, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, OccupancySource, RecordingRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, ZoneWithPath, ZonesSource, b64ToMo, cachedReaddir, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRecordingRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, DecoderType, DelayType, DetectionRule, DetectionsPerZone, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_ID, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, OccupancySource, RecordingRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, ZoneWithPath, ZonesSource, b64ToMo, cachedReaddir, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRecordingRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getUrlLog, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
 import { VideoRtspFfmpegRecorder, getVideoClipName, parseVideoFileName } from "./videoRecorderUtils";
 
 const { systemManager } = sdk;
@@ -629,7 +629,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             let videoclipMo: MediaObject;
 
             if (videoUrl) {
-                logger.info('Fetching videoclip ', videoId, videoUrl);
+                logger.info('Fetching videoclip ', videoId, getUrlLog(videoUrl));
 
                 videoclipMo = await sdk.mediaManager.createMediaObject(Buffer.from(videoUrl), ScryptedMimeTypes.LocalUrl, {
                     sourceId: this.plugin.id
@@ -655,7 +655,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             let thumbnailMo: MediaObject;
 
             if (imageUrl) {
-                logger.info('Fetching thumbnail ', thumbnailId, imageUrl);
+                logger.info('Fetching thumbnail ', thumbnailId, getUrlLog(imageUrl));
 
                 const imageBuf = await fs.promises.readFile(imageUrl);
                 thumbnailMo = await sdk.mediaManager.createMediaObject(imageBuf, 'image/jpeg');
@@ -1233,7 +1233,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 const streamName = closestStream?.name;
                 const rebroadcastConfig = this.streams.find(setting => setting.subgroup === `Stream: ${streamName}`);
                 this.mixinState.rtspUrl = rebroadcastConfig?.value as string;
-                logger.log(`Stream found ${this.mixinState.decoderStream} (${this.mixinState.rtspUrl}), requires resize ${this.mixinState.decoderResize}`);
+                logger.log(`Stream found ${this.mixinState.decoderStream} (${getUrlLog(this.mixinState.rtspUrl)}), requires resize ${this.mixinState.decoderResize}`);
                 logger.info(`${JSON.stringify(closestStream)}`);
             } else {
                 logger.log(`Stream not found, falling back to remote-recorder`);
@@ -4649,13 +4649,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         if (audioAnalyzerCustomStreamUrl) {
             rtspUrl = audioAnalyzerCustomStreamUrl;
-            logger.log(`Rebroadcast URL manually set: ${rtspUrl})}`);
+            logger.log(`Rebroadcast URL manually set: ${getUrlLog(rtspUrl)}`);
         } else if (audioAnalyzerStreamName) {
             const rebroadcastConfig = this.streams.find(setting => setting.subgroup === `Stream: ${audioAnalyzerStreamName}`);
             rtspUrl = rebroadcastConfig?.value as string;
 
             logger.log(`Rebroadcast URL found: ${JSON.stringify({
-                url: rtspUrl,
+                url: getUrlLog(rtspUrl),
                 streamName: audioAnalyzerStreamName,
                 rebroadcastConfig
             })}`);
@@ -4795,13 +4795,13 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         if (videoRecorderCustomStreamUrl) {
             rtspUrl = videoRecorderCustomStreamUrl;
-            logger.log(`Rebroadcast URL manually set: ${rtspUrl})}`);
+            logger.log(`Rebroadcast URL manually set: ${getUrlLog(rtspUrl)}`);
         } else if (videoRecorderStreamName) {
             const rebroadcastConfig = this.streams.find(setting => setting.subgroup === `Stream: ${videoRecorderStreamName}`);
             rtspUrl = rebroadcastConfig?.value as string;
 
             logger.log(`Rebroadcast URL found: ${JSON.stringify({
-                url: rtspUrl,
+                url: getUrlLog(rtspUrl),
                 streamName: videoRecorderStreamName,
                 rebroadcastConfig
             })}`);

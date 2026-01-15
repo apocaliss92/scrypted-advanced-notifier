@@ -27,7 +27,7 @@ import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { CameraMixinState, OccupancyRuleData } from "./states";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, calculateSize, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, DevNotifications, ExtendedNotificationAction, formatSize, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getActiveRules, getAllAvailableUrls, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getBaseRuleDefaults, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRecordingRules, getRecordingRulesSettings, getRuleKeys, getSequenceObject, getSequencesSettings, getSnoozeId, getTextSettings, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, OccupancySource, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RecordingRule, RuleActionsSequence, RuleActionType, ruleSequencesGroup, ruleSequencesKey, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType, ZENTIK_PLUGIN_ID, ZonesSource } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, calculateSize, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, DevNotifications, ExtendedNotificationAction, formatSize, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getActiveRules, getAllAvailableUrls, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getBaseRuleDefaults, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRecordingRules, getRecordingRulesSettings, getRuleKeys, getSequenceObject, getSequencesSettings, getSnoozeId, getTextSettings, getUrlLog, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, OccupancySource, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RecordingRule, RuleActionsSequence, RuleActionType, ruleSequencesGroup, ruleSequencesKey, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType, ZENTIK_PLUGIN_ID, ZonesSource } from "./utils";
 import { parseVideoFileName } from "./videoRecorderUtils";
 
 const { systemManager, mediaManager } = sdk;
@@ -830,14 +830,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 publicPathnamePrefix,
             } = await getAssetsParams({ plugin: this });
             logger.log(`Cloud plugin not found, URLs available: ${JSON.stringify({
-                cloudSecureEndpoint,
-                localInsecureUrl,
-                localSecureUrl,
+                cloudSecureEndpoint: getUrlLog(cloudSecureEndpoint),
+                localInsecureUrl: getUrlLog(localInsecureUrl),
+                localSecureUrl: getUrlLog(localSecureUrl),
                 privatePathname,
-                publicPathnamePrefix,
-                assetsOrigin,
-                cloudEndpoint,
-                localEndpoint,
+                publicPathnamePrefix: getUrlLog(publicPathnamePrefix),
+                assetsOrigin: getUrlLog(assetsOrigin),
+                cloudEndpoint: getUrlLog(cloudEndpoint),
+                localEndpoint: getUrlLog(localEndpoint),
             })}`);
         }
 
@@ -852,7 +852,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if (frigatePlugin) {
             const settings = await frigatePlugin.getSettings();
             const serverUrl = settings.find(setting => setting.key === 'serverUrl')?.value as string;
-            logger.log(`Frigate API found ${serverUrl}`);
+            logger.log(`Frigate API found ${getUrlLog(serverUrl)}`);
 
             try {
                 await axios.get(`${serverUrl}/config`, { timeout: 5000 });
@@ -2719,9 +2719,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             logger.log(`${rule.notifiers.length} notifiers will be notified: ${JSON.stringify({
                 rule,
-                gifUrl,
-                videoUrl,
-                imageUrl,
+                gifUrl: getUrlLog(gifUrl),
+                videoUrl: getUrlLog(videoUrl),
+                imageUrl: getUrlLog(imageUrl),
                 assetsOriginSource: this.storageSettings.values.assetsOriginSource
             })} `);
 
@@ -3077,9 +3077,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             logger.log(`${rule.notifiers.length} notifiers will be notified with image from ${imageSource}: ${JSON.stringify({
                 match,
                 rule,
-                videoUrl,
-                gifUrl,
-                imageUrl,
+                videoUrl: getUrlLog(videoUrl),
+                gifUrl: getUrlLog(gifUrl),
+                imageUrl: getUrlLog(imageUrl),
                 assetsOriginSource: this.storageSettings.values.assetsOriginSource
             })} `);
 
@@ -3372,6 +3372,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         } = props;
 
         if (!notifier) {
+            logger?.error?.('getNotificationContent: notifier is undefined, skipping notification content generation.');
             return {};
         }
         const { notifierData } = rule ?? {};
@@ -3381,8 +3382,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { withActions, withSnoozing, withSound, withOpenInApp, withChannel, withNotificationIcon,
             withClearNotification, withDeleteNotification, withOpenNotification } = getNotifierData({ notifierId, ruleType: rule?.ruleType });
         const cameraMixin = cameraId ? this.currentCameraMixinsMap[cameraId] : undefined;
-        const notifierMixin = this.currentNotifierMixinsMap[notifierId];
-        const { notifierActions } = cameraMixin?.mixinState.storageSettings.values ?? {}
+        if (cameraId && !cameraMixin) {
+            logger?.error?.(`getNotificationContent: camera mixin not found for cameraId ${cameraId}`);
+        }
+        if (cameraMixin && !cameraMixin?.mixinState?.storageSettings) {
+            logger?.error?.(`getNotificationContent: storageSettings not available for cameraId ${cameraId}`);
+        }
+
+        const { notifierActions } = cameraMixin?.mixinState?.storageSettings?.values ?? {};
         const { haUrl, externalUrl, timelinePart } = this.getUrls(cameraId, triggerTime);
         const deviceLogger = this.getLogger(device);
 
@@ -3812,6 +3819,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
 
             const notifier = systemManager.getDeviceById<DeviceInterface>(notifierId);
+            if (!notifier) {
+                logger.error(`notifyDetection: notifier not found for notifierId ${notifierId} (rule ${rule?.name ?? 'unknown'})`);
+                return;
+            }
 
             let title = (triggerDevice ?? device).name;
 
@@ -3887,15 +3898,32 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             gifUrl,
             imageUrl,
         } = props;
-        const cameraMixin = this.currentCameraMixinsMap[device.id];
-        const logger = loggerParent ?? cameraMixin.getLogger();
+        const cameraId = device?.id;
+        const cameraMixin = cameraId ? this.currentCameraMixinsMap[cameraId] : undefined;
+        const logger = loggerParent ?? cameraMixin?.getLogger?.() ?? this.getLogger(device);
+
+        if (!notifier) {
+            logger?.error?.(`sendNotificationInternal: notifier is undefined (cameraId ${cameraId ?? 'unknown'}, rule ${rule?.name ?? 'unknown'})`);
+            return;
+        }
+        if (!device) {
+            logger?.error?.(`sendNotificationInternal: device is undefined (notifierId ${notifier?.id ?? 'unknown'}, rule ${rule?.name ?? 'unknown'})`);
+            return;
+        }
+        if (!rule) {
+            logger?.error?.(`sendNotificationInternal: rule is undefined (cameraId ${cameraId ?? 'unknown'}, notifierId ${notifier?.id ?? 'unknown'})`);
+            return;
+        }
+        if (cameraId && !cameraMixin) {
+            logger?.error?.(`sendNotificationInternal: camera mixin not found for cameraId ${cameraId}`);
+        }
 
         let title = titleParent;
         if (!title) {
-            title = device.name;
+            title = device?.name ?? 'Unknown device';
         }
 
-        const { payload, message } = await this.getNotificationContent({
+        const content = await this.getNotificationContent({
             device,
             notifier,
             rule,
@@ -3911,6 +3939,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             clickUrl,
             gifUrl,
         });
+
+        const payload = content?.payload ?? {};
+        const message = content?.message ?? messageParent;
 
         const notifierOptions: NotifierOptions = {
             body: message,
@@ -4306,7 +4337,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         }).timePassed
                     ) {
                         for (const url of postDetectionImageUrls) {
-                            logger.log(`Posting ${className} image to ${url}, ${timestamp} ${label}`);
+                            logger.log(`Posting ${className} image to ${getUrlLog(url)}, ${timestamp} ${label}`);
                             try {
                                 await axios.post(url, {
                                     classname: className,
@@ -4316,7 +4347,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                                     name: filename
                                 }, { timeout: 5000 })
                             } catch (e) {
-                                logger.log(`Error webhook POST ${url}: ${e.message}`);
+                                logger.log(`Error webhook POST ${getUrlLog(url)}: ${e.message}`);
                             }
                         }
                     }
