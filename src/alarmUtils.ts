@@ -233,7 +233,7 @@ export const haAlarmAutomation = {
     "condition": [
         {
             "condition": "template",
-            "value_template": "{{ trigger.event.data.action_name is match('scrypted_an_alarm_.*') or trigger.event.data.action is match('scrypted_an_alarm.*') }}"
+            "value_template": "{{ trigger.event.data.action_name is defined and trigger.event.data.action_name is match('scrypted_an_alarm_.*') or trigger.event.data.action is defined and trigger.event.data.action is match('scrypted_an_alarm.*') }}"
         }
     ],
     "action": [

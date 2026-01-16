@@ -217,6 +217,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             subgroup: 'MQTT',
             type: 'boolean',
             defaultValue: true,
+            immediate: true,
         },
         detectionSourceForMqtt: {
             title: 'Detections source',
