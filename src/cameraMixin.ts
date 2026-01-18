@@ -455,8 +455,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     audioClassificationLabels: string[];
     audioClassifier: ObjectDetection;
 
-    streams: any[] = [];
+    streams: Setting[] = [];
     hasFrigateObjectDetectorMixin: boolean;
+    hasNvr: boolean;
 
     constructor(
         options: SettingsMixinDeviceOptions<any>,
@@ -686,7 +687,9 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const thisMixinOrder = this.mixins.indexOf(this.plugin.id);
 
         const frigateObjectDetectorMixinOrder = this.mixins.indexOf(frigateObjectDetector);
+        const nvrObjectDetectorMixinOrder = nvrObjectDetector ? this.mixins.indexOf(nvrObjectDetector) : -1;
         this.hasFrigateObjectDetectorMixin = frigateObjectDetectorMixinOrder >= 0;
+        this.hasNvr = nvrObjectDetectorMixinOrder >= 0;
 
         if (nvrObjectDetector && this.mixins.indexOf(nvrObjectDetector) > thisMixinOrder) {
             shouldBeMoved = true

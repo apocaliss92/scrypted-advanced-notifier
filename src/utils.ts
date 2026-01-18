@@ -2172,6 +2172,9 @@ export const getRuleSettings = async (props: {
     const isAudioRule = ruleType === RuleType.Audio;
     const isRecordingRule = ruleType === RuleType.Recording;
     const { isCamera } = !isPlugin ? isDeviceSupported(device) : {};
+    const cameraMixin = isCamera ? plugin.currentCameraMixinsMap[device.id] : undefined;
+
+    const hasNvr = isPlugin ? !!plugin.nvrObjectDetectionDevice : cameraMixin.hasNvr
 
     const rules = safeParseJson<string[]>(storage.getItem(rulesKey), []);
     for (const ruleName of rules) {
@@ -2255,6 +2258,11 @@ export const getRuleSettings = async (props: {
         if ((isOccupancyRule || isDetectionRule)) {
             if (isCamera || isPlugin) {
                 let choices = plugin.enabledDetectionSources;
+
+                if (!hasNvr) {
+                    choices = choices.filter(source => source !== ScryptedEventSource.NVR);
+                }
+
                 if (isOccupancyRule) {
                     choices = choices.filter(source => ![
                         ScryptedEventSource.All,
@@ -2262,13 +2270,15 @@ export const getRuleSettings = async (props: {
                         ScryptedEventSource.NVR,
                     ].includes(source));
                 }
+
                 settings.push(
+
                     {
                         key: detectionSourceKey,
                         title: 'Detections source',
                         description: 'Select which detections should be used. The snapshots will come from the same source',
                         type: 'string',
-                        defaultValue: plugin.defaultDetectionSource,
+                        defaultValue: hasNvr ? ScryptedEventSource.NVR : ScryptedEventSource.RawDetection,
                         group,
                         subgroup,
                         immediate: true,
