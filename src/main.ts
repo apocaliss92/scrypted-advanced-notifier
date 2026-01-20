@@ -47,6 +47,8 @@ export type PluginSettingKey =
     | 'mqttActiveEntitiesTopic'
     | 'mqttResetAllTopics'
     | 'mqttMemoryCacheEnabled'
+    | 'updateFrequencyMotionImagesInSeconds'
+    | 'updateFrequencyObjectImagesInSeconds'
     | 'detectionSourceForMqtt'
     | 'facesSourceForMqtt'
     | 'zonesSourceForMqtt'
@@ -217,6 +219,22 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             subgroup: 'MQTT',
             type: 'boolean',
             defaultValue: true,
+            immediate: true,
+        },
+        updateFrequencyMotionImagesInSeconds: {
+            title: 'Motion image update frequency (seconds)',
+            description: 'Minimum seconds between MQTT image updates for motion when using non-NVR sources (decoder/raw). Defaults to the camera min MQTT publish delay behavior.',
+            subgroup: 'MQTT',
+            type: 'number',
+            defaultValue: 5,
+            immediate: true,
+        },
+        updateFrequencyObjectImagesInSeconds: {
+            title: 'Object image update frequency (seconds)',
+            description: 'Minimum seconds between MQTT image updates for object detections when using non-NVR sources (decoder/raw). Defaults to the camera min MQTT publish delay behavior.',
+            subgroup: 'MQTT',
+            type: 'number',
+            defaultValue: 5,
             immediate: true,
         },
         detectionSourceForMqtt: {
@@ -2235,7 +2253,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const logger = this.getLogger();
 
             for (const sequence of sequences) {
-                let canExecute = false;
+                let canExecute = !deviceId;
                 if (deviceId) {
                     const cameraMixin = deviceId ? this.currentCameraMixinsMap[deviceId] : undefined;
                     const { timePassed } = cameraMixin.isDelayPassed({
@@ -2398,6 +2416,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             // this.storageSettings.settings.occupancySourceForMqtt.hide = !mqttEnabled;
             this.storageSettings.settings.mqttActiveEntitiesTopic.hide = !mqttEnabled;
             this.storageSettings.settings.mqttResetAllTopics.hide = !mqttEnabled;
+            this.storageSettings.settings.updateFrequencyMotionImagesInSeconds.hide = !mqttEnabled;
+            this.storageSettings.settings.updateFrequencyObjectImagesInSeconds.hide = !mqttEnabled;
 
             this.storageSettings.settings.scryptedToken.hide = !haEnabled;
 

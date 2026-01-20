@@ -1,6 +1,6 @@
 import { SecuritySystemMode } from "@scrypted/sdk";
 import { StorageSetting, StorageSettings } from "@scrypted/sdk/storage-settings";
-import { ExtendedNotificationAction, getAssetsParams, getWebhooks, safeParseJson, sensorsFilter } from "./utils";
+import { ExtendedNotificationAction, getAssetsParams, getSequenceObject, getWebhooks, RuleActionsSequence, ruleSequencesKey, safeParseJson, sensorsFilter } from "./utils";
 import AdvancedNotifierPlugin from "./main";
 
 export enum AlarmEvent {
@@ -24,11 +24,18 @@ export const getAlarmKeys = (props: {
     const autoDisarmTimeKey = `${mode}:autoDisarmTime`;
     const autoRiarmTimeKey = `${mode}:autoRiarmTime`;
 
+    const activationSequencesKey = `${mode}:activationSequences`;
+    const deactivationSequencesKey = `${mode}:deactivationSequences`;
+    const triggerSequencesKey = `${mode}:triggerSequences`;
+
     return {
         bypassableDevicesKey,
         preActivationTimeKey,
         autoDisarmTimeKey,
         autoRiarmTimeKey,
+        activationSequencesKey,
+        deactivationSequencesKey,
+        triggerSequencesKey,
     };
 };
 
@@ -40,6 +47,12 @@ export const getAlarmDefaults = (props: { mode: SecuritySystemMode }) => {
     let autoRiarmTime: number;
 
     switch (mode) {
+        case (SecuritySystemMode.Disarmed): {
+            preactivationTime = 0;
+            autoDisarmTime = 0;
+            autoRiarmTime = 0;
+            break;
+        }
         case (SecuritySystemMode.AwayArmed): {
             preactivationTime = 30;
             autoRiarmTime = 60;
@@ -66,13 +79,17 @@ export const getAlarmDefaults = (props: { mode: SecuritySystemMode }) => {
 
 export const getAlarmSettings = (props: {
     mode: SecuritySystemMode,
+    sequenceNames: string[],
 }) => {
-    const { mode } = props;
+    const { mode, sequenceNames } = props;
     const {
         bypassableDevicesKey,
         preActivationTimeKey,
         autoDisarmTimeKey,
         autoRiarmTimeKey,
+        activationSequencesKey,
+        deactivationSequencesKey,
+        triggerSequencesKey,
     } = getAlarmKeys({ mode });
     const { autoDisarmTime, preactivationTime, autoRiarmTime } = getAlarmDefaults({ mode });
     const group = `Mode: ${mode}`;
@@ -112,13 +129,114 @@ export const getAlarmSettings = (props: {
         defaultValue: autoRiarmTime,
     };
 
-    return [
-        bypassableDevicesSetting,
-        preActivationTimeSetting,
-        autoDisarmTimeSetting,
-        autoRiarmTimeSetting,
-    ];
+    const activationSequencesSetting: StorageSetting = {
+        key: activationSequencesKey,
+        title: 'Activation sequences',
+        description: 'Sequences to execute when the mode is effectively activated (after pre-activation delay)',
+        group,
+        type: 'string',
+        multiple: true,
+        combobox: true,
+        choices: sequenceNames,
+        defaultValue: [],
+        immediate: true,
+    };
+    const deactivationSequencesSetting: StorageSetting = {
+        key: deactivationSequencesKey,
+        title: 'Deactivation sequences',
+        description: 'Sequences to execute when the mode is deactivated (alarm is disarmed)',
+        group,
+        type: 'string',
+        multiple: true,
+        combobox: true,
+        choices: sequenceNames,
+        defaultValue: [],
+        immediate: true,
+    };
+    const triggerSequencesSetting: StorageSetting = {
+        key: triggerSequencesKey,
+        title: 'Trigger sequences',
+        description: 'Sequences to execute when the alarm is triggered in this mode',
+        group,
+        type: 'string',
+        multiple: true,
+        combobox: true,
+        choices: sequenceNames,
+        defaultValue: [],
+        immediate: true,
+    };
+
+    const settings: StorageSetting[] = [];
+
+    if (mode !== SecuritySystemMode.Disarmed) {
+        settings.push(
+            bypassableDevicesSetting,
+            preActivationTimeSetting,
+            autoDisarmTimeSetting,
+            autoRiarmTimeSetting,
+        );
+    }
+
+    settings.push(
+        activationSequencesSetting,
+        deactivationSequencesSetting,
+    );
+
+    if (mode !== SecuritySystemMode.Disarmed) {
+        settings.push(triggerSequencesSetting);
+    }
+
+    return settings;
 };
+
+export const getAlarmSequenceNames = (props: {
+    pluginStorage: StorageSettings<any>,
+}) => {
+    const { pluginStorage } = props;
+    return safeParseJson<string[]>(pluginStorage.getItem(ruleSequencesKey as any), []);
+}
+
+export const getAlarmModeSequences = (props: {
+    mode: SecuritySystemMode,
+    alarmStorage: StorageSettings<any>,
+    pluginStorage: StorageSettings<any>,
+}) => {
+    const { mode, alarmStorage, pluginStorage } = props;
+    const {
+        activationSequencesKey,
+        deactivationSequencesKey,
+        triggerSequencesKey,
+    } = getAlarmKeys({ mode });
+
+    const activationNames = safeParseJson<string[]>(alarmStorage.getItem(activationSequencesKey as any), []);
+    const deactivationNames = safeParseJson<string[]>(alarmStorage.getItem(deactivationSequencesKey as any), []);
+    const triggerNames = mode === SecuritySystemMode.Disarmed
+        ? []
+        : safeParseJson<string[]>(alarmStorage.getItem(triggerSequencesKey as any), []);
+
+    const resolve = (names: string[]) => {
+        const sequences: RuleActionsSequence[] = [];
+
+        for (const sequenceName of names ?? []) {
+            const sequence = getSequenceObject({
+                sequenceName,
+                storage: pluginStorage,
+            });
+
+            if (sequence) {
+                sequences.push(sequence);
+            }
+        }
+
+        return sequences;
+    }
+
+    return {
+        activation: resolve(activationNames),
+        deactivation: resolve(deactivationNames),
+        trigger: resolve(triggerNames),
+    };
+}
 
 export interface ModeData {
     currentlyActive: boolean;

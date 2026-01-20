@@ -30,7 +30,6 @@ type CameraSettingKey =
     | 'endTime'
     | 'notifierActions'
     | 'minSnapshotDelay'
-    | 'minMqttPublishDelay'
     | 'detectionSourceForMqtt'
     | 'facesSourceForMqtt'
     | 'zonesSourceForMqtt'
@@ -160,13 +159,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             type: 'number',
             defaultValue: 5,
             subgroup: 'Advanced',
-        },
-        minMqttPublishDelay: {
-            title: 'Minimum MQTT publish delay',
-            description: 'Minimum amount of seconds to wait a new image is published to MQTT for the basic detections',
-            type: 'number',
-            defaultValue: 5,
-            subgroup: 'MQTT',
         },
         detectionSourceForMqtt: {
             title: 'Detections source',
@@ -1578,10 +1570,6 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         }
         if (this.mixinState.storageSettings.settings.postDetectionImageMinDelay) {
             this.mixinState.storageSettings.settings.postDetectionImageMinDelay.hide = !postDetectionImageWebhook;
-        }
-
-        if (this.mixinState.storageSettings.settings.minMqttPublishDelay) {
-            this.mixinState.storageSettings.settings.minMqttPublishDelay.hide = !enabledToMqtt;
         }
 
         if (this.mixinState.storageSettings.settings.startTime) {
@@ -3620,8 +3608,12 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 let key = !isPlateClassname(classname) ? `${classname}-${label}` : classname;
                 key += `-${eventSource}`
                 delayKey += `-${key}`;
-                const { minMqttPublishDelay } = this.mixinState.storageSettings.values;
-                minDelayInSeconds = minMqttPublishDelay;
+
+                const { updateFrequencyMotionImagesInSeconds, updateFrequencyObjectImagesInSeconds } = this.plugin.storageSettings.values;
+
+                minDelayInSeconds = isMotionClassname(classname)
+                    ? updateFrequencyMotionImagesInSeconds
+                    : updateFrequencyObjectImagesInSeconds;
             }
         } else if (type === DelayType.BasicDetectionTrigger) {
             const { classname, label } = props;

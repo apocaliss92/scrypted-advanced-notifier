@@ -1,16 +1,15 @@
 
-import sdk, { Lock, Notifier, NotifierOptions, ScryptedDeviceBase, ScryptedDeviceType, SecuritySystem, SecuritySystemMode, SecuritySystemObstruction, Setting, Settings, SettingValue } from '@scrypted/sdk';
+import sdk, { Notifier, NotifierOptions, ScryptedDeviceBase, ScryptedDeviceType, SecuritySystem, SecuritySystemMode, SecuritySystemObstruction, Setting, Settings, SettingValue } from '@scrypted/sdk';
 import { StorageSetting, StorageSettings, StorageSettingsDict } from '@scrypted/sdk/storage-settings';
-import { getBaseLogger, getMqttBasicClient, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { getMqttBasicClient, logLevelSetting } from '../../scrypted-apocaliss-base/src/basePlugin';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 import { scryptedToHaStateMap } from '../../scrypted-homeassistant/src/types/securitySystem';
-import { AlarmEvent, getAlarmSettings, getAlarmWebhookUrls, getModeEntity } from './alarmUtils';
+import { AlarmEvent, getAlarmModeSequences, getAlarmSequenceNames, getAlarmSettings, getAlarmWebhookUrls, getModeEntity } from './alarmUtils';
 import AdvancedNotifierPlugin from './main';
 import { idPrefix, publishAlarmSystemValues, setupAlarmSystemAutodiscovery, subscribeToAlarmSystemMqttTopics } from './mqtt-utils';
-import { BaseRule, binarySensorMetadataMap, convertSettingsToStorageSettings, DeviceInterface, HOMEASSISTANT_PLUGIN_ID, isDeviceSupported, NotificationPriority, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, PUSHOVER_PLUGIN_ID, TELEGRAM_PLUGIN_ID, ZENTIK_PLUGIN_ID } from './utils';
+import { BaseRule, binarySensorMetadataMap, convertSettingsToStorageSettings, DeviceInterface, HOMEASSISTANT_PLUGIN_ID, isDeviceSupported, NotificationPriority, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, PUSHOVER_PLUGIN_ID, safeParseJson, TELEGRAM_PLUGIN_ID, ZENTIK_PLUGIN_ID } from './utils';
 
 type StorageKeys = 'notifiers' |
-    'autoCloseLocks' |
     'logeLevel' |
     'mqttEnabled' |
     'enabledModes' |
@@ -94,13 +93,6 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
             combobox: true,
             deviceFilter: `type === '${ScryptedDeviceType.Notifier}'`,
             defaultValue: [],
-            immediate: true,
-        },
-        autoCloseLocks: {
-            title: 'Automatically close open locks when arming',
-            description: 'If checked, locks will be automatically bypassed',
-            type: 'boolean',
-            defaultValue: true,
             immediate: true,
         },
         logeLevel: logLevelSetting,
@@ -386,6 +378,19 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                     triggerDevices: [triggerDevice?.name]
                 });
 
+                const { trigger: triggerSequences } = getAlarmModeSequences({
+                    mode: this.securitySystemState.mode,
+                    alarmStorage: this.storageSettings,
+                    pluginStorage: this.plugin.storageSettings,
+                });
+                this.plugin.triggerRuleSequences({
+                    sequences: triggerSequences,
+                    postFix: `alarm-trigger-${this.securitySystemState.mode}`,
+                    rule: {
+                        name: `alarm:${this.securitySystemState.mode}:trigger`,
+                    } as BaseRule,
+                }).catch(logger.error);
+
                 const { autoDisarmTime, autoRiarmTime } = getModeEntity({
                     mode: this.securitySystemState.mode,
                     storage: this.storageSettings
@@ -490,9 +495,14 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
     }
 
     async refreshSettings() {
+        const sequenceNames = getAlarmSequenceNames({ pluginStorage: this.plugin.storageSettings });
         const dynamicSettings: StorageSetting[] = [];
+
+        // Disarmed è sempre disponibile: aggiungo sempre le sue settings (solo sequenze).
+        dynamicSettings.push(...getAlarmSettings({ mode: SecuritySystemMode.Disarmed, sequenceNames }));
+
         for (const mode of this.storageSettings.values.enabledModes) {
-            const modeSettings = getAlarmSettings({ mode });
+            const modeSettings = getAlarmSettings({ mode, sequenceNames });
             dynamicSettings.push(...modeSettings);
         }
 
@@ -779,8 +789,6 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
             return await this.disarmSecuritySystem();
         } else {
             try {
-                const { autoCloseLocks } = this.storageSettings.values;
-
                 const entity = getModeEntity({ mode, storage: this.storageSettings });
                 logger.log(`Trying to arm into ${mode} mode:`, JSON.stringify(entity));
 
@@ -804,29 +812,23 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                 const activeDevicesSet = new Set<string>();
                 const bypassedDevicesSet = new Set<string>();
                 const blockingDevicesSet = new Set<string>();
-                const locksToLockSet = new Set<string>();
 
                 for (const rule of activeRules) {
                     try {
                         for (const deviceId of rule.devices) {
                             const device = sdk.systemManager.getDeviceById<DeviceInterface>(deviceId);
 
-                            const { sensorType, isLock } = isDeviceSupported(device);
+                            const { sensorType } = isDeviceSupported(device);
                             if (sensorType) {
                                 const { isActiveFn } = binarySensorMetadataMap[sensorType];
                                 const isActive = isActiveFn(device);
 
                                 if (isActive) {
-                                    if (isLock && autoCloseLocks) {
-                                        locksToLockSet.add(deviceId);
+                                    if (entity.bypassableDevices.includes(deviceId)) {
+                                        bypassedDevicesSet.add(deviceId);
                                         activeDevicesSet.add(deviceId);
                                     } else {
-                                        if (entity.bypassableDevices.includes(deviceId)) {
-                                            bypassedDevicesSet.add(deviceId);
-                                            activeDevicesSet.add(deviceId);
-                                        } else {
-                                            blockingDevicesSet.add(deviceId);
-                                        }
+                                        blockingDevicesSet.add(deviceId);
                                     }
                                 } else {
                                     activeDevicesSet.add(deviceId);
@@ -846,8 +848,6 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                     .map(deviceId => sdk.systemManager.getDeviceById(deviceId)?.name);
                 const blockingDevices = Array.from(blockingDevicesSet)
                     .map(deviceId => sdk.systemManager.getDeviceById(deviceId)?.name);
-                const locksToLock = Array.from(locksToLockSet)
-                    .map(deviceId => sdk.systemManager.getDeviceById(deviceId)?.name);
 
                 const anyBlockers = !!blockingDevices.length;
 
@@ -855,7 +855,6 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                     activeDevices,
                     bypassedDevices,
                     blockingDevices,
-                    locksToLock,
                     anyBlockers,
                 }));
 
@@ -873,6 +872,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                     });
                 } else {
                     const activate = async () => {
+                        const previousMode = this.securitySystemState.mode;
                         logger.log(`New mode set to ${mode}`);
                         this.securitySystemState = {
                             ...this.securitySystemState,
@@ -891,16 +891,43 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                                 bypassedDevices,
                             }
                         });
-                        await this.sendNotification({
-                            mode,
-                            bypassedDevices,
-                            activeDevices,
-                            event: AlarmEvent.Activate,
-                        });
 
-                        for (const lockName of locksToLock) {
-                            const lockDevice = sdk.systemManager.getDeviceByName<Lock>(lockName);
-                            await lockDevice.lock();
+                        // Deactivation sequences della modalità precedente (incl. Disarmed) solo quando il cambio è effettivo.
+                        if (previousMode && previousMode !== mode) {
+                            const { deactivation: previousDeactivationSequences } = getAlarmModeSequences({
+                                mode: previousMode,
+                                alarmStorage: this.storageSettings,
+                                pluginStorage: this.plugin.storageSettings,
+                            });
+                            this.plugin.triggerRuleSequences({
+                                sequences: previousDeactivationSequences,
+                                postFix: `alarm-deactivate-${previousMode}`,
+                                rule: {
+                                    name: `alarm:${previousMode}:deactivate`,
+                                } as BaseRule,
+                            }).catch(logger.error);
+                        }
+
+                        if (mode) {
+                            await this.sendNotification({
+                                mode,
+                                bypassedDevices,
+                                activeDevices,
+                                event: AlarmEvent.Activate,
+                            });
+
+                            const { activation: activationSequences } = getAlarmModeSequences({
+                                mode,
+                                alarmStorage: this.storageSettings,
+                                pluginStorage: this.plugin.storageSettings,
+                            });
+                            this.plugin.triggerRuleSequences({
+                                sequences: activationSequences,
+                                postFix: `alarm-activate-${mode}`,
+                                rule: {
+                                    name: `alarm:${mode}:activate`,
+                                } as BaseRule,
+                            }).catch(logger.error);
                         }
                     };
 
@@ -960,6 +987,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
     async disarmSecuritySystemInternal(event: AlarmEvent) {
         this.resetActivationListener();
         const logger = this.getLogger();
+        const previousMode = this.securitySystemState.mode;
         logger.log(`Disarmed from event ${event}`);
 
         await this.sendNotification({
@@ -990,6 +1018,35 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
         this.storageSettings.values.arming = false;
         this.storageSettings.values.triggered = false;
         this.storageSettings.values.activeMode = SecuritySystemMode.Disarmed;
+
+        // Disarmed può avere sequenze: activation quando si passa effettivamente a Disarmed.
+        if (previousMode && previousMode !== SecuritySystemMode.Disarmed) {
+            const { deactivation: deactivationSequences } = getAlarmModeSequences({
+                mode: previousMode,
+                alarmStorage: this.storageSettings,
+                pluginStorage: this.plugin.storageSettings,
+            });
+            this.plugin.triggerRuleSequences({
+                sequences: deactivationSequences,
+                postFix: `alarm-deactivate-${previousMode}`,
+                rule: {
+                    name: `alarm:${previousMode}:deactivate`,
+                } as BaseRule,
+            }).catch(logger.error);
+
+            const { activation: disarmedActivationSequences } = getAlarmModeSequences({
+                mode: SecuritySystemMode.Disarmed,
+                alarmStorage: this.storageSettings,
+                pluginStorage: this.plugin.storageSettings,
+            });
+            this.plugin.triggerRuleSequences({
+                sequences: disarmedActivationSequences,
+                postFix: `alarm-activate-${SecuritySystemMode.Disarmed}`,
+                rule: {
+                    name: `alarm:${SecuritySystemMode.Disarmed}:activate`,
+                } as BaseRule,
+            }).catch(logger.error);
+        }
     }
 
     async disarmSecuritySystem(): Promise<void> {

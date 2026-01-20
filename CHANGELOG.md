@@ -1,6 +1,9 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.8.26
+- Autolock on alarm system removed, use rule sequences instead
+
 ### 4.8.5
 - Added topic for each zone + class combination for the total amount of objects detected. Will use frigate data for frigate zones if available
 
