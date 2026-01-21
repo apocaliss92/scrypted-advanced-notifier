@@ -1173,6 +1173,7 @@ export enum RuleType {
     Timelapse = 'Timelapse',
     Audio = 'Audio',
     Recording = 'Recording',
+    Patrol = 'Patrol',
 }
 
 export const ruleTypeMetadataMap: Record<RuleType, { rulesKey: string, rulePrefix: string, subgroupPrefix: string }> = {
@@ -1181,6 +1182,7 @@ export const ruleTypeMetadataMap: Record<RuleType, { rulesKey: string, rulePrefi
     [RuleType.Timelapse]: { rulePrefix: 'timelapseRule', rulesKey: 'timelapseRules', subgroupPrefix: 'TIME' },
     [RuleType.Audio]: { rulePrefix: 'audioRule', rulesKey: 'audioRules', subgroupPrefix: 'AUDIO' },
     [RuleType.Recording]: { rulePrefix: 'recordingRule', rulesKey: 'recordingRules', subgroupPrefix: 'REC' },
+    [RuleType.Patrol]: { rulePrefix: 'patrolRule', rulesKey: 'patrolRules', subgroupPrefix: 'PAT' },
 }
 
 export const mixinRulesGroup = 'Advanced notifier rules';
@@ -1199,6 +1201,7 @@ export type MixinBaseSettingKey =
     | 'timelapseRules'
     | 'audioRules'
     | 'recordingRules'
+    | 'patrolRules'
 
 export enum NotificationPriority {
     SuperLow = "SuperLow",
@@ -1256,6 +1259,8 @@ export const getMixinBaseSettings = (props: {
         }
 
         if (isCamera) {
+            const hasPtz = device?.interfaces?.includes(ScryptedInterface.PanTiltZoom);
+
             settings[ruleTypeMetadataMap[RuleType.Occupancy].rulesKey] = {
                 title: 'Occupancy rules',
                 group: mixinRulesGroup,
@@ -1299,6 +1304,19 @@ export const getMixinBaseSettings = (props: {
                 defaultValue: [],
                 choices: [],
                 onPut: async () => await refreshSettings()
+            };
+
+            settings[ruleTypeMetadataMap[RuleType.Patrol].rulesKey] = {
+                title: 'Patrol rules',
+                group: mixinRulesGroup,
+                type: 'string',
+                multiple: true,
+                combobox: true,
+                immediate: true,
+                defaultValue: [],
+                choices: [],
+                hide: !hasPtz,
+                onPut: async () => await refreshSettings(),
             };
         }
 
@@ -1398,6 +1416,16 @@ export const getActiveRules = async (
         device,
     });
 
+    const {
+        allowedRules: allowedPatrolRules,
+        availableRules: availablePatrolRules,
+    } = getDevicePatrolRules({
+        deviceStorage,
+        pluginStorage,
+        console,
+        device,
+    });
+
     const { pluginEnabled, mqttEnabled } = plugin.storageSettings.values;
     const isDeviceEnabledToMqtt = deviceStorage?.values.enabledToMqtt;
 
@@ -1407,6 +1435,7 @@ export const getActiveRules = async (
         ...availableTimelapseRules,
         ...availableAudioRules,
         ...availableRecordingRules,
+        ...availablePatrolRules,
     ];
 
     const allAllowedRules = [
@@ -1415,13 +1444,14 @@ export const getActiveRules = async (
         ...allowedTimelapseRules,
         ...allowedAudioRules,
         ...allowedRecordingRules,
+        ...allowedPatrolRules,
     ];
 
     const hasClips = allAllowedRules.some(rule => rule.generateClip);
 
     const shouldListenAudio = !!allowedAudioRules.length;
     const isActiveForMqttReporting = pluginEnabled && mqttEnabled && isDeviceEnabledToMqtt;
-    const shouldListenDetections = !!allowedDetectionRules.length || isActiveForMqttReporting;
+    const shouldListenDetections = !!allowedDetectionRules.length || !!allowedPatrolRules.length || isActiveForMqttReporting;
 
     return {
         availableDetectionRules,
@@ -1429,11 +1459,13 @@ export const getActiveRules = async (
         availableTimelapseRules,
         availableAudioRules,
         availableRecordingRules,
+        availablePatrolRules,
         allowedDetectionRules,
         allowedOccupancyRules,
         allowedTimelapseRules,
         allowedAudioRules,
         allowedRecordingRules,
+        allowedPatrolRules,
         allAvailableRules,
         allAllowedRules,
         shouldListenDetections,
@@ -1446,6 +1478,13 @@ export const getActiveRules = async (
         shouldClassifyAudio,
         enabledAudioLabels,
     }
+}
+
+export interface PatrolRule extends BaseRule {
+    presets: string[];
+    minPresetSeconds: number;
+    maxPresetSeconds: number;
+    blockingDetectionClasses: DetectionClass[];
 }
 
 export const getEventTextKey = (props: { eventType: DetectionEvent, hasLabel: boolean }) => {
@@ -1635,6 +1674,12 @@ export const getRuleKeys = (props: {
     const maxClipLengthKey = `${prefix}:${ruleName}:maxClipLength`;
     const prolongClipOnMotionKey = `${prefix}:${ruleName}:prolongClipOnMotion`;
 
+    // Specific for patrol rules
+    const patrolPresetsKey = `${prefix}:${ruleName}:presets`;
+    const patrolMinPresetSecondsKey = `${prefix}:${ruleName}:minPresetSeconds`;
+    const patrolMaxPresetSecondsKey = `${prefix}:${ruleName}:maxPresetSeconds`;
+    const patrolBlockingDetectionClassesKey = `${prefix}:${ruleName}:blockingDetectionClasses`;
+
     return {
         common: {
             activationKey,
@@ -1723,6 +1768,12 @@ export const getRuleKeys = (props: {
             postEventSecondsKey,
             maxClipLengthKey,
             prolongClipOnMotionKey,
+        },
+        patrol: {
+            patrolPresetsKey,
+            patrolMinPresetSecondsKey,
+            patrolMaxPresetSecondsKey,
+            patrolBlockingDetectionClassesKey,
         }
     }
 }
@@ -4743,6 +4794,164 @@ export interface AudioRule extends BaseRule {
     audioDuration: number;
 }
 
+export const getDevicePatrolRules = (props: {
+    deviceStorage?: StorageSettings<any>,
+    pluginStorage?: StorageSettings<any>,
+    console: Console,
+    device: DeviceBase,
+}) => {
+    const { deviceStorage, pluginStorage, console, device } = props;
+    const availableRules: PatrolRule[] = [];
+    const allowedRules: PatrolRule[] = [];
+
+    if (!deviceStorage || !pluginStorage) {
+        return { availableRules, allowedRules };
+    }
+
+    const { securitySystem } = pluginStorage.values;
+    const { rulesKey } = ruleTypeMetadataMap[RuleType.Patrol];
+    const patrolRuleNames = safeParseJson<string[]>(deviceStorage.getItem(rulesKey), []);
+
+    for (const patrolRuleName of patrolRuleNames) {
+        const {
+            patrol: {
+                patrolPresetsKey,
+                patrolMinPresetSecondsKey,
+                patrolMaxPresetSecondsKey,
+                patrolBlockingDetectionClassesKey,
+            },
+        } = getRuleKeys({
+            ruleType: RuleType.Patrol,
+            ruleName: patrolRuleName,
+        });
+
+        const { rule, basicRuleAllowed } = initBasicRule({
+            ruleName: patrolRuleName,
+            ruleSource: RuleSource.Device,
+            ruleType: RuleType.Patrol,
+            storage: deviceStorage,
+            securitySystem,
+            logger: console,
+        });
+
+        const presets = safeParseJson<string[]>(deviceStorage.getItem(patrolPresetsKey), []);
+        const minPresetSeconds = safeParseJson<number>(deviceStorage.getItem(patrolMinPresetSecondsKey), 10);
+        const maxPresetSeconds = safeParseJson<number>(deviceStorage.getItem(patrolMaxPresetSecondsKey), 30);
+        const blockingDetectionClasses = safeParseJson<DetectionClass[]>(deviceStorage.getItem(patrolBlockingDetectionClassesKey), []);
+
+        const patrolRule: PatrolRule = {
+            ...rule,
+            deviceId: device.id,
+            presets,
+            minPresetSeconds,
+            maxPresetSeconds,
+            blockingDetectionClasses,
+        };
+
+        const supportsPtz = device.interfaces.includes(ScryptedInterface.PanTiltZoom);
+        const hasPresets = !!presets?.length;
+        const timingsOk = !!minPresetSeconds && minPresetSeconds > 0 && !!maxPresetSeconds && maxPresetSeconds >= minPresetSeconds;
+
+        const ruleAllowed = basicRuleAllowed && supportsPtz && hasPresets && timingsOk;
+
+        availableRules.push(cloneDeep(patrolRule));
+        if (ruleAllowed) {
+            allowedRules.push(cloneDeep(patrolRule));
+        }
+    }
+
+    return {
+        availableRules,
+        allowedRules,
+    };
+};
+
+export const getPatrolRulesSettings = async (props: {
+    storage: StorageSettings<any>,
+    ruleSource: RuleSource,
+    refreshSettings: OnRefreshSettings,
+    logger: Console,
+    device: DeviceBase,
+    plugin: AdvancedNotifierPlugin,
+}) => {
+    const { storage, ruleSource, refreshSettings, logger, device, plugin } = props;
+
+    const getSpecificRules: GetSpecificRules = async ({ group, ruleName, subgroup }) => {
+        const settings: StorageSetting[] = [];
+        const { patrol } = getRuleKeys({ ruleName, ruleType: RuleType.Patrol });
+        const {
+            patrolPresetsKey,
+            patrolMinPresetSecondsKey,
+            patrolMaxPresetSecondsKey,
+            patrolBlockingDetectionClassesKey,
+        } = patrol;
+
+        const presetNames = Object.values(device?.ptzCapabilities?.presets ?? {}) as string[];
+
+        settings.push(
+            {
+                key: patrolPresetsKey,
+                title: 'Camera presets',
+                description: 'Presets to cycle through in order',
+                group,
+                subgroup,
+                type: 'string',
+                multiple: true,
+                combobox: true,
+                immediate: true,
+                choices: presetNames,
+                defaultValue: [],
+            },
+            {
+                key: patrolMinPresetSecondsKey,
+                title: 'Minimum dwell time (seconds)',
+                description: 'Minimum time to stay on each preset before moving on',
+                group,
+                subgroup,
+                type: 'number',
+                immediate: true,
+                defaultValue: 10,
+            },
+            {
+                key: patrolMaxPresetSecondsKey,
+                title: 'Maximum dwell time on match (seconds)',
+                description: 'If a blocking detection class matches, stay up to this time (from preset arrival)',
+                group,
+                subgroup,
+                type: 'number',
+                immediate: true,
+                defaultValue: 30,
+            },
+            {
+                key: patrolBlockingDetectionClassesKey,
+                title: 'Blocking detection classes',
+                description: 'If any of these classes are detected while on a preset, the preset will be held up to the maximum dwell time',
+                group,
+                subgroup,
+                type: 'string',
+                multiple: true,
+                combobox: true,
+                immediate: true,
+                choices: defaultDetectionClasses,
+                defaultValue: [DetectionClass.Person],
+            },
+        );
+
+        return settings;
+    };
+
+    return getRuleSettings({
+        getSpecificRules,
+        ruleSource,
+        ruleType: RuleType.Patrol,
+        storage,
+        refreshSettings,
+        logger,
+        device,
+        plugin,
+    });
+};
+
 export const getDeviceTimelapseRules = (
     props: {
         deviceStorage?: StorageSettings<any>,
@@ -4935,7 +5144,9 @@ export const convertSettingsToStorageSettings = async (props: {
     const updateStorageSettings = new StorageSettings(device, deviceSettings);
 
     Object.entries(onPutToRestore).forEach(([key, onPut]) => {
-        updateStorageSettings.settings[key].onPut = onPut;
+        if (updateStorageSettings.settings[key]) {
+            updateStorageSettings.settings[key].onPut = onPut;
+        }
     });
 
     return updateStorageSettings;

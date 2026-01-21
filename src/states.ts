@@ -3,7 +3,7 @@ import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { ClassOccupancy } from "./mqtt-utils";
-import { AudioRule, BaseRule, DetectionRule, MatchRule, ObserveZoneData, OccupancyRule, RecordingRule, ScryptedEventSource, TimelapseRule, ZoneWithPath } from "./utils";
+import { AudioRule, BaseRule, DetectionRule, MatchRule, ObserveZoneData, OccupancyRule, PatrolRule, RecordingRule, ScryptedEventSource, TimelapseRule, ZoneWithPath } from "./utils";
 
 export interface CurrentOccupancyState {
     occupancyToConfirm?: boolean,
@@ -71,6 +71,7 @@ export class CameraMixinState {
     runningTimelapseRules: TimelapseRule[] = [];
     runningAudioRules: AudioRule[] = [];
     runningRecordingRules: RecordingRule[] = [];
+    runningPatrolRules: PatrolRule[] = [];
     availableTimelapseRules: TimelapseRule[] = [];
     allAvailableRules: BaseRule[] = [];
     audioRuleSamples: Record<string, {
@@ -127,6 +128,17 @@ export class CameraMixinState {
     objectIdLastReport: Record<string, number> = {};
 
     decoderEnablementLogged = false;
+
+    patrolState: {
+        active: boolean;
+        ruleName?: string;
+        presetName?: string;
+        enteredAt?: number;
+        blocked?: boolean;
+        lastBlockTime?: number;
+    } = {
+        active: false,
+    };
 
     constructor(props: { clientId: string, cameraMixin: AdvancedNotifierCameraMixin }) {
         const { clientId, cameraMixin } = props;

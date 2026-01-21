@@ -16,7 +16,7 @@ import AdvancedNotifierPlugin from "./main";
 import { ClassOccupancy, ClassZoneOccupancy, detectionClassForObjectsReporting, idPrefix, publishBasicDetectionData, publishCameraValues, publishClassnameImages, publishOccupancy, publishPeopleData, publishResetDetectionsEntities, publishResetRuleEntities, publishRuleData, publishRuleEnabled, setupCameraAutodiscovery, subscribeToCameraMqttTopics } from "./mqtt-utils";
 import { normalizeBox, polygonContainsBoundingBox, polygonIntersectsBoundingBox } from "./polygon";
 import { CameraMixinState, CurrentOccupancyState, OccupancyRuleData, getInitOccupancyState } from "./states";
-import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, DecoderType, DelayType, DetectionRule, DetectionsPerZone, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_ID, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, OccupancySource, RecordingRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, ZoneWithPath, ZonesSource, b64ToMo, cachedReaddir, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getRecordingRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getUrlLog, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
+import { ADVANCED_NOTIFIER_INTERFACE, BaseRule, DecoderType, DelayType, DetectionRule, DetectionsPerZone, DeviceInterface, FRIGATE_BRIDGE_PLUGIN_ID, GetImageReason, ImagePostProcessing, ImageSource, IsDelayPassedProps, MatchRule, MixinBaseSettingKey, NVR_PLUGIN_ID, NotifyDetectionProps, NotifyRuleSource, ObserveZoneData, OccupancySource, PatrolRule, RecordingRule, RuleSource, RuleType, SNAPSHOT_WIDTH, ScryptedEventSource, TimelapseRule, VIDEO_ANALYSIS_PLUGIN_ID, ZoneMatchType, ZoneWithPath, ZonesSource, b64ToMo, cachedReaddir, convertSettingsToStorageSettings, filterAndSortValidDetections, getActiveRules, getAllDevices, getAudioRulesSettings, getB64ImageLog, getDetectionEventKey, getDetectionKey, getDetectionRulesSettings, getDetectionsLog, getDetectionsPerZone, getEmbeddingSimilarityScore, getMixinBaseSettings, getOccupancyRulesSettings, getPatrolRulesSettings, getRecordingRulesSettings, getRuleKeys, getRulesLog, getTimelapseRulesSettings, getUrlLog, getWebHookUrls, moToB64, similarityConcidenceThresholdMap, splitRules } from "./utils";
 import { VideoRtspFfmpegRecorder, getVideoClipName, parseVideoFileName } from "./videoRecorderUtils";
 
 const { systemManager } = sdk;
@@ -440,6 +440,10 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     mainLoopRunning = false;
     currentFrameGenerator: AsyncGenerator<VideoFrame, any, unknown>;
 
+    private patrolAbort?: AbortController;
+    private patrolTask?: Promise<void>;
+    private patrolSignature?: string;
+
     shouldClassifyAudio: boolean;
     isActiveForAudioAnalysis: boolean;
     audioRtspFfmpegStream: AudioRtspFfmpegStream;
@@ -839,6 +843,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     allowedOccupancyRules,
                     allowedRecordingRules,
                     allowedTimelapseRules,
+                    allowedPatrolRules,
                     availableTimelapseRules,
                     shouldListenDetections: shouldListenDetectionsParent,
                     isActiveForMqttReporting,
@@ -865,6 +870,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     ...this.mixinState.runningOccupancyRules,
                     ...this.mixinState.runningTimelapseRules,
                     ...this.mixinState.runningRecordingRules,
+                    ...this.mixinState.runningPatrolRules,
                 ];
 
                 const [rulesToEnable, rulesToDisable] = splitRules({
@@ -951,21 +957,36 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 this.mixinState.runningTimelapseRules = cloneDeep(allowedTimelapseRules || []);
                 this.mixinState.runningRecordingRules = cloneDeep(allowedRecordingRules || []);
                 this.mixinState.runningAudioRules = cloneDeep(allowedAudioRules || []);
+                this.mixinState.runningPatrolRules = cloneDeep(allowedPatrolRules || []);
                 this.mixinState.availableTimelapseRules = cloneDeep(availableTimelapseRules || []);
                 this.mixinState.allAvailableRules = cloneDeep(allAvailableRules || []);
 
                 this.isActiveForMqttReporting = isActiveForMqttReporting;
+
+                await this.ensurePatrolRunning();
 
                 const isDetectionListenerRunning = !!this.detectionListener || !!this.motionListener;
 
                 const { notificationsEnabled } = this.mixinState.storageSettings.values;
                 const decoderType = this.decoderType;
 
-                // Cleanup decoder frames every 2 minutes
+                // Cleanup decoder frames
                 if (decoderType && decoderType !== DecoderType.Off) {
-                    const framesThreshold = now - (1000 * 60 * 2);
+                    const maxPrePostSeconds = Math.max(
+                        0,
+                        ...currentlyRunningRules
+                            .filter(r => !!r?.generateClip)
+                            .map(r => Number(r.generateClipPreSeconds ?? 0) + Number(r.generateClipPostSeconds ?? 0))
+                    );
+                    const defaultDecoderFramesRetentionMs = 1000 * 60 * 2;
+                    const computedRetentionMs = Math.ceil(maxPrePostSeconds * 1.5) * 1000;
+                    const decoderFramesRetentionMs = computedRetentionMs > 0 ? computedRetentionMs : defaultDecoderFramesRetentionMs;
+                    const framesThreshold = now - decoderFramesRetentionMs;
 
-                    if (!this.mixinState.lastDecoderFramesCleanup || this.mixinState.lastDecoderFramesCleanup < framesThreshold) {
+                    // Cleanup interval is decoupled from retention to avoid running filesystem scans too frequently
+                    // when rules generate very short clips.
+                    const cleanupIntervalMs = Math.max(30_000, Math.min(120_000, decoderFramesRetentionMs * 5));
+                    if (!this.mixinState.lastDecoderFramesCleanup || this.mixinState.lastDecoderFramesCleanup < (now - cleanupIntervalMs)) {
                         this.mixinState.lastDecoderFramesCleanup = now;
                         this.plugin.clearDecoderFrames({
                             device: this.cameraDevice,
@@ -1189,6 +1210,181 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                 logger.log('Error in mainLoopListener', e);
             }
         }, 1000 * 2);
+    }
+
+    private stopPatrol(reason: string) {
+        const logger = this.getLogger();
+        if (this.patrolAbort && !this.patrolAbort.signal.aborted) {
+            logger.log(`Stopping patrol: ${reason}`);
+            this.patrolAbort.abort();
+        }
+        this.patrolAbort = undefined;
+        this.patrolTask = undefined;
+        this.patrolSignature = undefined;
+
+        if (this.mixinState?.patrolState) {
+            this.mixinState.patrolState = {
+                active: false,
+            };
+        }
+    }
+
+    private async ensurePatrolRunning() {
+        const logger = this.getLogger();
+        const rule = this.mixinState.runningPatrolRules?.[0];
+
+        if (!rule) {
+            this.stopPatrol('No active patrol rules');
+            return;
+        }
+
+        if (!this.cameraDevice.interfaces.includes(ScryptedInterface.PanTiltZoom)) {
+            this.stopPatrol('Camera does not support PTZ');
+            return;
+        }
+
+        const signature = JSON.stringify({
+            name: rule.name,
+            presets: rule.presets,
+            min: rule.minPresetSeconds,
+            max: rule.maxPresetSeconds,
+            blocks: rule.blockingDetectionClasses,
+        });
+
+        const isRunning = !!this.patrolTask && !!this.patrolAbort && !this.patrolAbort.signal.aborted;
+        if (isRunning && this.patrolSignature === signature) {
+            return;
+        }
+
+        if (isRunning) {
+            this.stopPatrol('Patrol config changed');
+        }
+
+        this.patrolSignature = signature;
+        this.patrolAbort = new AbortController();
+
+        if (!this.mixinState.patrolState) {
+            this.mixinState.patrolState = { active: false };
+        }
+
+        logger.log(`Starting patrol rule: ${rule.name}`);
+        this.patrolTask = this.patrolLoop(rule, this.patrolAbort.signal).catch(e => {
+            logger.log('Error in patrol loop', e);
+            this.stopPatrol('Patrol loop crashed');
+        });
+    }
+
+    private async patrolLoop(rule: PatrolRule, signal: AbortSignal) {
+        const logger = this.getLogger();
+
+        const presets = (rule.presets || []).filter(Boolean);
+        if (!presets.length) {
+            logger.log(`Patrol ${rule.name}: no presets configured`);
+            return;
+        }
+
+        const minMs = Math.max(1, (rule.minPresetSeconds ?? 10) * 1000);
+        const maxMs = Math.max(minMs, (rule.maxPresetSeconds ?? 30) * 1000);
+
+        let idx = 0;
+        while (!signal.aborted) {
+            const presetName = presets[idx % presets.length];
+            idx++;
+
+            await this.gotoPresetByName(presetName);
+
+            const enteredAt = Date.now();
+            this.mixinState.patrolState = {
+                active: true,
+                ruleName: rule.name,
+                presetName,
+                enteredAt,
+                blocked: false,
+            };
+
+            await this.sleepWithAbort(minMs, signal);
+            if (signal.aborted) {
+                break;
+            }
+
+            const shouldHoldToMax = !!this.mixinState.patrolState?.blocked;
+            if (shouldHoldToMax) {
+                const elapsed = Date.now() - enteredAt;
+                const remaining = maxMs - elapsed;
+                if (remaining > 0) {
+                    await this.sleepWithAbort(remaining, signal);
+                }
+            }
+        }
+    }
+
+    private async gotoPresetByName(presetName: string) {
+        const logger = this.getLogger();
+        if (!presetName) {
+            return;
+        }
+
+        const presetsMap = this.cameraDevice.ptzCapabilities?.presets ?? {};
+        const presetId = Object.entries(presetsMap).find(([, name]) => name === presetName)?.[0];
+        if (!presetId) {
+            logger.log(`Patrol: preset not found: ${presetName}`);
+            return;
+        }
+
+        logger.log(`Patrol: moving to preset '${presetName}' (${presetId})`);
+        await this.cameraDevice.ptzCommand({ preset: presetId });
+    }
+
+    private async sleepWithAbort(ms: number, signal: AbortSignal) {
+        if (signal.aborted) {
+            return;
+        }
+
+        await new Promise<void>((resolve) => {
+            const t = setTimeout(() => {
+                signal.removeEventListener('abort', onAbort);
+                resolve();
+            }, ms);
+
+            const onAbort = () => {
+                clearTimeout(t);
+                signal.removeEventListener('abort', onAbort);
+                resolve();
+            };
+
+            signal.addEventListener('abort', onAbort);
+        });
+    }
+
+    private processPatrolBlockingDetections(candidates: ObjectDetectionResult[]) {
+        if (!this.patrolAbort || this.patrolAbort.signal.aborted) {
+            return;
+        }
+
+        const rule = this.mixinState.runningPatrolRules?.[0];
+        const state = this.mixinState.patrolState;
+        if (!rule || !state?.active) {
+            return;
+        }
+
+        const classesDetected = candidates
+            .map(c => detectionClassesDefaultMap[c.className])
+            .filter(Boolean) as DetectionClass[];
+
+        if (!classesDetected.length) {
+            return;
+        }
+
+        const blocking = rule.blockingDetectionClasses || [];
+        const isBlockingMatch = classesDetected.some(dc => blocking.includes(dc));
+
+        if (isBlockingMatch) {
+            this.mixinState.patrolState = {
+                ...state,
+                blocked: true,
+                lastBlockTime: Date.now(),
+            };
+        }
     }
 
     async initDecoderStream() {
@@ -1539,6 +1735,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         });
         dynamicSettings.push(...recordingRulesSettings);
 
+        if (this.cameraDevice.interfaces.includes(ScryptedInterface.PanTiltZoom)) {
+            const patrolRulesSettings = await getPatrolRulesSettings({
+                storage: this.mixinState.storageSettings,
+                ruleSource: RuleSource.Device,
+                logger,
+                refreshSettings: this.refreshSettings.bind(this),
+                device: this.cameraDevice,
+                plugin: this.plugin,
+            });
+            dynamicSettings.push(...patrolRulesSettings);
+        }
+
         this.mixinState.storageSettings = await convertSettingsToStorageSettings({
             device: this,
             dynamicSettings,
@@ -1808,6 +2016,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         this.mainLoopListener && clearInterval(this.mainLoopListener);
         this.mainLoopListener = undefined;
 
+        this.stopPatrol('Mixin released');
         this.resetListeners();
         this.stopDecoder('Release');
     }
@@ -3990,6 +4199,8 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
             logger,
             objectIdLastReport: this.mixinState.objectIdLastReport,
         });
+
+        this.processPatrolBlockingDetections(candidates);
 
         if (this.mixinState.recordingState.recordingStartTime) {
             candidates.forEach(c => {
