@@ -139,6 +139,7 @@ export class AudioRtspFfmpegStream extends EventEmitter {
     private options: AudioRtspFfmpegStreamOptions;
     private ffmpegProcess: ChildProcessWithoutNullStreams | null = null;
     private restartTimer: NodeJS.Timeout | null = null;
+    private respawnTimer: NodeJS.Timeout | null = null;
     private stopped = false;
     private audioBuffer: Buffer = Buffer.alloc(0);
     private readonly chunkSamples = 15600; // per YAMNET
@@ -167,6 +168,10 @@ export class AudioRtspFfmpegStream extends EventEmitter {
             this.ffmpegProcess.kill('SIGKILL');
             this.ffmpegProcess = null;
         }
+        if (this.respawnTimer) {
+            clearTimeout(this.respawnTimer);
+            this.respawnTimer = null;
+        }
         if (this.restartTimer) {
             clearTimeout(this.restartTimer);
             this.restartTimer = null;
@@ -187,6 +192,19 @@ export class AudioRtspFfmpegStream extends EventEmitter {
     }
 
     private spawnFfmpeg() {
+        if (this.stopped) {
+            return;
+        }
+
+        if (this.respawnTimer) {
+            clearTimeout(this.respawnTimer);
+            this.respawnTimer = null;
+        }
+
+        if (this.ffmpegProcess) {
+            return;
+        }
+
         const {
             rtspUrl,
             audioSampleRate,
@@ -240,14 +258,26 @@ export class AudioRtspFfmpegStream extends EventEmitter {
             console.log(`ffmpeg terminated (code=${code}, signal=${signal})`);
             this.ffmpegProcess = null;
             if (!this.stopped) {
-                setTimeout(() => this.spawnFfmpeg(), 2000);
+                if (this.respawnTimer) {
+                    clearTimeout(this.respawnTimer);
+                }
+                this.respawnTimer = setTimeout(() => {
+                    this.respawnTimer = null;
+                    this.spawnFfmpeg();
+                }, 2000);
             }
         });
         ffmpeg.on('error', (err) => {
             console.error('ffmpeg error:', err);
             this.ffmpegProcess = null;
             if (!this.stopped) {
-                setTimeout(() => this.spawnFfmpeg(), 2000);
+                if (this.respawnTimer) {
+                    clearTimeout(this.respawnTimer);
+                }
+                this.respawnTimer = setTimeout(() => {
+                    this.respawnTimer = null;
+                    this.spawnFfmpeg();
+                }, 2000);
             }
         });
     }

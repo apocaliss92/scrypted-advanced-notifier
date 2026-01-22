@@ -2,6 +2,7 @@ import { ChildProcessWithoutNullStreams, spawn } from "child_process";
 import { EventEmitter } from "events";
 import { classnamePrio, DetectionClass } from "./detectionClasses";
 import { sortBy } from "lodash";
+import fs from 'fs';
 
 export interface VideoRtspFfmpegRecorderOptions {
     rtspUrl: string;
@@ -14,6 +15,7 @@ export class VideoRtspFfmpegRecorder extends EventEmitter {
     private options: VideoRtspFfmpegRecorderOptions;
     private ffmpegProcess: ChildProcessWithoutNullStreams | null = null;
     private restartTimer: NodeJS.Timeout | null = null;
+    private restartTimestamps: number[] = [];
     private stopped = false;
     private outputPath: string | undefined;
     private startTime: number | undefined;
@@ -53,6 +55,16 @@ export class VideoRtspFfmpegRecorder extends EventEmitter {
 
         if (thumbnailPath && this.outputPath && this.startTime) {
             try {
+                const outputPath = this.outputPath;
+                try {
+                    await fs.promises.access(outputPath);
+                } catch {
+                    this.options.console.warn(`Skipping thumbnail extraction, file not found: ${outputPath}`);
+                    this.startTime = undefined;
+                    this.outputPath = undefined;
+                    return;
+                }
+
                 const duration = (Date.now() - this.startTime) / 1000;
                 const seekTime = duration / 2;
                 const { ffmpegPath, console } = this.options;
@@ -94,6 +106,19 @@ export class VideoRtspFfmpegRecorder extends EventEmitter {
     }
 
     private spawnFfmpeg() {
+        if (this.stopped) {
+            return;
+        }
+
+        if (this.restartTimer) {
+            clearTimeout(this.restartTimer);
+            this.restartTimer = null;
+        }
+
+        if (this.ffmpegProcess) {
+            return;
+        }
+
         const {
             rtspUrl,
             ffmpegPath,
@@ -127,20 +152,66 @@ export class VideoRtspFfmpegRecorder extends EventEmitter {
         ffmpeg.stderr.on('data', (data: Buffer) => {
             console.info('[ffmpeg stderr]', data.toString());
         });
+        const scheduleRestart = (reason: 'exit' | 'error') => {
+            if (this.stopped) {
+                this.emit('ended', { reason, willRestart: false });
+                return;
+            }
+
+            const now = Date.now();
+            this.restartTimestamps = this.restartTimestamps.filter(t => now - t < 60_000);
+            this.restartTimestamps.push(now);
+
+            // Hard safety: if ffmpeg keeps dying, stop trying to respawn.
+            if (this.restartTimestamps.length > 5) {
+                console.error('ffmpeg restart storm detected, stopping recorder to prevent runaway respawns');
+                this.stopped = true;
+                this.emit('ended', { reason, willRestart: false });
+                return;
+            }
+
+            console.log('Restarting ffmpeg recording...');
+            this.emit('ended', { reason, willRestart: true });
+
+            if (this.restartTimer) {
+                clearTimeout(this.restartTimer);
+            }
+
+            const backoffMs = 2000 * this.restartTimestamps.length;
+            this.restartTimer = setTimeout(() => {
+                this.restartTimer = null;
+                this.spawnFfmpeg();
+            }, backoffMs);
+        }
+
         ffmpeg.on('exit', (code, signal) => {
             console.log(`ffmpeg recording terminated (code=${code}, signal=${signal})`);
             this.ffmpegProcess = null;
-            if (!this.stopped) {
-                console.log('Restarting ffmpeg recording...');
-                setTimeout(() => this.spawnFfmpeg(), 2000);
+
+            if (this.stopped) {
+                this.emit('ended', { reason: 'exit', willRestart: false, code, signal });
+                return;
             }
+
+            // If we stop it ourselves (SIGINT/SIGTERM), never restart.
+            if (signal === 'SIGINT' || signal === 'SIGTERM') {
+                this.emit('ended', { reason: 'exit', willRestart: false, code, signal });
+                return;
+            }
+
+            // If ffmpeg exits cleanly, treat as completed and don't restart.
+            if (code === 0) {
+                this.emit('ended', { reason: 'exit', willRestart: false, code, signal });
+                return;
+            }
+
+            scheduleRestart('exit');
         });
+
         ffmpeg.on('error', (err) => {
             console.error('ffmpeg recording error:', err);
             this.ffmpegProcess = null;
-            if (!this.stopped) {
-                setTimeout(() => this.spawnFfmpeg(), 2000);
-            }
+            scheduleRestart('error');
         });
     }
 }

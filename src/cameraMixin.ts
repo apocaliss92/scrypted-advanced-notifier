@@ -3714,7 +3714,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
                     image = imageData?.fullFrameImage
                 }
 
-                if (!image) {
+                if (!image && !isAudioClassname(match.className)) {
                     logger.log(`Skipping notification, image was not provided: ${JSON.stringify({
                         imageToProcess: !!imageToProcess,
                         matchRule,
@@ -3976,13 +3976,18 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         for (const d of candidates) {
             let dataToReport: any = {};
-            if (ignoreCameraDetections && !d.boundingBox) {
-                continue;
-            }
-
             const { className: classnameRaw, score, zones, label, labelScore, embedding, id } = d;
 
             const className = detectionClassesDefaultMap[classnameRaw];
+
+            const shouldHaveBoundingBox =
+                isObjectClassname(className) ||
+                isFaceClassname(className) ||
+                isPlateClassname(className);
+
+            if (ignoreCameraDetections && shouldHaveBoundingBox && !d.boundingBox) {
+                continue;
+            }
 
             if (!className) {
                 logger.log(`Classname ${classnameRaw} not mapped. Candidates ${JSON.stringify(candidates)}`);
@@ -4177,7 +4182,7 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
         const facesSourceForMqtt = this.facesSourceForMqtt;
         let triggerTime = triggerTimeParent ?? Date.now();
 
-        logger.info(`Raw detections received: ${JSON.stringify({ detect, eventDetails, hasImage: !!parentImage, eventSource })}`)
+        // logger.info(`Raw detections received: ${JSON.stringify({ detect, eventDetails, hasImage: !!parentImage, eventSource })}`)
 
         if (!detections?.length) {
             return;
@@ -5027,12 +5032,32 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
 
         await this.stopRecording();
 
-        this.videoRecorder = new VideoRtspFfmpegRecorder({
+        const recorder = new VideoRtspFfmpegRecorder({
             rtspUrl,
             console: logger,
             ffmpegPath: await sdk.mediaManager.getFFmpegPath(),
             h264: videoRecorderH264,
         });
+
+        // If ffmpeg ends by itself (no restart), finalize clip immediately.
+        recorder.on('ended', (ended: any) => {
+            try {
+                if (this.videoRecorder !== recorder) {
+                    return;
+                }
+
+                if (ended?.willRestart) {
+                    return;
+                }
+
+                logger.warn(`Video recorder ended (willRestart=false). Finalizing recording. Details: ${JSON.stringify(ended)}`);
+                this.stopRecording().catch(logger.error);
+            } catch (e) {
+                logger.error('Error handling video recorder end event', e);
+            }
+        });
+
+        this.videoRecorder = recorder;
 
         const pid = this.videoRecorder.start(recordedClipPath, maxClipLength);
         if (pid) {
@@ -5108,68 +5133,84 @@ export class AdvancedNotifierCameraMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async stopRecording() {
-        this.clearRecordingMotionCheckInterval();
-        if (this.videoRecorder) {
-            const endTime = Date.now();
-            this.mixinState.recordingState.lastRecordingEndTime = endTime;
-            if (this.mixinState.recordingState.recordingTimeout) {
-                clearTimeout(this.mixinState.recordingState.recordingTimeout);
-                this.mixinState.recordingState.recordingTimeout = undefined;
-            }
-            const startTime = this.mixinState.recordingState.recordingStartTime;
-            const classesDetected = Array.from(this.mixinState.recordingState.recordingClassesDetected);
+        if (this.mixinState.recordingState.stopInProgress) {
+            return this.mixinState.recordingState.stopInProgress;
+        }
 
-            const {
-                recordedClipPath,
-                recordedThumbnailPath
-            } = this.plugin.getRecordedEventPath({
-                cameraId: this.id,
-                fileName: `${startTime}`,
-            });
-
-            this.mixinState.recordingState.recordingStartTime = undefined;
-            this.mixinState.recordingState.recordingClassesDetected.clear();
-
-            await this.videoRecorder.stop(recordedThumbnailPath);
-            this.videoRecorder = undefined;
-            this.mixinState.storageSettings.values.videoRecorderProcessPid = undefined;
-
-            if (startTime) {
-                const newFilename = getVideoClipName({
-                    startTime,
-                    endTime,
-                    classesDetected,
-                    logger: this.getLogger()
-                });
+        const stopPromise = (async () => {
+            this.clearRecordingMotionCheckInterval();
+            if (this.videoRecorder) {
+                const endTime = Date.now();
+                this.mixinState.recordingState.lastRecordingEndTime = endTime;
+                if (this.mixinState.recordingState.recordingTimeout) {
+                    clearTimeout(this.mixinState.recordingState.recordingTimeout);
+                    this.mixinState.recordingState.recordingTimeout = undefined;
+                }
+                const startTime = this.mixinState.recordingState.recordingStartTime;
+                const classesDetected = Array.from(this.mixinState.recordingState.recordingClassesDetected);
 
                 const {
-                    recordedClipPath: newRecordedClipPath,
-                    recordedThumbnailPath: newRecordedThumbnailPath
+                    recordedClipPath,
+                    recordedThumbnailPath
                 } = this.plugin.getRecordedEventPath({
                     cameraId: this.id,
-                    fileName: newFilename,
+                    fileName: `${startTime}`,
                 });
 
-                try {
-                    await fs.promises.rename(recordedClipPath, newRecordedClipPath);
-                    await fs.promises.rename(recordedThumbnailPath, newRecordedThumbnailPath);
-                    this.getLogger().log(`Renamed recording to ${newFilename}`);
-                } catch (e) {
-                    this.getLogger().error('Error renaming recording files', e);
+                this.mixinState.recordingState.recordingStartTime = undefined;
+                this.mixinState.recordingState.recordingClassesDetected.clear();
+
+                const recorderToStop = this.videoRecorder;
+                await recorderToStop.stop(recordedThumbnailPath);
+                if (this.videoRecorder === recorderToStop) {
+                    this.videoRecorder = undefined;
                 }
-            }
-        } else {
-            try {
-                const { videoRecorderProcessPid } = this.mixinState.storageSettings.values;
-                if (videoRecorderProcessPid) {
+                this.mixinState.storageSettings.values.videoRecorderProcessPid = undefined;
+
+                if (startTime) {
+                    const newFilename = getVideoClipName({
+                        startTime,
+                        endTime,
+                        classesDetected,
+                        logger: this.getLogger()
+                    });
+
+                    const {
+                        recordedClipPath: newRecordedClipPath,
+                        recordedThumbnailPath: newRecordedThumbnailPath
+                    } = this.plugin.getRecordedEventPath({
+                        cameraId: this.id,
+                        fileName: newFilename,
+                    });
+
                     try {
-                        process.kill(parseInt(videoRecorderProcessPid), 'SIGINT');
-                    } catch { }
-                    this.mixinState.storageSettings.values.videoRecorderProcessPid = undefined;
+                        await fs.promises.rename(recordedClipPath, newRecordedClipPath);
+                        await fs.promises.rename(recordedThumbnailPath, newRecordedThumbnailPath);
+                        this.getLogger().log(`Renamed recording to ${newFilename}`);
+                    } catch (e) {
+                        this.getLogger().error('Error renaming recording files', e);
+                    }
                 }
-            } catch (e) {
-                this.getLogger().error('Error killing video recorder process', e);
+            } else {
+                try {
+                    const { videoRecorderProcessPid } = this.mixinState.storageSettings.values;
+                    if (videoRecorderProcessPid) {
+                        try {
+                            process.kill(parseInt(videoRecorderProcessPid), 'SIGINT');
+                        } catch { }
+                        this.mixinState.storageSettings.values.videoRecorderProcessPid = undefined;
+                    }
+                } catch (e) {
+                    this.getLogger().error('Error killing video recorder process', e);
+                }
             }
-        }
+        })().finally(() => {
+            if (this.mixinState.recordingState.stopInProgress === stopPromise) {
+                this.mixinState.recordingState.stopInProgress = undefined;
+            }
+        });
+
+        this.mixinState.recordingState.stopInProgress = stopPromise;
+        return stopPromise;
     }
 }

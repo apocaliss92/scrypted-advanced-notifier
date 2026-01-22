@@ -1,11 +1,11 @@
 {
   "name": "@apocaliss92/scrypted-advanced-notifier",
-  "description": "Advanced notifier rule based with connections to MQTT and Homeassistant. Allows customized detections, occupancy, events recording and timelapses",
+  "description": "Discover Cameras detections data and metadata to MQTT, customize detection notifications, occupancy rules, timelapses, audio detections and PTZ patroling",
   "repository": {
     "type": "git",
     "url": "https://github.com/apocaliss92/scrypted-advanced-notifier"
   },
-  "version": "4.8.27",
+  "version": "4.8.28",
   "scripts": {
     "scrypted-setup-project": "scrypted-setup-project",
     "prescrypted-setup-project": "scrypted-package-json",
@@ -23,12 +23,16 @@
     "scrypted",
     "plugin",
     "homeassistant",
+    "autodiscovery",
     "occupancy",
+    "audio",
+    "crying",
+    "cry",
     "mqtt",
-    "metadata",
     "notifier",
-    "filter",
     "timelapses",
+    "patrol",
+    "recording",
     "securitySystem",
     "alarm",
     "frigate",

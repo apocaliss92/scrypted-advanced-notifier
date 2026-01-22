@@ -53,6 +53,7 @@ export type CurrentRecordingState = {
     lastRecordingProlongLog: number;
     recordingTimeout: NodeJS.Timeout;
     motionCheckInterval: NodeJS.Timeout;
+    stopInProgress?: Promise<void>;
 };
 
 export interface AccumulatedDetection { detect: ObjectsDetected, eventId: string, eventSource: ScryptedEventSource };
