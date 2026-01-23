@@ -87,11 +87,18 @@ interface AutodiscoveryConfig {
     code_disarm_required?: boolean;
     code_arm_required?: boolean;
     code_trigger_required?: boolean;
-    payload_arm_away?: SecuritySystemMode;
-    payload_arm_home?: SecuritySystemMode;
-    payload_arm_night?: SecuritySystemMode;
-    payload_disarm?: SecuritySystemMode;
+    payload_arm_away?: string;
+    payload_arm_home?: string;
+    payload_arm_night?: string;
+    payload_disarm?: string;
+    payload_trigger?: string;
 }
+
+const HA_ALARM_PAYLOAD_ARM_AWAY = 'ARM_AWAY';
+const HA_ALARM_PAYLOAD_ARM_HOME = 'ARM_HOME';
+const HA_ALARM_PAYLOAD_ARM_NIGHT = 'ARM_NIGHT';
+const HA_ALARM_PAYLOAD_DISARM = 'DISARM';
+const HA_ALARM_PAYLOAD_TRIGGER = 'TRIGGER';
 
 export const detectionClassForObjectsReporting = [DetectionClass.Animal, DetectionClass.Person, DetectionClass.Vehicle];
 const detectionClassMdiIconMap: Partial<Record<DetectionClass, string>> = {
@@ -104,7 +111,7 @@ export const idPrefix = 'scrypted-an';
 const namePrefix = 'Scrypted AN';
 const pluginIds = `${idPrefix}-main-settings`;
 const peopleTrackerId = 'people-tracker';
-const alarmSystemId = 'alarm-system';
+export const alarmSystemId = 'alarm-system';
 const pluginId = 'plugin';
 
 type MqttDeviceType = typeof pluginId | typeof peopleTrackerId | typeof alarmSystemId | ScryptedDeviceBase;
@@ -381,14 +388,17 @@ const getBasicMqttAutodiscoveryConfiguration = (props: {
     } else if (domain === 'alarm_control_panel') {
         config.command_topic = commandTopic;
         config.state_topic = stateTopic;
-        config.supported_features = ['trigger', ...supportedFeatures];
+        config.supported_features = supportedFeatures;
         config.code_arm_required = false;
         config.code_disarm_required = false;
         config.code_trigger_required = false;
-        config.payload_arm_away = SecuritySystemMode.AwayArmed;
-        config.payload_arm_night = SecuritySystemMode.NightArmed;
-        config.payload_arm_home = SecuritySystemMode.HomeArmed;
-        config.payload_disarm = SecuritySystemMode.Disarmed;
+        // Home Assistant MQTT Alarm Control Panel expects these command payload defaults.
+        // See: https://www.home-assistant.io/integrations/alarm_control_panel.mqtt/
+        config.payload_arm_away = HA_ALARM_PAYLOAD_ARM_AWAY;
+        config.payload_arm_night = HA_ALARM_PAYLOAD_ARM_NIGHT;
+        config.payload_arm_home = HA_ALARM_PAYLOAD_ARM_HOME;
+        config.payload_disarm = HA_ALARM_PAYLOAD_DISARM;
+        config.payload_trigger = HA_ALARM_PAYLOAD_TRIGGER;
     }
 
     return config;
@@ -1090,7 +1100,10 @@ export const setupAlarmSystemAutodiscovery = async (props: {
 
     mqttEntities.push({
         ...alarmSystemEntity,
-        supportedFeatures: supportedModes.map(mode => AlarmSupportedFeatureToHaMap[mode]),
+        supportedFeatures: uniq([
+            ...supportedModes.map(mode => AlarmSupportedFeatureToHaMap[mode]).filter(Boolean) as string[],
+            'trigger',
+        ]),
     });
 
     return await publishMqttDeviceDiscoveryV2({ mqttClient, mqttEntities, device: alarmSystemId, console, migrateLegacyDiscovery });
@@ -1178,12 +1191,14 @@ export const subscribeToAlarmSystemMqttTopics = async (
     props: {
         mqttClient?: MqttClient,
         modeSwitchCb: (mode: SecuritySystemMode) => void,
+        triggerCb?: () => void,
         console: Console,
     }
 ) => {
     const {
         mqttClient,
         modeSwitchCb,
+        triggerCb,
     } = props;
 
     if (!mqttClient) {
@@ -1192,13 +1207,32 @@ export const subscribeToAlarmSystemMqttTopics = async (
 
     const { alarmSystemEntity } = getBasicMqttEntities();
 
-    if (modeSwitchCb) {
+    if (modeSwitchCb || triggerCb) {
         const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: alarmSystemEntity, device: alarmSystemId });
         await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
             if (messageTopic === commandTopic) {
-                modeSwitchCb(message as SecuritySystemMode);
-
-                await mqttClient.publish(stateTopic, message, alarmSystemEntity.retain);
+                // HA sends command payloads (ARM_*, DISARM, TRIGGER by default).
+                // Map them to Scrypted SecuritySystemMode.
+                if (message === HA_ALARM_PAYLOAD_DISARM || message === SecuritySystemMode.Disarmed) {
+                    modeSwitchCb(SecuritySystemMode.Disarmed);
+                    return;
+                }
+                if (message === HA_ALARM_PAYLOAD_ARM_AWAY || message === SecuritySystemMode.AwayArmed) {
+                    modeSwitchCb(SecuritySystemMode.AwayArmed);
+                    return;
+                }
+                if (message === HA_ALARM_PAYLOAD_ARM_HOME || message === SecuritySystemMode.HomeArmed) {
+                    modeSwitchCb(SecuritySystemMode.HomeArmed);
+                    return;
+                }
+                if (message === HA_ALARM_PAYLOAD_ARM_NIGHT || message === SecuritySystemMode.NightArmed) {
+                    modeSwitchCb(SecuritySystemMode.NightArmed);
+                    return;
+                }
+                if (message === HA_ALARM_PAYLOAD_TRIGGER) {
+                    triggerCb?.();
+                    return;
+                }
             }
         });
     }

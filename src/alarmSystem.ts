@@ -256,6 +256,64 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
     logger: Console;
     lastMqttCommandReceived: number;
 
+    private async triggerAlarmManually(source: string) {
+        const logger = this.getLogger();
+
+        if (this.securitySystemState.mode === SecuritySystemMode.Disarmed) {
+            logger.log(`Ignoring manual trigger while disarmed (${source})`);
+            return;
+        }
+
+        if (this.securitySystemState.triggered) {
+            return;
+        }
+
+        this.storageSettings.values.triggered = true;
+        this.securitySystemState = {
+            ...this.securitySystemState,
+            triggered: true
+        };
+
+        await this.updateMqtt({
+            mode: 'triggered',
+        });
+
+        await this.sendNotification({
+            event: AlarmEvent.Trigger,
+            triggerDevices: [source]
+        });
+
+        const { trigger: triggerSequences } = getAlarmModeSequences({
+            mode: this.securitySystemState.mode,
+            alarmStorage: this.storageSettings,
+            pluginStorage: this.plugin.storageSettings,
+        });
+        this.plugin.triggerRuleSequences({
+            sequences: triggerSequences,
+            postFix: `alarm-trigger-${this.securitySystemState.mode}`,
+            rule: {
+                name: `alarm:${this.securitySystemState.mode}:trigger`,
+            } as BaseRule,
+        }).catch(logger.error);
+
+        const { autoDisarmTime, autoRiarmTime } = getModeEntity({
+            mode: this.securitySystemState.mode,
+            storage: this.storageSettings
+        });
+
+        if (autoRiarmTime) {
+            this.resetDisarmListener();
+            this.disarmListener = setTimeout(async () => {
+                await this.riarm();
+            }, 1000 * autoRiarmTime);
+        } else if (autoDisarmTime) {
+            this.resetDisarmListener();
+            this.disarmListener = setTimeout(async () => {
+                await this.disarmSecuritySystemInternal(AlarmEvent.DefuseAuto);
+            }, 1000 * autoDisarmTime);
+        }
+    }
+
     constructor(nativeId: string, private plugin: AdvancedNotifierPlugin) {
         super(nativeId);
         const logger = this.getLogger();
@@ -324,6 +382,13 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                                         await this.armSecuritySystem(mode);
                                     }
                                 },
+                                triggerCb: async () => {
+                                    const now = Date.now();
+                                    if (!this.lastMqttCommandReceived || (now - this.lastMqttCommandReceived) > (1000 * 2)) {
+                                        this.lastMqttCommandReceived = now;
+                                        await this.triggerAlarmManually('MQTT');
+                                    }
+                                }
                             });
                         }
                     }
@@ -613,7 +678,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
             const modeText = mode === SecuritySystemMode.AwayArmed ?
                 modeAwayText : mode === SecuritySystemMode.HomeArmed ?
                     modeHomeText : mode === SecuritySystemMode.NightArmed ?
-                        modeNightText : undefined;
+                        modeNightText : String(mode);
 
             const renderList = (list: string[]) => list.length > 0 ? list.join(', ') : noneText;
 
@@ -623,7 +688,7 @@ export class AdvancedNotifierAlarmSystem extends ScryptedDeviceBase implements S
                 .replaceAll('${bypassedDevices}', renderList(bypassedDevices))
                 .replaceAll('${blockingDevices}', renderList(blockingDevices))
                 .replaceAll('${triggerDevices}', renderList(triggerDevices))
-                .replaceAll('${activeDevicesAmount}', !!activeDevices.length ? String(activeDevices.length) : noneText);
+                .replaceAll('${activeDevicesAmount}', String(activeDevices.length));
 
             const alarmActions = await getAlarmWebhookUrls({
                 deactivateMessage,
