@@ -56,6 +56,47 @@ interface MqttEntity {
     supportedFeatures?: string[];
 }
 
+type CameraAccessorySwitchKind = 'alarm' | 'light' | 'pir';
+
+const cameraAccessorySwitchEntities: Record<CameraAccessorySwitchKind, MqttEntity> = {
+    alarm: {
+        domain: 'switch',
+        entity: 'accessory_alarm',
+        name: 'Alarm',
+        icon: 'mdi:alarm-bell',
+        entityCategory: 'diagnostic',
+        retain: false,
+        options: [],
+    },
+    light: {
+        domain: 'switch',
+        entity: 'accessory_light',
+        name: 'Light',
+        icon: 'mdi:lightbulb',
+        entityCategory: 'diagnostic',
+        retain: false,
+        options: [],
+    },
+    pir: {
+        domain: 'switch',
+        entity: 'accessory_pir',
+        name: 'PIR',
+        icon: 'mdi:motion-sensor',
+        entityCategory: 'diagnostic',
+        retain: false,
+        options: [],
+    },
+};
+
+const getCameraAccessorySwitchEntities = (kinds?: CameraAccessorySwitchKind[]) => {
+    if (!kinds?.length) {
+        return [] as MqttEntity[];
+    }
+
+    const uniqKinds = uniq(kinds);
+    return uniqKinds.map(kind => cameraAccessorySwitchEntities[kind]).filter(Boolean);
+}
+
 interface AutodiscoveryConfig {
     dev: any;
     unique_id: string;
@@ -1275,6 +1316,8 @@ export const subscribeToCameraMqttTopics = async (
         switchNotificationsEnabledCb: (active: boolean) => void,
         rebootCb?: () => void,
         ptzCommandCb?: (command: PanTiltZoomCommand) => void,
+        accessorySwitchKinds?: CameraAccessorySwitchKind[],
+        accessorySwitchCb?: (props: { kind: CameraAccessorySwitchKind; active: boolean }) => Promise<void> | void,
         activationRuleCb: (props: {
             ruleName: string;
             active: boolean;
@@ -1292,6 +1335,8 @@ export const subscribeToCameraMqttTopics = async (
         switchNotificationsEnabledCb,
         rebootCb,
         ptzCommandCb,
+        accessorySwitchKinds,
+        accessorySwitchCb,
         device,
     } = props;
     if (!mqttClient) {
@@ -1399,6 +1444,34 @@ export const subscribeToCameraMqttTopics = async (
                 await mqttClient.publish(stateTopic, message, notificationsEnabledEntity.retain);
             }
         });
+    }
+
+    if (accessorySwitchKinds?.length && accessorySwitchCb) {
+        const accessoryEntities = getCameraAccessorySwitchEntities(accessorySwitchKinds);
+        const kindByEntity = new Map<string, CameraAccessorySwitchKind>([
+            [cameraAccessorySwitchEntities.alarm.entity, 'alarm'],
+            [cameraAccessorySwitchEntities.light.entity, 'light'],
+            [cameraAccessorySwitchEntities.pir.entity, 'pir'],
+        ]);
+
+        for (const mqttEntity of accessoryEntities) {
+            const kind = kindByEntity.get(mqttEntity.entity);
+            if (!kind) {
+                continue;
+            }
+            const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity, device });
+            await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
+                if (messageTopic === commandTopic) {
+                    if (message === PAYLOAD_ON) {
+                        await accessorySwitchCb({ kind, active: true });
+                        await mqttClient.publish(stateTopic, PAYLOAD_ON, mqttEntity.retain);
+                    } else if (message === PAYLOAD_OFF) {
+                        await accessorySwitchCb({ kind, active: false });
+                        await mqttClient.publish(stateTopic, PAYLOAD_OFF, mqttEntity.retain);
+                    }
+                }
+            });
+        }
     }
 
     if (rebootCb) {
@@ -1684,9 +1757,10 @@ export const setupCameraAutodiscovery = async (props: {
     console: Console,
     rules: BaseRule[],
     zones: string[],
+    accessorySwitchKinds?: CameraAccessorySwitchKind[],
     migrateLegacyDiscovery?: boolean,
 }) => {
-    const { device, mqttClient, rules, console, zones, migrateLegacyDiscovery } = props;
+    const { device, mqttClient, rules, console, zones, accessorySwitchKinds, migrateLegacyDiscovery } = props;
 
     if (!mqttClient) {
         return;
@@ -1715,6 +1789,8 @@ export const setupCameraAutodiscovery = async (props: {
         snapshotsEntity,
         ...detectionMqttEntities
     ];
+
+    mqttEntities.push(...getCameraAccessorySwitchEntities(accessorySwitchKinds));
 
     if (device.interfaces.includes(ScryptedInterface.Battery)) {
         mqttEntities.push(cloneDeep(batteryEntity));
@@ -2104,6 +2180,7 @@ export const publishCameraValues = async (props: {
     isRecording?: boolean,
     isSnapshotsEnabled?: boolean,
     isRebroadcastEnabled?: boolean,
+    accessorySwitchStates?: Partial<Record<CameraAccessorySwitchKind, boolean>>,
     notificationsEnabled: boolean,
     console: Console,
     rulesToEnable: BaseRule[],
@@ -2115,6 +2192,7 @@ export const publishCameraValues = async (props: {
         isRecording,
         isSnapshotsEnabled,
         isRebroadcastEnabled,
+        accessorySwitchStates,
         notificationsEnabled,
         rulesToDisable,
         rulesToEnable,
@@ -2167,6 +2245,17 @@ export const publishCameraValues = async (props: {
 
         const { stateTopic: notificationsEnabledStateTopic } = getMqttTopics({ mqttEntity: notificationsEnabledEntity, device });
         await mqttClient.publish(notificationsEnabledStateTopic, notificationsEnabled ? PAYLOAD_ON : PAYLOAD_OFF, notificationsEnabledEntity.retain);
+
+        if (accessorySwitchStates) {
+            for (const [kind, state] of Object.entries(accessorySwitchStates)) {
+                const mqttEntity = cameraAccessorySwitchEntities[kind];
+                if (!mqttEntity) {
+                    continue;
+                }
+                const { stateTopic } = getMqttTopics({ mqttEntity, device });
+                await mqttClient.publish(stateTopic, state ? PAYLOAD_ON : PAYLOAD_OFF, mqttEntity.retain);
+            }
+        }
     }
 
     for (const rule of rulesToEnable) {
