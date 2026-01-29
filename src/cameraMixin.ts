@@ -84,6 +84,7 @@ import {
   publishResetRuleEntities,
   publishRuleData,
   publishRuleEnabled,
+  rediscoverCameraMqttDevice,
   setupCameraAutodiscovery,
   subscribeToCameraMqttTopics,
 } from "./mqtt-utils";
@@ -185,6 +186,7 @@ type CameraSettingKey =
   | "decoderStreamDestination"
   | "resizeDecoderFrames"
   | "occupancySourceForMqtt"
+  | "mqttRediscoverDevice"
   | "decoderType"
   | "audioAnalyzerEnabled"
   | "audioClassifierSource"
@@ -355,6 +357,52 @@ export class AdvancedNotifierCameraMixin
       subgroup: "MQTT",
       choices: [],
       defaultValue: OccupancySource.Off,
+    },
+    mqttRediscoverDevice: {
+      title: "Rediscover MQTT device",
+      subgroup: "MQTT",
+      type: "button",
+      description:
+        "Removes this camera from Home Assistant (if HA API URL and token are set in plugin settings), clears all MQTT topics for this camera, then republishes discovery. Use if entities are missing, duplicated or out of sync.",
+      onPut: async () => {
+        const logger = this.getLogger();
+        const mqttClient = await this.getMqttClient();
+        const { allAvailableRules } = await getActiveRules({
+          device: this.cameraDevice,
+          deviceStorage: this.mixinState.storageSettings,
+          plugin: this.plugin,
+          console: logger,
+        });
+        const zones = await this.getMqttZones();
+        let haApiUrl: string | undefined;
+        let haApiToken: string | undefined;
+        try {
+          const ha = await this.plugin.getHaApiUrl();
+          if (ha?.url && ha?.accessToken) {
+            haApiUrl = ha.url;
+            haApiToken = ha.accessToken;
+          }
+        } catch (_e) {
+          // HA URL/token not configured or getHaApiUrl failed; rediscover will only clear topics and republish
+        }
+        const result = await rediscoverCameraMqttDevice({
+          mqttClient,
+          device: this.cameraDevice,
+          console: logger,
+          rules: allAvailableRules ?? [],
+          zones,
+          accessorySwitchKinds: this.cameraAccessorySwitchKinds,
+          haApiUrl,
+          haApiToken,
+        });
+        if (result.haError) {
+          logger.warn("Rediscover completed with HA warning:", result.haError);
+        } else if (result.haDeviceDeleted) {
+          logger.log("Device removed from Home Assistant, topics cleared, discovery republished.");
+        } else {
+          logger.log("Topics cleared, discovery republished.");
+        }
+      },
     },
     motionDuration: {
       title: "Off motion duration",
@@ -2294,6 +2342,10 @@ export class AdvancedNotifierCameraMixin
         this.hasFrigateObjectDetectorMixin
           ? OccupancySource.Frigate
           : OccupancySource.Off;
+    }
+    if (this.mixinState.storageSettings.settings.mqttRediscoverDevice) {
+      this.mixinState.storageSettings.settings.mqttRediscoverDevice.hide =
+        !enabledToMqtt;
     }
 
     const isAudioClassifierEnabled =

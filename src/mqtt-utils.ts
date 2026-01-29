@@ -8,6 +8,7 @@ import {
     type CameraNativeIdAccessoryKind,
 } from './accessoryUtils';
 import { BaseRule, DetectionsPerZone, DeviceInterface, ImageSource, isDetectionRule, RuleSource, RuleType, safeParseJson, toKebabCase, toSnakeCase, toTitleCase } from './utils';
+import { deleteMqttDeviceByIdentifier } from '../../scrypted-apocaliss-base/src/basePlugin';
 
 export type CameraAccessorySwitchKind = CameraNativeIdAccessoryKind;
 
@@ -1733,22 +1734,16 @@ const getDetectionZoneEntities = (zones: string[]) => {
     return entries;
 }
 
-export const setupCameraAutodiscovery = async (props: {
-    mqttClient?: MqttClient,
+/** Builds the MQTT entity list for a camera (same as setupCameraAutodiscovery). Used for clear + rediscover. */
+export const getCameraMqttEntitiesForDiscovery = async (props: {
     device: ScryptedDeviceBase & ObjectDetector,
     console: Console,
     rules: BaseRule[],
     zones: string[],
     accessorySwitchKinds?: CameraAccessorySwitchKind[],
-}) => {
-    const { device, mqttClient, rules, console, zones, accessorySwitchKinds } = props;
-
-    if (!mqttClient) {
-        return;
-    }
-
+}): Promise<MqttEntity[]> => {
+    const { device, rules, console, zones, accessorySwitchKinds } = props;
     const detectionMqttEntities = await getCameraClassEntities({ device, console });
-
     const {
         audioPressureEntity,
         batteryEntity,
@@ -1764,7 +1759,7 @@ export const setupCameraAutodiscovery = async (props: {
         triggeredEntity,
     } = getBasicMqttEntities();
 
-    const mqttEntities = [
+    const mqttEntities: MqttEntity[] = [
         triggeredEntity,
         notificationsEnabledEntity,
         rebroadcastEntity,
@@ -1778,61 +1773,96 @@ export const setupCameraAutodiscovery = async (props: {
     if (device.interfaces.includes(ScryptedInterface.Battery)) {
         mqttEntities.push(cloneDeep(batteryEntity));
     }
-
     if (device.interfaces.includes(ScryptedInterface.Online)) {
         mqttEntities.push(cloneDeep(onlineEntity));
     }
-
     if (device.interfaces.includes(ScryptedInterface.Sleep)) {
         mqttEntities.push(cloneDeep(sleepingEntity));
     }
-
     if (device.interfaces.includes(ScryptedInterface.VideoRecorder)) {
         mqttEntities.push(recordingEntity);
     }
-
     if (device.interfaces.includes(ScryptedInterface.Reboot)) {
         mqttEntities.push(rebootEntity);
     }
-
     if (device.interfaces.includes(ScryptedInterface.AudioVolumeControl)) {
         mqttEntities.push(audioPressureEntity);
     }
-
     if (device.interfaces.includes(ScryptedInterface.PanTiltZoom)) {
         const presets = Object.values(device.ptzCapabilities.presets ?? {});
         if (presets?.length) {
             mqttEntities.push({ ...ptzPresetEntity, options: presets });
         }
-
-        const commandEntities = getPtzCommandEntities(device);
-        mqttEntities.push(...commandEntities);
+        mqttEntities.push(...getPtzCommandEntities(device));
     }
-
     for (const rule of rules) {
         const ruleEntities = getRuleMqttEntities({ rule, device, forDiscovery: true });
-
         for (const mqttEntity of ruleEntities) {
             if (mqttEntity.identifier === MqttEntityIdentifier.RuleActive) {
-                mqttEntities.push({
-                    ...mqttEntity,
-                    valueToDispatch: rule.isEnabled
-                });
+                mqttEntities.push({ ...mqttEntity, valueToDispatch: rule.isEnabled });
             } else if (mqttEntity.identifier === MqttEntityIdentifier.RuleRunning) {
-                mqttEntities.push({
-                    ...mqttEntity,
-                    valueToDispatch: rule.currentlyActive
-                });
+                mqttEntities.push({ ...mqttEntity, valueToDispatch: rule.currentlyActive });
             } else {
                 mqttEntities.push(mqttEntity);
             }
         }
     }
-
     mqttEntities.push(...getDetectionZoneEntities(zones));
+    return mqttEntities;
+};
 
+export const setupCameraAutodiscovery = async (props: {
+    mqttClient?: MqttClient,
+    device: ScryptedDeviceBase & ObjectDetector,
+    console: Console,
+    rules: BaseRule[],
+    zones: string[],
+    accessorySwitchKinds?: CameraAccessorySwitchKind[],
+}) => {
+    const { device, mqttClient, rules, console, zones, accessorySwitchKinds } = props;
+    if (!mqttClient) {
+        return;
+    }
+    const mqttEntities = await getCameraMqttEntitiesForDiscovery({ device, rules, console, zones, accessorySwitchKinds });
     return await publishMqttDeviceDiscoveryV2({ mqttClient, mqttEntities, device, console });
-}
+};
+
+/**
+ * Rediscover a single camera on MQTT: optionally delete device from HA, clear all MQTT topics for this camera, then republish discovery.
+ * If haApiUrl and haApiToken are provided, removes the device from Home Assistant first (via HA WebSocket API) so HA drops the device and entities; then clears retained topics and republishes.
+ */
+export const rediscoverCameraMqttDevice = async (props: {
+    mqttClient?: MqttClient,
+    device: ScryptedDeviceBase & ObjectDetector,
+    console: Console,
+    rules: BaseRule[],
+    zones: string[],
+    accessorySwitchKinds?: CameraAccessorySwitchKind[],
+    haApiUrl?: string,
+    haApiToken?: string,
+}): Promise<{ haDeviceDeleted?: boolean; haError?: string }> => {
+    const { device, mqttClient, rules, console, zones, accessorySwitchKinds, haApiUrl, haApiToken } = props;
+    const result: { haDeviceDeleted?: boolean; haError?: string } = {};
+
+    if (mqttClient && haApiUrl?.trim() && haApiToken?.trim()) {
+        const deviceIdentifier = `${idPrefix}-${device.id}`;
+        const deleteResult = await deleteMqttDeviceByIdentifier(haApiUrl.trim(), haApiToken.trim(), deviceIdentifier, console);
+        result.haDeviceDeleted = deleteResult.deleted;
+        if (deleteResult.error) {
+            result.haError = deleteResult.error;
+            console.warn('HA device delete failed (continuing with topic cleanup):', deleteResult.error);
+        }
+    }
+
+    if (!mqttClient) {
+        return result;
+    }
+
+    const mqttEntities = await getCameraMqttEntitiesForDiscovery({ device, rules, console, zones, accessorySwitchKinds });
+    await clearTopicsForEntities({ mqttClient, device, mqttEntities });
+    await setupCameraAutodiscovery({ mqttClient, device, rules, console, zones, accessorySwitchKinds });
+    return result;
+};
 
 export const setupNotifierAutodiscovery = async (props: {
     mqttClient?: MqttClient,
