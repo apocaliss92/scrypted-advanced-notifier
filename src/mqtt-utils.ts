@@ -4,8 +4,8 @@ import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 import { DetectionClass, detectionClassesDefaultMap, getParentDetectionClass, isAudioClassname, isLabelDetection } from './detectionClasses';
 import { OccupancyRuleData } from './states';
 import {
-  cameraAccessorySwitchEntityConfig,
-  type CameraNativeIdAccessoryKind,
+    cameraAccessorySwitchEntityConfig,
+    type CameraNativeIdAccessoryKind,
 } from './accessoryUtils';
 import { BaseRule, DetectionsPerZone, DeviceInterface, ImageSource, isDetectionRule, RuleSource, RuleType, safeParseJson, toKebabCase, toSnakeCase, toTitleCase } from './utils';
 
@@ -64,25 +64,25 @@ interface MqttEntity {
 
 /** MQTT entities for accessory switches, derived from accessoryUtils. */
 const cameraAccessorySwitchEntities: Record<CameraAccessorySwitchKind, MqttEntity> = (
-  Object.entries(cameraAccessorySwitchEntityConfig) as [CameraAccessorySwitchKind, typeof cameraAccessorySwitchEntityConfig[CameraAccessorySwitchKind]][]
+    Object.entries(cameraAccessorySwitchEntityConfig) as [CameraAccessorySwitchKind, typeof cameraAccessorySwitchEntityConfig[CameraAccessorySwitchKind]][]
 ).reduce((acc, [kind, config]) => {
-  acc[kind] = {
-    domain: 'switch',
-    entity: config.entity,
-    name: config.name,
-    icon: config.icon,
-    retain: false,
-    options: [],
-  };
-  return acc;
+    acc[kind] = {
+        domain: 'switch',
+        entity: config.entity,
+        name: config.name,
+        icon: config.icon,
+        retain: false,
+        options: [],
+    };
+    return acc;
 }, {} as Record<CameraAccessorySwitchKind, MqttEntity>);
 
 const getCameraAccessorySwitchEntities = (kinds?: CameraAccessorySwitchKind[]) => {
-  if (!kinds?.length) {
-    return [] as MqttEntity[];
-  }
-  const uniqKinds = uniq(kinds);
-  return uniqKinds.map((kind) => cameraAccessorySwitchEntities[kind]).filter(Boolean);
+    if (!kinds?.length) {
+        return [] as MqttEntity[];
+    }
+    const uniqKinds = uniq(kinds);
+    return uniqKinds.map((kind) => cameraAccessorySwitchEntities[kind]).filter(Boolean);
 }
 
 interface AutodiscoveryConfig {
@@ -376,7 +376,7 @@ const getBasicMqttAutodiscoveryConfiguration = (props: {
     const config: AutodiscoveryConfig = {
         dev: mqttDevice,
         unique_id: `${idPrefix}-${deviceId}-${toKebabCase(entity)}`,
-        default_entity_id: `${domain}.${toSnakeCase(`${mqttDevice.name} ${name}`)}`,
+        default_entity_id: `${domain}.${toSnakeCase(`${mqttDevice.name} ${name}`.trim())}`,
         name,
         platform: domain,
         optimistic: false,
@@ -479,7 +479,7 @@ const getDetectionClassMqttEntities = (classes: string[]) => classes.flatMap(cla
         },
         {
             entity: `${className}${lastImageSuffix}`,
-            name: `${parsedClassName} last image `,
+            name: `${parsedClassName} last image`,
             domain: 'image',
             className,
             retain: true,
@@ -569,7 +569,7 @@ export const getRuleMqttEntities = (props: {
     };
     const lastImageEntity: MqttEntity = {
         entity: `${entity}${lastImageSuffix}`,
-        name: `${parsedName} last image `,
+        name: `${parsedName} last image`,
         domain: 'image',
         retain: true,
         identifier: MqttEntityIdentifier.LastImage
@@ -647,7 +647,7 @@ const getPersonMqttEntities = (person: string) => {
     };
     const lastImageEntity: MqttEntity = {
         entity: `${personId}${lastImageSuffix}`,
-        name: `${personName} last image `,
+        name: `${personName} last image`,
         domain: 'image',
         retain: true,
         identifier: MqttEntityIdentifier.LastImage
@@ -721,29 +721,20 @@ const publishMqttEntitiesDiscovery = async (props: { mqttClient?: MqttClient, mq
     return autodiscoveryTopics;
 }
 
-interface MqttOriginInfo {
-    name: string;
-    sw?: string;
-    url?: string;
-}
-
-interface MqttDeviceDiscoveryPayload {
-    dev: AutodiscoveryConfig['dev'];
-    o: MqttOriginInfo;
-    cmps: Record<string, Omit<AutodiscoveryConfig, 'dev'>>;
-}
-
-const mqttDiscoveryOrigin: MqttOriginInfo = {
-    name: '@apocaliss92/scrypted-advanced-notifier',
-};
-
 const toDeviceDiscoveryComponentId = (mqttEntity: MqttEntity) => {
     const raw = `${mqttEntity.domain}-${mqttEntity.entity}`;
     const kebab = toKebabCase(raw);
     return kebab.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
-// V2: Home Assistant device-based MQTT discovery (single device topic with cmps).
+/** Per-entity discovery topic (one message per entity to avoid payload size limits). Same unique_id/default_entity_id as before. */
+const getEntityDiscoveryTopicV2 = (deviceIdParent: string, mqttEntity: MqttEntity) => {
+    const componentId = toDeviceDiscoveryComponentId(mqttEntity);
+    return `homeassistant/${mqttEntity.domain}/${idPrefix}-${deviceIdParent}/${componentId}/config`;
+};
+
+// V2: Home Assistant MQTT discovery with one message per entity (avoids broker/HA payload size limits). Same IDs as before.
+// Clear any previous device-based discovery first to avoid "conflicting discovery" warnings (same entity from device topic + single-component topic).
 export const publishMqttDeviceDiscoveryV2 = async (props: { mqttClient?: MqttClient, mqttEntities: MqttEntity[], device: MqttDeviceType, console: Console }) => {
     const { mqttClient, mqttEntities, device, console } = props;
 
@@ -752,13 +743,15 @@ export const publishMqttDeviceDiscoveryV2 = async (props: { mqttClient?: MqttCli
     }
 
     const deviceIdParent = typeof device === 'string' ? device : device?.id;
-    const deviceDiscoveryTopic = `homeassistant/device/${idPrefix}-${deviceIdParent}/config`;
+
+    // Remove old device-based discovery so HA does not see the same entity from two schemas (device + single-component).
+    await clearRetainedTopic(mqttClient, getDeviceDiscoveryTopicV2(device));
 
     const { mqttDevice, deviceId } = await getMqttDevice(device);
 
-    const cmps: Record<string, Omit<AutodiscoveryConfig, 'dev'>> = {};
     const statePublishes: Array<{ topic: string; payload: string; retain?: boolean }> = [];
     const entitiesEnsuredReset: string[] = [];
+    const discoveryTopics: string[] = [];
 
     for (const mqttEntity of mqttEntities) {
         const { commandTopic, stateTopic, infoTopic } = getMqttTopics({ mqttEntity, device });
@@ -772,9 +765,9 @@ export const publishMqttDeviceDiscoveryV2 = async (props: { mqttClient?: MqttCli
             infoTopic,
         });
 
-        const { dev: _dev, ...componentConfig } = config;
-        const componentId = toDeviceDiscoveryComponentId(mqttEntity);
-        cmps[componentId] = componentConfig;
+        const discoveryTopic = getEntityDiscoveryTopicV2(deviceIdParent, mqttEntity);
+        await mqttClient.publish(discoveryTopic, JSON.stringify(config), true);
+        discoveryTopics.push(discoveryTopic);
 
         if (mqttEntity.valueToDispatch !== undefined) {
             statePublishes.push({ topic: stateTopic, payload: mqttEntity.valueToDispatch, retain: mqttEntity.retain });
@@ -785,28 +778,16 @@ export const publishMqttDeviceDiscoveryV2 = async (props: { mqttClient?: MqttCli
         }
     }
 
-    const payload: MqttDeviceDiscoveryPayload = {
-        dev: mqttDevice,
-        o: mqttDiscoveryOrigin,
-        cmps,
-    };
-
-    console.log(`Discovering device ${JSON.stringify({ deviceDiscoveryTopic })}`);
-    console.info(`${JSON.stringify({ components: Object.keys(cmps).length })}`);
-    await mqttClient.publish(deviceDiscoveryTopic, JSON.stringify(payload), true);
-
-    // After configs have been published, state topics need an update.
     for (const { topic, payload, retain } of statePublishes) {
         await mqttClient.publish(topic, payload, retain);
     }
 
-    // Ensure command topics are not retained.
     for (const commandTopic of entitiesEnsuredReset) {
         await mqttClient.publish(commandTopic, '', true);
     }
 
-    console.info(`Entities ensured to not be retained: ${entitiesEnsuredReset}`);
-    return [deviceDiscoveryTopic];
+    console.info(`Device ${idPrefix}-${deviceIdParent}: discovered ${mqttEntities.length} entities. Command topics cleared: ${entitiesEnsuredReset.length}`);
+    return discoveryTopics;
 }
 
 const getDeviceDiscoveryTopicV2 = (device: MqttDeviceType) => {
@@ -824,11 +805,13 @@ const clearTopicsForEntities = async (props: {
     mqttEntities: MqttEntity[],
 }) => {
     const { mqttClient, device, mqttEntities } = props;
+    const deviceIdParent = typeof device === 'string' ? device : device?.id;
 
-    // Clear V2 device discovery topic.
+    // Clear legacy single-message device topic if it was ever used.
     await clearRetainedTopic(mqttClient, getDeviceDiscoveryTopicV2(device));
 
     for (const mqttEntity of mqttEntities) {
+        await clearRetainedTopic(mqttClient, getEntityDiscoveryTopicV2(deviceIdParent, mqttEntity));
         const { stateTopic, commandTopic, infoTopic } = getMqttTopics({ mqttEntity, device });
         await clearRetainedTopic(mqttClient, stateTopic);
         await clearRetainedTopic(mqttClient, commandTopic);
@@ -1620,7 +1603,7 @@ const getMqttDevice = async (device: MqttDeviceType) => {
         const localEndpoint = await sdk.endpointManager.getLocalEndpoint();
         const deviceConfigurationUrl = `${new URL(localEndpoint).origin}/endpoint/@scrypted/core/public/#/device/${deviceId}`;
         mqttDevice = {
-            ids: `${idPrefix}-${device.id}`,
+            ids: [`${idPrefix}-${device.id}`],
             name: `${device.name}`,
             manufacturer: namePrefix,
             model: `${device?.info?.manufacturer ?? ''} ${device?.info?.model ?? ''}`,
@@ -1631,7 +1614,7 @@ const getMqttDevice = async (device: MqttDeviceType) => {
         if (device === peopleTrackerId) {
             deviceId = peopleTrackerId;
             mqttDevice = {
-                ids: `${idPrefix}-${peopleTrackerId}`,
+                ids: [`${idPrefix}-${peopleTrackerId}`],
                 name: `${namePrefix} people tracker`,
                 manufacturer: namePrefix,
                 via_device: pluginIds,
@@ -1639,14 +1622,14 @@ const getMqttDevice = async (device: MqttDeviceType) => {
         } else if (device === pluginId) {
             deviceId = pluginId;
             mqttDevice = {
-                ids: pluginIds,
+                ids: [pluginIds],
                 name: `${namePrefix} plugin settings`,
                 manufacturer: namePrefix,
             }
         } else if (device === alarmSystemId) {
             deviceId = alarmSystemId;
             mqttDevice = {
-                ids: `${idPrefix}-${alarmSystemId}`,
+                ids: [`${idPrefix}-${alarmSystemId}`],
                 name: `${namePrefix} alarm system`,
                 manufacturer: namePrefix,
                 via_device: pluginIds,
