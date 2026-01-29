@@ -99,6 +99,10 @@ import {
   getInitOccupancyState,
 } from "./states";
 import {
+  CameraNativeIdAccessoryKind,
+  findCameraAccessorySwitchesByNativeId,
+} from "./accessoryUtils";
+import {
   ADVANCED_NOTIFIER_INTERFACE,
   BaseRule,
   DecoderType,
@@ -155,8 +159,6 @@ import {
   moToB64,
   similarityConcidenceThresholdMap,
   splitRules,
-  CameraNativeIdAccessoryKind,
-  findCameraAccessorySwitchesByNativeId,
 } from "./utils";
 import {
   VideoRtspFfmpegRecorder,
@@ -1486,9 +1488,12 @@ export class AdvancedNotifierCameraMixin
                 isRebroadcastEnabled,
                 isSnapshotsEnabled,
                 accessorySwitchStates: {
-                  alarm: !!this.cameraAccessorySwitchDevices.alarm?.on,
+                  siren_on_motion: !!this.cameraAccessorySwitchDevices.siren_on_motion?.on,
+                  siren: !!this.cameraAccessorySwitchDevices.siren?.on,
+                  light_on_motion: !!this.cameraAccessorySwitchDevices.light_on_motion?.on,
                   light: !!this.cameraAccessorySwitchDevices.light?.on,
                   pir: !!this.cameraAccessorySwitchDevices.pir?.on,
+                  autotracking: !!this.cameraAccessorySwitchDevices.autotracking?.on,
                 },
               }).catch(logger.error);
             }

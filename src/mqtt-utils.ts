@@ -3,7 +3,13 @@ import { cloneDeep, uniq } from 'lodash';
 import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
 import { DetectionClass, detectionClassesDefaultMap, getParentDetectionClass, isAudioClassname, isLabelDetection } from './detectionClasses';
 import { OccupancyRuleData } from './states';
+import {
+  cameraAccessorySwitchEntityConfig,
+  type CameraNativeIdAccessoryKind,
+} from './accessoryUtils';
 import { BaseRule, DetectionsPerZone, DeviceInterface, ImageSource, isDetectionRule, RuleSource, RuleType, safeParseJson, toKebabCase, toSnakeCase, toTitleCase } from './utils';
+
+export type CameraAccessorySwitchKind = CameraNativeIdAccessoryKind;
 
 export type ClassOccupancy = Partial<Record<DetectionClass, number>>;
 export type ClassZoneOccupancy = Record<string, ClassOccupancy>;
@@ -56,45 +62,27 @@ interface MqttEntity {
     supportedFeatures?: string[];
 }
 
-type CameraAccessorySwitchKind = 'alarm' | 'light' | 'pir';
-
-const cameraAccessorySwitchEntities: Record<CameraAccessorySwitchKind, MqttEntity> = {
-    alarm: {
-        domain: 'switch',
-        entity: 'accessory_alarm',
-        name: 'Alarm',
-        icon: 'mdi:alarm-bell',
-        entityCategory: 'diagnostic',
-        retain: false,
-        options: [],
-    },
-    light: {
-        domain: 'switch',
-        entity: 'accessory_light',
-        name: 'Light',
-        icon: 'mdi:lightbulb',
-        entityCategory: 'diagnostic',
-        retain: false,
-        options: [],
-    },
-    pir: {
-        domain: 'switch',
-        entity: 'accessory_pir',
-        name: 'PIR',
-        icon: 'mdi:motion-sensor',
-        entityCategory: 'diagnostic',
-        retain: false,
-        options: [],
-    },
-};
+/** MQTT entities for accessory switches, derived from accessoryUtils. */
+const cameraAccessorySwitchEntities: Record<CameraAccessorySwitchKind, MqttEntity> = (
+  Object.entries(cameraAccessorySwitchEntityConfig) as [CameraAccessorySwitchKind, typeof cameraAccessorySwitchEntityConfig[CameraAccessorySwitchKind]][]
+).reduce((acc, [kind, config]) => {
+  acc[kind] = {
+    domain: 'switch',
+    entity: config.entity,
+    name: config.name,
+    icon: config.icon,
+    retain: false,
+    options: [],
+  };
+  return acc;
+}, {} as Record<CameraAccessorySwitchKind, MqttEntity>);
 
 const getCameraAccessorySwitchEntities = (kinds?: CameraAccessorySwitchKind[]) => {
-    if (!kinds?.length) {
-        return [] as MqttEntity[];
-    }
-
-    const uniqKinds = uniq(kinds);
-    return uniqKinds.map(kind => cameraAccessorySwitchEntities[kind]).filter(Boolean);
+  if (!kinds?.length) {
+    return [] as MqttEntity[];
+  }
+  const uniqKinds = uniq(kinds);
+  return uniqKinds.map((kind) => cameraAccessorySwitchEntities[kind]).filter(Boolean);
 }
 
 interface AutodiscoveryConfig {
@@ -188,7 +176,6 @@ const getBasicMqttEntities = () => {
         domain: 'switch',
         entity: 'notifications_enabled',
         name: 'Notifications enabled',
-        entityCategory: 'diagnostic',
         retain: false,
         icon: 'mdi:bell'
     };
@@ -216,7 +203,6 @@ const getBasicMqttEntities = () => {
         entity: 'recording',
         name: 'Recording',
         icon: 'mdi:record-circle-outline',
-        entityCategory: 'diagnostic',
         retain: false,
     };
     const snapshotsEntity: MqttEntity = {
@@ -224,7 +210,6 @@ const getBasicMqttEntities = () => {
         entity: 'snapshots',
         name: 'Snapshots',
         icon: 'mdi:camera',
-        entityCategory: 'diagnostic',
         retain: false,
     };
     const rebroadcastEntity: MqttEntity = {
@@ -232,7 +217,13 @@ const getBasicMqttEntities = () => {
         entity: 'rebroadcast',
         name: 'Rebroadcast',
         icon: 'mdi:broadcast',
-        entityCategory: 'diagnostic',
+        retain: false,
+    };
+    const privacyEntity: MqttEntity = {
+        domain: 'switch',
+        entity: 'privacy',
+        name: 'Privacy',
+        icon: 'mdi:eye-off',
         retain: false,
     };
     const rebootEntity: MqttEntity = {
@@ -349,6 +340,7 @@ const getBasicMqttEntities = () => {
         recordingEntity,
         snapshotsEntity,
         rebroadcastEntity,
+        privacyEntity,
         rebootEntity,
         ptzPresetEntity,
         ptzZoomInEntity,
@@ -752,8 +744,8 @@ const toDeviceDiscoveryComponentId = (mqttEntity: MqttEntity) => {
 }
 
 // V2: Home Assistant device-based MQTT discovery (single device topic with cmps).
-export const publishMqttDeviceDiscoveryV2 = async (props: { mqttClient?: MqttClient, mqttEntities: MqttEntity[], device: MqttDeviceType, console: Console, migrateLegacyDiscovery?: boolean }) => {
-    const { mqttClient, mqttEntities, device, console, migrateLegacyDiscovery = true } = props;
+export const publishMqttDeviceDiscoveryV2 = async (props: { mqttClient?: MqttClient, mqttEntities: MqttEntity[], device: MqttDeviceType, console: Console }) => {
+    const { mqttClient, mqttEntities, device, console } = props;
 
     if (!mqttClient) {
         return;
@@ -765,13 +757,11 @@ export const publishMqttDeviceDiscoveryV2 = async (props: { mqttClient?: MqttCli
     const { mqttDevice, deviceId } = await getMqttDevice(device);
 
     const cmps: Record<string, Omit<AutodiscoveryConfig, 'dev'>> = {};
-    const legacyDiscoveryTopics: string[] = [];
     const statePublishes: Array<{ topic: string; payload: string; retain?: boolean }> = [];
     const entitiesEnsuredReset: string[] = [];
 
     for (const mqttEntity of mqttEntities) {
-        const { commandTopic, stateTopic, infoTopic, discoveryTopic } = getMqttTopics({ mqttEntity, device });
-        legacyDiscoveryTopics.push(discoveryTopic);
+        const { commandTopic, stateTopic, infoTopic } = getMqttTopics({ mqttEntity, device });
 
         const config = getBasicMqttAutodiscoveryConfiguration({
             deviceId,
@@ -792,13 +782,6 @@ export const publishMqttDeviceDiscoveryV2 = async (props: { mqttClient?: MqttCli
 
         if (['switch', 'button'].includes(mqttEntity.domain)) {
             entitiesEnsuredReset.push(commandTopic);
-        }
-    }
-
-    // Migrate from legacy single-component discovery to device-based discovery.
-    if (migrateLegacyDiscovery) {
-        for (const discoveryTopic of legacyDiscoveryTopics) {
-            await mqttClient.publish(discoveryTopic, JSON.stringify({ migrate_discovery: true }), true);
         }
     }
 
@@ -846,7 +829,7 @@ const clearTopicsForEntities = async (props: {
     await clearRetainedTopic(mqttClient, getDeviceDiscoveryTopicV2(device));
 
     for (const mqttEntity of mqttEntities) {
-        const { stateTopic, commandTopic, infoTopic, discoveryTopic } = getMqttTopics({ mqttEntity, device });
+        const { stateTopic, commandTopic, infoTopic } = getMqttTopics({ mqttEntity, device });
         await clearRetainedTopic(mqttClient, stateTopic);
         await clearRetainedTopic(mqttClient, commandTopic);
         await clearRetainedTopic(mqttClient, infoTopic);
@@ -1031,10 +1014,9 @@ export const resetAllPluginMqttTopicsAndRediscover = async (props: {
         });
     }
 
-    // Rediscover everything in V2 (skip legacy migrate; this reset is already explicit).
-    await setupPluginAutodiscovery({ mqttClient, people, console, rules, migrateLegacyDiscovery: false });
+    await setupPluginAutodiscovery({ mqttClient, people, console, rules });
     if (alarmSupportedModes) {
-        await setupAlarmSystemAutodiscovery({ mqttClient, console, supportedModes: alarmSupportedModes, migrateLegacyDiscovery: false });
+        await setupAlarmSystemAutodiscovery({ mqttClient, console, supportedModes: alarmSupportedModes });
     }
     for (const camera of cameras) {
         await setupCameraAutodiscovery({
@@ -1043,14 +1025,13 @@ export const resetAllPluginMqttTopicsAndRediscover = async (props: {
             console,
             rules: camera.rules,
             zones: camera.zones,
-            migrateLegacyDiscovery: false,
         });
     }
     for (const sensor of sensors) {
-        await setupSensorAutodiscovery({ mqttClient, device: sensor.device, rules: sensor.rules, console, migrateLegacyDiscovery: false });
+        await setupSensorAutodiscovery({ mqttClient, device: sensor.device, rules: sensor.rules, console });
     }
     for (const notifier of notifiers) {
-        await setupNotifierAutodiscovery({ mqttClient, device: notifier.device, console, migrateLegacyDiscovery: false });
+        await setupNotifierAutodiscovery({ mqttClient, device: notifier.device, console });
     }
 }
 
@@ -1059,9 +1040,8 @@ export const setupPluginAutodiscovery = async (props: {
     people: string[],
     console: Console,
     rules: BaseRule[];
-    migrateLegacyDiscovery?: boolean;
 }) => {
-    const { people, mqttClient, rules, console, migrateLegacyDiscovery } = props;
+    const { people, mqttClient, rules, console } = props;
 
     if (!mqttClient) {
         return;
@@ -1112,8 +1092,8 @@ export const setupPluginAutodiscovery = async (props: {
         pendingResultsEntity,
     );
 
-    const pluginTopics = await publishMqttDeviceDiscoveryV2({ mqttClient, mqttEntities, console, device: pluginId, migrateLegacyDiscovery });
-    const peopleTopics = await publishMqttDeviceDiscoveryV2({ mqttClient, mqttEntities: peopleEntities, device: peopleTrackerId, console, migrateLegacyDiscovery });
+    const pluginTopics = await publishMqttDeviceDiscoveryV2({ mqttClient, mqttEntities, console, device: pluginId });
+    const peopleTopics = await publishMqttDeviceDiscoveryV2({ mqttClient, mqttEntities: peopleEntities, device: peopleTrackerId, console });
 
     return [
         ...(pluginTopics ?? []),
@@ -1125,9 +1105,8 @@ export const setupAlarmSystemAutodiscovery = async (props: {
     mqttClient?: MqttClient,
     console: Console,
     supportedModes: SecuritySystemMode[],
-    migrateLegacyDiscovery?: boolean;
 }) => {
-    const { mqttClient, console, supportedModes, migrateLegacyDiscovery } = props;
+    const { mqttClient, console, supportedModes } = props;
 
     if (!mqttClient) {
         return;
@@ -1147,7 +1126,7 @@ export const setupAlarmSystemAutodiscovery = async (props: {
         ]),
     });
 
-    return await publishMqttDeviceDiscoveryV2({ mqttClient, mqttEntities, device: alarmSystemId, console, migrateLegacyDiscovery });
+    return await publishMqttDeviceDiscoveryV2({ mqttClient, mqttEntities, device: alarmSystemId, console });
 }
 
 export const subscribeToPluginMqttTopics = async (
@@ -1373,6 +1352,7 @@ export const subscribeToCameraMqttTopics = async (
 
     const {
         notificationsEnabledEntity,
+        privacyEntity,
         ptzDownEntity,
         ptzLeftEntity,
         ptzPresetEntity,
@@ -1385,6 +1365,22 @@ export const subscribeToCameraMqttTopics = async (
         snapshotsEntity,
         rebroadcastEntity,
     } = getBasicMqttEntities();
+
+    if (switchRebroadcastCb && switchSnapshotsCb) {
+        const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: privacyEntity, device });
+        await mqttClient.subscribe([commandTopic, stateTopic], async (messageTopic, message) => {
+            if (messageTopic === commandTopic) {
+                const privacyOn = message === PAYLOAD_ON;
+                const enable = !privacyOn;
+                await Promise.all([
+                    Promise.resolve(switchRebroadcastCb(enable)),
+                    Promise.resolve(switchSnapshotsCb(enable)),
+                    switchRecordingCb ? Promise.resolve(switchRecordingCb(enable)) : Promise.resolve(),
+                ]);
+                await mqttClient.publish(stateTopic, message, privacyEntity.retain);
+            }
+        });
+    }
 
     if (switchRecordingCb) {
         const { commandTopic, stateTopic } = getMqttTopics({ mqttEntity: recordingEntity, device });
@@ -1449,9 +1445,12 @@ export const subscribeToCameraMqttTopics = async (
     if (accessorySwitchKinds?.length && accessorySwitchCb) {
         const accessoryEntities = getCameraAccessorySwitchEntities(accessorySwitchKinds);
         const kindByEntity = new Map<string, CameraAccessorySwitchKind>([
-            [cameraAccessorySwitchEntities.alarm.entity, 'alarm'],
+            [cameraAccessorySwitchEntities.siren_on_motion.entity, 'siren_on_motion'],
+            [cameraAccessorySwitchEntities.siren.entity, 'siren'],
+            [cameraAccessorySwitchEntities.light_on_motion.entity, 'light_on_motion'],
             [cameraAccessorySwitchEntities.light.entity, 'light'],
             [cameraAccessorySwitchEntities.pir.entity, 'pir'],
+            [cameraAccessorySwitchEntities.autotracking.entity, 'autotracking'],
         ]);
 
         for (const mqttEntity of accessoryEntities) {
@@ -1758,9 +1757,8 @@ export const setupCameraAutodiscovery = async (props: {
     rules: BaseRule[],
     zones: string[],
     accessorySwitchKinds?: CameraAccessorySwitchKind[],
-    migrateLegacyDiscovery?: boolean,
 }) => {
-    const { device, mqttClient, rules, console, zones, accessorySwitchKinds, migrateLegacyDiscovery } = props;
+    const { device, mqttClient, rules, console, zones, accessorySwitchKinds } = props;
 
     if (!mqttClient) {
         return;
@@ -1774,6 +1772,7 @@ export const setupCameraAutodiscovery = async (props: {
         notificationsEnabledEntity,
         onlineEntity,
         ptzPresetEntity,
+        privacyEntity,
         rebootEntity,
         recordingEntity,
         snapshotsEntity,
@@ -1787,6 +1786,7 @@ export const setupCameraAutodiscovery = async (props: {
         notificationsEnabledEntity,
         rebroadcastEntity,
         snapshotsEntity,
+        privacyEntity,
         ...detectionMqttEntities
     ];
 
@@ -1848,16 +1848,15 @@ export const setupCameraAutodiscovery = async (props: {
 
     mqttEntities.push(...getDetectionZoneEntities(zones));
 
-    return await publishMqttDeviceDiscoveryV2({ mqttClient, mqttEntities, device, console, migrateLegacyDiscovery });
+    return await publishMqttDeviceDiscoveryV2({ mqttClient, mqttEntities, device, console });
 }
 
 export const setupNotifierAutodiscovery = async (props: {
     mqttClient?: MqttClient,
     device: ScryptedDeviceBase & Notifier,
     console: Console,
-    migrateLegacyDiscovery?: boolean,
 }) => {
-    const { device, mqttClient, console, migrateLegacyDiscovery } = props;
+    const { device, mqttClient, console } = props;
 
     if (!mqttClient) {
         return;
@@ -1871,7 +1870,7 @@ export const setupNotifierAutodiscovery = async (props: {
         notificationsEnabledEntity,
     ];
 
-    return await publishMqttDeviceDiscoveryV2({ mqttClient, mqttEntities, device, console, migrateLegacyDiscovery });
+    return await publishMqttDeviceDiscoveryV2({ mqttClient, mqttEntities, device, console });
 }
 
 export const setupSensorAutodiscovery = async (props: {
@@ -1879,9 +1878,8 @@ export const setupSensorAutodiscovery = async (props: {
     device: ScryptedDeviceBase,
     rules: BaseRule[],
     console: Console,
-    migrateLegacyDiscovery?: boolean,
 }) => {
-    const { device, mqttClient, console, rules, migrateLegacyDiscovery } = props;
+    const { device, mqttClient, console, rules } = props;
 
     if (!mqttClient) {
         return;
@@ -1912,7 +1910,7 @@ export const setupSensorAutodiscovery = async (props: {
         }
     }
 
-    return await publishMqttDeviceDiscoveryV2({ mqttClient, mqttEntities, device, console, migrateLegacyDiscovery });
+    return await publishMqttDeviceDiscoveryV2({ mqttClient, mqttEntities, device, console });
 }
 
 export const publishResetDetectionsEntities = async (props: {
@@ -2207,12 +2205,20 @@ export const publishCameraValues = async (props: {
         batteryEntity,
         notificationsEnabledEntity,
         onlineEntity,
+        privacyEntity,
         recordingEntity,
         snapshotsEntity,
         rebroadcastEntity,
         sleepingEntity,
         audioPressureEntity
     } = getBasicMqttEntities();
+
+    /** Privacy ON = all switches available on the camera are off (Rebroadcast, Snapshots, Recording if present). Unavailable properties (e.g. Recording on cam without NVR) are ignored. */
+    const hasRecording = device?.interfaces?.includes(ScryptedInterface.VideoRecorder);
+    const isPrivacy =
+        !isRebroadcastEnabled &&
+        !isSnapshotsEnabled &&
+        (!hasRecording || !isRecording);
 
     if (device) {
         if (device.interfaces.includes(ScryptedInterface.Battery) && device.batteryLevel) {
@@ -2245,6 +2251,9 @@ export const publishCameraValues = async (props: {
 
         const { stateTopic: notificationsEnabledStateTopic } = getMqttTopics({ mqttEntity: notificationsEnabledEntity, device });
         await mqttClient.publish(notificationsEnabledStateTopic, notificationsEnabled ? PAYLOAD_ON : PAYLOAD_OFF, notificationsEnabledEntity.retain);
+
+        const { stateTopic: privacyStateTopic } = getMqttTopics({ mqttEntity: privacyEntity, device });
+        await mqttClient.publish(privacyStateTopic, isPrivacy ? PAYLOAD_ON : PAYLOAD_OFF, privacyEntity.retain);
 
         if (accessorySwitchStates) {
             for (const [kind, state] of Object.entries(accessorySwitchStates)) {

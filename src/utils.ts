@@ -133,114 +133,17 @@ export const cachedReaddir = async (path: string): Promise<string[]> => {
   return files;
 };
 
-export type CameraNativeIdAccessoryKind = "alarm" | "light" | "pir";
-
-export interface CameraNativeIdAccessorySwitch {
-  kind: CameraNativeIdAccessoryKind;
-  nativeId: string;
-  deviceId?: string;
-  device?: ScryptedDevice & ScryptedDeviceBase & OnOff;
-  matches: string[];
-}
-
-const cameraAccessoryMatchers: Array<{
-  kind: CameraNativeIdAccessoryKind;
-  keywords: string[];
-}> = [
-  { kind: "alarm", keywords: ["alarm", "siren"] },
-  { kind: "light", keywords: ["floodlight", "supplementlight", "light"] },
-  { kind: "pir", keywords: ["pir"] },
-];
-
-const getAccessoryMatches = (nativeId: string) => {
-  const lower = nativeId.toLowerCase();
-  return cameraAccessoryMatchers
-    .map(({ kind, keywords }) => ({
-      kind,
-      matches: keywords.filter((k) => lower.includes(k)),
-    }))
-    .filter((entry) => entry.matches.length > 0);
-};
-
-export const findCameraAccessorySwitchesByNativeId = (props: {
-  device: ScryptedDeviceBase;
-  console?: Console;
-}) => {
-  const { device, console } = props;
-
-  const cameraNativeId = device?.nativeId;
-
-  if (!cameraNativeId) {
-    return {
-      cameraNativeId,
-      relatedNativeIds: [] as string[],
-      switches: [] as CameraNativeIdAccessorySwitch[],
-    };
-  }
-
-  const state = sdk.systemManager.getSystemState();
-  const relatedNativeIds = Object.entries(state)
-    .filter(([_, d]) => d.nativeId?.value.includes(cameraNativeId))
-    .map(([_, d]) => d.nativeId?.value);
-
-  const switches: CameraNativeIdAccessorySwitch[] = [];
-  for (const nativeId of relatedNativeIds) {
-    const matches = getAccessoryMatches(nativeId);
-
-    if (!matches.length) {
-      continue;
-    }
-
-    // Prefer deterministic: evaluate matchers order (alarm -> light -> pir).
-    for (const matcher of cameraAccessoryMatchers) {
-      const matchInfo = matches.find((m) => m.kind === matcher.kind);
-      if (!matchInfo) {
-        continue;
-      }
-
-      const resolved = sdk.systemManager.getDeviceById(
-        device.pluginId,
-        nativeId,
-      );
-
-      if (!resolved) {
-        console?.warn?.(
-          `Accessory nativeId found but device not resolved: ${nativeId}`,
-        );
-        continue;
-      }
-
-      if (!resolved.interfaces?.includes(ScryptedInterface.OnOff)) {
-        console?.debug?.(
-          `Accessory nativeId found but device is not OnOff: ${nativeId}`,
-        );
-        continue;
-      }
-
-      switches.push({
-        kind: matcher.kind,
-        nativeId,
-        deviceId: resolved.id,
-        device: resolved as unknown as ScryptedDevice &
-          ScryptedDeviceBase &
-          OnOff,
-        matches: matchInfo.matches,
-      });
-
-      // If a nativeId matches multiple kinds, keep only the first kind (priority order).
-      break;
-    }
-  }
-
-  return {
-    cameraNativeId,
-    relatedNativeIds,
-    switches,
-    alarm: switches.filter((s) => s.kind === "alarm"),
-    light: switches.filter((s) => s.kind === "light"),
-    pir: switches.filter((s) => s.kind === "pir"),
-  };
-};
+export {
+  cameraAccessoryMatchersByPluginId,
+  type CameraAccessoryMatcher,
+  type CameraNativeIdAccessoryKind,
+  type CameraNativeIdAccessorySwitch,
+  cameraAccessorySwitchEntityConfig,
+  findCameraAccessorySwitchesByNativeId,
+  getCameraAccessorySwitchConfigs,
+  type CameraAccessorySwitchEntityConfig,
+  type FindCameraAccessorySwitchesResult,
+} from "./accessoryUtils";
 
 export const formatSize = (size: number, unit?: "MB" | "GB") => {
   let unitToUse = unit;
