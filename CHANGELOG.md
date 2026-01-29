@@ -1,6 +1,12 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.8.29
+
+- Add button to fully reset camera MQTT entities on HA and MQTT
+- Added light/siren switch entities to MQTT (supported for hikvision and reolink plugins currently, ask for more plugins)
+- it's suggested a full cleanup of ha devices + plugin restart
+
 ### 4.8.28
 
 - PTZ patrol rules added. Create the new rule, add the presets to "scroll" and set the detections to let the patrol to stop
