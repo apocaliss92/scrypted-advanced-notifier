@@ -208,7 +208,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             title: 'Reset all MQTT topics',
             subgroup: 'MQTT',
             type: 'button',
-            description: 'Clears retained MQTT topics for ALL Advanced Notifier devices (plugin, people tracker, alarm system, cameras, sensors, notifiers) including Home Assistant discovery topics, then republishes discovery (V2). Use if entities are missing/duplicated or discovery is out of sync. This may take a few seconds and Home Assistant may need a short time to refresh entities.',
+            description: 'Clears retained MQTT topics for ALL Advanced Notifier devices (plugin, people tracker, alarm system, cameras, sensors, notifiers) including Home Assistant discovery topics, then republishes discovery. Use if entities are missing/duplicated or discovery is out of sync. This may take a few seconds and Home Assistant may need a short time to refresh entities.',
             onPut: async () => {
                 await this.resetAllMqttTopicsAndRediscover();
             },

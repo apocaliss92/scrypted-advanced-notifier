@@ -201,29 +201,29 @@ const getBasicMqttEntities = () => {
     };
     const recordingEntity: MqttEntity = {
         domain: 'switch',
-        entity: 'recording',
-        name: 'Recording',
+        entity: 'recording_enabled',
+        name: 'Recording enabled',
         icon: 'mdi:record-circle-outline',
         retain: false,
     };
     const snapshotsEntity: MqttEntity = {
         domain: 'switch',
-        entity: 'snapshots',
-        name: 'Snapshots',
+        entity: 'snapshots_enabled',
+        name: 'Snapshots enabled',
         icon: 'mdi:camera',
         retain: false,
     };
     const rebroadcastEntity: MqttEntity = {
         domain: 'switch',
-        entity: 'rebroadcast',
-        name: 'Rebroadcast',
+        entity: 'rebroadcast_enabled',
+        name: 'Rebroadcast enabled',
         icon: 'mdi:broadcast',
         retain: false,
     };
     const privacyEntity: MqttEntity = {
         domain: 'switch',
-        entity: 'privacy',
-        name: 'Privacy',
+        entity: 'privacy_enabled',
+        name: 'Privacy enabled',
         icon: 'mdi:eye-off',
         retain: false,
     };
@@ -667,8 +667,6 @@ const getPersonMqttEntities = (person: string) => {
     return [personEntity, lastImageEntity, lastTriggerEntity];
 };
 
-// export const deviceClassMqttEntitiesGrouped = groupBy(deviceClassMqttEntities, entry => entry.className);
-
 export const getMqttTopics = (props: {
     mqttEntity: MqttEntity,
     device: MqttDeviceType
@@ -676,10 +674,9 @@ export const getMqttTopics = (props: {
     const { mqttEntity, device } = props;
     const deviceIdParent = typeof device === 'string' ? device : device?.id;
     const { entity, domain, forceStateId, forceCommandId, forceDiscoveryId, forceInfoId } = mqttEntity;
-
-    const stateTopic = `scrypted/${idPrefix}-${forceStateId ?? deviceIdParent}/${entity}`;
-    const commandTopic = `scrypted/${idPrefix}-${forceCommandId ?? deviceIdParent}/${entity}/set`;
-    const infoTopic = `scrypted/${idPrefix}-${forceInfoId ?? deviceIdParent}/${entity}/info`;
+    const stateTopic = `${idPrefix}/${idPrefix}-${forceStateId ?? deviceIdParent}/${entity}`;
+    const commandTopic = `${idPrefix}/${idPrefix}-${forceCommandId ?? deviceIdParent}/${entity}/set`;
+    const infoTopic = `${idPrefix}/${idPrefix}-${forceInfoId ?? deviceIdParent}/${entity}/info`;
     const discoveryTopic = `homeassistant/${domain}/${idPrefix}-${forceDiscoveryId ?? deviceIdParent}/${entity}/config`;
 
     return {
@@ -690,74 +687,28 @@ export const getMqttTopics = (props: {
     };
 }
 
-const publishMqttEntitiesDiscovery = async (props: { mqttClient?: MqttClient, mqttEntities: MqttEntity[], device: MqttDeviceType, console: Console }) => {
-    const { mqttClient, mqttEntities, device, console } = props;
-
-    if (!mqttClient) {
-        return;
-    }
-    const autodiscoveryTopics: string[] = [];
-    const entitiesEnsuredReset: string[] = [];
-
-    for (const mqttEntity of mqttEntities) {
-        const { discoveryTopic, config, stateTopic, commandTopic } = await getMqttAutodiscoveryConfiguration({ mqttEntity, device });
-
-        console.debug(`Discovering ${JSON.stringify({ mqttEntity, discoveryTopic, config })}`);
-
-        await mqttClient.publish(discoveryTopic, JSON.stringify(config), true);
-        if (mqttEntity.valueToDispatch !== undefined) {
-            await mqttClient.publish(stateTopic, mqttEntity.valueToDispatch, mqttEntity.retain);
-        }
-        console.info(`Entity ${mqttEntity.entity} published`);
-
-        if (['switch', 'button'].includes(mqttEntity.domain)) {
-            entitiesEnsuredReset.push(commandTopic);
-            await mqttClient.publish(commandTopic, '', true);
-        }
-
-        autodiscoveryTopics.push(discoveryTopic);
-    }
-
-    console.info(`Entities ensured to not be retained: ${entitiesEnsuredReset}`);
-    return autodiscoveryTopics;
-}
-
 const toDeviceDiscoveryComponentId = (mqttEntity: MqttEntity) => {
     const raw = `${mqttEntity.domain}-${mqttEntity.entity}`;
     const kebab = toKebabCase(raw);
     return kebab.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
-/** Per-entity discovery topic (one message per entity to avoid payload size limits). Same unique_id/default_entity_id as before. */
-const getEntityDiscoveryTopicV2 = (deviceIdParent: string, mqttEntity: MqttEntity) => {
-    const componentId = toDeviceDiscoveryComponentId(mqttEntity);
-    return `homeassistant/${mqttEntity.domain}/${idPrefix}-${deviceIdParent}/${componentId}/config`;
-};
-
-// V2: Home Assistant MQTT discovery with one message per entity (avoids broker/HA payload size limits). Same IDs as before.
-// Clear any previous device-based discovery first to avoid "conflicting discovery" warnings (same entity from device topic + single-component topic).
-export const publishMqttDeviceDiscoveryV2 = async (props: { mqttClient?: MqttClient, mqttEntities: MqttEntity[], device: MqttDeviceType, console: Console }) => {
-    const { mqttClient, mqttEntities, device, console } = props;
-
-    if (!mqttClient) {
-        return;
-    }
-
-    const deviceIdParent = typeof device === 'string' ? device : device?.id;
-
-    // Remove old device-based discovery so HA does not see the same entity from two schemas (device + single-component).
-    await clearRetainedTopic(mqttClient, getDeviceDiscoveryTopicV2(device));
-
-    const { mqttDevice, deviceId } = await getMqttDevice(device);
-
-    const statePublishes: Array<{ topic: string; payload: string; retain?: boolean }> = [];
-    const entitiesEnsuredReset: string[] = [];
-    const discoveryTopics: string[] = [];
+/**
+ * Build device-based discovery payload: one message per device with all components in "cmps".
+ * See https://www.home-assistant.io/integrations/mqtt/#device-discovery-payload
+ */
+const buildDeviceDiscoveryPayload = (props: {
+    mqttDevice: AutodiscoveryConfig['dev'],
+    deviceId: string,
+    mqttEntities: MqttEntity[],
+    device: MqttDeviceType,
+}) => {
+    const { mqttDevice, deviceId, mqttEntities, device } = props;
+    const cmps: Record<string, Record<string, unknown>> = {};
 
     for (const mqttEntity of mqttEntities) {
         const { commandTopic, stateTopic, infoTopic } = getMqttTopics({ mqttEntity, device });
-
-        const config = getBasicMqttAutodiscoveryConfiguration({
+        const fullConfig = getBasicMqttAutodiscoveryConfiguration({
             deviceId,
             mqttDevice,
             mqttEntity,
@@ -765,33 +716,58 @@ export const publishMqttDeviceDiscoveryV2 = async (props: { mqttClient?: MqttCli
             commandTopic,
             infoTopic,
         });
+        const { dev: _dev, ...componentConfig } = fullConfig;
+        cmps[toDeviceDiscoveryComponentId(mqttEntity)] = componentConfig as Record<string, unknown>;
+    }
 
-        const discoveryTopic = getEntityDiscoveryTopicV2(deviceIdParent, mqttEntity);
-        await mqttClient.publish(discoveryTopic, JSON.stringify(config), true);
-        discoveryTopics.push(discoveryTopic);
+    return {
+        dev: mqttDevice,
+        o: { name: namePrefix, url: 'https://github.com/apocaliss92/scrypted-advanced-notifier' },
+        cmps,
+    };
+};
 
+/**
+ * Publish MQTT discovery: device-based only (one message per device with all components in "cmps").
+ * Clears any old single-component topics for this device so HA does not see conflicting discovery.
+ */
+export const publishMqttDeviceDiscovery = async (props: { mqttClient?: MqttClient, mqttEntities: MqttEntity[], device: MqttDeviceType, console: Console }) => {
+    const { mqttClient, mqttEntities, device, console } = props;
+
+    if (!mqttClient) {
+        return;
+    }
+
+    const deviceIdParent = typeof device === 'string' ? device : device?.id;
+    const { mqttDevice, deviceId } = await getMqttDevice(device);
+
+    const devicePayload = buildDeviceDiscoveryPayload({ mqttDevice, deviceId, mqttEntities, device });
+    await mqttClient.publish(getDeviceDiscoveryTopic(device), JSON.stringify(devicePayload), true);
+    console.log(`Device ${idPrefix}-${deviceIdParent}: discovered ${mqttEntities.length} entities (device-based)`);
+
+    const statePublishes: Array<{ topic: string; payload: string; retain?: boolean }> = [];
+    const entitiesEnsuredReset: string[] = [];
+    for (const mqttEntity of mqttEntities) {
         if (mqttEntity.valueToDispatch !== undefined) {
+            const { stateTopic } = getMqttTopics({ mqttEntity, device });
             statePublishes.push({ topic: stateTopic, payload: mqttEntity.valueToDispatch, retain: mqttEntity.retain });
         }
-
         if (['switch', 'button'].includes(mqttEntity.domain)) {
+            const { commandTopic } = getMqttTopics({ mqttEntity, device });
             entitiesEnsuredReset.push(commandTopic);
         }
     }
-
     for (const { topic, payload, retain } of statePublishes) {
         await mqttClient.publish(topic, payload, retain);
     }
-
     for (const commandTopic of entitiesEnsuredReset) {
         await mqttClient.publish(commandTopic, '', true);
     }
 
-    console.info(`Device ${idPrefix}-${deviceIdParent}: discovered ${mqttEntities.length} entities. Command topics cleared: ${entitiesEnsuredReset.length}`);
-    return discoveryTopics;
+    return [getDeviceDiscoveryTopic(device)];
 }
 
-const getDeviceDiscoveryTopicV2 = (device: MqttDeviceType) => {
+const getDeviceDiscoveryTopic = (device: MqttDeviceType) => {
     const deviceIdParent = typeof device === 'string' ? device : device?.id;
     return `homeassistant/device/${idPrefix}-${deviceIdParent}/config`;
 }
@@ -806,13 +782,9 @@ const clearTopicsForEntities = async (props: {
     mqttEntities: MqttEntity[],
 }) => {
     const { mqttClient, device, mqttEntities } = props;
-    const deviceIdParent = typeof device === 'string' ? device : device?.id;
 
-    // Clear legacy single-message device topic if it was ever used.
-    await clearRetainedTopic(mqttClient, getDeviceDiscoveryTopicV2(device));
-
+    await clearRetainedTopic(mqttClient, getDeviceDiscoveryTopic(device));
     for (const mqttEntity of mqttEntities) {
-        await clearRetainedTopic(mqttClient, getEntityDiscoveryTopicV2(deviceIdParent, mqttEntity));
         const { stateTopic, commandTopic, infoTopic } = getMqttTopics({ mqttEntity, device });
         await clearRetainedTopic(mqttClient, stateTopic);
         await clearRetainedTopic(mqttClient, commandTopic);
@@ -881,7 +853,6 @@ export const resetAllPluginMqttTopicsAndRediscover = async (props: {
         pendingResultsEntity,
     );
 
-    // Clear retained topics for all devices.
     console.log('Resetting all plugin MQTT retained topics and rediscovering');
     await clearTopicsForEntities({ mqttClient, device: pluginId, mqttEntities: pluginEntities });
     await clearTopicsForEntities({ mqttClient, device: peopleTrackerId, mqttEntities: peopleEntities });
@@ -1076,8 +1047,8 @@ export const setupPluginAutodiscovery = async (props: {
         pendingResultsEntity,
     );
 
-    const pluginTopics = await publishMqttDeviceDiscoveryV2({ mqttClient, mqttEntities, console, device: pluginId });
-    const peopleTopics = await publishMqttDeviceDiscoveryV2({ mqttClient, mqttEntities: peopleEntities, device: peopleTrackerId, console });
+    const pluginTopics = await publishMqttDeviceDiscovery({ mqttClient, mqttEntities, console, device: pluginId });
+    const peopleTopics = await publishMqttDeviceDiscovery({ mqttClient, mqttEntities: peopleEntities, device: peopleTrackerId, console });
 
     return [
         ...(pluginTopics ?? []),
@@ -1110,7 +1081,7 @@ export const setupAlarmSystemAutodiscovery = async (props: {
         ]),
     });
 
-    return await publishMqttDeviceDiscoveryV2({ mqttClient, mqttEntities, device: alarmSystemId, console });
+    return await publishMqttDeviceDiscovery({ mqttClient, mqttEntities, device: alarmSystemId, console });
 }
 
 export const subscribeToPluginMqttTopics = async (
@@ -1603,11 +1574,14 @@ const getMqttDevice = async (device: MqttDeviceType) => {
         deviceId = device.id;
         const localEndpoint = await sdk.endpointManager.getLocalEndpoint();
         const deviceConfigurationUrl = `${new URL(localEndpoint).origin}/endpoint/@scrypted/core/public/#/device/${deviceId}`;
+        const deviceName = (device.name != null && String(device.name).trim() !== '')
+            ? String(device.name).trim()
+            : (device.id || 'Camera');
         mqttDevice = {
             ids: [`${idPrefix}-${device.id}`],
-            name: `${device.name}`,
+            name: deviceName,
             manufacturer: namePrefix,
-            model: `${device?.info?.manufacturer ?? ''} ${device?.info?.model ?? ''}`,
+            model: `${device?.info?.manufacturer ?? ''} ${device?.info?.model ?? ''}`.trim(),
             via_device: pluginIds,
             configuration_url: deviceConfigurationUrl
         }
@@ -1824,12 +1798,13 @@ export const setupCameraAutodiscovery = async (props: {
         return;
     }
     const mqttEntities = await getCameraMqttEntitiesForDiscovery({ device, rules, console, zones, accessorySwitchKinds });
-    return await publishMqttDeviceDiscoveryV2({ mqttClient, mqttEntities, device, console });
+    return await publishMqttDeviceDiscovery({ mqttClient, mqttEntities, device, console });
 };
 
 /**
  * Rediscover a single camera on MQTT: optionally delete device from HA, clear all MQTT topics for this camera, then republish discovery.
  * If haApiUrl and haApiToken are provided, removes the device from Home Assistant first (via HA WebSocket API) so HA drops the device and entities; then clears retained topics and republishes.
+ * Note: HA may log "No device components to cleanup for <id>, node_id 'None'" when removing the device; that message is from HA and is harmless.
  */
 export const rediscoverCameraMqttDevice = async (props: {
     mqttClient?: MqttClient,
@@ -1883,7 +1858,7 @@ export const setupNotifierAutodiscovery = async (props: {
         notificationsEnabledEntity,
     ];
 
-    return await publishMqttDeviceDiscoveryV2({ mqttClient, mqttEntities, device, console });
+    return await publishMqttDeviceDiscovery({ mqttClient, mqttEntities, device, console });
 }
 
 export const setupSensorAutodiscovery = async (props: {
@@ -1923,7 +1898,7 @@ export const setupSensorAutodiscovery = async (props: {
         }
     }
 
-    return await publishMqttDeviceDiscoveryV2({ mqttClient, mqttEntities, device, console });
+    return await publishMqttDeviceDiscovery({ mqttClient, mqttEntities, device, console });
 }
 
 export const publishResetDetectionsEntities = async (props: {

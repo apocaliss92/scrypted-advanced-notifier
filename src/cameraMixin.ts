@@ -217,8 +217,7 @@ type CameraSettingKey =
 
 export class AdvancedNotifierCameraMixin
   extends SettingsMixinDeviceBase<any>
-  implements Settings, VideoClips
-{
+  implements Settings, VideoClips {
   initStorage: StorageSettingsDict<CameraSettingKey> = {
     ...getMixinBaseSettings({
       plugin: this.plugin,
@@ -740,7 +739,7 @@ export class AdvancedNotifierCameraMixin
     try {
       const deviceClips = await this.mixinDevice.getVideoClips(options);
       videoClips.push(...deviceClips);
-    } catch {}
+    } catch { }
 
     if (showVideoclips) {
       const internalClips = await this.getVideoClipsInternal(options);
@@ -870,7 +869,7 @@ export class AdvancedNotifierCameraMixin
               });
             }
           }
-        } catch {}
+        } catch { }
       }
     } catch (e) {
       logger.error(
@@ -1454,9 +1453,9 @@ export class AdvancedNotifierCameraMixin
                     ScryptedInterface.VideoRecorder,
                   )
                     ? async (active) => {
-                        logger.log(`Setting NVR privacy mode to ${!active}`);
-                        await this.toggleRecording(this.cameraDevice, active);
-                      }
+                      logger.log(`Setting NVR privacy mode to ${!active}`);
+                      await this.toggleRecording(this.cameraDevice, active);
+                    }
                     : undefined,
                   switchRebroadcastCb: async (active) => {
                     logger.log(
@@ -1478,32 +1477,32 @@ export class AdvancedNotifierCameraMixin
                     ScryptedInterface.Reboot,
                   )
                     ? async () => {
-                        logger.log(`Rebooting camera`);
-                        await this.cameraDevice.reboot();
-                      }
+                      logger.log(`Rebooting camera`);
+                      await this.cameraDevice.reboot();
+                    }
                     : undefined,
                   ptzCommandCb: this.cameraDevice.interfaces.includes(
                     ScryptedInterface.PanTiltZoom,
                   )
                     ? async (ptzCommand: PanTiltZoomCommand) => {
-                        logger.log(
-                          `Executing ptz command: ${JSON.stringify(ptzCommand)}`,
-                        );
-                        if (ptzCommand.preset) {
-                          const presetId = Object.entries(
-                            this.cameraDevice.ptzCapabilities?.presets ?? {},
-                          ).find(
-                            ([id, name]) => name === ptzCommand.preset,
-                          )?.[0];
-                          if (presetId) {
-                            await this.cameraDevice.ptzCommand({
-                              preset: presetId,
-                            });
-                          }
-                        } else {
-                          await this.cameraDevice.ptzCommand(ptzCommand);
+                      logger.log(
+                        `Executing ptz command: ${JSON.stringify(ptzCommand)}`,
+                      );
+                      if (ptzCommand.preset) {
+                        const presetId = Object.entries(
+                          this.cameraDevice.ptzCapabilities?.presets ?? {},
+                        ).find(
+                          ([id, name]) => name === ptzCommand.preset,
+                        )?.[0];
+                        if (presetId) {
+                          await this.cameraDevice.ptzCommand({
+                            preset: presetId,
+                          });
                         }
+                      } else {
+                        await this.cameraDevice.ptzCommand(ptzCommand);
                       }
+                    }
                     : undefined,
                 });
                 this.ensureMixinsOrder();
@@ -2130,7 +2129,7 @@ export class AdvancedNotifierCameraMixin
       } catch {
         await fs.promises.mkdir(recordedEventsPath, { recursive: true });
       }
-    } catch {}
+    } catch { }
 
     await this.refreshSettings();
     await this.refreshSettings();
@@ -2849,8 +2848,8 @@ export class AdvancedNotifierCameraMixin
             picture: skipResize
               ? undefined
               : {
-                  width: SNAPSHOT_WIDTH,
-                },
+                width: SNAPSHOT_WIDTH,
+              },
           });
           this.mixinState.lastPictureTaken = now;
           imageSource = ImageSource.Snapshot;
@@ -3205,7 +3204,7 @@ export class AdvancedNotifierCameraMixin
 
     const logger = this.getLogger();
 
-    logger.info(
+    logger.debug(
       `CheckOccupancyData from source ${source}: ${JSON.stringify({ hasImage: !!imageParent, imageSource, processingOccupanceData: this.mixinState.processingOccupanceData })}`,
     );
     if (this.mixinState.processingOccupanceData) {
@@ -3248,7 +3247,7 @@ export class AdvancedNotifierCameraMixin
 
       this.mixinState.processingOccupanceData = true;
 
-      logger.info(`Checking occupancy for reason ${source}`);
+      logger.debug(`Checking occupancy for reason ${source}`);
 
       const occupancyRulesDataTmpMap: Record<string, OccupancyRuleData> = {};
 
@@ -3597,7 +3596,7 @@ export class AdvancedNotifierCameraMixin
                   ...occupancyRuleTmpData,
                   triggerTime: isFrigate
                     ? (currentState.confirmationStart ?? now) -
-                      frigateTriggerTimeShiftMs
+                    frigateTriggerTimeShiftMs
                     : currentState.confirmationStart,
                   changed: true,
                   b64Image: currentState.b64Image,
@@ -3662,7 +3661,7 @@ export class AdvancedNotifierCameraMixin
             ...occupancyRuleTmpData,
             triggerTime: isFrigate
               ? (currentState.confirmationStart ?? now) -
-                frigateTriggerTimeShiftMs
+              frigateTriggerTimeShiftMs
               : currentState.confirmationStart,
             changed: false,
           });
@@ -3728,7 +3727,7 @@ export class AdvancedNotifierCameraMixin
           const { rule, b64Image, image, ...rest } = elem;
           return rest;
         });
-        logger.info(
+        logger.debug(
           `Publishing occupancy data from source ${source}. ${JSON.stringify(logData)} with class occupancy: ${JSON.stringify({ classOccupancy, classZoneOccupancy })}`,
         );
         publishOccupancy({
@@ -4012,7 +4011,7 @@ export class AdvancedNotifierCameraMixin
       !rulesToUpdate.length &&
       detections.length === 1 &&
       detectionClassesDefaultMap[detections[0]?.className] ===
-        DetectionClass.Motion;
+      DetectionClass.Motion;
 
     logger.debug(
       `Accumulated data to analyze: ${JSON.stringify({ triggerTime, detections, rules: rulesToUpdate.map(getDetectionKey) })}`,
@@ -4809,7 +4808,7 @@ export class AdvancedNotifierCameraMixin
       const { occupancySourceForMqtt } = this.mixinState.storageSettings.values;
       minDelayInSeconds =
         !!this.mixinState.runningOccupancyRules.length ||
-        occupancySourceForMqtt !== OccupancySource.Off
+          occupancySourceForMqtt !== OccupancySource.Off
           ? 0.3
           : 0;
     } else if (type === DelayType.SequenceExecution) {
@@ -5043,15 +5042,15 @@ export class AdvancedNotifierCameraMixin
 
       const isIncluded = whitelistedZones?.length
         ? zones?.some((zone) => {
-            const zoneName = isPlugin ? `${this.name}::${zone}` : zone;
-            return whitelistedZones.includes(zoneName);
-          })
+          const zoneName = isPlugin ? `${this.name}::${zone}` : zone;
+          return whitelistedZones.includes(zoneName);
+        })
         : true;
       const isExcluded = blacklistedZones?.length
         ? zones?.some((zone) => {
-            const zoneName = isPlugin ? `${this.name}::${zone}` : zone;
-            return blacklistedZones.includes(zoneName);
-          })
+          const zoneName = isPlugin ? `${this.name}::${zone}` : zone;
+          return blacklistedZones.includes(zoneName);
+        })
         : false;
 
       zonesOk = isIncluded && !isExcluded;
@@ -5922,7 +5921,7 @@ export class AdvancedNotifierCameraMixin
       }
       this.audioRtspFfmpegStream?.stop();
       this.audioRtspFfmpegStream = undefined;
-    } catch {}
+    } catch { }
   }
 
   async startAudioAnalyzer() {
@@ -6337,7 +6336,7 @@ export class AdvancedNotifierCameraMixin
           if (videoRecorderProcessPid) {
             try {
               process.kill(parseInt(videoRecorderProcessPid), "SIGINT");
-            } catch {}
+            } catch { }
             this.mixinState.storageSettings.values.videoRecorderProcessPid =
               undefined;
           }
