@@ -75,6 +75,7 @@ import {
   ClassZoneOccupancy,
   detectionClassForObjectsReporting,
   idPrefix,
+  InitialCameraState,
   publishBasicDetectionData,
   publishCameraValues,
   publishClassnameImages,
@@ -384,6 +385,7 @@ export class AdvancedNotifierCameraMixin
         } catch (_e) {
           // HA URL/token not configured or getHaApiUrl failed; rediscover will only clear topics and republish
         }
+        const initialCameraState = await this.getCameraMqttCurrentState();
         const result = await rediscoverCameraMqttDevice({
           mqttClient,
           device: this.cameraDevice,
@@ -393,6 +395,7 @@ export class AdvancedNotifierCameraMixin
           accessorySwitchKinds: this.cameraAccessorySwitchKinds,
           haApiUrl,
           haApiToken,
+          initialCameraState,
         });
         if (result.haError) {
           logger.warn("Rediscover completed with HA warning:", result.haError);
@@ -738,7 +741,12 @@ export class AdvancedNotifierCameraMixin
 
     try {
       const deviceClips = await this.mixinDevice.getVideoClips(options);
-      videoClips.push(...deviceClips);
+      for (const clip of deviceClips) {
+        videoClips.push({
+          ...clip,
+          videoId: clip.videoId ?? clip.id,
+        });
+      }
     } catch { }
 
     if (showVideoclips) {
@@ -1074,6 +1082,9 @@ export class AdvancedNotifierCameraMixin
   }
 
   async toggleRecording(device: Settings, enabled: boolean) {
+    if (enabled && !this.cameraDevice.interfaces?.includes(ScryptedInterface.VideoRecorder)) {
+      return;
+    }
     await device.putSetting(`recording:privacyMode`, !enabled);
   }
 
@@ -1399,6 +1410,7 @@ export class AdvancedNotifierCameraMixin
               this.plugin.enqueueCameraAutodiscovery(this.id, async () => {
                 const zones = await this.getMqttZones();
                 logger.log("Starting MQTT autodiscovery (queued)");
+                const initialCameraState = await this.getCameraMqttCurrentState();
                 await setupCameraAutodiscovery({
                   mqttClient,
                   device: this.cameraDevice,
@@ -1406,6 +1418,7 @@ export class AdvancedNotifierCameraMixin
                   rules: allAvailableRules,
                   zones,
                   accessorySwitchKinds: this.cameraAccessorySwitchKinds,
+                  initialCameraState,
                 });
 
                 logger.debug(`Subscribing to mqtt topics`);
@@ -1512,36 +1525,15 @@ export class AdvancedNotifierCameraMixin
               });
             }
 
-            const settings = await this.mixinDevice.getSettings();
-            const isRecording = !settings.find(
-              (setting) => setting.key === "recording:privacyMode",
-            )?.value;
-            const isSnapshotsEnabled = !settings.find(
-              (setting) => setting.key === "snapshot:privacyMode",
-            )?.value;
-            const isRebroadcastEnabled = !settings.find(
-              (setting) => setting.key === "prebuffer:privacyMode",
-            )?.value;
-
             if (this.plugin.storageSettings.values.mqttEnabled) {
+              const cameraState = await this.getCameraMqttCurrentState();
               publishCameraValues({
+                ...cameraState,
                 console: logger,
                 device: this.cameraDevice,
                 mqttClient,
-                notificationsEnabled,
-                isRecording,
                 rulesToEnable,
                 rulesToDisable,
-                isRebroadcastEnabled,
-                isSnapshotsEnabled,
-                accessorySwitchStates: {
-                  siren_on_motion: !!this.cameraAccessorySwitchDevices.siren_on_motion?.on,
-                  siren: !!this.cameraAccessorySwitchDevices.siren?.on,
-                  light_on_motion: !!this.cameraAccessorySwitchDevices.light_on_motion?.on,
-                  light: !!this.cameraAccessorySwitchDevices.light?.on,
-                  pir: !!this.cameraAccessorySwitchDevices.pir?.on,
-                  autotracking: !!this.cameraAccessorySwitchDevices.autotracking?.on,
-                },
               }).catch(logger.error);
             }
           }
@@ -2458,6 +2450,46 @@ export class AdvancedNotifierCameraMixin
       : await this.getObserveZones();
 
     return zonesData;
+  }
+
+  /** Returns list of accessory switch kinds available for this camera (for API/config). */
+  getAccessorySwitchKinds(): CameraNativeIdAccessoryKind[] {
+    return [...(this.cameraAccessorySwitchKinds || [])];
+  }
+
+  /** Returns current camera switch state for MQTT publish and discovery initial state. */
+  async getCameraMqttCurrentState(): Promise<InitialCameraState & {
+    notificationsEnabled: boolean;
+    isRecording: boolean;
+    isSnapshotsEnabled: boolean;
+    isRebroadcastEnabled: boolean;
+    accessorySwitchStates: Partial<Record<CameraNativeIdAccessoryKind, boolean>>;
+  }> {
+    const settings = (await this.mixinDevice.getSettings()) as Setting[];
+    const hasVideoRecorder = this.cameraDevice.interfaces?.includes(ScryptedInterface.VideoRecorder);
+    const isRecording =
+      hasVideoRecorder && !settings.find((s) => s.key === "recording:privacyMode")?.value;
+    const isSnapshotsEnabled = !settings.find((s) => s.key === "snapshot:privacyMode")?.value;
+    const isRebroadcastEnabled = !settings.find((s) => s.key === "prebuffer:privacyMode")?.value;
+    const { notificationsEnabled } = this.mixinState.storageSettings.values;
+    const accessorySwitchStates: Partial<Record<CameraNativeIdAccessoryKind, boolean>> = {};
+    // Only read state for accessory devices that exist (avoid proxy errors for missing devices)
+    for (const [kind, device] of Object.entries(this.cameraAccessorySwitchDevices) as [CameraNativeIdAccessoryKind, ScryptedDeviceBase & OnOff][]) {
+      if (device) {
+        try {
+          accessorySwitchStates[kind] = !!device.on;
+        } catch (e) {
+          // Device proxy might throw if device was removed; skip
+        }
+      }
+    }
+    return {
+      notificationsEnabled,
+      isRecording,
+      isSnapshotsEnabled,
+      isRebroadcastEnabled,
+      accessorySwitchStates,
+    };
   }
 
   async getMqttZones(sourceParent?: ZonesSource): Promise<string[]> {

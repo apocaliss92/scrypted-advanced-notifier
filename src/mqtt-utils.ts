@@ -731,8 +731,15 @@ const buildDeviceDiscoveryPayload = (props: {
  * Publish MQTT discovery: device-based only (one message per device with all components in "cmps").
  * Clears any old single-component topics for this device so HA does not see conflicting discovery.
  */
-export const publishMqttDeviceDiscovery = async (props: { mqttClient?: MqttClient, mqttEntities: MqttEntity[], device: MqttDeviceType, console: Console }) => {
-    const { mqttClient, mqttEntities, device, console } = props;
+export const publishMqttDeviceDiscovery = async (props: {
+    mqttClient?: MqttClient,
+    mqttEntities: MqttEntity[],
+    device: MqttDeviceType,
+    console: Console,
+    /** Initial entity states to publish right after discovery (e.g. for switches with retain so HA shows correct state) */
+    initialEntityStates?: Record<string, string>
+}) => {
+    const { mqttClient, mqttEntities, device, console, initialEntityStates } = props;
 
     if (!mqttClient) {
         return;
@@ -762,6 +769,17 @@ export const publishMqttDeviceDiscovery = async (props: { mqttClient?: MqttClien
     }
     for (const commandTopic of entitiesEnsuredReset) {
         await mqttClient.publish(commandTopic, '', true);
+    }
+
+    // Publish initial entity states (e.g. for switches) right after discovery so HA shows correct state
+    if (initialEntityStates) {
+        for (const [entityName, value] of Object.entries(initialEntityStates)) {
+            const entity = mqttEntities.find(e => e.entity === entityName);
+            if (entity) {
+                const { stateTopic } = getMqttTopics({ mqttEntity: entity, device });
+                await mqttClient.publish(stateTopic, value, true);
+            }
+        }
     }
 
     return [getDeviceDiscoveryTopic(device)];
@@ -1785,6 +1803,66 @@ export const getCameraMqttEntitiesForDiscovery = async (props: {
     return mqttEntities;
 };
 
+/**
+ * Initial state for camera switch entities. Used to publish state_topic with retain right after discovery
+ * so HA shows correct state instead of "unknown" until the first update.
+ */
+export type InitialCameraState = {
+    isRecording?: boolean;
+    isSnapshotsEnabled?: boolean;
+    isRebroadcastEnabled?: boolean;
+    notificationsEnabled?: boolean;
+    accessorySwitchStates?: Partial<Record<CameraAccessorySwitchKind, boolean>>;
+};
+
+/** Build initialEntityStates from InitialCameraState for publishMqttDeviceDiscovery. */
+const buildCameraInitialEntityStates = (props: {
+    device: ScryptedDeviceBase & ObjectDetector;
+    initialCameraState?: InitialCameraState;
+    accessorySwitchKinds?: CameraAccessorySwitchKind[];
+}): Record<string, string> | undefined => {
+    const { device, initialCameraState, accessorySwitchKinds } = props;
+    if (!initialCameraState) {
+        return undefined;
+    }
+    const {
+        notificationsEnabledEntity,
+        recordingEntity,
+        snapshotsEntity,
+        rebroadcastEntity,
+        privacyEntity,
+    } = getBasicMqttEntities();
+    const hasRecording = device?.interfaces?.includes(ScryptedInterface.VideoRecorder);
+    const isPrivacy =
+        !initialCameraState.isRebroadcastEnabled &&
+        !initialCameraState.isSnapshotsEnabled &&
+        (!hasRecording || !initialCameraState.isRecording);
+    const out: Record<string, string> = {};
+    if (initialCameraState.notificationsEnabled !== undefined) {
+        out[notificationsEnabledEntity.entity] = initialCameraState.notificationsEnabled ? PAYLOAD_ON : PAYLOAD_OFF;
+    }
+    if (initialCameraState.isRecording !== undefined && hasRecording) {
+        out[recordingEntity.entity] = initialCameraState.isRecording ? PAYLOAD_ON : PAYLOAD_OFF;
+    }
+    if (initialCameraState.isSnapshotsEnabled !== undefined) {
+        out[snapshotsEntity.entity] = initialCameraState.isSnapshotsEnabled ? PAYLOAD_ON : PAYLOAD_OFF;
+    }
+    if (initialCameraState.isRebroadcastEnabled !== undefined) {
+        out[rebroadcastEntity.entity] = initialCameraState.isRebroadcastEnabled ? PAYLOAD_ON : PAYLOAD_OFF;
+    }
+    out[privacyEntity.entity] = isPrivacy ? PAYLOAD_ON : PAYLOAD_OFF;
+    if (initialCameraState.accessorySwitchStates && accessorySwitchKinds?.length) {
+        for (const kind of accessorySwitchKinds) {
+            const state = initialCameraState.accessorySwitchStates[kind];
+            if (state === undefined) continue;
+            const mqttEntity = cameraAccessorySwitchEntities[kind];
+            if (!mqttEntity) continue;
+            out[mqttEntity.entity] = state ? PAYLOAD_ON : PAYLOAD_OFF;
+        }
+    }
+    return Object.keys(out).length ? out : undefined;
+};
+
 export const setupCameraAutodiscovery = async (props: {
     mqttClient?: MqttClient,
     device: ScryptedDeviceBase & ObjectDetector,
@@ -1792,13 +1870,16 @@ export const setupCameraAutodiscovery = async (props: {
     rules: BaseRule[],
     zones: string[],
     accessorySwitchKinds?: CameraAccessorySwitchKind[],
+    /** If provided, initial switch states are published right after discovery so HA shows correct state. */
+    initialCameraState?: InitialCameraState,
 }) => {
-    const { device, mqttClient, rules, console, zones, accessorySwitchKinds } = props;
+    const { device, mqttClient, rules, console, zones, accessorySwitchKinds, initialCameraState } = props;
     if (!mqttClient) {
         return;
     }
     const mqttEntities = await getCameraMqttEntitiesForDiscovery({ device, rules, console, zones, accessorySwitchKinds });
-    return await publishMqttDeviceDiscovery({ mqttClient, mqttEntities, device, console });
+    const initialEntityStates = buildCameraInitialEntityStates({ device, initialCameraState, accessorySwitchKinds });
+    return await publishMqttDeviceDiscovery({ mqttClient, mqttEntities, device, console, initialEntityStates });
 };
 
 /**
@@ -1815,8 +1896,10 @@ export const rediscoverCameraMqttDevice = async (props: {
     accessorySwitchKinds?: CameraAccessorySwitchKind[],
     haApiUrl?: string,
     haApiToken?: string,
+    /** If provided, initial switch states are published right after discovery. */
+    initialCameraState?: InitialCameraState,
 }): Promise<{ haDeviceDeleted?: boolean; haError?: string }> => {
-    const { device, mqttClient, rules, console, zones, accessorySwitchKinds, haApiUrl, haApiToken } = props;
+    const { device, mqttClient, rules, console, zones, accessorySwitchKinds, haApiUrl, haApiToken, initialCameraState } = props;
     const result: { haDeviceDeleted?: boolean; haError?: string } = {};
 
     if (mqttClient && haApiUrl?.trim() && haApiToken?.trim()) {
@@ -1835,7 +1918,7 @@ export const rediscoverCameraMqttDevice = async (props: {
 
     const mqttEntities = await getCameraMqttEntitiesForDiscovery({ device, rules, console, zones, accessorySwitchKinds });
     await clearTopicsForEntities({ mqttClient, device, mqttEntities });
-    await setupCameraAutodiscovery({ mqttClient, device, rules, console, zones, accessorySwitchKinds });
+    await setupCameraAutodiscovery({ mqttClient, device, rules, console, zones, accessorySwitchKinds, initialCameraState });
     return result;
 };
 

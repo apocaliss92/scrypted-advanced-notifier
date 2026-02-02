@@ -553,6 +553,7 @@ export const getWebhooks = async () => {
   const eventImage = "eventImage";
   const eventsApp = "eventsApp";
   const eventVideoclip = "eventVideoclip";
+  const eventVideoclipThumbnail = "eventVideoclipThumbnail";
 
   return {
     recordedClipVideo,
@@ -569,6 +570,7 @@ export const getWebhooks = async () => {
     eventImage,
     eventsApp,
     eventVideoclip,
+    eventVideoclipThumbnail,
   };
 };
 

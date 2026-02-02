@@ -1,0 +1,22 @@
+---
+description: Scrypted Advanced Notifier plugin and Events App frontend integration
+alwaysApply: true
+---
+
+# Scrypted Advanced Notifier
+
+Compatible with GitHub Copilot and Cursor agents. Full instructions: `.github/copilot-instructions.md`.
+
+**Language:** Use **English only** for UI strings, comments, commit messages, and documentation (including in the frontend app).
+
+## Plugin
+- Entrypoint: [src/main.ts](src/main.ts). Mixins: [cameraMixin.ts](src/cameraMixin.ts), [notifierMixin.ts](src/notifierMixin.ts), [sensorMixin.ts](src/sensorMixin.ts).
+- MQTT: [src/mqtt-utils.ts](src/mqtt-utils.ts). Events DB: [src/db.ts](src/db.ts). Utils: [src/utils.ts](src/utils.ts).
+- Build: `npm run build`. Deploy: `scrypted: deploy+debug`.
+
+## Events App Frontend (scrypted-advanced-notifier-frontend-v2)
+- Served by plugin via `HttpRequestHandler.onRequest` and `eventsApp` path.
+- Auth: `Authorization: Basic {base64(username:password)}`, validated by `checkUserLogin`.
+- Data: `EventRecorder.getRecordedEvents({ startTime, endTime })`, `VideoClips.getVideoClips({ startTime, endTime })`.
+- Use `thumbnailUrl`, `imageUrl`, `videoclipHref` as returned; do not rebuild URLs.
+- Frontend rework instructions: see `.github/copilot-instructions.md` in **scrypted-advanced-notifier-frontend-v2**.

@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.8.33
+
+- Huge revamp of the Events reviewer App, added camera streams, grids and much more
+
 ### 4.8.29
 
 - Add button to fully reset camera MQTT entities on HA and MQTT

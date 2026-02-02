@@ -1006,8 +1006,123 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     async onRequest(request: HttpRequest, response: HttpResponse): Promise<void> {
         const logger = this.getLogger();
         const url = new URL(`http://localhost${request.url}`);
+        const pathname = url.pathname || request.url || '';
 
-        const [_, __, ___, ____, privateWebhook, webhook, ...rest] = url.pathname.split('/');
+        const body = safeParseJson(request.body);
+        if (request.method === 'POST' && body?.apimethod && pathname.includes('eventsApp')) {
+            const loginResponse = await checkUserLogin(request);
+            if (!loginResponse) {
+                response.send('Unauthorized', { code: 401 });
+                return;
+            }
+            const dataFetcher = this.dataFetcher;
+            try {
+                if (body.apimethod === 'GetConfigs') {
+                    const cameras = Object.entries(this.currentCameraMixinsMap).map(([id, m]) => ({
+                        id,
+                        name: m.name,
+                        hasNvr: m.hasNvr,
+                        accessorySwitchKinds: m.getAccessorySwitchKinds(),
+                    }));
+                    response.send(JSON.stringify({
+                        cameras,
+                        enabledDetectionSources: this.enabledDetectionSources
+                    }), { headers: { 'Content-Type': 'application/json' } });
+                    return;
+                }
+                if (body.apimethod === 'GetCamerasStatus') {
+                    const cameras: Record<string, {
+                        notificationsEnabled: boolean;
+                        isRecording: boolean;
+                        isSnapshotsEnabled: boolean;
+                        isRebroadcastEnabled: boolean;
+                        accessorySwitchStates: Record<string, boolean>;
+                    }> = {};
+                    for (const [id, m] of Object.entries(this.currentCameraMixinsMap)) {
+                        try {
+                            const state = await m.getCameraMqttCurrentState();
+                            cameras[id] = {
+                                notificationsEnabled: state.notificationsEnabled,
+                                isRecording: state.isRecording,
+                                isSnapshotsEnabled: state.isSnapshotsEnabled,
+                                isRebroadcastEnabled: state.isRebroadcastEnabled,
+                                accessorySwitchStates: state.accessorySwitchStates || {},
+                            };
+                        } catch (e) {
+                            logger.warn(`GetCamerasStatus failed for camera ${id}`, e);
+                        }
+                    }
+                    response.send(JSON.stringify({ cameras }), { headers: { 'Content-Type': 'application/json' } });
+                    return;
+                }
+                if (body.apimethod === 'GetEvents') {
+                    const {
+                        fromDate,
+                        tillDate,
+                        limit,
+                        offset,
+                        sources: rawSources,
+                        cameras = [],
+                        detectionClasses = [],
+                        eventSource = 'Auto',
+                        filter = '',
+                        groupingRange = 60,
+                    } = body.payload ?? {};
+                    const startTime = Number(fromDate) ?? Date.now() - 86400000;
+                    const endTime = Number(tillDate) ?? Date.now();
+                    const sources = Array.isArray(rawSources) && rawSources.length > 0
+                        ? rawSources.filter((s: string) => ['All', 'Auto'].indexOf(s) < 0) as string[]
+                        : undefined;
+                    const { groups, total } = await dataFetcher.getRecordedEventsGroupedPaginated({
+                        startTime,
+                        endTime,
+                        limit: typeof limit === 'number' ? limit : undefined,
+                        offset: typeof offset === 'number' ? offset : 0,
+                        sources: sources && sources.length > 0 ? sources : undefined,
+                        cameras: Array.isArray(cameras) ? cameras : [],
+                        detectionClasses: Array.isArray(detectionClasses) ? detectionClasses : [],
+                        eventSource: typeof eventSource === 'string' ? eventSource : 'Auto',
+                        filter: typeof filter === 'string' ? filter : '',
+                        groupingRange: typeof groupingRange === 'number' ? groupingRange : 60,
+                    });
+                    response.send(JSON.stringify({ groups, total }), { headers: { 'Content-Type': 'application/json' } });
+                    return;
+                }
+                if (body.apimethod === 'GetVideoclips') {
+                    const { fromDate, tillDate, limit, offset, cameras, detectionClasses } = body.payload ?? {};
+                    const startTime = Number(fromDate) ?? Date.now() - 86400000;
+                    const endTime = Number(tillDate) ?? Date.now();
+                    const camerasList = Array.isArray(cameras) ? cameras.filter((c): c is string => typeof c === 'string') : undefined;
+                    const detectionClassesList = Array.isArray(detectionClasses) ? detectionClasses.filter((c): c is string => typeof c === 'string') : undefined;
+                    const { clips, total } = await dataFetcher.getVideoClipsPaginated({
+                        startTime,
+                        endTime,
+                        limit: typeof limit === 'number' ? limit : undefined,
+                        offset: typeof offset === 'number' ? offset : 0,
+                        cameras: camerasList?.length ? camerasList : undefined,
+                        detectionClasses: detectionClassesList?.length ? detectionClassesList : undefined,
+                    });
+                    const videoclips = clips.map(c => ({
+                        id: c.videoId ?? c.id,
+                        deviceName: (c as any).deviceName,
+                        deviceId: (c as any).deviceId,
+                        videoclipHref: (c as any).videoclipHref,
+                        startTime: c.startTime,
+                        duration: c.duration,
+                        detectionClasses: (c as any).detectionClasses,
+                        source: (c as any).source
+                    }));
+                    response.send(JSON.stringify({ videoclips, total }), { headers: { 'Content-Type': 'application/json' } });
+                    return;
+                }
+            } catch (e) {
+                logger.error('EventsApp API error', e);
+                response.send(JSON.stringify({ error: String(e?.message ?? e) }), { code: 500, headers: { 'Content-Type': 'application/json' } });
+                return;
+            }
+        }
+
+        const [_, __, ___, ____, privateWebhook, webhook, ...rest] = pathname.split('/');
         const [deviceIdOrActionRaw, ruleNameOrSnoozeIdOrSnapshotId, timelapseNameOrSnoozeTime] = rest
         let deviceIdOrAction = decodeURIComponent(deviceIdOrActionRaw);
         const decodedTimelapseNameOrSnoozeTime = decodeURIComponent(timelapseNameOrSnoozeTime);
@@ -1050,6 +1165,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 eventThumbnail,
                 eventImage,
                 eventVideoclip,
+                eventVideoclipThumbnail,
                 imageRule,
                 videoRule,
                 gifRule,
@@ -1074,6 +1190,19 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     }
                 }
 
+                if ([privateWebhook, webhook].includes(eventVideoclipThumbnail)) {
+                    const device = sdk.systemManager.getDeviceById<VideoClips>(deviceIdOrAction);
+                    const thumbMo = await device.getVideoClipThumbnail(decodedRuleNameOrSnoozeIdOrSnapshotId);
+                    const jpeg = await mediaManager.convertMediaObjectToBuffer(thumbMo, 'image/jpeg');
+                    response.send(jpeg, {
+                        code: 200,
+                        headers: {
+                            'Content-Type': 'image/jpeg',
+                            'Cache-Control': 'max-age=31536000',
+                        },
+                    });
+                    return;
+                }
                 if ([privateWebhook, webhook].includes(eventVideoclip)) {
                     const device = sdk.systemManager.getDeviceById<VideoClips>(deviceIdOrAction);
                     const mo = await device.getVideoClip(decodedRuleNameOrSnoozeIdOrSnapshotId);

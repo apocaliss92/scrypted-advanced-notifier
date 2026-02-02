@@ -1,4 +1,8 @@
-# Copilot instructions (Scrypted Advanced Notifier)
+# Copilot / Cursor instructions (Scrypted Advanced Notifier)
+
+> Compatible with **GitHub Copilot** and **Cursor** agents.
+
+**Language:** Use **English only** for UI strings, comments, commit messages, and documentation (plugin and frontend).
 
 ## Big picture
 - This repo is a Scrypted plugin. The main entrypoint is [src/main.ts](src/main.ts) and it implements multiple Scrypted interfaces (Settings/DeviceProvider/MixinProvider/HttpRequestHandler/VideoClips/PushHandler).
@@ -48,3 +52,40 @@
 - Add it to `initStorage` and (if it is conditional) wire it into `refreshSettings()` via `convertSettingsToStorageSettings`.
 - If it should take effect immediately, set `immediate: true` and/or implement `onPut` to trigger the relevant refresh/publish.
 - If it affects MQTT behavior, ensure you also update autodiscovery/publishing paths (see [src/mqtt-utils.ts](src/mqtt-utils.ts)).
+
+---
+
+## Events App / Frontend (scrypted-advanced-notifier-frontend-v2)
+
+The events app frontend is a separate project (`scrypted-advanced-notifier-frontend-v2`) intended for a **rework from scratch**. It is served by the plugin via `HttpRequestHandler.onRequest` and the `eventsApp` path (see [src/utils.ts](src/utils.ts) `getWebhooks` → `eventsApp`).
+
+### How the plugin serves the frontend
+- Base URL is `{privatePathnamePrefix}` where `privatePathnamePrefix = {privatePathname}{eventsApp}` (e.g. `/endpoint/.../eventsApp`).
+- The plugin responds with `response.sendFile('dist/index.html')` for the SPA and `response.sendFile('dist/{deviceId}')` for device-specific assets.
+- The frontend build is copied to `fs/dist/` in the plugin; the plugin serves static files from `dist/`.
+
+### Authentication
+- For `webhook === eventsApp` (public path) the plugin calls `checkUserLogin(request)` ([src/utils.ts](src/utils.ts)).
+- Requires header `Authorization: Basic {base64(username:password)}`.
+- Uses `loginScryptedClient` (Scrypted) with `baseUrl` from `sdk.endpointManager.getLocalEndpoint()`.
+- If not authenticated: `response.send('Unauthorized', { code: 401 })`.
+
+### API and data exposed by the plugin
+- **Events:** the `AdvancedNotifierDataFetcher` device (nativeId: `DATA_FETCHER_NATIVE_ID`) implements `EventRecorder.getRecordedEvents(options)`. **To extend:** add pagination params (`limit`, `offset` or cursor) based on viewport; return total count; frontend will request paginated data and use heavy browser cache.
+  - `options`: `{ startTime, endTime }` (timestamp ms).
+  - Returns `RecordedEvent[]` with `details: { eventId, eventTime }` and `data: DbDetectionEvent` (see [src/db.ts](src/db.ts)).
+  - `DbDetectionEvent` includes: `id`, `timestamp`, `classes`, `label`, `thumbnailUrl`, `imageUrl`, `videoUrl`, `source` (ScryptedEventSource: NVR, Frigate, RawDetection), `deviceName`, `deviceId`, `detections`.
+- **Videoclips:** `EventRecorder` / `VideoClips.getVideoClips(options)` with `{ startTime, endTime }`.
+  - Each clip has `videoId`, `thumbnailId`, `detectionClasses`, `startTime`, `duration`, and `videoclipHref` (full URL).
+- **Media URLs:**
+  - Thumbnail/image: `{privatePathnamePrefix}/eventThumbnail/{deviceId}/{eventId}/{source}` or `eventImage` for full-size.
+  - For NVR: `?path=...` with encoded endpoint URL.
+  - Videoclip: `{privatePathnamePrefix}/eventVideoclip/{deviceId}/{videoId}` → redirect or stream.
+
+### Frontend ↔ plugin interaction
+1. The frontend must use **Scrypted credentials** (username/password) for login.
+2. After login, all requests must include `Authorization: Basic ...`.
+3. For events and videoclips: the frontend must call Scrypted device methods (typically via `@scrypted/client` or Scrypted API).
+4. URLs `thumbnailUrl`, `imageUrl`, `videoUrl`/`videoclipHref` are ready to use: use them as returned, with the same credentials in the request.
+
+For detailed frontend rework instructions, see `.github/copilot-instructions.md` in **scrypted-advanced-notifier-frontend-v2**. The **scrypted-an-frontend** project in this workspace is the reference implementation for Scrypted communication (client, API, takePicture, WebRTC).
