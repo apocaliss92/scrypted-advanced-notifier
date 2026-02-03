@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
-const REGISTER_FILENAME = 'artifacts.json';
+export const REGISTER_FILENAME = 'artifacts.json';
 const REGISTER_VERSION = 1;
 
 export type RulesRegisterEntry = {
@@ -68,6 +68,26 @@ export const addOrUpdateRuleArtifacts = async (
     });
   }
   await writeRegister(registerPath, entries);
+};
+
+/** Read artifacts for a device in a time range (e.g. one day). */
+export const getRuleArtifactsInRange = async (props: {
+  storagePath: string;
+  deviceId: string;
+  startTimestamp: number;
+  endTimestamp: number;
+}): Promise<RulesRegisterEntry[]> => {
+  const { storagePath, deviceId, startTimestamp, endTimestamp } = props;
+  const registerPath = getRulesRegisterPath(storagePath, deviceId);
+  try {
+    await fs.promises.access(registerPath);
+  } catch {
+    return [];
+  }
+  const entries = await readRegister(registerPath);
+  return entries.filter(
+    (e) => e.timestamp >= startTimestamp && e.timestamp <= endTimestamp
+  );
 };
 
 /** Remove one URL type from an entry; remove the entry if no URLs left. */

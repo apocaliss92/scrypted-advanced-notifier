@@ -70,6 +70,7 @@ import {
   cropImageToDetection,
 } from "./drawingUtils";
 import AdvancedNotifierPlugin from "./main";
+import { REGISTER_FILENAME } from "./rulesRegister";
 import {
   ClassOccupancy,
   ClassZoneOccupancy,
@@ -772,6 +773,7 @@ export class AdvancedNotifierCameraMixin
       const rulesFolder = await cachedReaddir(rulesPath);
 
       for (const ruleFolder of rulesFolder) {
+        if (ruleFolder === REGISTER_FILENAME) continue;
         const { generatedPath } = this.plugin.getRulePaths({
           cameraId: cameraFolder,
           ruleName: ruleFolder,

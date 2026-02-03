@@ -21,13 +21,13 @@ import { AdvancedNotifierCamera } from "./camera";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierDataFetcher } from "./dataFetcher";
 import type { DbDetectionEvent, DbMotionEvent } from "./db";
-import { cleanupEvents, cleanupOldDeviceDbs, migrateDbsToPerDevice, writeEventsAndMotionBatch } from "./db";
+import { cleanupEvents, cleanupOldDeviceDbs, getMotionInRange, migrateDbsToPerDevice, writeEventsAndMotionBatch } from "./db";
 import { DetectionClass, detectionClassesDefaultMap, isLabelDetection, isMotionClassname, isPlateClassname } from "./detectionClasses";
 import { serveGif, serveImage, servePluginGeneratedVideoclip } from "./httpUtils";
 import { idPrefix, publishPluginValues, publishRuleEnabled, resetAllPluginMqttTopicsAndRediscover, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
-import { addOrUpdateRuleArtifacts, getRulesRegisterPath, migrateDeviceRulesRegister, removeRuleArtifactUrl } from "./rulesRegister";
+import { addOrUpdateRuleArtifacts, getRuleArtifactsInRange, getRulesRegisterPath, migrateDeviceRulesRegister, REGISTER_FILENAME, removeRuleArtifactUrl } from "./rulesRegister";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { CameraMixinState, OccupancyRuleData } from "./states";
 import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, calculateSize, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, DevNotifications, ExtendedNotificationAction, formatSize, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getActiveRules, getAllAvailableUrls, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getBaseRuleDefaults, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRecordingRules, getRecordingRulesSettings, getRuleKeys, getSequenceObject, getSequencesSettings, getSnoozeId, getTextSettings, getUrlLog, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, OccupancySource, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RecordingRule, RuleActionsSequence, RuleActionType, ruleSequencesGroup, ruleSequencesKey, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType, ZENTIK_PLUGIN_ID, ZonesSource } from "./utils";
@@ -1194,6 +1194,44 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         source: (c as any).source
                     }));
                     response.send(JSON.stringify({ videoclips, total }), { headers: { 'Content-Type': 'application/json' } });
+                    return;
+                }
+                if (body.apimethod === 'GetCameraDayData') {
+                    const { deviceId, day } = body.payload ?? {};
+                    if (!deviceId || typeof deviceId !== 'string' || !day || typeof day !== 'string') {
+                        response.send(JSON.stringify({ error: 'deviceId and day (YYYYMMDD) required' }), { code: 400, headers: { 'Content-Type': 'application/json' } });
+                        return;
+                    }
+                    const startOfDay = moment(day, 'YYYYMMDD').startOf('day').valueOf();
+                    const endOfDay = moment(day, 'YYYYMMDD').endOf('day').valueOf();
+                    if (!moment(day, 'YYYYMMDD').isValid()) {
+                        response.send(JSON.stringify({ error: 'day must be YYYYMMDD' }), { code: 400, headers: { 'Content-Type': 'application/json' } });
+                        return;
+                    }
+                    const { storagePath } = this.getEventPaths({});
+                    const [allRecorded, motion, artifacts] = await Promise.all([
+                        dataFetcher.getRecordedEvents({ startTime: startOfDay, endTime: endOfDay }),
+                        getMotionInRange({ startTimestamp: startOfDay, endTimestamp: endOfDay, storagePath, deviceIds: [deviceId] }),
+                        getRuleArtifactsInRange({ storagePath, deviceId, startTimestamp: startOfDay, endTimestamp: endOfDay }),
+                    ]);
+                    const events = allRecorded
+                        .filter((r) => r.data?.deviceId === deviceId)
+                        .map((r) => ({
+                            id: r.data?.id ?? r.details?.eventId ?? '',
+                            timestamp: r.data?.timestamp ?? r.details?.eventTime ?? 0,
+                            classes: r.data?.classes ?? [],
+                            label: r.data?.label,
+                            thumbnailUrl: r.data?.thumbnailUrl ?? '',
+                            imageUrl: r.data?.imageUrl ?? '',
+                            source: (r.data?.source as string) ?? 'NVR',
+                            deviceName: r.data?.deviceName ?? '',
+                            deviceId: r.data?.deviceId,
+                        }));
+                    response.send(JSON.stringify({
+                        events,
+                        motion,
+                        artifacts,
+                    }), { headers: { 'Content-Type': 'application/json' } });
                     return;
                 }
             } catch (e) {
@@ -4926,6 +4964,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const rulesFolder = await fs.promises.readdir(rulesPath);
 
             for (const ruleFolder of rulesFolder) {
+                if (ruleFolder === REGISTER_FILENAME) continue;
                 const { generatedPath } = this.getRulePaths({
                     cameraId: device.id,
                     ruleName: ruleFolder,
