@@ -27,6 +27,7 @@ import { serveGif, serveImage, servePluginGeneratedVideoclip } from "./httpUtils
 import { idPrefix, publishPluginValues, publishRuleEnabled, resetAllPluginMqttTopicsAndRediscover, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
+import { addOrUpdateRuleArtifacts, getRulesRegisterPath, migrateDeviceRulesRegister, removeRuleArtifactUrl } from "./rulesRegister";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { CameraMixinState, OccupancyRuleData } from "./states";
 import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, calculateSize, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, DevNotifications, ExtendedNotificationAction, formatSize, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getActiveRules, getAllAvailableUrls, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getBaseRuleDefaults, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRecordingRules, getRecordingRulesSettings, getRuleKeys, getSequenceObject, getSequencesSettings, getSnoozeId, getTextSettings, getUrlLog, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, OccupancySource, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RecordingRule, RuleActionsSequence, RuleActionType, ruleSequencesGroup, ruleSequencesKey, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType, ZENTIK_PLUGIN_ID, ZonesSource } from "./utils";
@@ -114,6 +115,7 @@ export type PluginSettingKey =
     | 'postProcessingZonesStrokeWidth'
     | 'includeUserToken'
     | 'migrationDbPerDeviceDone'
+    | 'migrationRulesArtifactsRegisterDone'
     | BaseSettingsKey
     | TextSettingKey;
 
@@ -206,6 +208,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         },
         migrationDbPerDeviceDone: {
             title: 'Migration DB per device done',
+            type: 'boolean',
+            defaultValue: false,
+            hide: true,
+        },
+        migrationRulesArtifactsRegisterDone: {
+            title: 'Migration rules artifacts register done',
             type: 'boolean',
             defaultValue: false,
             hide: true,
@@ -970,6 +978,51 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 await this.storageSettings.putSetting('migrationDbPerDeviceDone', true);
             } catch (e) {
                 logger.error('Migration DB per device failed', e);
+            }
+        }
+
+        const migrationRulesArtifactsRegisterDone = this.storageSettings.values.migrationRulesArtifactsRegisterDone;
+        if (!migrationRulesArtifactsRegisterDone) {
+            try {
+                const deviceDirs = await fs.promises.readdir(storagePath).catch(() => []);
+                for (const deviceId of deviceDirs) {
+                    const devicePath = path.join(storagePath, deviceId);
+                    const stat = await fs.promises.stat(devicePath).catch(() => null);
+                    if (!stat?.isDirectory()) continue;
+                    const device = systemManager.getDeviceById<ScryptedDeviceBase>(deviceId);
+                    if (!device) continue;
+                    const mixin = this.currentCameraMixinsMap[deviceId];
+                    let getRuleType: (ruleName: string) => string | undefined;
+                    if (mixin?.mixinState?.storageSettings) {
+                        const { allAvailableRules } = await getActiveRules({
+                            device,
+                            deviceStorage: mixin.mixinState.storageSettings,
+                            plugin: this,
+                            console: logger,
+                        });
+                        getRuleType = (ruleName) => allAvailableRules?.find((r) => r.name === ruleName)?.ruleType;
+                    } else {
+                        getRuleType = (ruleName) => this.allAvailableRules.find((r) => r.name === ruleName)?.ruleType;
+                    }
+                    await migrateDeviceRulesRegister({
+                        storagePath,
+                        deviceId,
+                        logger,
+                        getRuleType,
+                        getUrls: async (ruleName, timestamp) => {
+                            const urls = await getWebHookUrls({
+                                plugin: this,
+                                device,
+                                ruleName,
+                                fileId: String(timestamp),
+                            });
+                            return { imageUrl: urls.imageRuleUrl, gifUrl: urls.gifRuleUrl, videoUrl: urls.videoRuleUrl };
+                        },
+                    });
+                }
+                await this.storageSettings.putSetting('migrationRulesArtifactsRegisterDone', true);
+            } catch (e) {
+                logger.error('Migration rules artifacts register failed', e);
             }
         }
     }
@@ -3009,6 +3062,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             device,
         });
 
+        const registerPath = getRulesRegisterPath(this.getStoragePath(), device.id);
+        await addOrUpdateRuleArtifacts(registerPath, { ruleName: rule.name, ruleType: rule.ruleType, timestamp: triggerTime, imageUrl: imageRuleUrl });
+
         return imageRuleUrl;
     }
 
@@ -3029,6 +3085,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         });
 
         await this.ensureRuleFoldersExist({ cameraId: cameraDevice.id, ruleName: rule.name });
+
+        const registerPath = getRulesRegisterPath(this.getStoragePath(), cameraDevice.id);
+        await addOrUpdateRuleArtifacts(registerPath, { ruleName: rule.name, ruleType: rule.ruleType, timestamp: triggerTime, videoUrl: videoRuleUrl, imageUrl: imageRuleUrl });
 
         const { videoHistoricalPath } = this.getRulePaths({
             ruleName: rule.name,
@@ -4847,6 +4906,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             clipsRemoved: 0,
             snapshotsFound: 0,
             snapshotsRemoved: 0,
+            gifsFound: 0,
+            gifsRemoved: 0,
             eventsFound: 0,
             eventsRemoved: 0,
             recordedEventsFound: 0,
@@ -4859,6 +4920,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         // Rules artifacts cleanup
         const { rulesPath } = this.getRulePaths({ cameraId: device.id });
+        const rulesRegisterPath = getRulesRegisterPath(this.getStoragePath(), device.id);
         try {
             await fs.promises.access(rulesPath);
             const rulesFolder = await fs.promises.readdir(rulesPath);
@@ -4872,25 +4934,30 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 const generatedData = await fs.promises.readdir(generatedPath);
                 const clips: string[] = [];
                 const snapshots: string[] = [];
+                const gifs: string[] = [];
 
                 for (const filename of generatedData) {
                     if (filename.endsWith('.mp4')) {
                         clips.push(filename);
                     } else if (filename.endsWith('.jpg')) {
                         snapshots.push(filename);
+                    } else if (filename.endsWith('.gif')) {
+                        gifs.push(filename);
                     }
                 }
 
                 logData.clipsFound += clips.length;
+                logData.gifsFound += gifs.length;
 
                 for (const filename of clips) {
                     const filepath = path.join(generatedPath, filename);
-                    const fileTimestamp = parseInt(filename);
+                    const fileTimestamp = parseInt(filename, 10);
 
                     if (fileTimestamp < videoclipsThreshold) {
                         try {
                             await fs.promises.unlink(filepath);
                             logData.clipsRemoved += 1;
+                            await removeRuleArtifactUrl(rulesRegisterPath, ruleFolder, fileTimestamp, 'videoUrl');
                         } catch (err) {
                             logger.error(`Error removing clip ${filename}`, err.message);
                         }
@@ -4901,14 +4968,30 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
                 for (const filename of snapshots) {
                     const filepath = path.join(generatedPath, filename);
-                    const fileTimestamp = parseInt(filename);
+                    const fileTimestamp = parseInt(filename, 10);
 
                     if (fileTimestamp < videoclipsThreshold) {
                         try {
                             await fs.promises.unlink(filepath);
                             logData.snapshotsRemoved += 1;
+                            await removeRuleArtifactUrl(rulesRegisterPath, ruleFolder, fileTimestamp, 'imageUrl');
                         } catch (err) {
                             logger.error(`Error removing snapshot ${filename}`, err.message);
+                        }
+                    }
+                }
+
+                for (const filename of gifs) {
+                    const filepath = path.join(generatedPath, filename);
+                    const fileTimestamp = parseInt(filename, 10);
+
+                    if (fileTimestamp < videoclipsThreshold) {
+                        try {
+                            await fs.promises.unlink(filepath);
+                            logData.gifsRemoved += 1;
+                            await removeRuleArtifactUrl(rulesRegisterPath, ruleFolder, fileTimestamp, 'gifUrl');
+                        } catch (err) {
+                            logger.error(`Error removing gif ${filename}`, err.message);
                         }
                     }
                 }
@@ -5298,6 +5381,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 await once(cp, 'exit');
                 await fs.promises.copyFile(gifHistoricalPath, gifLatestPath);
                 logger.log(`GIF ${gifHistoricalPath} generated`);
+
+                const { gifRuleUrl } = await getWebHookUrls({
+                    fileId: String(triggerTime),
+                    ruleName: rule.name,
+                    plugin: this,
+                    device,
+                });
+                const gifRegisterPath = getRulesRegisterPath(this.getStoragePath(), device.id);
+                await addOrUpdateRuleArtifacts(gifRegisterPath, { ruleName: rule.name, ruleType: rule.ruleType, timestamp: triggerTime, gifUrl: gifRuleUrl });
 
                 const { framePath } = this.getFsPaths({
                     cameraId: device.id,
