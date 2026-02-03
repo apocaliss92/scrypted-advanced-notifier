@@ -6,6 +6,7 @@ import { once } from "events";
 import fs from 'fs';
 import https from 'https';
 import { cloneDeep, isEqual, max, sortBy, uniq } from 'lodash';
+import moment from 'moment';
 import path from 'path';
 import { applySettingsShow, BasePlugin, BaseSettingsKey, getBaseSettings, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
 import { getFrigatePluginSettings } from "../../scrypted-frigate-bridge/src/utils";
@@ -19,7 +20,8 @@ import { AudioAnalyzerSource } from "./audioAnalyzerUtils";
 import { AdvancedNotifierCamera } from "./camera";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierDataFetcher } from "./dataFetcher";
-import { addEvent, cleanupEvents, cleanupOldEvents } from "./db";
+import type { DbDetectionEvent, DbMotionEvent } from "./db";
+import { cleanupEvents, cleanupOldDeviceDbs, migrateDbsToPerDevice, writeEventsAndMotionBatch } from "./db";
 import { DetectionClass, detectionClassesDefaultMap, isLabelDetection, isMotionClassname, isPlateClassname } from "./detectionClasses";
 import { serveGif, serveImage, servePluginGeneratedVideoclip } from "./httpUtils";
 import { idPrefix, publishPluginValues, publishRuleEnabled, resetAllPluginMqttTopicsAndRediscover, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
@@ -33,6 +35,11 @@ import { parseVideoFileName } from "./videoRecorderUtils";
 const { systemManager, mediaManager } = sdk;
 
 interface FrigateData { cameras: string[]; faces: string[]; labels: string[] };
+
+/** Item for the DB write queue (events and motion). */
+type DbWriteQueueItem =
+    | { type: 'event'; dbsPath: string; event: DbDetectionEvent; logger: Console }
+    | { type: 'motion'; dbsPath: string; motionEvent: DbMotionEvent; logger: Console };
 
 export type PluginSettingKey =
     | 'pluginEnabled'
@@ -106,6 +113,7 @@ export type PluginSettingKey =
     | 'postProcessingZonesColor'
     | 'postProcessingZonesStrokeWidth'
     | 'includeUserToken'
+    | 'migrationDbPerDeviceDone'
     | BaseSettingsKey
     | TextSettingKey;
 
@@ -195,6 +203,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             defaultValue: true,
             immediate: true,
             subgroup: 'Advanced',
+        },
+        migrationDbPerDeviceDone: {
+            title: 'Migration DB per device done',
+            type: 'boolean',
+            defaultValue: false,
+            hide: true,
         },
         mqttActiveEntitiesTopic: {
             title: 'Active entities topic',
@@ -761,6 +775,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     public lastCameraAutodiscoveryMap: Record<string, number> = {};
     private processingCameraAutodiscovery = false;
 
+    /** Queue of pending DB writes (events + motion). Processed sequentially in main. */
+    private dbWriteQueue: DbWriteQueueItem[] = [];
+    private processingDbWriteQueue = false;
+
     imageEmbeddingCache: Record<string, Buffer> = {};
     textEmbeddingCache: Record<string, Buffer> = {};
 
@@ -937,12 +955,22 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         await this.initPluginSettings();
 
-        const { dbsPath } = this.getEventPaths({});
+        const { storagePath } = this.getEventPaths({});
         try {
-            await fs.promises.access(dbsPath);
+            await fs.promises.access(storagePath);
         } catch {
-            logger.log(`Creating dbs folder at ${dbsPath}`);
-            await fs.promises.mkdir(dbsPath, { recursive: true });
+            logger.log(`Creating storage folder at ${storagePath}`);
+            await fs.promises.mkdir(storagePath, { recursive: true });
+        }
+
+        const migrationDone = this.storageSettings.values.migrationDbPerDeviceDone;
+        if (!migrationDone) {
+            try {
+                await migrateDbsToPerDevice({ logger, storagePath });
+                await this.storageSettings.putSetting('migrationDbPerDeviceDone', true);
+            } catch (e) {
+                logger.error('Migration DB per device failed', e);
+            }
         }
     }
 
@@ -4352,15 +4380,70 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         };
     }
 
+    /** Enqueue a DB write (event or motion). Worker in main drains the queue sequentially. */
+    private enqueueDbWrite = (item: DbWriteQueueItem) => {
+        this.dbWriteQueue.push(item);
+        this.scheduleDbWriteProcess();
+    };
+
+    private scheduleDbWriteProcess = () => {
+        if (this.processingDbWriteQueue || this.dbWriteQueue.length === 0) return;
+        this.processingDbWriteQueue = true;
+        setImmediate(() => this.runDbWriteProcess());
+    };
+
+    private runDbWriteProcess = async () => {
+        const items = this.dbWriteQueue.splice(0, this.dbWriteQueue.length);
+        if (items.length === 0) {
+            this.processingDbWriteQueue = false;
+            return;
+        }
+        const dbFileFormat = 'YYYYMMDD';
+        type Group = { events: DbDetectionEvent[]; motion: DbMotionEvent[]; logger: Console };
+        const groups = new Map<string, Group>();
+        for (const item of items) {
+            const dbsPath = item.dbsPath;
+            const dayStr = item.type === 'event'
+                ? moment(item.event.timestamp).format(dbFileFormat)
+                : moment(item.motionEvent.timestamp).format(dbFileFormat);
+            const key = `${dbsPath}|${dayStr}`;
+            let g = groups.get(key);
+            if (!g) {
+                g = { events: [], motion: [], logger: item.logger };
+                groups.set(key, g);
+            }
+            if (item.type === 'event') g.events.push(item.event);
+            else g.motion.push(item.motionEvent);
+        }
+        for (const [key, group] of groups) {
+            const pipe = key.lastIndexOf('|');
+            const dbsPath = key.slice(0, pipe);
+            const dayStr = key.slice(pipe + 1);
+            try {
+                await writeEventsAndMotionBatch({
+                    dbsPath,
+                    dayStr,
+                    newEvents: group.events,
+                    newMotion: group.motion,
+                    logger: group.logger,
+                });
+            } catch (e) {
+                group.logger.error('DB write queue batch error', e);
+            }
+        }
+        this.processingDbWriteQueue = false;
+        if (this.dbWriteQueue.length > 0) this.scheduleDbWriteProcess();
+    };
+
     public getEventPaths = (props: {
         cameraId?: string,
         fileName?: string,
     }) => {
         const { cameraId, fileName } = props;
         const { cameraPath, storagePath } = this.getFsPaths({ cameraId });
-        const dbsPath = path.join(storagePath, 'dbs');
-
         const eventsPath = cameraPath ? path.join(cameraPath, 'events') : undefined;
+        const dbsPath = eventsPath ? path.join(eventsPath, 'dbs') : undefined;
+
         const thumbnailsPath = eventsPath ? path.join(eventsPath, 'thumbnails') : undefined;
         const imagesPath = eventsPath ? path.join(eventsPath, 'images') : undefined;
         const eventThumbnailPath = fileName ? path.join(thumbnailsPath, `${fileName}.jpg`) : undefined;
@@ -4372,6 +4455,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             eventImagePath,
             fileId: fileName,
             dbsPath,
+            storagePath,
             thumbnailsPath,
             imagesPath,
         };
@@ -4831,10 +4915,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
         } catch { }
 
-        // Recorded events cleanup
+        // Recorded events cleanup (images, thumbnails, DBs)
         const { imagesPath, thumbnailsPath, dbsPath } = this.getEventPaths({ cameraId: device.id });
 
-        await cleanupOldEvents({ logger, dbsPath, thresholdTimestamp: eventsThreshold, deviceId: device.id });
+        await cleanupOldDeviceDbs({ logger, dbsPath, thresholdTimestamp: eventsThreshold });
 
         try {
             await fs.promises.access(imagesPath);
@@ -5330,9 +5414,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const smallB64Image = await moToB64(resizedImage);
         const smallBase64Data = smallB64Image.replace(/^data:image\/png;base64,/, "");
         await fs.promises.writeFile(eventThumbnailPath, smallBase64Data, 'base64');
-        const { dbsPath } = this.getEventPaths({});
+        const { dbsPath } = this.getEventPaths({ cameraId: device.id });
 
-        addEvent({
+        this.enqueueDbWrite({
+            type: 'event',
+            dbsPath,
             event: {
                 id: fileId,
                 classes: classNames,
@@ -5346,9 +5432,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 detections,
             },
             logger,
-            dbsPath,
         });
     }
+
+    public addMotionEvent = async (props: { motionEvent: DbMotionEvent; logger: Console }) => {
+        const { motionEvent, logger } = props;
+        const { dbsPath } = this.getEventPaths({ cameraId: motionEvent.deviceId });
+        this.enqueueDbWrite({ type: 'motion', dbsPath, motionEvent, logger });
+    };
 
     private forceStorageCleanup = async () => {
         Object.values(this.currentCameraMixinsMap).forEach(async (mixin) => {
@@ -5368,9 +5459,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 const deviceLogger = this.currentCameraMixinsMap[deviceId].getLogger();
                 await this.clearEventsData({ device, logger: deviceLogger })
             }
-            const { dbsPath } = this.getEventPaths({});
+            const { storagePath } = this.getEventPaths({});
 
-            await cleanupEvents({ logger, dbsPath });
+            await cleanupEvents({ logger, storagePath });
         } catch (e) {
             logger.error(`Error clearing all events data`, e);
         }

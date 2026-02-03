@@ -152,12 +152,12 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
             }
         }
 
-        const { dbsPath } = this.plugin.getEventPaths({});
+        const { storagePath } = this.plugin.getEventPaths({});
         const rawEvents = await getEventsInRange({
             startTimestamp: startTime,
             endTimestamp: endTime,
             logger,
-            dbsPath
+            storagePath,
         });
 
         const anEvents = rawEvents.filter(e => e.source === ScryptedEventSource.RawDetection);

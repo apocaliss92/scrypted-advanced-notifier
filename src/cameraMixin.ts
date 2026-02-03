@@ -5760,6 +5760,11 @@ export class AdvancedNotifierCameraMixin
               eventSource: ScryptedEventSource.RawDetection,
             }).catch(logger.log);
 
+            this.plugin.addMotionEvent({
+              motionEvent: { timestamp, deviceId: this.id, motion: "on" },
+              logger: this.getLogger(),
+            }).catch(logger.log);
+
             if (shouldUseDecoder) {
               this.startDecoder("StartMotion").catch(logger.error);
             }
@@ -5770,6 +5775,11 @@ export class AdvancedNotifierCameraMixin
             this.mixinState.lastMotionEnd = now;
             this.resetDetectionEntities({
               resetSource: "MotionSensor",
+            }).catch(logger.log);
+
+            this.plugin.addMotionEvent({
+              motionEvent: { timestamp: now, deviceId: this.id, motion: "off" },
+              logger: this.getLogger(),
             }).catch(logger.log);
 
             if (shouldUseDecoder) {
