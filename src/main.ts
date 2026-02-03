@@ -1224,6 +1224,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         source: (r.data?.source as string) ?? 'NVR',
                         deviceName: r.data?.deviceName ?? '',
                         deviceId: r.data?.deviceId ?? '',
+                        detections: r.data?.detections ?? [],
                     }));
                     response.send(JSON.stringify({
                         events,
