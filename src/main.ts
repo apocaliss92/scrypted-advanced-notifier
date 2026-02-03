@@ -1209,29 +1209,44 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         return;
                     }
                     const { storagePath } = this.getEventPaths({});
-                    const [allRecorded, motion, artifacts] = await Promise.all([
-                        dataFetcher.getRecordedEvents({ startTime: startOfDay, endTime: endOfDay }),
+                    const [recorded, motion, artifacts] = await Promise.all([
+                        dataFetcher.getRecordedEventsV2({ startTime: startOfDay, endTime: endOfDay, deviceIds: [deviceId] }),
                         getMotionInRange({ startTimestamp: startOfDay, endTimestamp: endOfDay, storagePath, deviceIds: [deviceId] }),
                         getRuleArtifactsInRange({ storagePath, deviceId, startTimestamp: startOfDay, endTimestamp: endOfDay }),
                     ]);
-                    const events = allRecorded
-                        .filter((r) => r.data?.deviceId === deviceId)
-                        .map((r) => ({
-                            id: r.data?.id ?? r.details?.eventId ?? '',
-                            timestamp: r.data?.timestamp ?? r.details?.eventTime ?? 0,
-                            classes: r.data?.classes ?? [],
-                            label: r.data?.label,
-                            thumbnailUrl: r.data?.thumbnailUrl ?? '',
-                            imageUrl: r.data?.imageUrl ?? '',
-                            source: (r.data?.source as string) ?? 'NVR',
-                            deviceName: r.data?.deviceName ?? '',
-                            deviceId: r.data?.deviceId,
-                        }));
+                    const events = recorded.map((r) => ({
+                        id: r.data?.id ?? r.details?.eventId ?? '',
+                        timestamp: r.data?.timestamp ?? r.details?.eventTime ?? 0,
+                        classes: r.data?.classes ?? [],
+                        label: r.data?.label,
+                        thumbnailUrl: r.data?.thumbnailUrl ?? '',
+                        imageUrl: r.data?.imageUrl ?? '',
+                        source: (r.data?.source as string) ?? 'NVR',
+                        deviceName: r.data?.deviceName ?? '',
+                        deviceId: r.data?.deviceId ?? '',
+                    }));
                     response.send(JSON.stringify({
                         events,
                         motion,
                         artifacts,
                     }), { headers: { 'Content-Type': 'application/json' } });
+                    return;
+                }
+                if (body.apimethod === 'GetArtifacts') {
+                    const { deviceId, startTime, endTime } = body.payload ?? {};
+                    if (!deviceId || typeof deviceId !== 'string') {
+                        response.send(JSON.stringify({ error: 'deviceId required' }), { code: 400, headers: { 'Content-Type': 'application/json' } });
+                        return;
+                    }
+                    const start = typeof startTime === 'number' ? startTime : (typeof startTime === 'string' ? parseInt(startTime, 10) : undefined);
+                    const end = typeof endTime === 'number' ? endTime : (typeof endTime === 'string' ? parseInt(endTime, 10) : undefined);
+                    if (start == null || end == null || !Number.isFinite(start) || !Number.isFinite(end)) {
+                        response.send(JSON.stringify({ error: 'startTime and endTime (ms) required' }), { code: 400, headers: { 'Content-Type': 'application/json' } });
+                        return;
+                    }
+                    const { storagePath } = this.getEventPaths({});
+                    const artifacts = await getRuleArtifactsInRange({ storagePath, deviceId, startTimestamp: start, endTimestamp: end });
+                    response.send(JSON.stringify({ artifacts }), { headers: { 'Content-Type': 'application/json' } });
                     return;
                 }
             } catch (e) {
@@ -1401,40 +1416,55 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     });
                     return;
                 } else if ([privateWebhook, webhook].some(hook => [eventThumbnail, eventImage].includes(hook))) {
-                    logger.info(JSON.stringify({
-                        cameraName: realDevice.name,
-                        fileName: decodedRuleNameOrSnoozeIdOrSnapshotId
-                    }));
                     const imageSource = timelapseNameOrSnoozeTime as ScryptedEventSource;
+                    const cameraIdForPath = realDevice?.id ?? deviceIdOrAction;
+                    const { eventThumbnailPath, eventImagePath } = this.getEventPaths({ cameraId: cameraIdForPath, fileName: decodedRuleNameOrSnoozeIdOrSnapshotId });
+                    const localPath = webhook === eventThumbnail ? eventThumbnailPath : eventImagePath;
+
+                    // Prefer local file (plugin DB events: NVR/Frigate/Raw saved with thumbnails)
+                    if (localPath) {
+                        try {
+                            const jpeg = await fs.promises.readFile(localPath);
+                            response.send(jpeg, {
+                                headers: {
+                                    "Content-Type": "image/jpeg",
+                                    "Cache-Control": "max-age=31536000"
+                                }
+                            });
+                            return;
+                        } catch {
+                            // File missing, fall through to proxy/Frigate or 404
+                        }
+                    }
 
                     if (imageSource === ScryptedEventSource.NVR) {
-                        const path = url.searchParams.get('path');
-                        const { localAssetsOrigin, } = await getAssetsParams({ plugin: this });
-                        const imageUrl = `${localAssetsOrigin}/${decodeURIComponent(path)}`;
-                        const jpeg = await axios.get<Buffer>(imageUrl, {
-                            responseType: "arraybuffer",
-                            httpsAgent: new https.Agent({
-                                rejectUnauthorized: false
-                            }),
-                            headers: {
-                                ...request.headers
-                            }
-                        });
-
-                        response.send(jpeg.data, {
-                            code: 200,
-                            headers: {
-                                "Cache-Control": "max-age=31536000"
-                            }
-                        });
-                        return;
-                    } else if (imageSource === ScryptedEventSource.Frigate) {
+                        const pathParam = url.searchParams.get('path');
+                        if (pathParam) {
+                            const { localAssetsOrigin } = await getAssetsParams({ plugin: this });
+                            const imageUrl = `${localAssetsOrigin}/${decodeURIComponent(pathParam)}`;
+                            const jpeg = await axios.get<Buffer>(imageUrl, {
+                                responseType: "arraybuffer",
+                                httpsAgent: new https.Agent({
+                                    rejectUnauthorized: false
+                                }),
+                                headers: {
+                                    ...request.headers
+                                }
+                            });
+                            response.send(jpeg.data, {
+                                code: 200,
+                                headers: {
+                                    "Cache-Control": "max-age=31536000"
+                                }
+                            });
+                            return;
+                        }
+                    } else if (imageSource === ScryptedEventSource.Frigate && this.frigateApi) {
                         const imagePath = webhook === eventThumbnail ? 'thumbnail' : 'snapshot';
                         const imageUrl = `${this.frigateApi}/events/${decodedRuleNameOrSnoozeIdOrSnapshotId}/${imagePath}.jpg`;
                         const jpeg = await axios.get<Buffer>(imageUrl, {
                             responseType: "arraybuffer"
                         });
-
                         response.send(jpeg.data, {
                             code: 200,
                             headers: {
@@ -1443,19 +1473,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                             }
                         });
                         return;
-                    } else {
-                        const { eventThumbnailPath, eventImagePath } = this.getEventPaths({ cameraId: realDevice.id, fileName: decodedRuleNameOrSnoozeIdOrSnapshotId });
-
-                        const imagePath = webhook === eventThumbnail ? eventThumbnailPath : eventImagePath;
-
-                        const jpeg = await fs.promises.readFile(imagePath);
-
-                        response.send(jpeg, {
-                            headers: {
-                                "Cache-Control": "max-age=31536000"
-                            }
-                        });
                     }
+
+                    response.send('Not Found', { code: 404 });
                     return;
                 } else if ([privateWebhook, webhook].some(hook => [videoRule].includes(hook))) {
                     const triggerTime = decodedTimelapseNameOrSnoozeTime.split('.')[0];
@@ -5513,6 +5533,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if (!deviceMixin?.isDelayPassed({
             type: DelayType.EventStore,
             identifiers,
+            eventSource,
         })?.timePassed) {
             return;
         }

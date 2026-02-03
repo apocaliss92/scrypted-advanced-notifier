@@ -443,7 +443,7 @@ export type IsDelayPassedProps =
       eventSource: ScryptedEventSource;
       timestamp: number;
     }
-  | { type: DelayType.EventStore; identifiers: string[] }
+  | { type: DelayType.EventStore; identifiers: string[]; eventSource: ScryptedEventSource }
   | { type: DelayType.PeopleTrackerImageUpdate; label: string }
   | {
       type: DelayType.BasicDetectionImage;

@@ -1,15 +1,11 @@
 
-import sdk, { Camera, EventRecorder, MediaObject, ObjectsDetected, RecordedEvent, RecordedEventOptions, ScryptedDevice, ScryptedDeviceBase, ScryptedInterface, Setting, Settings, SettingValue, VideoClip, VideoClipOptions, VideoClips, VideoClipThumbnailOptions } from '@scrypted/sdk';
+import sdk, { EventRecorder, MediaObject, RecordedEvent, RecordedEventOptions, ScryptedDeviceBase, ScryptedInterface, Setting, Settings, SettingValue, VideoClip, VideoClipOptions, VideoClips, VideoClipThumbnailOptions } from '@scrypted/sdk';
 import { StorageSettings, StorageSettingsDict } from '@scrypted/sdk/storage-settings';
-import axios from 'axios';
-import { groupBy, uniq } from 'lodash';
-import { DetectionData as FrigateEvent } from '../../scrypted-frigate-bridge/src/utils';
 import { DbDetectionEvent, getEventsInRange } from './db';
 import { DetectionClass, detectionClassesDefaultMap } from './detectionClasses';
 import { ApiDetectionEvent, ApiDetectionGroup, filterAndGroupEvents, GroupingParams } from './groupEvents';
 import AdvancedNotifierPlugin from './main';
-import { getNvrThumbnailCrop } from './polygon';
-import { getAssetSource, getDetectionEventKey, getWebHookUrls, getWebhooks, moToB64, ScryptedEventSource } from './utils';
+import { getWebhooks, getWebHookUrls, ScryptedEventSource } from './utils';
 
 type StorageKeys = string;
 
@@ -24,183 +20,58 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
         super(nativeId);
     }
 
-    async getRecordedEvents(options: RecordedEventOptions & { sources?: string[] }): Promise<RecordedEvent[]> {
-        const { endTime, startTime, sources } = options;
-        const { privatePathnamePrefix } = await getWebHookUrls({
-            plugin: this.plugin
-        });
-        const { eventThumbnail, eventImage } = await getWebhooks();
+    /**
+     * V2: returns only events from plugin DBs (NVR/Frigate/Raw are already saved there).
+     * Builds direct thumbnail/image URLs. Use this for GetEvents and timeline (GetCameraDayData).
+     */
+    async getRecordedEventsV2(options: RecordedEventOptions & { sources?: string[]; deviceIds?: string[] }): Promise<RecordedEvent[]> {
+        const { endTime, startTime, sources, deviceIds } = options;
         const logger = this.getLogger();
-
-        const events: RecordedEvent[] = [];
-
-        const nvrPromises: Promise<RecordedEvent[]>[] = [];
-        let deviceIds: string[] = [];
-
-        for (const deviceId of Object.keys(this.plugin.currentCameraMixinsMap)) {
-            const device = sdk.systemManager.getDeviceById<EventRecorder & ScryptedDeviceBase>(deviceId);
-            if (device.interfaces.includes(ScryptedInterface.EventRecorder)) {
-                nvrPromises.push(device.getRecordedEvents({
-                    startTime,
-                    endTime,
-                }));
-                deviceIds.push(device.id);
-            }
-        }
-
-        const nvrPromisesRes = await Promise.all(nvrPromises);
-        let index = 0;
-        for (const nvrCameraEvents of nvrPromisesRes) {
-            const deviceId = deviceIds[index];
-            const device = sdk.systemManager.getDeviceById<EventRecorder & ScryptedDeviceBase>(deviceId);
-            for (const event of nvrCameraEvents) {
-                const { isEventsRecorder } = getAssetSource({ sourceId: event.details.mixinId });
-
-                const pluginEventPath = isEventsRecorder ?
-                    '@apocaliss92/scrypted-events-recorder' :
-                    '@scrypted/nvr';
-
-                if (event.details.eventInterface === ScryptedInterface.ObjectDetector && event.data) {
-                    const detection: ObjectsDetected = event.data;
-                    const classes = uniq(detection.detections.map(det => det.className)
-                        .filter(cl => !cl.includes('debug')));
-
-                    const eventId = getDetectionEventKey({
-                        detectionId: detection.detectionId,
-                        eventId: event.details.eventId
-                    });
-
-                    if (classes.length === 1 && classes[0] === DetectionClass.Motion) {
-                        events.push({
-                            details: event.details,
-                            data: {
-                                source: ScryptedEventSource.NVR,
-                                eventId,
-                                classes: ['motion'],
-                                score: 1,
-                                detections: detection.detections,
-                                id: detection.detectionId,
-                                deviceName: device.name,
-                                deviceId: device.id,
-                                timestamp: detection.timestamp,
-                                thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?height=200`)}`,
-                                imageUrl: `${privatePathnamePrefix}/${eventImage}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?height=1200`)}`,
-                            } as DbDetectionEvent
-                        });
-                    } else {
-                        const labelDet = detection.detections.find(det => det.label);
-                        const thumbnailSearchParams = getNvrThumbnailCrop({ detection });
-                        events.push({
-                            details: event.details,
-                            data: {
-                                source: ScryptedEventSource.NVR,
-                                classes,
-                                eventId,
-                                label: labelDet?.label,
-                                detections: detection.detections,
-                                id: detection.detectionId,
-                                deviceName: device.name,
-                                deviceId: device.id,
-                                timestamp: detection.timestamp,
-                                thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?${thumbnailSearchParams}`)}`,
-                                imageUrl: `${privatePathnamePrefix}/${eventImage}/${deviceId}/${detection.detectionId}/${ScryptedEventSource.NVR}?path=${encodeURIComponent(`endpoint/${pluginEventPath}/thumbnail/${deviceId}/${detection.timestamp}.jpg?height=1200`)}`,
-                            } as DbDetectionEvent
-                        }
-                        );
-                    }
-                }
-            }
-            index++;
-        }
-
-        if (this.plugin.frigateApi) {
-            try {
-                const frigateEvents = await axios.get<FrigateEvent[]>(`${this.plugin.frigateApi}/events?limit=99999999&has_snapshot=1&after=${startTime / 1000}&before=${endTime / 1000}`);
-                const eventsPerCamera = groupBy(frigateEvents.data, e => e.camera);
-
-                for (const cameraMixin of Object.values(this.plugin.currentCameraMixinsMap)) {
-                    const { cameraName } = await cameraMixin.getFrigateData();
-                    if (cameraName) {
-                        const frigateEvents = eventsPerCamera[cameraName] ?? [];
-
-                        for (const event of frigateEvents) {
-                            const label = event.label;
-                            const subLabel = event.sub_label;
-                            const isAudioEvent = event.data.type === 'audio';
-                            const timestamp = Math.trunc(event.start_time * 1000);
-                            events.push({
-                                details: {
-                                    eventId: event.id,
-                                    eventTime: timestamp
-                                },
-                                data: {
-                                    source: ScryptedEventSource.Frigate,
-                                    classes: isAudioEvent ? ['audio'] : ['motion', label],
-                                    label: isAudioEvent ? label : subLabel?.[0],
-                                    id: event.id,
-                                    deviceName: cameraMixin.name,
-                                    timestamp,
-                                    thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${cameraMixin.id}/${event.id}/${ScryptedEventSource.Frigate}`,
-                                    imageUrl: `${privatePathnamePrefix}/${eventImage}/${cameraMixin.id}/${event.id}/${ScryptedEventSource.Frigate}`,
-                                } as DbDetectionEvent,
-                            });
-                        }
-                    }
-                }
-            } catch (e) {
-                logger.info(`Frigate fetching error`, e);
-            }
-        }
-
         const { storagePath } = this.plugin.getEventPaths({});
-        const rawEvents = await getEventsInRange({
+        const [{ privatePathnamePrefix }, { eventThumbnail, eventImage }] = await Promise.all([
+            getWebHookUrls({ plugin: this.plugin }),
+            getWebhooks(),
+        ]);
+        const dbEvents = await getEventsInRange({
             startTimestamp: startTime,
             endTimestamp: endTime,
             logger,
             storagePath,
+            deviceIds,
         });
-
-        const anEvents = rawEvents.filter(e => e.source === ScryptedEventSource.RawDetection);
-        const devicesMap: Record<string, ScryptedDevice> = {};
-        for (const event of anEvents) {
-            const { deviceId, deviceName } = event;
-            const deviceIdentifier = deviceId || deviceName;
-            let device: ScryptedDevice = devicesMap[deviceIdentifier];
-
-            if (!device) {
-                if (deviceId) {
-                    device = sdk.systemManager.getDeviceById(deviceId);
-                } else if (deviceName) {
-                    device = sdk.systemManager.getDeviceByName(deviceName);
-                }
-            }
-
-            if (!device) {
-                continue;
-            }
-
-            devicesMap[deviceIdentifier] = device;
-
-            events.push({
+        const sourceStr = (e: DbDetectionEvent) => (e.source as string) ?? ScryptedEventSource.RawDetection;
+        const events: RecordedEvent[] = dbEvents.map((e) => {
+            const devId = e.deviceId ?? '';
+            const eventId = e.id ?? '';
+            const source = sourceStr(e);
+            const thumbnailUrl = `${privatePathnamePrefix}/${eventThumbnail}/${devId}/${eventId}/${source}`;
+            const imageUrl = `${privatePathnamePrefix}/${eventImage}/${devId}/${eventId}/${source}`;
+            return {
                 details: {
-                    eventId: event.id,
-                    eventTime: event.timestamp,
+                    eventId: e.id,
+                    eventTime: e.timestamp ?? 0,
                 },
                 data: {
-                    ...event,
-                    thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${device.id}/${event.id}/${ScryptedEventSource.RawDetection}`,
-                    imageUrl: `${privatePathnamePrefix}/${eventImage}/${device.id}/${event.id}/${ScryptedEventSource.RawDetection}`,
-                }
-            });
-        }
-
+                    ...e,
+                    thumbnailUrl,
+                    imageUrl,
+                },
+            };
+        });
         let filtered = events;
         if (sources && sources.length > 0) {
             const sourceSet = new Set(sources);
-            filtered = events.filter(e => e.data?.source && sourceSet.has(e.data.source as string));
+            filtered = events.filter((e) => e.data?.source && sourceSet.has(e.data.source as string));
         }
         filtered.sort((a, b) => (b.data?.timestamp ?? 0) - (a.data?.timestamp ?? 0));
         return filtered;
+    }
+
+    /**
+     * @deprecated Use getRecordedEventsV2. This plugin saves all events (NVR/Frigate/Raw) to DBs; V2 reads only from DBs and builds direct URLs.
+     */
+    async getRecordedEvents(options: RecordedEventOptions & { sources?: string[] }): Promise<RecordedEvent[]> {
+        return this.getRecordedEventsV2(options);
     }
 
     async getRecordedEventsPaginated(options: RecordedEventOptions & { limit?: number; offset?: number; sources?: string[] }): Promise<{ events: RecordedEvent[]; total: number }> {
@@ -332,36 +203,6 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
             ? filtered.slice(offset, offset + limit)
             : filtered;
         return { clips, total };
-    }
-
-    async getCameraSnapshots(): Promise<{ deviceId: string; deviceName: string; snapshotDataUrl: string | null }[]> {
-        const results: { deviceId: string; deviceName: string; snapshotDataUrl: string | null }[] = [];
-        const logger = this.getLogger();
-
-        for (const [deviceId, mixin] of Object.entries(this.plugin.currentCameraMixinsMap)) {
-            try {
-                const device = sdk.systemManager.getDeviceById(deviceId);
-                if (!device?.interfaces?.includes(ScryptedInterface.Camera)) continue;
-
-                const camera = device as unknown as Camera;
-                const mo = await camera.takePicture({
-                    reason: 'periodic',
-                    bulkRequest: true,
-                    timeout: 8000,
-                    picture: { width: 640 },
-                });
-                const b64 = await moToB64(mo);
-                results.push({
-                    deviceId,
-                    deviceName: mixin.name,
-                    snapshotDataUrl: b64 ? `data:image/jpeg;base64,${b64}` : null,
-                });
-            } catch (e) {
-                logger.info(`Snapshot error for ${mixin.name}: ${(e as Error)?.message}`);
-                results.push({ deviceId, deviceName: mixin.name, snapshotDataUrl: null });
-            }
-        }
-        return results;
     }
 
     getVideoClip(videoId: string): Promise<MediaObject> {

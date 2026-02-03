@@ -4850,15 +4850,18 @@ export class AdvancedNotifierCameraMixin
       delayKey += `-${postFix}`;
       minDelayInSeconds = delay ?? 15;
     } else if (type === DelayType.EventStore) {
-      const { identifiers } = props;
+      const { identifiers, eventSource } = props;
 
-      if (identifiers.length === 1 && isMotionClassname(identifiers[0])) {
+      if (eventSource === ScryptedEventSource.NVR) {
+        minDelayInSeconds = 0;
+      } else if (identifiers.length === 1 && isMotionClassname(identifiers[0])) {
         delayKey = `${DelayType.EventStore}_motion`;
         minDelayInSeconds = 30;
       } else {
         delayKey = `${DelayType.EventStore}`;
         minDelayInSeconds = 6;
       }
+      delayKey += `_${eventSource}`;
     } else if (type === DelayType.PeopleTrackerImageUpdate) {
       delayKey = `${DelayType.PeopleTrackerImageUpdate}_label`;
       minDelayInSeconds = 5;
@@ -5276,7 +5279,7 @@ export class AdvancedNotifierCameraMixin
       } = await this.getImage({
         eventId,
         detectionId,
-        reason: GetImageReason.QuickNotification,
+        reason: isDetectionFromNvr ? GetImageReason.ObjectUpdate : GetImageReason.QuickNotification,
         skipResize: true,
       });
 
