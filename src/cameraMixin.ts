@@ -770,16 +770,27 @@ export class AdvancedNotifierCameraMixin
     const { rulesPath } = this.plugin.getRulePaths({ cameraId: cameraFolder });
 
     try {
-      const rulesFolder = await cachedReaddir(rulesPath);
+      const rulesEntries = await fs.promises.readdir(rulesPath, {
+        withFileTypes: true,
+      });
 
-      for (const ruleFolder of rulesFolder) {
-        if (ruleFolder === REGISTER_FILENAME) continue;
+      for (const dirent of rulesEntries) {
+        if (!dirent.isDirectory()) continue;
+        const ruleFolder = dirent.name;
+        if (ruleFolder === REGISTER_FILENAME || ruleFolder === "register.json")
+          continue;
         const { generatedPath } = this.plugin.getRulePaths({
           cameraId: cameraFolder,
           ruleName: ruleFolder,
         });
 
-        const files = await cachedReaddir(generatedPath);
+        let files: string[];
+        try {
+          files = await cachedReaddir(generatedPath);
+        } catch (err: unknown) {
+          if ((err as NodeJS.ErrnoException)?.code === "ENOTDIR") continue;
+          throw err;
+        }
 
         for (const file of files) {
           const [fileName, extension] = file.split(".");
@@ -5268,28 +5279,35 @@ export class AdvancedNotifierCameraMixin
       }
     }
 
-    if (detectionId) {
-      this.mixinState.detectionIdEventIdMap[detectionId] = eventId;
-      const classnamesLog = getDetectionsLog(detections);
+    this.mixinState.detectionIdEventIdMap[detectionId] = eventId;
+    const classnamesLog = getDetectionsLog(detections);
 
-      const {
-        b64Image: decoderB64ImagFound,
-        image: decoderImageFound,
-        imageSource: newImageSource,
-      } = await this.getImage({
-        eventId,
-        detectionId,
-        reason: isDetectionFromNvr ? GetImageReason.ObjectUpdate : GetImageReason.QuickNotification,
-        skipResize: true,
-      });
+    const {
+      b64Image: decoderB64ImagFound,
+      image: decoderImageFound,
+      imageSource: newImageSource,
+    } = await this.getImage({
+      eventId,
+      detectionId,
+      reason: isDetectionFromNvr
+        ? GetImageReason.ObjectUpdate
+        : isDetectionFromFrigate
+          ? GetImageReason.FromFrigate
+          : GetImageReason.QuickNotification,
+      skipResize: true,
+    });
 
-      fullFrameB64Image = decoderB64ImagFound;
-      fullFrameImage = decoderImageFound;
-      imageSource = newImageSource;
+    fullFrameB64Image = decoderB64ImagFound;
+    fullFrameImage = decoderImageFound;
+    imageSource = newImageSource;
 
-      logger.info(
-        `${eventSource} detections received, classnames ${classnamesLog}`,
-      );
+    logger.info(
+      `${eventSource} detections received, classnames ${classnamesLog}`,
+    );
+
+    if (isDetectionFromFrigate && markedImage && markedImageB64Image && !fullFrameImage) {
+      fullFrameImage = markedImage;
+      fullFrameB64Image = markedImageB64Image;
     }
 
     let mqttFsImage: MediaObject;
