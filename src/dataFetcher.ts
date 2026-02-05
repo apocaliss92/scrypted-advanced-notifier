@@ -7,10 +7,16 @@ import { ApiDetectionEvent, ApiDetectionGroup, filterAndGroupEvents, GroupingPar
 import AdvancedNotifierPlugin from './main';
 import { getWebhooks, getWebHookUrls, ScryptedEventSource } from './utils';
 
-type StorageKeys = string;
+const EVENTS_APP_STATE_JSON_KEY = 'eventsAppStateJson';
+
+type StorageKeys = 'eventsAppStateJson' | string;
 
 export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements Settings, EventRecorder, VideoClips {
     initStorage: StorageSettingsDict<StorageKeys> = {
+        [EVENTS_APP_STATE_JSON_KEY]: {
+            hide: true,
+            json: true,
+        },
     };
     logger: Console;
 
@@ -235,12 +241,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
     }
 
     async getSettings(): Promise<Setting[]> {
-        const { useRuleNotifiers } = this.storageSettings.values;
-        this.storageSettings.settings.notifiers.hide = useRuleNotifiers;
-        this.storageSettings.settings.activeNotifiers.hide = !useRuleNotifiers;
-        const settings = await this.storageSettings.getSettings();
-
-        return settings;
+        return this.storageSettings.getSettings();
     }
 
     async putSetting(key: string, value: SettingValue): Promise<void> {
