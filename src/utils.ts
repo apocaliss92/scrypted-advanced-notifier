@@ -1856,6 +1856,7 @@ export const getRuleKeys = (props: {
   const aiEnabledKey = `${prefix}:${ruleName}:aiEnabled`;
   const aiPromptKey = `${prefix}:${ruleName}:aiPrompt`;
   const showMoreConfigurationsKey = `${prefix}:${ruleName}:showMoreConfigurations`;
+  const additionalStoragePathKey = `${prefix}:${ruleName}:additionalStoragePath`;
   const showActiveZonesKey = `${prefix}:${ruleName}:showActiveZones`;
   const minDelayKey = `${prefix}:${ruleName}:minDelay`;
   const minMqttPublishDelayKey = `${prefix}:${ruleName}:minMqttPublishDelay`;
@@ -1951,6 +1952,7 @@ export const getRuleKeys = (props: {
       aiEnabledKey,
       aiPromptKey,
       showMoreConfigurationsKey,
+      additionalStoragePathKey,
       minDelayKey,
       minMqttPublishDelayKey,
       startRuleTextKey,
@@ -2550,6 +2552,7 @@ export const getRuleSettings = async (props: {
         onResetSequencesKey,
         showActiveZonesKey,
         detectionSourceKey,
+        additionalStoragePathKey,
       },
     } = getRuleKeys({ ruleName, ruleType });
 
@@ -2615,6 +2618,21 @@ export const getRuleSettings = async (props: {
         onPut: async () => await refreshSettings(),
       },
     );
+
+    const supportsVideoclips = isDetectionRule || isOccupancyRule || ruleType === RuleType.Timelapse;
+    if (supportsVideoclips) {
+      settings.push({
+        key: additionalStoragePathKey,
+        title: "Additional storage path",
+        description:
+          "Optional directory path to also save rule artifacts (image, GIF, MP4). Files are saved as {ruleName}_{timestamp}.{ext}. Path must exist and be writable.",
+        group,
+        subgroup,
+        type: "string",
+        placeholder: "/path/to/folder",
+        hide: !showMoreConfigurations,
+      });
+    }
 
     if (isOccupancyRule || isDetectionRule) {
       if (isCamera || isPlugin) {
@@ -4420,6 +4438,8 @@ export interface BaseRule {
   minDelay?: number;
   minMqttPublishDelay?: number;
   devices?: string[];
+  /** Optional path to also save rule artifacts (image, gif, mp4) as ${ruleName}_${timestamp}.ext. Must be writable. */
+  additionalStoragePath?: string;
   startRuleText?: string;
   endRuleText?: string;
   generateClip: boolean;
@@ -4552,6 +4572,7 @@ const initBasicRule = (props: {
       devicesKey,
       showActiveZonesKey,
       detectionSourceKey,
+      additionalStoragePathKey,
     },
   } = getRuleKeys({
     ruleType,
@@ -4634,6 +4655,7 @@ const initBasicRule = (props: {
     [],
   );
   const devices = safeParseJson<string[]>(storage.getItem(devicesKey), []);
+  const additionalStoragePath = safeParseJson<string>(storage.getItem(additionalStoragePathKey));
   const onActivationSequences: RuleActionsSequence[] = [];
   const onDeactivationSequences: RuleActionsSequence[] = [];
   if (activationType !== DetectionRuleActivation.Always) {
@@ -4693,6 +4715,7 @@ const initBasicRule = (props: {
     onTriggerSequences,
     onResetSequences,
     detectionSource,
+    additionalStoragePath,
   };
 
   for (const notifierId of notifiers) {

@@ -3083,6 +3083,38 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         }
     }
 
+    /**
+     * If rule.additionalStoragePath is set, copies the artifact to that directory as ${deviceId}_${ruleName}_${triggerTime}.${ext}.
+     * Checks directory access (creates if missing, then verifies writable). Logs and ignores errors.
+     */
+    private async copyArtifactToAdditionalStorage(props: {
+        rule: BaseRule;
+        deviceId: string;
+        triggerTime: number;
+        sourcePath: string;
+        ext: string;
+        logger: Console;
+    }): Promise<void> {
+        const { rule, deviceId, triggerTime, sourcePath, ext, logger } = props;
+        const dir = rule.additionalStoragePath?.trim();
+        if (!dir) return;
+        const safeDeviceId = String(deviceId).replace(/[/\\]/g, "_");
+        const safeName = rule.name.replace(/[/\\]/g, "_");
+        const destPath = path.join(dir, `${safeDeviceId}_${safeName}_${triggerTime}.${ext}`);
+        try {
+            try {
+                await fs.promises.access(dir, fs.constants.W_OK);
+            } catch {
+                await fs.promises.mkdir(dir, { recursive: true });
+                await fs.promises.access(dir, fs.constants.W_OK);
+            }
+            await fs.promises.copyFile(sourcePath, destPath);
+            logger.log(`Copied artifact to additional storage: ${destPath}`);
+        } catch (e) {
+            logger.error(`Error copying artifact to additional storage ${dir}: ${e}`);
+        }
+    }
+
     async storeRuleImage(props: {
         device: ScryptedDeviceBase,
         rule: BaseRule,
@@ -3113,6 +3145,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             await fs.promises.writeFile(imageHistoricalPath, bufferImage);
         }
         await fs.promises.copyFile(imageHistoricalPath, imageLatestPath);
+
+        await this.copyArtifactToAdditionalStorage({ rule, deviceId: device.id, triggerTime, sourcePath: imageHistoricalPath, ext: "jpg", logger });
 
         const { imageRuleUrl } = await getWebHookUrls({
             fileId: String(triggerTime),
@@ -4843,6 +4877,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     logger.error(`Error copying timelapse video to latest: ${e}`);
                 }
             }
+            await this.copyArtifactToAdditionalStorage({ rule, deviceId: device.id, triggerTime, sourcePath: videoHistoricalPath, ext: "mp4", logger });
 
             const selectedFrame = sortedFiles[Math.floor(sortedFiles.length / 2)].split('.')[0];
             const { framePath } = this.getRulePaths({
@@ -4874,6 +4909,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         logger.error(`Error copying timelapse image to latest: ${e}`);
                     }
                 }
+                await this.copyArtifactToAdditionalStorage({ rule, deviceId: device.id, triggerTime, sourcePath: imageHistoricalPath, ext: "jpg", logger });
             } else {
                 logger.log('Not saving, image is corrupted');
             }
@@ -5382,6 +5418,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 await once(cp, 'exit');
                 await fs.promises.copyFile(videoHistoricalPath, videoclipLatestPath);
                 logger.log(`Detection clip ${videoHistoricalPath} generated`);
+                await this.copyArtifactToAdditionalStorage({ rule, deviceId: device.id, triggerTime, sourcePath: videoHistoricalPath, ext: "mp4", logger });
 
                 const { framePath } = this.getFsPaths({
                     cameraId: device.id,
@@ -5460,6 +5497,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 await once(cp, 'exit');
                 await fs.promises.copyFile(gifHistoricalPath, gifLatestPath);
                 logger.log(`GIF ${gifHistoricalPath} generated`);
+                await this.copyArtifactToAdditionalStorage({ rule, deviceId: device.id, triggerTime, sourcePath: gifHistoricalPath, ext: "gif", logger });
 
                 const { gifRuleUrl } = await getWebHookUrls({
                     fileId: String(triggerTime),

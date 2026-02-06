@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.8.36
+
+- Setting added on every rule to allow the selection of an additional path to save artifacts, with filename {deviceId}_{ruleName}_{triggerTime}.{ext}
+
 ### 4.8.33
 
 - Huge revamp of the Events reviewer App, added camera streams, grids and much more
