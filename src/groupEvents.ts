@@ -13,6 +13,11 @@ export interface ApiDetectionEvent {
     source: string;
     deviceName: string;
     deviceId?: string;
+    /** Rule artifact type (e.g. Detection, Timelapse) for icon display. */
+    ruleType?: string;
+    /** Rule artifact video/gif for expansion dialog. */
+    videoUrl?: string;
+    gifUrl?: string;
 }
 
 export interface ApiDetectionGroup {
@@ -30,7 +35,10 @@ export interface GroupingParams {
     groupingRange: number;
 }
 
+export const RULE_ARTIFACT_SOURCE = 'RuleArtifact';
+
 const SOURCE_PRIORITY: Partial<Record<string, number>> = {
+    [RULE_ARTIFACT_SOURCE]: 0,
     [ScryptedEventSource.NVR]: 1,
     [ScryptedEventSource.Frigate]: 2,
     [ScryptedEventSource.RawDetection]: 3,

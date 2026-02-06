@@ -21,13 +21,13 @@ import { AdvancedNotifierCamera } from "./camera";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierDataFetcher } from "./dataFetcher";
 import type { DbDetectionEvent, DbMotionEvent } from "./db";
-import { cleanupEvents, cleanupOldDeviceDbs, getMotionInRange, migrateDbsToPerDevice, writeEventsAndMotionBatch } from "./db";
+import { cleanupEvents, cleanupOldDeviceDbs, migrateDbsToPerDevice, writeEventsAndMotionBatch } from "./db";
 import { DetectionClass, detectionClassesDefaultMap, isLabelDetection, isMotionClassname, isPlateClassname } from "./detectionClasses";
 import { serveGif, serveImage, servePluginGeneratedVideoclip } from "./httpUtils";
 import { idPrefix, publishPluginValues, publishRuleEnabled, resetAllPluginMqttTopicsAndRediscover, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
-import { addOrUpdateRuleArtifacts, getRuleArtifactsInRange, getRulesRegisterPath, migrateDeviceRulesRegister, REGISTER_FILENAME, removeRuleArtifactUrl } from "./rulesRegister";
+import { addOrUpdateRuleArtifacts, getRulesRegisterPath, migrateDeviceRulesRegister, REGISTER_FILENAME, removeRuleArtifactUrl } from "./rulesRegister";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { CameraMixinState, OccupancyRuleData } from "./states";
 import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, calculateSize, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, DevNotifications, ExtendedNotificationAction, formatSize, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getActiveRules, getAllAvailableUrls, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getBaseRuleDefaults, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRecordingRules, getRecordingRulesSettings, getRuleKeys, getSequenceObject, getSequencesSettings, getSnoozeId, getTextSettings, getUrlLog, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, OccupancySource, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RecordingRule, RuleActionsSequence, RuleActionType, ruleSequencesGroup, ruleSequencesKey, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType, ZENTIK_PLUGIN_ID, ZonesSource } from "./utils";
@@ -1096,165 +1096,28 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 response.send('Unauthorized', { code: 401 });
                 return;
             }
-            const dataFetcher = this.dataFetcher;
             try {
-                if (body.apimethod === 'GetConfigs') {
-                    const cameras = Object.entries(this.currentCameraMixinsMap).map(([id, m]) => ({
-                        id,
-                        name: m.name,
-                        hasNvr: m.hasNvr,
-                        accessorySwitchKinds: m.getAccessorySwitchKinds(),
-                    }));
-                    response.send(JSON.stringify({
-                        cameras,
-                        enabledDetectionSources: this.enabledDetectionSources
-                    }), { headers: { 'Content-Type': 'application/json' } });
-                    return;
-                }
-                if (body.apimethod === 'GetCamerasStatus') {
-                    const cameras: Record<string, {
-                        notificationsEnabled: boolean;
-                        isRecording: boolean;
-                        isSnapshotsEnabled: boolean;
-                        isRebroadcastEnabled: boolean;
-                        accessorySwitchStates: Record<string, boolean>;
-                    }> = {};
-                    for (const [id, m] of Object.entries(this.currentCameraMixinsMap)) {
-                        try {
-                            const state = await m.getCameraMqttCurrentState();
-                            cameras[id] = {
-                                notificationsEnabled: state.notificationsEnabled,
-                                isRecording: state.isRecording,
-                                isSnapshotsEnabled: state.isSnapshotsEnabled,
-                                isRebroadcastEnabled: state.isRebroadcastEnabled,
-                                accessorySwitchStates: state.accessorySwitchStates || {},
-                            };
-                        } catch (e) {
-                            logger.warn(`GetCamerasStatus failed for camera ${id}`, e);
-                        }
-                    }
-                    response.send(JSON.stringify({ cameras }), { headers: { 'Content-Type': 'application/json' } });
-                    return;
-                }
-                if (body.apimethod === 'GetEvents') {
-                    const {
-                        fromDate,
-                        tillDate,
-                        limit,
-                        offset,
-                        sources: rawSources,
-                        cameras = [],
-                        detectionClasses = [],
-                        eventSource = 'Auto',
-                        filter = '',
-                        groupingRange = 60,
-                    } = body.payload ?? {};
-                    const startTime = Number(fromDate) ?? Date.now() - 86400000;
-                    const endTime = Number(tillDate) ?? Date.now();
-                    const sources = Array.isArray(rawSources) && rawSources.length > 0
-                        ? rawSources.filter((s: string) => ['All', 'Auto'].indexOf(s) < 0) as string[]
-                        : undefined;
-                    const { groups, total } = await dataFetcher.getRecordedEventsGroupedPaginated({
-                        startTime,
-                        endTime,
-                        limit: typeof limit === 'number' ? limit : undefined,
-                        offset: typeof offset === 'number' ? offset : 0,
-                        sources: sources && sources.length > 0 ? sources : undefined,
-                        cameras: Array.isArray(cameras) ? cameras : [],
-                        detectionClasses: Array.isArray(detectionClasses) ? detectionClasses : [],
-                        eventSource: typeof eventSource === 'string' ? eventSource : 'Auto',
-                        filter: typeof filter === 'string' ? filter : '',
-                        groupingRange: typeof groupingRange === 'number' ? groupingRange : 60,
-                    });
-                    response.send(JSON.stringify({ groups, total }), { headers: { 'Content-Type': 'application/json' } });
-                    return;
-                }
-                if (body.apimethod === 'GetVideoclips') {
-                    const { fromDate, tillDate, limit, offset, cameras, detectionClasses } = body.payload ?? {};
-                    const startTime = Number(fromDate) ?? Date.now() - 86400000;
-                    const endTime = Number(tillDate) ?? Date.now();
-                    const camerasList = Array.isArray(cameras) ? cameras.filter((c): c is string => typeof c === 'string') : undefined;
-                    const detectionClassesList = Array.isArray(detectionClasses) ? detectionClasses.filter((c): c is string => typeof c === 'string') : undefined;
-                    const { clips, total } = await dataFetcher.getVideoClipsPaginated({
-                        startTime,
-                        endTime,
-                        limit: typeof limit === 'number' ? limit : undefined,
-                        offset: typeof offset === 'number' ? offset : 0,
-                        cameras: camerasList?.length ? camerasList : undefined,
-                        detectionClasses: detectionClassesList?.length ? detectionClassesList : undefined,
-                    });
-                    const videoclips = clips.map(c => ({
-                        id: c.videoId ?? c.id,
-                        deviceName: (c as any).deviceName,
-                        deviceId: (c as any).deviceId,
-                        videoclipHref: (c as any).videoclipHref,
-                        startTime: c.startTime,
-                        duration: c.duration,
-                        detectionClasses: (c as any).detectionClasses,
-                        source: (c as any).source
-                    }));
-                    response.send(JSON.stringify({ videoclips, total }), { headers: { 'Content-Type': 'application/json' } });
-                    return;
-                }
-                if (body.apimethod === 'GetCameraDayData') {
-                    const { deviceId, day } = body.payload ?? {};
-                    if (!deviceId || typeof deviceId !== 'string' || !day || typeof day !== 'string') {
-                        response.send(JSON.stringify({ error: 'deviceId and day (YYYYMMDD) required' }), { code: 400, headers: { 'Content-Type': 'application/json' } });
-                        return;
-                    }
-                    const startOfDay = moment(day, 'YYYYMMDD').startOf('day').valueOf();
-                    const endOfDay = moment(day, 'YYYYMMDD').endOf('day').valueOf();
-                    if (!moment(day, 'YYYYMMDD').isValid()) {
-                        response.send(JSON.stringify({ error: 'day must be YYYYMMDD' }), { code: 400, headers: { 'Content-Type': 'application/json' } });
-                        return;
-                    }
-                    const { storagePath } = this.getEventPaths({});
-                    const [recorded, motion, artifacts] = await Promise.all([
-                        dataFetcher.getRecordedEventsV2({ startTime: startOfDay, endTime: endOfDay, deviceIds: [deviceId] }),
-                        getMotionInRange({ startTimestamp: startOfDay, endTimestamp: endOfDay, storagePath, deviceIds: [deviceId] }),
-                        getRuleArtifactsInRange({ storagePath, deviceId, startTimestamp: startOfDay, endTimestamp: endOfDay }),
-                    ]);
-                    const events = recorded.map((r) => ({
-                        id: r.data?.id ?? r.details?.eventId ?? '',
-                        timestamp: r.data?.timestamp ?? r.details?.eventTime ?? 0,
-                        classes: r.data?.classes ?? [],
-                        label: r.data?.label,
-                        thumbnailUrl: r.data?.thumbnailUrl ?? '',
-                        imageUrl: r.data?.imageUrl ?? '',
-                        source: (r.data?.source as string) ?? 'NVR',
-                        deviceName: r.data?.deviceName ?? '',
-                        deviceId: r.data?.deviceId ?? '',
-                        detections: r.data?.detections ?? [],
-                    }));
-                    response.send(JSON.stringify({
-                        events,
-                        motion,
-                        artifacts,
-                    }), { headers: { 'Content-Type': 'application/json' } });
-                    return;
-                }
-                if (body.apimethod === 'GetArtifacts') {
-                    const { deviceId, startTime, endTime } = body.payload ?? {};
-                    if (!deviceId || typeof deviceId !== 'string') {
-                        response.send(JSON.stringify({ error: 'deviceId required' }), { code: 400, headers: { 'Content-Type': 'application/json' } });
-                        return;
-                    }
-                    const start = typeof startTime === 'number' ? startTime : (typeof startTime === 'string' ? parseInt(startTime, 10) : undefined);
-                    const end = typeof endTime === 'number' ? endTime : (typeof endTime === 'string' ? parseInt(endTime, 10) : undefined);
-                    if (start == null || end == null || !Number.isFinite(start) || !Number.isFinite(end)) {
-                        response.send(JSON.stringify({ error: 'startTime and endTime (ms) required' }), { code: 400, headers: { 'Content-Type': 'application/json' } });
-                        return;
-                    }
-                    const { storagePath } = this.getEventPaths({});
-                    const artifacts = await getRuleArtifactsInRange({ storagePath, deviceId, startTimestamp: start, endTimestamp: end });
-                    response.send(JSON.stringify({ artifacts }), { headers: { 'Content-Type': 'application/json' } });
-                    return;
-                }
+                const { statusCode, body: responseBody } = await this.dataFetcher.handleEventsAppRequest(body.apimethod, body.payload);
+                response.send(JSON.stringify(responseBody), { code: statusCode, headers: { 'Content-Type': 'application/json' } });
             } catch (e) {
                 logger.error('EventsApp API error', e);
-                response.send(JSON.stringify({ error: String(e?.message ?? e) }), { code: 500, headers: { 'Content-Type': 'application/json' } });
-                return;
+                response.send(JSON.stringify({ error: String((e as Error)?.message ?? e) }), { code: 500, headers: { 'Content-Type': 'application/json' } });
             }
+            return;
+        }
+
+        // SPA: serve app for any path under public/app (e.g. /.../public/app/cameras/269) so deep links and refresh always work
+        const spaBase = 'public/app';
+        const spaBaseIndex = pathname.indexOf(spaBase);
+        if (spaBaseIndex !== -1) {
+            const afterBase = pathname.slice(spaBaseIndex + spaBase.length).replace(/^\/+/, '') || '';
+            const hasFileExtension = /\.(js|css|ico|png|svg|woff2?|ttf|eot|map)(\?|$)/i.test(afterBase);
+            if (afterBase && hasFileExtension) {
+                response.sendFile(`dist/${afterBase.split('?')[0]}`);
+            } else {
+                response.sendFile('dist/index.html');
+            }
+            return;
         }
 
         const [_, __, ___, ____, privateWebhook, webhook, ...rest] = pathname.split('/');
@@ -1308,8 +1171,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 recordedClipVideo,
             } = await getWebhooks();
             if ([webhook, privateWebhook].includes('app')) {
-                if (deviceIdOrActionRaw) {
-                    response.sendFile(`dist/${deviceIdOrActionRaw}`);
+                // SPA: static assets (e.g. .../app/assets/index-xxx.js) must be served from dist/; otherwise index.html for client routing
+                const appPath = rest.join('/');
+                const hasFileExtension = /\.(js|css|ico|png|svg|woff2?|ttf|eot|map)(\?|$)/i.test(appPath);
+                if (appPath && hasFileExtension) {
+                    response.sendFile(`dist/${appPath}`);
                 } else {
                     response.sendFile('dist/index.html');
                 }
