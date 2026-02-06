@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.8.37
+
+- **On-generated sequences**: new sequence hook for Detection, Occupancy and Timelapse rules. Runs when all rule artifacts (video, gif, image) have been generated. Configurable per rule under "On-generated sequences". Script actions in the sequence receive a `payload` object (e.g. `variables.payload` in Scrypted scripts) with `rule`, `videoUrl`, `gifUrl`, `imageUrl` (and for timelapse also `videoPath`, `imagePath`). Any sequence can now receive an optional payload and forward it to linked scripts.
+
 ### 4.8.36
 
 - Setting added on every rule to allow the selection of an additional path to save artifacts, with filename {deviceId}_{ruleName}_{triggerTime}.{ext}

@@ -190,8 +190,35 @@ Audio rules will monitor the audio received by the camera
 
 ## Sequences
 
-In the sequences section, on the plugin page, you will be able to define a custom sequence with various steps. Sequences can be used on detection rules when it gets trigger or reset.
-(Initially only a few will be available, ask for more if you wish something more specific)
+In the sequences section, on the plugin page, you will be able to define a custom sequence with various steps. Each sequence can contain actions such as: Wait, Script, PTZ preset, Switch on/off, Lock, Entry open/close.
+
+Sequences can be attached to rules at different moments:
+
+- **On-activation sequences** (rules with activation type other than Always): run when the rule becomes active.
+- **On-deactivation sequences**: run when the rule becomes inactive.
+- **On-trigger sequences**: run when the rule is triggered (e.g. detection matched, occupancy change).
+- **On-reset sequences**: run when the rule is reset (e.g. after the trigger window ends).
+- **On-generated sequences**: run when all artifacts for that rule have been generated (video clip, gif, image). Available for Detection, Occupancy and Timelapse rules.
+
+When a sequence is run with a **payload** (e.g. On-generated), Script actions receive it as run variables. In Scrypted scripts, access it via `variables.payload`.
+
+### Payload for On-generated sequences
+
+For **On-generated sequences**, the payload passed to scripts has the following shape:
+
+- **Detection and Occupancy rules**: `{ rule, videoUrl?, gifUrl?, imageUrl }`
+  - `rule`: the rule object (name, notifiers, settings, etc.).
+  - `videoUrl`: URL of the generated video clip (if clip type is MP4).
+  - `gifUrl`: URL of the generated GIF (if clip type is GIF).
+  - `imageUrl`: URL of the stored snapshot used for the notification.
+
+- **Timelapse rules**: `{ rule, videoUrl, imageUrl, videoPath?, imagePath? }`
+  - `rule`: the timelapse rule object.
+  - `videoUrl`: URL to the generated timelapse video.
+  - `imageUrl`: URL to the generated thumbnail image.
+  - `videoPath`, `imagePath`: filesystem paths where the video and image were saved (when available).
+
+(Initially only a few action types will be available, ask for more if you wish something more specific)
 
 ## Stored images
 

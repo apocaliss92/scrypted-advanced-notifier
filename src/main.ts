@@ -2514,8 +2514,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         postFix: 'test' | string,
         rule: BaseRule,
         deviceId?: string,
+        payload?: unknown,
     }) {
-        const { postFix, sequences, rule, deviceId } = props;
+        const { postFix, sequences, rule, deviceId, payload } = props;
         const isTest = postFix === 'test';
 
         if (sequences?.length) {
@@ -2543,7 +2544,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                                 await new Promise(resolve => setTimeout(resolve, action.seconds * 1000));
                             } if (action.type === RuleActionType.Script) {
                                 const device = sdk.systemManager.getDeviceById<Program>(action.deviceId);
-                                await device.run();
+                                await device.run(typeof payload !== 'undefined' ? { payload } : undefined);
                             } else if (action.type === RuleActionType.Ptz) {
                                 const device = sdk.systemManager.getDeviceById<PanTiltZoom>(action.deviceId);
                                 const presetId = action.presetName?.split(':')[1];
@@ -3021,6 +3022,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     imageUrl,
                 }).catch(logger.error);
             }
+
+            if (rule.onGeneratedSequences?.length) {
+                this.triggerRuleSequences({
+                    sequences: rule.onGeneratedSequences,
+                    postFix: 'generated',
+                    rule,
+                    deviceId: cameraDevice.id,
+                    payload: { rule, videoUrl, gifUrl, imageUrl },
+                }).catch(logger.error);
+            }
         }
 
         this.checkIfClipRequired({
@@ -3470,6 +3481,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     cameraMixin.mixinState.clipGenerationTimeout[rule.name] && clearTimeout(cameraMixin.mixinState.clipGenerationTimeout[rule.name]);
                     cameraMixin.mixinState.clipGenerationTimeout[rule.name] = undefined;
                 }
+            }
+
+            if (rule.onGeneratedSequences?.length) {
+                this.triggerRuleSequences({
+                    sequences: rule.onGeneratedSequences,
+                    postFix: 'generated',
+                    rule,
+                    deviceId: cameraDevice.id,
+                    payload: { rule, videoUrl, gifUrl, imageUrl },
+                }).catch(logger.error);
             }
         }
 
@@ -4912,6 +4933,23 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 await this.copyArtifactToAdditionalStorage({ rule, deviceId: device.id, triggerTime, sourcePath: imageHistoricalPath, ext: "jpg", logger });
             } else {
                 logger.log('Not saving, image is corrupted');
+            }
+
+            if (rule.onGeneratedSequences?.length) {
+                const { videoRuleUrl, imageRuleUrl } = await getWebHookUrls({
+                    console: logger,
+                    plugin: this,
+                    fileId: String(triggerTime),
+                    ruleName: rule.name,
+                    device,
+                });
+                this.triggerRuleSequences({
+                    sequences: rule.onGeneratedSequences,
+                    postFix: 'generated',
+                    rule,
+                    deviceId: device.id,
+                    payload: { rule, videoUrl: videoRuleUrl, imageUrl: imageRuleUrl, videoPath: videoHistoricalPath, imagePath: imageHistoricalPath },
+                }).catch(logger.error);
             }
         } catch (e) {
             logger.log('Error generating timelapse', e);

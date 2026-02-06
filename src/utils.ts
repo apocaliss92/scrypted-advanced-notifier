@@ -1892,6 +1892,7 @@ export const getRuleKeys = (props: {
   const aiFilterKey = `${prefix}:${ruleName}:aiFilter`;
   const onTriggerSequencesKey = `${prefix}:${ruleName}:onTriggerSequences`;
   const onResetSequencesKey = `${prefix}:${ruleName}:onResetSequences`;
+  const onGeneratedSequencesKey = `${prefix}:${ruleName}:onGeneratedSequences`;
 
   // Specific for timelapse rules
   const regularSnapshotIntervalKey = `${prefix}:${ruleName}:regularSnapshotInterval`;
@@ -1969,6 +1970,7 @@ export const getRuleKeys = (props: {
       onDeactivationSequencesKey,
       onTriggerSequencesKey,
       onResetSequencesKey,
+      onGeneratedSequencesKey,
       showActiveZonesKey,
       detectionSourceKey,
     },
@@ -2550,6 +2552,7 @@ export const getRuleSettings = async (props: {
         onDeactivationSequencesKey,
         onTriggerSequencesKey,
         onResetSequencesKey,
+        onGeneratedSequencesKey,
         showActiveZonesKey,
         detectionSourceKey,
         additionalStoragePathKey,
@@ -2965,6 +2968,19 @@ export const getRuleSettings = async (props: {
         key: onResetSequencesKey,
         title: "On-reset sequences",
         description: "Sequences to execute when the rule is reset",
+        group,
+        subgroup,
+        multiple: true,
+        combobox: true,
+        immediate: true,
+        choices: sequenceNames,
+        defaultValue: [],
+        hide: !showMoreConfigurations,
+      },
+      {
+        key: onGeneratedSequencesKey,
+        title: "On-generated sequences",
+        description: "Sequences to execute when all rule artifacts (video, gif, image) have been generated. Receives a payload with rule, videoUrl, gifUrl, imageUrl.",
         group,
         subgroup,
         multiple: true,
@@ -3760,7 +3776,11 @@ export const getOccupancyRulesSettings = async (props: {
       ruleType: RuleType.Occupancy,
     });
 
-    const { scoreThresholdKey, detectionSourceKey } = common;
+    const { scoreThresholdKey, detectionSourceKey, onGeneratedSequencesKey } = common;
+    const sequenceNames = safeParseJson<string[]>(
+      storage.getItem(ruleSequencesKey),
+      [],
+    );
     const {
       captureZoneKey,
       changeStateConfirmKey,
@@ -3921,6 +3941,19 @@ export const getOccupancyRulesSettings = async (props: {
         type: "button",
         onPut: async () => await onManualCheck(ruleName),
       },
+      {
+        key: onGeneratedSequencesKey,
+        title: "On-generated sequences",
+        description: "Sequences to execute when all rule artifacts (video, gif, image) have been generated. Receives a payload with rule, videoUrl, gifUrl, imageUrl.",
+        group,
+        subgroup,
+        multiple: true,
+        combobox: true,
+        immediate: true,
+        choices: sequenceNames,
+        defaultValue: [],
+        hide: !showMore,
+      },
     );
 
     return settings;
@@ -3972,7 +4005,11 @@ export const getTimelapseRulesSettings = async (props: {
       ruleType: RuleType.Timelapse,
     });
 
-    const { textKey, dayKey, startTimeKey, endTimeKey } = common;
+    const { textKey, dayKey, startTimeKey, endTimeKey, onGeneratedSequencesKey } = common;
+    const sequenceNames = safeParseJson<string[]>(
+      storage.getItem(ruleSequencesKey),
+      [],
+    );
     const {
       cleanDataKey,
       framesAcquisitionDelayKey,
@@ -4066,6 +4103,19 @@ export const getTimelapseRulesSettings = async (props: {
         subgroup,
         type: "button",
         onPut: async () => onCleanDataTimelapse(ruleName),
+        hide: !showMore,
+      },
+      {
+        key: onGeneratedSequencesKey,
+        title: "On-generated sequences",
+        description: "Sequences to execute when the timelapse video (and thumbnail) have been generated. Receives a payload with rule, videoUrl, imageUrl.",
+        group,
+        subgroup,
+        multiple: true,
+        combobox: true,
+        immediate: true,
+        choices: sequenceNames,
+        defaultValue: [],
         hide: !showMore,
       },
     );
@@ -4452,6 +4502,7 @@ export interface BaseRule {
   onDeactivationSequences?: RuleActionsSequence[];
   onTriggerSequences?: RuleActionsSequence[];
   onResetSequences?: RuleActionsSequence[];
+  onGeneratedSequences?: RuleActionsSequence[];
   imageProcessing: ImagePostProcessing;
   showActiveZones?: boolean;
   notifierData: Record<
@@ -4569,6 +4620,7 @@ const initBasicRule = (props: {
       onDeactivationSequencesKey,
       onTriggerSequencesKey,
       onResetSequencesKey,
+      onGeneratedSequencesKey,
       devicesKey,
       showActiveZonesKey,
       detectionSourceKey,
@@ -4654,6 +4706,10 @@ const initBasicRule = (props: {
     storage.getItem(onResetSequencesKey),
     [],
   );
+  const onGeneratedSequencesNames = safeParseJson<string[]>(
+    storage.getItem(onGeneratedSequencesKey),
+    [],
+  );
   const devices = safeParseJson<string[]>(storage.getItem(devicesKey), []);
   const additionalStoragePath = safeParseJson<string>(storage.getItem(additionalStoragePathKey));
   const onActivationSequences: RuleActionsSequence[] = [];
@@ -4687,6 +4743,13 @@ const initBasicRule = (props: {
       onResetSequences.push(sequenceObject);
     }
   }
+  const onGeneratedSequences: RuleActionsSequence[] = [];
+  for (const sequenceName of onGeneratedSequencesNames) {
+    const sequenceObject = getSequenceObject({ sequenceName, storage });
+    if (sequenceObject) {
+      onGeneratedSequences.push(sequenceObject);
+    }
+  }
 
   const rule: BaseRule = {
     isEnabled,
@@ -4714,6 +4777,7 @@ const initBasicRule = (props: {
     onDeactivationSequences,
     onTriggerSequences,
     onResetSequences,
+    onGeneratedSequences,
     detectionSource,
     additionalStoragePath,
   };
