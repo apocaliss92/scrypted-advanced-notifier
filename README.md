@@ -42,9 +42,9 @@ If you edit a device name, to force the correct re-creation of the ha entities y
 The plugin provides customized way to deliver notifications. It is based on rules. Each rule can be activated based on several factors, i.e. active sensors, time ranges, security system status. Any notifier can be used but the only fully supported currently are (can be extended for any other):
 
 - Zentik - Full round notifier application. Perfect for apple devices (iOS + watchOS, iPad, MacOS), developed by me with an eye to Advanced notifier and support whatever was possible, available for beta testing:
-    - iOS under https://testflight.apple.com/join/dFqETQEm
-    - PWA (android, web) under https://notifier.zentik.app
-    - Scrypted plugin available https://www.npmjs.com/package/@apocaliss92/scrypted-zentik
+  - iOS under https://testflight.apple.com/join/dFqETQEm
+  - PWA (android, web) under https://notifier.zentik.app
+  - Scrypted plugin available https://www.npmjs.com/package/@apocaliss92/scrypted-zentik
 - Native Scrypted notifiers (i.e. Scrypted iPhone app...)
 - Ntfy
 - Homeassistant push notifications
@@ -121,7 +121,9 @@ These rules can be created for multiple cameras (on the plugin page) or per sing
   - Crop will crop the image around the detected object
 
 #### Audio classification
-Detection rules can also detect audio labels, i.e. crying, scream, speech etc. This will be possible adding in the detection calsses setting the "Audio" label. A new setting will appear to specify which labels to consider. The classifier to be used can be set in the Audio analysis section of the camera device: 
+
+Detection rules can also detect audio labels, i.e. crying, scream, speech etc. This will be possible adding in the detection calsses setting the "Audio" label. A new setting will appear to specify which labels to consider. The classifier to be used can be set in the Audio analysis section of the camera device:
+
 - YAMNET ('YAMNet Audio Classification' plugin), this will be used by the plugin onboarded audio analyser
 - DISABLED, no classifier will be run, external plugins will be able to still forward events, such as Frigate Bridge
 
@@ -132,12 +134,13 @@ Impact of the onboard classifier is relatively small and it can replace complete
 These rules let the cameras to record configurable videoclips. Mostly use these on camera where NVR might be overkill to be used, the app will still show the clips in a nice way
 
 They are based on some criteria:
+
 - detection classes, what should initially trigger the recording
 - score threshold, the minimum score to trigger the recording, leave empty for any detection
 - Minimum delay between clips, how many seconds to wait, at minimum, to record the following clip
 - Post event seconds, how many seconds to record, at minimum, after the recording starts. The default camera prebuffer will be extra pre-event seconds on top
 - Max clip length, seconds cap of the clip, following detections will prolong the original clip length
-- Prolong clip on motion, prolong the clip also for simple motion events  
+- Prolong clip on motion, prolong the clip also for simple motion events
 
 ### Occupancy (only on camera)
 
@@ -186,6 +189,7 @@ Audio rules will monitor the audio received by the camera
 - Set `Duration in seconds` if the audio should last at least these seconds to trigger a notification. Leave blank to notify right away
 
 ## Sequences
+
 In the sequences section, on the plugin page, you will be able to define a custom sequence with various steps. Sequences can be used on detection rules when it gets trigger or reset.
 (Initially only a few will be available, ask for more if you wish something more specific)
 
@@ -218,6 +222,8 @@ Will provide the latest registered image for each type, on the camera settings w
 - `ruleImage__{ ruleName }`
 - `ruleClip__{ ruleName }`
 - `ruleGif__{ ruleName }`
+
+The base path is available under each camera in the section Advanced Notifier -> Webhooks.
 
 ### POST detection images
 

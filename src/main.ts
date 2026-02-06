@@ -4775,6 +4775,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 videoHistoricalPath,
                 imageHistoricalPath,
                 generatedPath,
+                videoclipLatestPath,
+                imageLatestPath,
             } = this.getRulePaths({
                 cameraId: device.id,
                 ruleName: rule.name,
@@ -4833,6 +4835,15 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             await once(cp, 'exit');
 
+            if (videoclipLatestPath) {
+                try {
+                    await fs.promises.copyFile(videoHistoricalPath, videoclipLatestPath);
+                    logger.log(`Storing timelapse latest video at ${videoclipLatestPath}`);
+                } catch (e) {
+                    logger.error(`Error copying timelapse video to latest: ${e}`);
+                }
+            }
+
             const selectedFrame = sortedFiles[Math.floor(sortedFiles.length / 2)].split('.')[0];
             const { framePath } = this.getRulePaths({
                 cameraId: device.id,
@@ -4855,6 +4866,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             if (jpeg.length) {
                 logger.log(`Saving thumbnail in ${imageHistoricalPath}`);
                 await fs.promises.writeFile(imageHistoricalPath, buf);
+                if (imageLatestPath) {
+                    try {
+                        await fs.promises.copyFile(imageHistoricalPath, imageLatestPath);
+                        logger.log(`Storing timelapse latest image at ${imageLatestPath}`);
+                    } catch (e) {
+                        logger.error(`Error copying timelapse image to latest: ${e}`);
+                    }
+                }
             } else {
                 logger.log('Not saving, image is corrupted');
             }
