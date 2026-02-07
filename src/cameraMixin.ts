@@ -1479,11 +1479,15 @@ export class AdvancedNotifierCameraMixin
                     ScryptedInterface.VideoRecorder,
                   )
                     ? async (active) => {
+                      const state = await this.getCameraMqttCurrentState();
+                      if (state.isRecording === active) return;
                       logger.log(`Setting NVR privacy mode to ${!active}`);
                       await this.toggleRecording(this.cameraDevice, active);
                     }
                     : undefined,
                   switchRebroadcastCb: async (active) => {
+                    const state = await this.getCameraMqttCurrentState();
+                    if (state.isRebroadcastEnabled === active) return;
                     logger.log(
                       `Setting Rebroadcast privacy mode to ${!active}`,
                     );
@@ -1493,6 +1497,8 @@ export class AdvancedNotifierCameraMixin
                     );
                   },
                   switchSnapshotsCb: async (active) => {
+                    const state = await this.getCameraMqttCurrentState();
+                    if (state.isSnapshotsEnabled === active) return;
                     logger.log(`Setting Snapshots privacy mode to ${!active}`);
                     await this.toggleSnapshotsEnabled(
                       this.cameraDevice,
@@ -2993,13 +2999,22 @@ export class AdvancedNotifierCameraMixin
           logger.info(`Not waking up the camera for a snapshot`);
           runners = [checkDetector, checkVeryRecent, checkLatest];
         } else if (reason === GetImageReason.FromFrigate) {
-          runners = [
-            checkDetector,
-            checkDecoder,
-            checkVeryRecent,
-            checkLatest,
-            checkSnapshot,
-          ];
+          if (detectionId) {
+            runners = [
+              checkDetector,
+              checkDecoder,
+              checkVeryRecent,
+              checkLatest,
+              checkSnapshot,
+            ];
+          } else {
+            runners = [
+              checkDecoder,
+              checkVeryRecent,
+              checkLatest,
+              checkSnapshot,
+            ];
+          }
         } else if (reason === GetImageReason.AccumulatedDetections) {
           runners = [checkDecoder, checkDetector, checkSnapshot];
         } else if (forceLatest) {
@@ -5309,6 +5324,10 @@ export class AdvancedNotifierCameraMixin
       fullFrameImage = markedImage;
       fullFrameB64Image = markedImageB64Image;
     }
+    if (isDetectionFromNvr && croppedImage && croppedImageB64Image && !fullFrameImage) {
+      fullFrameImage = croppedImage;
+      fullFrameB64Image = croppedImageB64Image;
+    }
 
     let mqttFsImage: MediaObject;
     let mqttFsB64Image: string;
@@ -5478,9 +5497,23 @@ export class AdvancedNotifierCameraMixin
         });
       }
 
+      // Prefer parent image for storage; fallback to fullFrame from getImage
+      const storeImage =
+        isDetectionFromNvr && croppedImage
+          ? croppedImage
+          : isDetectionFromFrigate && markedImage
+            ? markedImage
+            : fullFrameImage;
+      const storeB64Image =
+        isDetectionFromNvr && croppedImageB64Image
+          ? croppedImageB64Image
+          : isDetectionFromFrigate && markedImageB64Image
+            ? markedImageB64Image
+            : fullFrameB64Image;
+
       if (
-        fullFrameB64Image &&
-        fullFrameImage &&
+        storeB64Image &&
+        storeImage &&
         this.plugin.storageSettings.values.storeEvents
       ) {
         logger.info(
@@ -5494,13 +5527,13 @@ export class AdvancedNotifierCameraMixin
 
         this.plugin
           .storeEventImage({
-            b64Image: fullFrameB64Image,
+            b64Image: storeB64Image,
             detections: originalCandidates,
             device: this.cameraDevice,
             eventSource,
             logger,
             timestamp: triggerTime,
-            image: fullFrameImage,
+            image: storeImage,
             eventId: storeEventId,
             detectionId,
           })

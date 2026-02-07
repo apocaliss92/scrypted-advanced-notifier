@@ -842,7 +842,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 return;
             }
             const start = Date.now();
-            entry.task().catch(e => logger.error('Camera autodiscovery error', e)).finally(() => {
+            entry.task().catch(e => logger.error('Camera autodiscovery error', entry.cameraId, e)).finally(() => {
                 this.lastCameraAutodiscoveryMap[entry.cameraId] = Date.now();
                 const elapsed = Date.now() - start;
                 const delay = Math.max(0, 300 - elapsed);

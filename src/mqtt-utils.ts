@@ -61,6 +61,8 @@ interface MqttEntity {
     retain?: boolean;
     identifier?: MqttEntityIdentifier;
     supportedFeatures?: string[];
+    /** If true, do not publish empty payload to command_topic during discovery (avoids triggering our own subscription and HA sync) */
+    skipCommandTopicReset?: boolean;
 }
 
 /** MQTT entities for accessory switches, derived from accessoryUtils. */
@@ -759,7 +761,7 @@ export const publishMqttDeviceDiscovery = async (props: {
             const { stateTopic } = getMqttTopics({ mqttEntity, device });
             statePublishes.push({ topic: stateTopic, payload: mqttEntity.valueToDispatch, retain: mqttEntity.retain });
         }
-        if (['switch', 'button'].includes(mqttEntity.domain)) {
+        if (['switch', 'button'].includes(mqttEntity.domain) && !mqttEntity.skipCommandTopicReset) {
             const { commandTopic } = getMqttTopics({ mqttEntity, device });
             entitiesEnsuredReset.push(commandTopic);
         }
@@ -1754,9 +1756,9 @@ export const getCameraMqttEntitiesForDiscovery = async (props: {
     const mqttEntities: MqttEntity[] = [
         triggeredEntity,
         notificationsEnabledEntity,
-        rebroadcastEntity,
-        snapshotsEntity,
-        privacyEntity,
+        { ...rebroadcastEntity, skipCommandTopicReset: true },
+        { ...snapshotsEntity, skipCommandTopicReset: true },
+        { ...privacyEntity, skipCommandTopicReset: true },
         ...detectionMqttEntities
     ];
 
@@ -1772,7 +1774,7 @@ export const getCameraMqttEntitiesForDiscovery = async (props: {
         mqttEntities.push(cloneDeep(sleepingEntity));
     }
     if (device.interfaces.includes(ScryptedInterface.VideoRecorder)) {
-        mqttEntities.push(recordingEntity);
+        mqttEntities.push({ ...recordingEntity, skipCommandTopicReset: true });
     }
     if (device.interfaces.includes(ScryptedInterface.Reboot)) {
         mqttEntities.push(rebootEntity);
