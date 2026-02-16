@@ -136,17 +136,18 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
         return { groups, total };
     }
 
-    async getVideoClips(options?: VideoClipOptions): Promise<(VideoClip & { deviceName: string; deviceId: string; videoclipHref: string })[]> {
+    async getVideoClips(options?: VideoClipOptions): Promise<(VideoClip & { deviceName: string; deviceId: string; videoclipHref: string; thumbnailUrl: string })[]> {
         const { startTime, endTime } = options ?? {};
         const { privatePathnamePrefix } = await getWebHookUrls({
             plugin: this.plugin
         });
-        const { eventVideoclip } = await getWebhooks();
+        const { eventVideoclip, eventVideoclipThumbnail } = await getWebhooks();
 
         const videoclips: (VideoClip & {
             deviceName: string,
             deviceId: string,
             videoclipHref: string,
+            thumbnailUrl: string,
         })[] = [];
         const promises: Promise<VideoClip[]>[] = [];
         const deviceIds: string[] = [];
@@ -171,12 +172,16 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                 const videoId = clip.videoId ?? clip.id;
                 if (videoId == null || videoId === '') continue;
                 const videoclipHref = `${privatePathnamePrefix}/${eventVideoclip}/${device?.id}/${encodeURIComponent(videoId)}`;
+                const thumbnailUrl = (clip as { thumbnailUrl?: string }).thumbnailUrl
+                    ?? (clip as { resources?: { thumbnail?: { href?: string } } }).resources?.thumbnail?.href
+                    ?? `${privatePathnamePrefix}/${eventVideoclipThumbnail}/${device?.id}/${encodeURIComponent(videoId)}`;
 
                 videoclips.push({
                     ...clip,
                     deviceName: device.name,
                     deviceId: device.id,
                     videoclipHref,
+                    thumbnailUrl,
                     detectionClasses: clip.detectionClasses.filter(cl => !cl.includes('debug'))
                 });
             }
@@ -186,7 +191,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
         return videoclips;
     }
 
-    async getVideoClipsPaginated(options: VideoClipOptions & { limit?: number; offset?: number; cameras?: string[]; detectionClasses?: string[] }): Promise<{ clips: (VideoClip & { deviceName: string; deviceId: string; videoclipHref: string })[]; total: number }> {
+    async getVideoClipsPaginated(options: VideoClipOptions & { limit?: number; offset?: number; cameras?: string[]; detectionClasses?: string[] }): Promise<{ clips: (VideoClip & { deviceName: string; deviceId: string; videoclipHref: string; thumbnailUrl: string })[]; total: number }> {
         const { limit, offset = 0, cameras: camerasFilter, detectionClasses: detectionClassesFilter, ...rest } = options;
         const allClips = await this.getVideoClips(rest as VideoClipOptions);
 
@@ -208,6 +213,8 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                     );
             return isClassOk;
         });
+
+        filtered.sort((a, b) => (b.startTime ?? 0) - (a.startTime ?? 0));
 
         const total = filtered.length;
         const clips = typeof limit === 'number' && limit >= 0
@@ -399,6 +406,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                 deviceName: (c as { deviceName?: string }).deviceName,
                 deviceId: (c as { deviceId?: string }).deviceId,
                 videoclipHref: (c as { videoclipHref?: string }).videoclipHref,
+                thumbnailUrl: (c as { thumbnailUrl?: string }).thumbnailUrl,
                 startTime: c.startTime,
                 duration: c.duration,
                 detectionClasses: (c as { detectionClasses?: string[] }).detectionClasses,
