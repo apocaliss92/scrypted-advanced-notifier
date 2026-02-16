@@ -1217,13 +1217,21 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     const { assetsOrigin, } = await getAssetsParams({ plugin: this });
                     videoUrl = `${assetsOrigin}${videoUrl}`;
 
-                    const isIos = /iPhone|iPad|iPod/i.test(request.headers['user-agent']);
-                    const { isNvr } = getAssetSource({ videoUrl });
+                    const ua = request.headers['user-agent'] ?? '';
+                    const isIosOrMobile = /iPhone|iPad|iPod|CFNetwork|Darwin|Expo|ReactNative|okhttp/i.test(ua);
+                    const urlObj = new URL(`http://localhost${request.url}`);
+                    const forcePrebuffer = urlObj.searchParams.get('prebuffer') === '1';
+                    const { isNvr } = getAssetSource({ videoUrl, sourceId: (mo as { sourceId?: string })?.sourceId });
 
-                    // If iOS and nvr clips, prebuffer to avoid streaming issues 
-                    if (isNvr && isIos) {
+                    // Prebuffer NVR clips for iOS/mobile to avoid AVFoundation -11850 streaming issues.
+                    // When ?prebuffer=1 is requested, always prebuffer (isNvr can be false if videoUrl
+                    // doesn't contain NVR_PLUGIN_ID, e.g. internal NVR URLs).
+                    if ((isNvr || forcePrebuffer) && (isIosOrMobile || forcePrebuffer)) {
+                        const fetchHeaders = { ...request.headers } as Record<string, string>;
+                        delete fetchHeaders.range;
+                        delete fetchHeaders.Range;
                         const remoteResponse = await axios.get<Buffer[]>(videoUrl, {
-                            headers: request.headers,
+                            headers: fetchHeaders,
                             httpsAgent: new https.Agent({
                                 rejectUnauthorized: false
                             }),
@@ -1235,13 +1243,49 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                             chunks.push(chunk);
                         }
 
-                        response.send(Buffer.concat(chunks), {
+                        const fullBuffer = Buffer.concat(chunks);
+                        const totalLength = fullBuffer.length;
+                        const rangeHeader = request.headers?.range ?? request.headers?.Range;
+                        if (rangeHeader && typeof rangeHeader === 'string') {
+                            const match = rangeHeader.match(/bytes=(\d*)-(\d*)/);
+                            if (match) {
+                                const startStr = match[1];
+                                const endStr = match[2];
+                                let actualStart: number;
+                                let actualEnd: number;
+                                if (startStr && endStr) {
+                                    actualStart = parseInt(startStr, 10);
+                                    actualEnd = Math.min(parseInt(endStr, 10), totalLength - 1);
+                                } else if (startStr) {
+                                    actualStart = parseInt(startStr, 10);
+                                    actualEnd = totalLength - 1;
+                                } else if (endStr) {
+                                    actualEnd = totalLength - 1;
+                                    actualStart = Math.max(0, totalLength - parseInt(endStr, 10));
+                                } else {
+                                    actualStart = 0;
+                                    actualEnd = totalLength - 1;
+                                }
+                                actualStart = Math.min(actualStart, actualEnd);
+                                const chunk = fullBuffer.subarray(actualStart, actualEnd + 1);
+                                response.send(chunk, {
+                                    code: 206,
+                                    headers: {
+                                        'Content-Type': 'video/mp4',
+                                        'Content-Length': chunk.length,
+                                        'Content-Range': `bytes ${actualStart}-${actualEnd}/${totalLength}`,
+                                        'Accept-Ranges': 'bytes',
+                                    },
+                                });
+                                return;
+                            }
+                        }
+                        response.send(fullBuffer, {
                             code: 200,
                             headers: {
-                                ...remoteResponse.headers,
                                 'Content-Type': 'video/mp4',
-                                'Content-Length': chunks.length,
-                                'transfer-encoding': undefined,
+                                'Content-Length': totalLength,
+                                'Accept-Ranges': 'bytes',
                             },
                         });
                         return;

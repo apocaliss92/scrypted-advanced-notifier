@@ -42,7 +42,12 @@ import {
   FRIGATE_OBJECT_DETECTOR_INTERFACE,
   pluginId,
 } from "../../scrypted-frigate-bridge/src/utils";
-import { loginScryptedClient } from "../../scrypted/packages/client/src";
+import axios from "axios";
+import {
+  checkScryptedClientLogin,
+  loginScryptedClient,
+  type ScryptedClientLoginResult,
+} from "../../scrypted/packages/client/src";
 import { name, scrypted } from "../package.json";
 import {
   basicDetectionClasses,
@@ -6199,29 +6204,130 @@ export const b64ToMo = async (b64: string) => {
 export const getFrigateTextKey = (label: string) =>
   `frigate${label}Text` as TextSettingKey;
 
+/**
+ * Validates Bearer token (from Scrypted client login) for external app API calls.
+ * Token format: "Bearer {hash}#{\"u\":\"username\",\"t\":timestamp,\"d\":durationMs}"
+ * Tries: (1) GET /login with Bearer header; (2) checkScryptedClientLogin with parsed username:hash as Basic.
+ */
+async function validateBearerToken(authHeader: string): Promise<Awaited<ReturnType<typeof loginScryptedClient>> | undefined> {
+  const localUrl = await sdk.endpointManager.getLocalEndpoint();
+  const baseUrl = new URL(localUrl).origin;
+  const loginUrl = `${baseUrl.replace(/\/$/, "")}/login`;
+
+  try {
+    const res = await axios.get(loginUrl, {
+      headers: { Authorization: authHeader },
+      withCredentials: true,
+      validateStatus: () => true,
+    });
+    if (res.status === 200) {
+      const body = res.data as { error?: string; username?: string; authorization?: string; token?: string; queryToken?: unknown };
+      if (!body.error && body.username) {
+        return {
+          error: body.error,
+          authorization: body.authorization ?? authHeader,
+          queryToken: body.queryToken,
+          token: body.token,
+          addresses: (body as { addresses?: string[] }).addresses ?? [],
+          externalAddresses: (body as { externalAddresses?: string[] }).externalAddresses ?? [],
+          hostname: (body as { hostname?: string }).hostname,
+          scryptedCloud: false,
+          directAddress: (body as { directAddress?: string }).directAddress,
+          cloudAddress: (body as { cloudAddress?: string }).cloudAddress,
+          serverId: (body as { serverId?: string }).serverId,
+        };
+      }
+    }
+  } catch {
+    /* fall through to fallback */
+  }
+
+  const raw = authHeader.replace(/^Bearer\s+/i, "").trim();
+  const hashIdx = raw.indexOf("#");
+  if (hashIdx < 0) return;
+  let payload: { u?: string };
+  try {
+    payload = JSON.parse(raw.slice(hashIdx + 1)) as { u?: string };
+  } catch {
+    return;
+  }
+  const username = payload.u;
+  if (!username) return;
+  const tokenPart = raw.slice(0, hashIdx);
+  try {
+    const loginCheck = await checkScryptedClientLogin({
+      baseUrl,
+      previousLoginResult: {
+        username,
+        token: tokenPart,
+        queryToken: {},
+      } as ScryptedClientLoginResult,
+    });
+    if (loginCheck.error || !loginCheck.username) return;
+    return {
+      error: loginCheck.error,
+      authorization: loginCheck.authorization ?? authHeader,
+      queryToken: loginCheck.queryToken,
+      token: loginCheck.token,
+      addresses: loginCheck.addresses ?? [],
+      externalAddresses: loginCheck.externalAddresses ?? [],
+      hostname: loginCheck.hostname,
+      scryptedCloud: loginCheck.scryptedCloud ?? false,
+      directAddress: loginCheck.directAddress,
+      cloudAddress: loginCheck.cloudAddress,
+      serverId: loginCheck.serverId,
+    };
+  } catch {
+    return;
+  }
+}
+
 export const checkUserLogin = async (request: HttpRequest) => {
-  const token = request.headers?.authorization;
-  if (!token) {
+  const authHeader = request.headers?.authorization;
+  if (!authHeader) {
     return;
   }
 
-  const credendials = atob(token.split("Basic ")[1]);
-  const [username, password] = credendials.split(":");
   const localUrl = await sdk.endpointManager.getLocalEndpoint();
   const baseUrl = new URL(localUrl).origin;
 
-  const loginResponse = await loginScryptedClient({
-    baseUrl,
-    username: username,
-    password: password,
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  });
-
-  if (loginResponse.error) {
-    return;
+  // Bearer token (from external app using @scrypted/client login result)
+  if (authHeader.startsWith("Bearer ")) {
+    const bearerToken = authHeader.slice(7).trim();
+    if (!bearerToken) return;
+    return validateBearerToken(authHeader.trim());
   }
 
-  return loginResponse;
+  // Basic auth (username:password) - same-domain / an-frontend
+  if (authHeader.startsWith("Basic ")) {
+    const encoded = authHeader.slice(6).trim();
+    if (!encoded) return;
+    let credentials: string;
+    try {
+      credentials = atob(encoded);
+    } catch {
+      return;
+    }
+    const colonIndex = credentials.indexOf(":");
+    if (colonIndex < 0) return;
+    const username = credentials.slice(0, colonIndex);
+    const password = credentials.slice(colonIndex + 1);
+
+    const loginResponse = await loginScryptedClient({
+      baseUrl,
+      username,
+      password,
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    if (loginResponse.error) {
+      return;
+    }
+
+    return loginResponse;
+  }
+
+  return;
 };
 
 export const getDetectionEventKey = (props: {

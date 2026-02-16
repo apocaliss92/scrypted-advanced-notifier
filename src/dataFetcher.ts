@@ -312,14 +312,15 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
             const startTime = Number(fromDate) ?? Date.now() - 86400000;
             const endTime = Number(tillDate) ?? Date.now();
             const offsetNum = typeof offset === 'number' ? offset : 0;
+            const limitNum = typeof limit === 'number' && limit >= 0 ? limit : 50;
             const sources = Array.isArray(rawSources) && rawSources.length > 0
                 ? rawSources.filter((s: string) => ['All', 'Auto'].indexOf(s) < 0) as string[]
                 : undefined;
-            const { groups, total } = await this.getRecordedEventsGroupedPaginated({
+            const { groups: eventGroups } = await this.getRecordedEventsGroupedPaginated({
                 startTime,
                 endTime,
-                limit: typeof limit === 'number' ? limit : undefined,
-                offset: offsetNum,
+                limit: undefined,
+                offset: 0,
                 sources: sources && sources.length > 0 ? sources : undefined,
                 cameras: Array.isArray(cameras) ? cameras as string[] : [],
                 detectionClasses: Array.isArray(detectionClasses) ? detectionClasses as string[] : [],
@@ -327,54 +328,56 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                 filter: typeof filter === 'string' ? filter : '',
                 groupingRange: typeof groupingRange === 'number' ? groupingRange : 60,
             });
-            let ruleArtifactsGroups: ApiDetectionGroup[] = [];
-            if (offsetNum === 0) {
-                const { storagePath } = plugin.getEventPaths({});
-                const deviceDirs = await fs.promises.readdir(storagePath).catch(() => []);
-                const camerasSet = Array.isArray(cameras) && cameras.length > 0 ? new Set(cameras as string[]) : null;
-                const allArtifacts: { deviceId: string; deviceName: string; ruleName: string; ruleType?: string; timestamp: number; imageUrl?: string; gifUrl?: string; videoUrl?: string }[] = [];
-                for (const deviceId of deviceDirs) {
-                    const devicePath = path.join(storagePath, deviceId);
-                    const stat = await fs.promises.stat(devicePath).catch(() => null);
-                    if (!stat?.isDirectory()) continue;
-                    const device = sdk.systemManager.getDeviceById(deviceId);
-                    const deviceName = (device?.name as string) ?? deviceId;
-                    if (camerasSet && !camerasSet.has(deviceName)) continue;
-                    const artifacts = await getRuleArtifactsInRange({ storagePath, deviceId, startTimestamp: startTime, endTimestamp: endTime });
-                    for (const a of artifacts) {
-                        allArtifacts.push({
-                            deviceId,
-                            deviceName,
-                            ruleName: a.ruleName ?? 'Rule',
-                            ruleType: a.ruleType,
-                            timestamp: a.timestamp,
-                            imageUrl: a.imageUrl,
-                            gifUrl: a.gifUrl,
-                            videoUrl: a.videoUrl,
-                        });
-                    }
-                }
-                ruleArtifactsGroups = allArtifacts.map((a) => {
-                    const eventId = `rule-${a.deviceId}-${a.ruleName}-${a.timestamp}`;
-                    const imageUrl = a.imageUrl ?? '';
-                    const ev: ApiDetectionEvent = {
-                        id: eventId,
-                        timestamp: a.timestamp,
-                        classes: [a.ruleName],
-                        label: a.ruleName,
-                        thumbnailUrl: imageUrl,
-                        imageUrl,
-                        source: RULE_ARTIFACT_SOURCE,
-                        deviceName: a.deviceName,
-                        deviceId: a.deviceId,
+            const { storagePath } = plugin.getEventPaths({});
+            const deviceDirs = await fs.promises.readdir(storagePath).catch(() => []);
+            const camerasSet = Array.isArray(cameras) && cameras.length > 0 ? new Set(cameras as string[]) : null;
+            const allArtifacts: { deviceId: string; deviceName: string; ruleName: string; ruleType?: string; timestamp: number; imageUrl?: string; gifUrl?: string; videoUrl?: string }[] = [];
+            for (const deviceId of deviceDirs) {
+                const devicePath = path.join(storagePath, deviceId);
+                const stat = await fs.promises.stat(devicePath).catch(() => null);
+                if (!stat?.isDirectory()) continue;
+                const device = sdk.systemManager.getDeviceById(deviceId);
+                const deviceName = (device?.name as string) ?? deviceId;
+                if (camerasSet && !camerasSet.has(deviceName)) continue;
+                const artifacts = await getRuleArtifactsInRange({ storagePath, deviceId, startTimestamp: startTime, endTimestamp: endTime });
+                for (const a of artifacts) {
+                    allArtifacts.push({
+                        deviceId,
+                        deviceName,
+                        ruleName: a.ruleName ?? 'Rule',
                         ruleType: a.ruleType,
-                        videoUrl: a.videoUrl,
+                        timestamp: a.timestamp,
+                        imageUrl: a.imageUrl,
                         gifUrl: a.gifUrl,
-                    };
-                    return { events: [ev], representative: ev, classes: [a.ruleName], labels: [a.ruleName] };
-                });
+                        videoUrl: a.videoUrl,
+                    });
+                }
             }
-            return { statusCode: 200, body: { groups, total, ruleArtifacts: ruleArtifactsGroups } };
+            const ruleArtifactsGroups: ApiDetectionGroup[] = allArtifacts.map((a) => {
+                const eventId = `rule-${a.deviceId}-${a.ruleName}-${a.timestamp}`;
+                const imageUrl = a.imageUrl ?? '';
+                const ev: ApiDetectionEvent = {
+                    id: eventId,
+                    timestamp: a.timestamp,
+                    classes: [a.ruleName],
+                    label: a.ruleName,
+                    thumbnailUrl: imageUrl,
+                    imageUrl,
+                    source: RULE_ARTIFACT_SOURCE,
+                    deviceName: a.deviceName,
+                    deviceId: a.deviceId,
+                    ruleType: a.ruleType,
+                    videoUrl: a.videoUrl,
+                    gifUrl: a.gifUrl,
+                };
+                return { events: [ev], representative: ev, classes: [a.ruleName], labels: [a.ruleName] };
+            });
+            const merged = [...ruleArtifactsGroups, ...eventGroups].sort(
+                (a, b) => (b.representative?.timestamp ?? 0) - (a.representative?.timestamp ?? 0),
+            );
+            const total = merged.length;
+            const groups = merged.slice(offsetNum, offsetNum + limitNum);
+            return { statusCode: 200, body: { groups, total } };
         }
 
         if (apimethod === 'GetVideoclips') {
