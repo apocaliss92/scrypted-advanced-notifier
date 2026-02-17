@@ -446,6 +446,174 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
             return { statusCode: 200, body: { events, motion, artifacts } };
         }
 
+        if (apimethod === 'GetClusteredDayData') {
+            const {
+                deviceId,
+                days,
+                bucketMs: rawBucketMs,
+                enabledClasses: rawEnabledClasses,
+                classFilter: rawClassFilter,
+            } = (payload ?? {}) as Record<string, unknown>;
+
+            if (!deviceId || typeof deviceId !== 'string') {
+                return { statusCode: 400, body: { error: 'deviceId (string) required' } };
+            }
+            if (!Array.isArray(days) || days.length === 0 || days.some((d: unknown) => typeof d !== 'string')) {
+                return { statusCode: 400, body: { error: 'days (string[]) required' } };
+            }
+            const bucketMs = typeof rawBucketMs === 'number' && rawBucketMs > 0 ? rawBucketMs : 5 * 60 * 1000;
+            const enabledClasses: string[] = Array.isArray(rawEnabledClasses) ? rawEnabledClasses.filter((c: unknown) => typeof c === 'string') : [];
+            const classFilter = typeof rawClassFilter === 'string' ? rawClassFilter : '';
+
+            const { storagePath } = plugin.getEventPaths({});
+
+            // Fetch events, motion, and artifacts for all requested days in parallel
+            const dayResults = await Promise.all(
+                (days as string[]).map(async (day: string) => {
+                    if (!moment(day, 'YYYYMMDD').isValid()) return { events: [], motion: [], artifacts: [] };
+                    const startOfDay = moment(day, 'YYYYMMDD').startOf('day').valueOf();
+                    const endOfDay = moment(day, 'YYYYMMDD').endOf('day').valueOf();
+                    const [recorded, motion, artifacts] = await Promise.all([
+                        this.getRecordedEventsV2({ startTime: startOfDay, endTime: endOfDay, deviceIds: [deviceId as string] }),
+                        getMotionInRange({ startTimestamp: startOfDay, endTimestamp: endOfDay, storagePath, deviceIds: [deviceId as string] }),
+                        getRuleArtifactsInRange({ storagePath, deviceId: deviceId as string, startTimestamp: startOfDay, endTimestamp: endOfDay }),
+                    ]);
+                    const events = recorded.map((r) => ({
+                        id: r.data?.id ?? r.details?.eventId ?? '',
+                        timestamp: r.data?.timestamp ?? r.details?.eventTime ?? 0,
+                        classes: r.data?.classes ?? [] as string[],
+                        label: r.data?.label as string | undefined,
+                        thumbnailUrl: r.data?.thumbnailUrl ?? '',
+                        imageUrl: r.data?.imageUrl ?? '',
+                        source: (r.data?.source as string) ?? 'NVR',
+                        deviceName: r.data?.deviceName ?? '',
+                        deviceId: r.data?.deviceId ?? '',
+                    }));
+                    return { events, motion, artifacts };
+                }),
+            );
+
+            // Merge all days
+            let allEvents: typeof dayResults[0]['events'] = [];
+            let allMotion: typeof dayResults[0]['motion'] = [];
+            let allArtifacts: typeof dayResults[0]['artifacts'] = [];
+            for (const dr of dayResults) {
+                allEvents.push(...dr.events);
+                allMotion.push(...dr.motion);
+                allArtifacts.push(...dr.artifacts);
+            }
+
+            // --- Filter by enabledClasses ---
+            if (enabledClasses.length > 0) {
+                const enabledSet = new Set(enabledClasses);
+                allEvents = allEvents.filter((evt) => {
+                    const evtClasses = evt.classes ?? [];
+                    const parentClasses = evtClasses.map((c) => detectionClassesDefaultMap[c] ?? c);
+                    const classMatch = evtClasses.some((c) => enabledSet.has(c))
+                        || parentClasses.some((c) => enabledSet.has(c));
+                    if (!classMatch) return false;
+
+                    // Label required for face, plate, audio
+                    const LABEL_REQUIRED = ['face', 'plate', 'audio'];
+                    const isLabelRequired = evtClasses.some((c) => LABEL_REQUIRED.includes(c))
+                        || parentClasses.some((c) => LABEL_REQUIRED.includes(c));
+                    if (isLabelRequired && !evt.label) return false;
+
+                    // Text filter
+                    if (classFilter) {
+                        const q = classFilter.toLowerCase();
+                        const labelMatch = evt.label?.toLowerCase().includes(q);
+                        const classNameMatch = evtClasses.some((c) => c.toLowerCase().includes(q));
+                        if (!labelMatch && !classNameMatch) return false;
+                    }
+                    return true;
+                });
+            }
+
+            // --- Exclude motion-only events ---
+            allEvents = allEvents.filter((evt) => !(evt.classes.length === 1 && evt.classes[0] === 'motion'));
+
+            // --- Deduplicate by timestamp + classes + label ---
+            const seenKeys = new Set<string>();
+            allEvents = allEvents.filter((evt) => {
+                const key = `${evt.timestamp}-${(evt.classes ?? []).slice().sort().join(',')}-${evt.label ?? ''}`;
+                if (seenKeys.has(key)) return false;
+                seenKeys.add(key);
+                return true;
+            });
+
+            // --- Fixed-grid bucketing ---
+            if (allEvents.length > 0 && bucketMs > 0) {
+                const allTimestamps = allEvents.map((e) => e.timestamp);
+                const minTs = Math.min(...allTimestamps);
+                const maxTs = Math.max(...allTimestamps);
+                const firstBucket = Math.floor(minTs / bucketMs) * bucketMs;
+                const lastBucket = Math.floor(maxTs / bucketMs) * bucketMs;
+
+                const buckets = new Map<number, typeof allEvents>();
+                for (const evt of allEvents) {
+                    const bs = Math.floor(evt.timestamp / bucketMs) * bucketMs;
+                    const list = buckets.get(bs) ?? [];
+                    list.push(evt);
+                    buckets.set(bs, list);
+                }
+
+                const clusters: {
+                    events: typeof allEvents;
+                    representative: typeof allEvents[0];
+                    classes: string[];
+                    labels: string[];
+                    startMs: number;
+                    endMs: number;
+                }[] = [];
+
+                for (let startMs = firstBucket; startMs <= lastBucket; startMs += bucketMs) {
+                    const bucketEvents = buckets.get(startMs);
+                    if (!bucketEvents?.length) continue;
+                    const endMs = startMs + bucketMs;
+
+                    // Pick representative: event with most classes, or earliest
+                    const representative = bucketEvents.reduce((best, cur) => {
+                        const bestCount = (best.classes ?? []).filter((c) => c !== 'any_object' && c !== 'motion').length;
+                        const curCount = (cur.classes ?? []).filter((c) => c !== 'any_object' && c !== 'motion').length;
+                        if (curCount > bestCount) return cur;
+                        if (curCount === bestCount && cur.timestamp < best.timestamp) return cur;
+                        return best;
+                    });
+
+                    const clsSet = new Set<string>();
+                    const lblSet = new Set<string>();
+                    for (const evt of bucketEvents) {
+                        for (const c of (evt.classes ?? []).filter((cc) => cc !== 'any_object')) {
+                            if (c !== 'motion' || (evt.classes ?? []).length === 1) clsSet.add(c);
+                            else if ((evt.classes ?? []).length > 1) { /* skip motion when there are other classes */ }
+                            else clsSet.add(c);
+                        }
+                        // Add non-motion classes
+                        for (const c of (evt.classes ?? []).filter((cc) => cc !== 'any_object')) {
+                            clsSet.add(c);
+                        }
+                        if (evt.label) lblSet.add(evt.label);
+                    }
+
+                    clusters.push({
+                        events: bucketEvents,
+                        representative,
+                        classes: [...clsSet],
+                        labels: [...lblSet],
+                        startMs,
+                        endMs,
+                    });
+                }
+
+                clusters.sort((a, b) => a.startMs - b.startMs);
+                return { statusCode: 200, body: { clusters, motion: allMotion, artifacts: allArtifacts } };
+            }
+
+            // No events or invalid bucket → return empty clusters
+            return { statusCode: 200, body: { clusters: [], motion: allMotion, artifacts: allArtifacts } };
+        }
+
         if (apimethod === 'GetArtifacts') {
             const { deviceId, startTime, endTime } = (payload ?? {}) as { deviceId?: string; startTime?: number | string; endTime?: number | string };
             if (!deviceId || typeof deviceId !== 'string') {
