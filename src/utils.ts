@@ -104,6 +104,7 @@ export const NOTIFIER_NATIVE_ID = "advancedNotifierDefaultNotifier";
 export const CAMERA_NATIVE_ID = "advancedNotifierCamera";
 export const ALARM_SYSTEM_NATIVE_ID = "advancedNotifierAlarmSystem";
 export const DATA_FETCHER_NATIVE_ID = "advancedNotifierDataFetcher";
+export const EVENTS_APP_API_INTERFACE = "EventsAppApi";
 export const MAX_PENDING_RESULT_PER_CAMERA = 5;
 export const MAX_RPC_OBJECTS_PER_PLUGIN = 200;
 export const MAX_RPC_OBJECTS_PER_CAMERA = 35;

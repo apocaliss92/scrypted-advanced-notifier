@@ -1,14 +1,16 @@
+import axios from 'axios';
 import fs from 'fs';
+import https from 'https';
 import moment from 'moment';
 import path from 'path';
-import sdk, { EventRecorder, MediaObject, RecordedEvent, RecordedEventOptions, ScryptedDeviceBase, ScryptedInterface, Setting, Settings, SettingValue, VideoClip, VideoClipOptions, VideoClips, VideoClipThumbnailOptions } from '@scrypted/sdk';
+import sdk, { EventRecorder, MediaObject, RecordedEvent, RecordedEventOptions, ScryptedDeviceBase, ScryptedInterface, ScryptedMimeTypes, Setting, Settings, SettingValue, VideoClip, VideoClipOptions, VideoClips, VideoClipThumbnailOptions } from '@scrypted/sdk';
 import { StorageSettings, StorageSettingsDict } from '@scrypted/sdk/storage-settings';
 import { DbDetectionEvent, getEventsInRange, getMotionInRange } from './db';
 import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap } from './detectionClasses';
 import { ApiDetectionEvent, ApiDetectionGroup, filterAndGroupEvents, GroupingParams, RULE_ARTIFACT_SOURCE } from './groupEvents';
 import AdvancedNotifierPlugin from './main';
 import { getRuleArtifactsInRange } from './rulesRegister';
-import { getWebhooks, getWebHookUrls, ScryptedEventSource } from './utils';
+import { getAssetsParams, getWebhooks, getWebHookUrls, NVR_PLUGIN_ID, ScryptedEventSource } from './utils';
 
 export type EventsAppResponse = { statusCode: number; body: unknown };
 
@@ -172,7 +174,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                 const videoId = clip.videoId ?? clip.id;
                 if (videoId == null || videoId === '') continue;
                 const videoclipHref = `${privatePathnamePrefix}/${eventVideoclip}/${device?.id}/${encodeURIComponent(videoId)}`;
-                const thumbnailUrl = (clip as { thumbnailUrl?: string }).thumbnailUrl
+                let thumbnailUrl = (clip as { thumbnailUrl?: string }).thumbnailUrl
                     ?? (clip as { resources?: { thumbnail?: { href?: string } } }).resources?.thumbnail?.href
                     ?? `${privatePathnamePrefix}/${eventVideoclipThumbnail}/${device?.id}/${encodeURIComponent(videoId)}`;
 
@@ -323,6 +325,15 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
             const sources = Array.isArray(rawSources) && rawSources.length > 0
                 ? rawSources.filter((s: string) => ['All', 'Auto'].indexOf(s) < 0) as string[]
                 : undefined;
+            const detectionClassesList = Array.isArray(detectionClasses) ? detectionClasses.filter((c): c is string => typeof c === 'string') : [];
+            // "rules" is a virtual filter for rule artifacts; exclude from detection-class filter
+            const includeRuleArtifacts = detectionClassesList.length === 0 || detectionClassesList.includes('rules');
+            const onlyRulesSelected = detectionClassesList.length > 0 && detectionClassesList.every((c) => c === 'rules');
+            // When only "rules" selected: no detection event matches "rules", so we get empty event groups
+            const detectionClassesForEvents = onlyRulesSelected
+                ? ['rules']
+                : detectionClassesList.filter((c) => c !== 'rules');
+
             const { groups: eventGroups } = await this.getRecordedEventsGroupedPaginated({
                 startTime,
                 endTime,
@@ -330,7 +341,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                 offset: 0,
                 sources: sources && sources.length > 0 ? sources : undefined,
                 cameras: Array.isArray(cameras) ? cameras as string[] : [],
-                detectionClasses: Array.isArray(detectionClasses) ? detectionClasses as string[] : [],
+                detectionClasses: detectionClassesForEvents,
                 eventSource: typeof eventSource === 'string' ? eventSource : 'Auto',
                 filter: typeof filter === 'string' ? filter : '',
                 groupingRange: typeof groupingRange === 'number' ? groupingRange : 60,
@@ -339,25 +350,27 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
             const deviceDirs = await fs.promises.readdir(storagePath).catch(() => []);
             const camerasSet = Array.isArray(cameras) && cameras.length > 0 ? new Set(cameras as string[]) : null;
             const allArtifacts: { deviceId: string; deviceName: string; ruleName: string; ruleType?: string; timestamp: number; imageUrl?: string; gifUrl?: string; videoUrl?: string }[] = [];
-            for (const deviceId of deviceDirs) {
-                const devicePath = path.join(storagePath, deviceId);
-                const stat = await fs.promises.stat(devicePath).catch(() => null);
-                if (!stat?.isDirectory()) continue;
-                const device = sdk.systemManager.getDeviceById(deviceId);
-                const deviceName = (device?.name as string) ?? deviceId;
-                if (camerasSet && !camerasSet.has(deviceName)) continue;
-                const artifacts = await getRuleArtifactsInRange({ storagePath, deviceId, startTimestamp: startTime, endTimestamp: endTime });
-                for (const a of artifacts) {
-                    allArtifacts.push({
-                        deviceId,
-                        deviceName,
-                        ruleName: a.ruleName ?? 'Rule',
-                        ruleType: a.ruleType,
-                        timestamp: a.timestamp,
-                        imageUrl: a.imageUrl,
-                        gifUrl: a.gifUrl,
-                        videoUrl: a.videoUrl,
-                    });
+            if (includeRuleArtifacts) {
+                for (const deviceId of deviceDirs) {
+                    const devicePath = path.join(storagePath, deviceId);
+                    const stat = await fs.promises.stat(devicePath).catch(() => null);
+                    if (!stat?.isDirectory()) continue;
+                    const device = sdk.systemManager.getDeviceById(deviceId);
+                    const deviceName = (device?.name as string) ?? deviceId;
+                    if (camerasSet && !camerasSet.has(deviceName)) continue;
+                    const artifacts = await getRuleArtifactsInRange({ storagePath, deviceId, startTimestamp: startTime, endTimestamp: endTime });
+                    for (const a of artifacts) {
+                        allArtifacts.push({
+                            deviceId,
+                            deviceName,
+                            ruleName: a.ruleName ?? 'Rule',
+                            ruleType: a.ruleType,
+                            timestamp: a.timestamp,
+                            imageUrl: a.imageUrl,
+                            gifUrl: a.gifUrl,
+                            videoUrl: a.videoUrl,
+                        });
+                    }
                 }
             }
             const ruleArtifactsGroups: ApiDetectionGroup[] = allArtifacts.map((a) => {
@@ -412,6 +425,9 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                 detectionClasses: (c as { detectionClasses?: string[] }).detectionClasses,
                 source: (c as { source?: string }).source,
             }));
+            if (videoclips.length > 0) {
+                logger.log(`[GetVideoclips] Returning ${videoclips.length} clips. First thumbnailUrl: ${videoclips[0]?.thumbnailUrl?.slice(0, 150)}...`);
+            }
             return { statusCode: 200, body: { videoclips, total } };
         }
 
@@ -596,8 +612,9 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                         if (evt.label) lblSet.add(evt.label);
                     }
 
+                    // Return only representative event per cluster to reduce payload and improve timeline performance.
                     clusters.push({
-                        events: bucketEvents,
+                        events: [representative],
                         representative,
                         classes: [...clsSet],
                         labels: [...lblSet],
@@ -612,6 +629,36 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
 
             // No events or invalid bucket → return empty clusters
             return { statusCode: 200, body: { clusters: [], motion: allMotion, artifacts: allArtifacts } };
+        }
+
+        /** Get all events in a cluster's time range. Lighter than GetClusteredDayData: loads only the day file(s) covering [startMs, endMs]. */
+        if (apimethod === 'GetClusterEvents') {
+            const { deviceId, startMs, endMs } = (payload ?? {}) as { deviceId?: string; startMs?: number; endMs?: number };
+            if (!deviceId || typeof deviceId !== 'string') {
+                return { statusCode: 400, body: { error: 'deviceId (string) required' } };
+            }
+            const start = typeof startMs === 'number' && Number.isFinite(startMs) ? startMs : undefined;
+            const end = typeof endMs === 'number' && Number.isFinite(endMs) ? endMs : undefined;
+            if (start == null || end == null || start >= end) {
+                return { statusCode: 400, body: { error: 'startMs and endMs (numbers, startMs < endMs) required' } };
+            }
+            const maxSpanMs = 24 * 60 * 60 * 1000;
+            if (end - start > maxSpanMs) {
+                return { statusCode: 400, body: { error: `Time range must be <= ${maxSpanMs / 1000 / 60} minutes` } };
+            }
+            const recorded = await this.getRecordedEventsV2({ startTime: start, endTime: end, deviceIds: [deviceId] });
+            const events = recorded.map((r) => ({
+                id: r.data?.id ?? r.details?.eventId ?? '',
+                timestamp: r.data?.timestamp ?? r.details?.eventTime ?? 0,
+                classes: r.data?.classes ?? [],
+                label: r.data?.label,
+                thumbnailUrl: r.data?.thumbnailUrl ?? '',
+                imageUrl: r.data?.imageUrl ?? '',
+                source: (r.data?.source as string) ?? 'NVR',
+                deviceName: r.data?.deviceName ?? '',
+                deviceId: r.data?.deviceId ?? '',
+            }));
+            return { statusCode: 200, body: { events } };
         }
 
         if (apimethod === 'GetArtifacts') {
@@ -789,5 +836,272 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
         }
 
         return { statusCode: 404, body: { error: `Unknown apimethod: ${apimethod}` } };
+    }
+
+    // --- EventsAppApi interface (socket SDK) ---
+    private async callApi<T>(apimethod: string, payload?: unknown): Promise<T> {
+        const logger = this.plugin.getLogger();
+        logger.info('[Events App] callApi:', apimethod, payload);
+        const { statusCode, body } = await this.handleEventsAppRequest(apimethod, payload);
+        if (statusCode !== 200) {
+            const err = (body as { error?: string })?.error ?? JSON.stringify(body);
+            throw new Error(err);
+        }
+        return body as T;
+    }
+
+    async getConfigs(): Promise<{ cameras: Array<{ id: string; name: string; hasNvr?: boolean; accessorySwitchKinds?: string[] }>; enabledDetectionSources?: string[] }> {
+        return this.callApi('GetConfigs');
+    }
+
+    async getCamerasStatus(): Promise<Record<string, { notificationsEnabled: boolean; isRecording: boolean; isSnapshotsEnabled: boolean; isRebroadcastEnabled: boolean; accessorySwitchStates: Record<string, boolean> }>> {
+        const r = await this.callApi<{ cameras: Record<string, { notificationsEnabled: boolean; isRecording: boolean; isSnapshotsEnabled: boolean; isRebroadcastEnabled: boolean; accessorySwitchStates: Record<string, boolean> }> }>('GetCamerasStatus');
+        return r.cameras ?? {};
+    }
+
+    async getEvents(payload: {
+        fromDate: number;
+        tillDate: number;
+        limit?: number;
+        offset?: number;
+        sources?: string[];
+        cameras?: string[];
+        detectionClasses?: string[];
+        eventSource?: string;
+        filter?: string;
+        groupingRange?: number;
+    }): Promise<{ groups: ApiDetectionGroup[]; total: number }> {
+        return this.callApi('GetEvents', payload);
+    }
+
+    async getVideoclips(payload: {
+        fromDate: number;
+        tillDate: number;
+        limit?: number;
+        offset?: number;
+        cameras?: string[];
+        detectionClasses?: string[];
+    }): Promise<{ videoclips: Array<{ id: string; deviceName?: string; deviceId?: string; videoclipHref?: string; thumbnailUrl?: string; startTime?: number; duration?: number; detectionClasses?: string[]; source?: string }>; total: number }> {
+        return this.callApi('GetVideoclips', payload);
+    }
+
+    async getCameraDayData(payload: { deviceId: string; day: string }): Promise<{ events: unknown[]; motion: unknown[]; artifacts: unknown[] }> {
+        return this.callApi('GetCameraDayData', payload);
+    }
+
+    async getClusteredDayData(payload: {
+        deviceId: string;
+        days: string[];
+        bucketMs?: number;
+        enabledClasses?: string[];
+        classFilter?: string;
+    }): Promise<{ clusters: unknown[]; motion: unknown[]; artifacts: unknown[] }> {
+        return this.callApi('GetClusteredDayData', payload);
+    }
+
+    async getClusterEvents(payload: { deviceId: string; startMs: number; endMs: number }): Promise<{ events: unknown[] }> {
+        return this.callApi('GetClusterEvents', payload);
+    }
+
+    async getArtifacts(payload: { deviceId: string; startTime: number; endTime: number }): Promise<{ artifacts: unknown[] }> {
+        return this.callApi('GetArtifacts', payload);
+    }
+
+    async getLatestRuleArtifacts(payload?: { since?: number }): Promise<{ artifacts: unknown[] }> {
+        return this.callApi('GetLatestRuleArtifacts', payload ?? {});
+    }
+
+    async remoteLog(payload: { content: string }): Promise<void> {
+        await this.callApi('RemoteLog', payload);
+    }
+
+    /**
+     * Get videoclip thumbnail as base64 data. Uses device.getVideoClipThumbnail via SDK.
+     * Prefer this over getAsset for videoclip thumbnails.
+     */
+    async getVideoClipThumbnailData(payload: { deviceId: string; videoId: string }): Promise<{ mimeType: string; data: string }> {
+        const { deviceId, videoId } = payload;
+        const device = sdk.systemManager.getDeviceById<VideoClips>(deviceId);
+        const thumbMo = await device.getVideoClipThumbnail(videoId);
+        const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(thumbMo, 'image/jpeg');
+        return { mimeType: 'image/jpeg', data: jpeg.toString('base64') };
+    }
+
+    /**
+     * Parse NVR videoId to extract startTime and duration.
+     * NVR uses JSON: {"startTime":123,"duration":456} or filename: "123-456-1.mp4".
+     */
+    private parseNvrVideoIdForClip(videoId: string): { startTime: number; duration: number; filename: string } | null {
+        if (!videoId?.trim()) return null;
+        try {
+            const parsed = JSON.parse(videoId) as { startTime?: number; duration?: number };
+            const startTime = parsed?.startTime;
+            const duration = parsed?.duration;
+            if (typeof startTime === 'number' && typeof duration === 'number' && duration > 0) {
+                return { startTime, duration, filename: `${startTime}-${duration}-1.mp4` };
+            }
+        } catch {
+            /* try filename format */
+        }
+        const match = videoId.match(/^(\d+)-(\d+)(?:-\d+)?(?:\.mp4)?$/);
+        if (match) {
+            const startTime = parseInt(match[1], 10);
+            const duration = parseInt(match[2], 10);
+            if (duration > 0) {
+                const filename = videoId.includes('.mp4') ? videoId : `${match[1]}-${match[2]}-1.mp4`;
+                return { startTime, duration, filename };
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Get videoclip as base64 stream via socket. Bypasses CORS.
+     * For NVR: fetches from Scrypted NVR endpoint (convertMediaObjectToBuffer not supported).
+     * For others (Frigate etc): uses convertMediaObjectToBuffer.
+     */
+    async *getVideoClipData(payload: { deviceId: string; videoId: string; username?: string; password?: string }): AsyncGenerator<{ mimeType?: string; data?: string; done?: boolean }> {
+        const { deviceId, videoId, username, password } = payload;
+        const logger = this.getLogger();
+        const CHUNK_SIZE = 64 * 1024;
+        const device = sdk.systemManager.getDeviceById<VideoClips>(deviceId);
+        const nvrParsed = this.parseNvrVideoIdForClip(videoId);
+
+        if (nvrParsed) {
+            const { assetsOrigin, localAssetsOrigin } = await getAssetsParams({ plugin: this.plugin });
+            const base = assetsOrigin || localAssetsOrigin;
+            if (!base) {
+                logger.warn(`[getVideoClipData] NVR: no assetsOrigin, cannot fetch`);
+            } else {
+                const nvrClipUrl = `${base}/endpoint/${NVR_PLUGIN_ID}/clip/${deviceId}/${nvrParsed.filename}`;
+                const authHeader = username && password
+                    ? { Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}` }
+                    : {};
+                logger.log(`[getVideoClipData] NVR: fetching from ${nvrClipUrl.slice(0, 120)}...`);
+                try {
+                    const res = await axios.get<Buffer>(nvrClipUrl, {
+                        responseType: 'arraybuffer',
+                        headers: authHeader,
+                        httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+                    });
+                const buffer = Buffer.from(res.data);
+                if (!buffer?.length) throw new Error('Empty NVR video response');
+                logger.log(`[getVideoClipData] NVR: got ${buffer.length} bytes`);
+                yield { mimeType: 'video/mp4' };
+                let offset = 0;
+                while (offset < buffer.length) {
+                    const slice = buffer.subarray(offset, Math.min(offset + CHUNK_SIZE, buffer.length));
+                    offset += slice.length;
+                    yield { data: slice.toString('base64') };
+                }
+                yield { done: true };
+                return;
+                } catch (e) {
+                    logger.warn(`[getVideoClipData] NVR fetch failed:`, (e as Error)?.message);
+                    throw new Error(`NVR clip fetch failed: ${(e as Error)?.message ?? e}`);
+                }
+            }
+        }
+
+        const mo = await device.getVideoClip(videoId);
+        logger.log(`[getVideoClipData] converting MediaObject to buffer...`);
+        const buffer = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'video/mp4');
+        if (!buffer?.length) throw new Error('Empty video buffer');
+        logger.log(`[getVideoClipData] got ${buffer.length} bytes`);
+        yield { mimeType: 'video/mp4' };
+        let offset = 0;
+        while (offset < buffer.length) {
+            const slice = buffer.subarray(offset, Math.min(offset + CHUNK_SIZE, buffer.length));
+            offset += slice.length;
+            yield { data: slice.toString('base64') };
+        }
+        yield { done: true };
+    }
+
+    /**
+     * Passthrough for image assets (event thumbnails, rule images, clip thumbnails).
+     * Maps onRequest handlers to SDK. Path format: "type/deviceId/id/extra" or "type/deviceId/id".
+     * Returns base64 data for use in data URLs.
+     */
+    async getAsset(payload: { path: string; pathParam?: string }): Promise<{ mimeType: string; data: string }> {
+        const pathStr = payload.path.replace(/^\/+/, '').split('?')[0];
+        const parts = pathStr.split('/');
+
+        const type = parts[0];
+        const deviceId = parts[1] ? decodeURIComponent(parts[1]) : '';
+        const id = parts[2] ? decodeURIComponent(parts[2]) : '';
+        const extra = parts[3] ? decodeURIComponent(parts[3]) : '';
+        const pathParam = payload.pathParam;
+
+        const logger = this.getLogger();
+        logger.log(`[getAsset] IN: path=${payload.path?.slice(0, 120)}, pathParam=${pathParam?.slice(0, 80)}... | parsed: type=${type}, deviceId=${deviceId}, id=${id?.slice(0, 30)}..., extra=${extra}`);
+
+        const toBase64 = (buf: Buffer, mime: string) => ({ mimeType: mime, data: buf.toString('base64') });
+
+        if (type === 'eventVideoclipThumbnail') {
+            const device = sdk.systemManager.getDeviceById<VideoClips>(deviceId);
+            const thumbMo = await device.getVideoClipThumbnail(id);
+            const jpeg = await sdk.mediaManager.convertMediaObjectToBuffer(thumbMo, 'image/jpeg');
+            return toBase64(jpeg, 'image/jpeg');
+        }
+
+        if (type === 'eventThumbnail' || type === 'eventImage') {
+            const source = extra || ScryptedEventSource.RawDetection;
+            const cameraId = this.plugin.currentCameraMixinsMap[deviceId]?.id ?? deviceId;
+            const { eventThumbnailPath, eventImagePath } = this.plugin.getEventPaths({ cameraId, fileName: id });
+            const localPath = type === 'eventThumbnail' ? eventThumbnailPath : eventImagePath;
+
+            if (localPath) {
+                try {
+                    const jpeg = await fs.promises.readFile(localPath);
+                    return toBase64(jpeg, 'image/jpeg');
+                } catch {
+                    /* fall through */
+                }
+            }
+
+            if (source === ScryptedEventSource.NVR && pathParam) {
+                const { localAssetsOrigin } = await getAssetsParams({ plugin: this.plugin });
+                const pathToFetch = (pathParam.startsWith('/') ? pathParam.slice(1) : pathParam);
+                const imageUrl = `${localAssetsOrigin}/${pathToFetch}`;
+                logger.log(`[getAsset] eventThumbnail NVR: fetching ${imageUrl.slice(0, 100)}...`);
+                const res = await axios.get<Buffer>(imageUrl, {
+                    responseType: 'arraybuffer',
+                    httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+                });
+                logger.log(`[getAsset] eventThumbnail NVR: got ${res.data?.length ?? 0} bytes`);
+                return toBase64(Buffer.from(res.data), 'image/jpeg');
+            }
+
+            if (source === ScryptedEventSource.Frigate && this.plugin.frigateApi) {
+                const imagePath = type === 'eventThumbnail' ? 'thumbnail' : 'snapshot';
+                const imageUrl = `${this.plugin.frigateApi}/events/${id}/${imagePath}.jpg`;
+                const res = await axios.get<Buffer>(imageUrl, { responseType: 'arraybuffer' });
+                return toBase64(Buffer.from(res.data), 'image/jpeg');
+            }
+
+            logger.log(`[getAsset] eventThumbnail/eventImage: NOT FOUND - no localPath, source=${source}, hasPathParam=${!!pathParam}`);
+            throw new Error(`Asset not found: ${type}/${deviceId}/${id}`);
+        }
+
+        if (type === 'imageRule' || type === 'recordedClipThumbnail') {
+            const triggerTime = extra ? Number(extra.split('.')[0]) : undefined;
+            const localPath = type === 'imageRule'
+                ? this.plugin.getRulePaths({ cameraId: deviceId, ruleName: id, triggerTime }).imageHistoricalPath
+                : this.plugin.getRecordedEventPath({ cameraId: deviceId, fileName: id.split('.')[0] }).recordedThumbnailPath;
+            if (!localPath) throw new Error(`Asset not found: ${type}/${deviceId}/${id}`);
+            const buf = await fs.promises.readFile(localPath);
+            return toBase64(buf, 'image/jpeg');
+        }
+
+        if (type === 'gifRule') {
+            const triggerTime = extra ? Number(extra.split('.')[0]) : undefined;
+            const { gifHistoricalPath } = this.plugin.getRulePaths({ cameraId: deviceId, ruleName: id, triggerTime });
+            if (!gifHistoricalPath) throw new Error(`Asset not found: ${type}/${deviceId}/${id}`);
+            const buf = await fs.promises.readFile(gifHistoricalPath);
+            return toBase64(buf, 'image/gif');
+        }
+
+        throw new Error(`Unknown asset type: ${type}`);
     }
 }

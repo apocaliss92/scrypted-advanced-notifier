@@ -49,9 +49,31 @@
       "HttpRequestHandler",
       "Videoclips",
       "LauncherApplication",
-      "PushHandler"
+      "PushHandler",
+      "EventsAppApi"
     ],
-    "pluginDependencies": []
+    "pluginDependencies": [],
+    "interfaceDescriptors": {
+      "EventsAppApi": {
+        "name": "EventsAppApi",
+        "methods": [
+          "getConfigs",
+          "getCamerasStatus",
+          "getEvents",
+          "getVideoclips",
+          "getCameraDayData",
+          "getClusteredDayData",
+          "getClusterEvents",
+          "getArtifacts",
+          "getLatestRuleArtifacts",
+          "remoteLog",
+          "getAsset",
+          "getVideoClipThumbnailData",
+          "getVideoClipData"
+        ],
+        "properties": []
+      }
+    }
   },
   "dependencies": {
     "@scrypted/common": "file:../scrypted/common",

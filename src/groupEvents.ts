@@ -64,6 +64,9 @@ export function filterAndGroupEvents(
         return true;
     });
 
+    // Empty detectionClasses = no filter (show all)
+    const hasClassFilter = detectionClasses.length > 0;
+
     const sortedEvents = dedupedEvents
         .filter((event) => {
             const isSourceOk =
@@ -71,13 +74,15 @@ export function filterAndGroupEvents(
                 eventSource === ScryptedEventSource.All ||
                 event.source === eventSource;
 
-            const isClassOk = isOnlyMotion
-                ? event.classes.length === 1 && event.classes[0] === DetectionClass.Motion
-                : event.classes.some(
-                      (c) =>
-                          detectionClasses.includes(c) ||
-                          detectionClasses.includes(detectionClassesDefaultMap[c] ?? '')
-                  );
+            const isClassOk = !hasClassFilter
+                ? true
+                : isOnlyMotion
+                    ? event.classes.length === 1 && event.classes[0] === DetectionClass.Motion
+                    : event.classes.some(
+                          (c) =>
+                              detectionClasses.includes(c) ||
+                              detectionClasses.includes(detectionClassesDefaultMap[c] ?? '')
+                      );
 
             return (
                 isSourceOk &&

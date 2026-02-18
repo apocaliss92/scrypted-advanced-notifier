@@ -6,9 +6,10 @@ export const serveGif = async (props: {
     gifPath: string,
     request: HttpRequest,
     response: HttpResponse,
-    plugin: AdvancedNotifierPlugin
+    plugin: AdvancedNotifierPlugin,
+    corsHeaders?: Record<string, string>,
 }) => {
-    const { gifPath, response, plugin } = props;
+    const { gifPath, response, plugin, corsHeaders = {} } = props;
 
     const logger = plugin.getLogger();
 
@@ -18,7 +19,8 @@ export const serveGif = async (props: {
 
     response.send(gifBuf, {
         headers: {
-            'Content-Type': 'image/gif'
+            'Content-Type': 'image/gif',
+            ...corsHeaders,
         }
     });
     return;
@@ -28,9 +30,10 @@ export const serveImage = async (props: {
     imagePath: string,
     request: HttpRequest,
     response: HttpResponse,
-    plugin: AdvancedNotifierPlugin
+    plugin: AdvancedNotifierPlugin,
+    corsHeaders?: Record<string, string>,
 }) => {
-    const { imagePath, response, plugin } = props;
+    const { imagePath, response, plugin, corsHeaders = {} } = props;
 
     const logger = plugin.getLogger();
 
@@ -40,7 +43,8 @@ export const serveImage = async (props: {
 
     response.send(imageBuf, {
         headers: {
-            'Content-Type': 'image/jpeg'
+            'Content-Type': 'image/jpeg',
+            ...corsHeaders,
         }
     });
     return;
@@ -50,9 +54,10 @@ export const servePluginGeneratedVideoclip = async (props: {
     videoclipPath: string,
     request: HttpRequest,
     response: HttpResponse,
-    plugin: AdvancedNotifierPlugin
+    plugin: AdvancedNotifierPlugin,
+    corsHeaders?: Record<string, string>,
 }) => {
-    const { videoclipPath, request, response, plugin } = props;
+    const { videoclipPath, request, response, plugin, corsHeaders = {} } = props;
     const logger = plugin.getLogger();
 
     const stat = await fs.promises.stat(videoclipPath);
@@ -85,6 +90,7 @@ export const servePluginGeneratedVideoclip = async (props: {
                             'Accept-Ranges': 'bytes',
                             'Content-Length': chunksize,
                             'Content-Type': 'video/mp4',
+                            ...corsHeaders,
                         }
                     });
 
@@ -107,6 +113,7 @@ export const servePluginGeneratedVideoclip = async (props: {
             headers: {
                 'Content-Length': fileSize,
                 'Content-Type': 'video/mp4',
+                ...corsHeaders,
             }
         });
     }

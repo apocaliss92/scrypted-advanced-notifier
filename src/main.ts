@@ -35,6 +35,25 @@ import { parseVideoFileName } from "./videoRecorderUtils";
 
 const { systemManager, mediaManager } = sdk;
 
+/** Parse NVR videoId to filename (startTime-duration-playbackRate.mp4). */
+function parseNvrVideoIdToFilename(videoId: string): string | null {
+    if (!videoId?.trim()) return null;
+    try {
+        const parsed = JSON.parse(videoId) as { startTime?: number; duration?: number; playbackRate?: number };
+        const startTime = parsed?.startTime;
+        const duration = parsed?.duration;
+        if (typeof startTime === 'number' && typeof duration === 'number' && duration > 0) {
+            return `${startTime}-${duration}-${parsed?.playbackRate ?? 1}.mp4`;
+        }
+    } catch { /* try filename format */ }
+    const match = videoId.match(/^(\d+)-(\d+)(?:-\d+)?(?:\.mp4)?$/);
+    if (match) {
+        const duration = parseInt(match[2], 10);
+        if (duration > 0) return videoId.includes('.mp4') ? videoId : `${match[1]}-${match[2]}-1.mp4`;
+    }
+    return null;
+}
+
 interface FrigateData { cameras: string[]; faces: string[]; labels: string[] };
 
 /** Item for the DB write queue (events and motion). */
@@ -820,6 +839,22 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         this.startStop(this.storageSettings.values.pluginEnabled).then().catch(this.getLogger().log);
     }
 
+    // --- EventsAppApi (interfaceDescriptors): proxy to dataFetcher ---
+    private get dataFetcherOrCreate() { return this.dataFetcher ?? (this.dataFetcher = new AdvancedNotifierDataFetcher(DATA_FETCHER_NATIVE_ID, this)); }
+    async getConfigs() { return this.dataFetcherOrCreate.getConfigs(); }
+    async getCamerasStatus() { return { cameras: await this.dataFetcherOrCreate.getCamerasStatus() }; }
+    async getEvents(payload: Parameters<AdvancedNotifierDataFetcher['getEvents']>[0]) { return this.dataFetcherOrCreate.getEvents(payload); }
+    async getVideoclips(payload: Parameters<AdvancedNotifierDataFetcher['getVideoclips']>[0]) { return this.dataFetcherOrCreate.getVideoclips(payload); }
+    async getCameraDayData(payload: Parameters<AdvancedNotifierDataFetcher['getCameraDayData']>[0]) { return this.dataFetcherOrCreate.getCameraDayData(payload); }
+    async getClusteredDayData(payload: Parameters<AdvancedNotifierDataFetcher['getClusteredDayData']>[0]) { return this.dataFetcherOrCreate.getClusteredDayData(payload); }
+    async getClusterEvents(payload: Parameters<AdvancedNotifierDataFetcher['getClusterEvents']>[0]) { return this.dataFetcherOrCreate.getClusterEvents(payload); }
+    async getArtifacts(payload: Parameters<AdvancedNotifierDataFetcher['getArtifacts']>[0]) { return this.dataFetcherOrCreate.getArtifacts(payload); }
+    async getLatestRuleArtifacts(payload?: Parameters<AdvancedNotifierDataFetcher['getLatestRuleArtifacts']>[0]) { return this.dataFetcherOrCreate.getLatestRuleArtifacts(payload); }
+    async remoteLog(payload: { content: string }) { await this.dataFetcherOrCreate.remoteLog(payload); }
+    async getAsset(payload: { path: string }) { return this.dataFetcherOrCreate.getAsset(payload); }
+    async getVideoClipThumbnailData(payload: { deviceId: string; videoId: string }) { return this.dataFetcherOrCreate.getVideoClipThumbnailData(payload); }
+    async getVideoClipData(payload: { deviceId: string; videoId: string; username?: string; password?: string }) { return this.dataFetcherOrCreate.getVideoClipData(payload); }
+
     enqueueCameraAutodiscovery(cameraId: string, task: () => Promise<void>) {
         if (this.cameraAutodiscoveryQueue.find(e => e.cameraId === cameraId)) {
             return;
@@ -1085,25 +1120,47 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     async onRequest(request: HttpRequest, response: HttpResponse): Promise<void> {
+        if (!response) return; // onPush has no response
         const logger = this.getLogger();
         const url = new URL(`http://localhost${request.url}`);
         const pathname = url.pathname || request.url || '';
 
+        const corsHeaders = (): Record<string, string> => {
+            const origin = request.headers?.origin;
+            const h: Record<string, string> = {
+                'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+                'Access-Control-Max-Age': '86400',
+            };
+            if (origin) {
+                h['Access-Control-Allow-Origin'] = origin;
+                h['Access-Control-Allow-Credentials'] = 'true';
+            } else {
+                h['Access-Control-Allow-Origin'] = '*';
+            }
+            return h;
+        };
+        if (request.method?.toLowerCase() === 'options') {
+            response.send('', { code: 200, headers: corsHeaders() });
+            return;
+        }
         const body = safeParseJson(request.body);
-        if (request.method === 'POST' && body?.apimethod && pathname.includes('eventsApp')) {
-            const loginResponse = await checkUserLogin(request);
-            if (!loginResponse) {
-                response.send('Unauthorized', { code: 401 });
+        if (pathname.includes('eventsApp')) {
+            if (request.method === 'POST' && body?.apimethod) {
+                const loginResponse = await checkUserLogin(request);
+                if (!loginResponse) {
+                    response.send('Unauthorized', { code: 401 });
+                    return;
+                }
+                try {
+                    const { statusCode, body: responseBody } = await this.dataFetcher.handleEventsAppRequest(body.apimethod, body.payload);
+                    response.send(JSON.stringify(responseBody), { code: statusCode, headers: { 'Content-Type': 'application/json' } });
+                } catch (e) {
+                    logger.error('EventsApp API error', e);
+                    response.send(JSON.stringify({ error: String((e as Error)?.message ?? e) }), { code: 500, headers: { 'Content-Type': 'application/json' } });
+                }
                 return;
             }
-            try {
-                const { statusCode, body: responseBody } = await this.dataFetcher.handleEventsAppRequest(body.apimethod, body.payload);
-                response.send(JSON.stringify(responseBody), { code: statusCode, headers: { 'Content-Type': 'application/json' } });
-            } catch (e) {
-                logger.error('EventsApp API error', e);
-                response.send(JSON.stringify({ error: String((e as Error)?.message ?? e) }), { code: 500, headers: { 'Content-Type': 'application/json' } });
-            }
-            return;
         }
 
         // SPA: serve app for any path under public/app (e.g. /.../public/app/cameras/269) so deep links and refresh always work
@@ -1184,9 +1241,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 if (webhook === eventsApp) {
                     const loginResponse = await checkUserLogin(request);
                     if (!loginResponse) {
-                        response.send('Unauthorized', {
-                            code: 401
-                        });
+                        response.send('Unauthorized', { code: 401 });
                         return;
                     }
                 }
@@ -1207,9 +1262,21 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 if ([privateWebhook, webhook].includes(eventVideoclip)) {
                     const device = sdk.systemManager.getDeviceById<VideoClips>(deviceIdOrAction);
                     const mo = await device.getVideoClip(decodedRuleNameOrSnoozeIdOrSnapshotId);
-                    let videoUrl = (await mediaManager.convertMediaObjectToBuffer(mo, ScryptedMimeTypes.LocalUrl)).toString();
-                    // const supportH265 = url.searchParams.get('h265');
-                    // const range = request.headers.range;
+                    let videoUrl: string;
+                    let isNvrProxyFallback = false;
+                    try {
+                        videoUrl = (await mediaManager.convertMediaObjectToBuffer(mo, ScryptedMimeTypes.LocalUrl)).toString();
+                    } catch (convertErr) {
+                        const nvrFilename = parseNvrVideoIdToFilename(decodedRuleNameOrSnoozeIdOrSnapshotId);
+                        if (nvrFilename) {
+                            const { localAssetsOrigin } = await getAssetsParams({ plugin: this });
+                            videoUrl = `${localAssetsOrigin}/endpoint/${NVR_PLUGIN_ID}/clip/${deviceIdOrAction}/${nvrFilename}`;
+                            isNvrProxyFallback = true;
+                            this.console.log(`[eventVideoclip] NVR convert failed, proxying from ${videoUrl.slice(0, 80)}...`);
+                        } else {
+                            throw convertErr;
+                        }
+                    }
                     if (videoUrl.startsWith('http')) {
                         const urlEntity = new URL(videoUrl);
                         videoUrl = `${urlEntity.pathname}${urlEntity.search}`;
@@ -1226,7 +1293,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     // Prebuffer NVR clips for iOS/mobile to avoid AVFoundation -11850 streaming issues.
                     // When ?prebuffer=1 is requested, always prebuffer (isNvr can be false if videoUrl
                     // doesn't contain NVR_PLUGIN_ID, e.g. internal NVR URLs).
-                    if ((isNvr || forcePrebuffer) && (isIosOrMobile || forcePrebuffer)) {
+                    // isNvrProxyFallback: always proxy (redirect would 401 on NVR endpoint).
+                    if ((isNvr || forcePrebuffer || isNvrProxyFallback) && (isIosOrMobile || forcePrebuffer || isNvrProxyFallback)) {
                         const fetchHeaders = { ...request.headers } as Record<string, string>;
                         delete fetchHeaders.range;
                         delete fetchHeaders.Range;
@@ -1275,6 +1343,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                                         'Content-Length': chunk.length,
                                         'Content-Range': `bytes ${actualStart}-${actualEnd}/${totalLength}`,
                                         'Accept-Ranges': 'bytes',
+                                        ...corsHeaders(),
                                     },
                                 });
                                 return;
@@ -1286,6 +1355,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                                 'Content-Type': 'video/mp4',
                                 'Content-Length': totalLength,
                                 'Accept-Ranges': 'bytes',
+                                ...corsHeaders(),
                             },
                         });
                         return;
@@ -1309,7 +1379,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         imagePath: imageHistoricalPath,
                         plugin: this,
                         request,
-                        response
+                        response,
                     });
                     return;
                 } else if ([privateWebhook, webhook].includes(gifRule)) {
@@ -1323,7 +1393,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         gifPath: gifHistoricalPath,
                         plugin: this,
                         request,
-                        response
+                        response,
                     });
                     return;
                 } else if ([privateWebhook, webhook].some(hook => [eventThumbnail, eventImage].includes(hook))) {
@@ -1339,7 +1409,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                             response.send(jpeg, {
                                 headers: {
                                     "Content-Type": "image/jpeg",
-                                    "Cache-Control": "max-age=31536000"
+                                    "Cache-Control": "max-age=31536000",
                                 }
                             });
                             return;
@@ -1365,7 +1435,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                             response.send(jpeg.data, {
                                 code: 200,
                                 headers: {
-                                    "Cache-Control": "max-age=31536000"
+                                    "Cache-Control": "max-age=31536000",
                                 }
                             });
                             return;
@@ -1380,7 +1450,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                             code: 200,
                             headers: {
                                 ...jpeg.headers,
-                                "Cache-Control": "max-age=31536000"
+                                "Cache-Control": "max-age=31536000",
                             }
                         });
                         return;
