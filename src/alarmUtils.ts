@@ -367,7 +367,7 @@ export const haAlarmAutomation = {
             "action": "mqtt.publish",
             "data": {
                 "qos": "0",
-                "topic": "scrypted/scrypted-an-alarm-system/alarm-system/set",
+                "topic": "scrypted-an/scrypted-an-alarm-system/alarm-system/set",
                 "payload": "{{ mode }}"
             }
         }

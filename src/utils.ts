@@ -6180,7 +6180,7 @@ export const haSnoozeAutomation = {
       action: "mqtt.publish",
       data: {
         qos: "0",
-        topic: "scrypted/scrypted-an-{{ notifier_id }}/snooze/set",
+        topic: "scrypted-an/scrypted-an-{{ notifier_id }}/snooze/set",
         payload:
           '{"snoozeId":"{{ snooze_id }}","cameraId":"{{ camera_id }}","snoozeTime":"{{ snooze_time}}"}',
       },
