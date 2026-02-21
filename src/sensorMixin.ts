@@ -343,7 +343,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 const { device: cameraDevice } = await this.plugin.getLinkedCamera(this.id);
                 this.plugin.storeEventImage({
                     b64Image,
-                    detections: [{ className: DetectionClass.Sensor, score: 1 }],
+                    detections: [{ className: DetectionClass.Sensor, label: this.supportedSensorType, score: 1 }],
                     device: cameraDevice,
                     triggerDevice: this.sensorDevice,
                     eventSource: ScryptedEventSource.RawDetection,
