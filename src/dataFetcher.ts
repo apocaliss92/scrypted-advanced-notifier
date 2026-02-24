@@ -661,6 +661,43 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
             return { statusCode: 200, body: { events } };
         }
 
+        if (apimethod === 'GetReelEvents') {
+            const { limit = 40, offset = 0, cameras = [] } = (payload ?? {}) as { limit?: number; offset?: number; cameras?: string[] };
+            const tillDate = Date.now();
+            const fromDate = tillDate - 24 * 3600 * 1000;
+            const camerasList = Array.isArray(cameras) ? cameras.filter((c): c is string => typeof c === 'string') : [];
+            const resp = await this.handleEventsAppRequest('GetEvents', {
+                fromDate,
+                tillDate,
+                limit: (limit ?? 40) + (offset ?? 0),
+                offset: 0,
+                cameras: camerasList.length ? camerasList : undefined,
+                groupingRange: 0,
+            });
+            if (resp.statusCode !== 200 || typeof resp.body !== 'object') {
+                return { statusCode: resp.statusCode, body: resp.body };
+            }
+            const body = resp.body as { groups?: ApiDetectionGroup[]; total?: number };
+            const groups = body.groups ?? [];
+            const events: { id: string; camera: string; cameraName: string; label: string; startTime: number; thumbnail?: string; hasClip?: boolean }[] = [];
+            for (const group of groups) {
+                for (const ev of group.events ?? []) {
+                    events.push({
+                        id: ev.id,
+                        camera: ev.deviceId ?? ev.deviceName ?? '',
+                        cameraName: ev.deviceName ?? ev.deviceId ?? '',
+                        label: ev.label ?? 'event',
+                        startTime: ev.timestamp / 1000,
+                        thumbnail: ev.thumbnailUrl || ev.imageUrl || undefined,
+                        hasClip: !!(ev.videoUrl ?? (ev as { videoId?: string }).videoId),
+                    });
+                }
+            }
+            events.sort((a, b) => b.startTime - a.startTime);
+            const sliced = events.slice(offset ?? 0, (offset ?? 0) + (limit ?? 40));
+            return { statusCode: 200, body: { events: sliced, total: events.length } };
+        }
+
         if (apimethod === 'GetArtifacts') {
             const { deviceId, startTime, endTime } = (payload ?? {}) as { deviceId?: string; startTime?: number | string; endTime?: number | string };
             if (!deviceId || typeof deviceId !== 'string') {
@@ -901,6 +938,10 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
 
     async getClusterEvents(payload: { deviceId: string; startMs: number; endMs: number }): Promise<{ events: unknown[] }> {
         return this.callApi('GetClusterEvents', payload);
+    }
+
+    async getReelEvents(payload: { limit?: number; offset?: number; cameras?: string[] }): Promise<{ events: unknown[]; total: number }> {
+        return this.callApi('GetReelEvents', payload);
     }
 
     async getArtifacts(payload: { deviceId: string; startTime: number; endTime: number }): Promise<{ artifacts: unknown[] }> {

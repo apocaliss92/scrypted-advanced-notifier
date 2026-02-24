@@ -69,7 +69,8 @@
           "remoteLog",
           "getAsset",
           "getVideoClipThumbnailData",
-          "getVideoClipData"
+          "getVideoClipData",
+          "getReelEvents"
         ],
         "properties": []
       }

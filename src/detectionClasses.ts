@@ -293,8 +293,9 @@ export const audioClasses: string[] = [DetectionClass.Audio];
 
 export const doorbellClasses = [
     DetectionClass.Doorbell,
-
     'ring',
+    /** YAMNet audio label for doorbell chime */
+    'ding-dong',
 ];
 
 export const isFaceClassname = (classname: string) => faceClasses.includes(classname);

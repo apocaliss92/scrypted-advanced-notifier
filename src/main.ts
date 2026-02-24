@@ -831,10 +831,10 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         this.applicationInfo = {
             name: 'Advanced Notifier',
-            description: 'Events viewer',
+            description: 'CamStack',
             icon: 'fa-play',
-            href: '/endpoint/@apocaliss92/scrypted-advanced-notifier/public/app',
-            cloudHref: '/endpoint/@apocaliss92/scrypted-advanced-notifier/public/app',
+            href: '/endpoint/@apocaliss92/scrypted-advanced-notifier/public/camstack',
+            cloudHref: '/endpoint/@apocaliss92/scrypted-advanced-notifier/public/camstack',
         }
         this.startStop(this.storageSettings.values.pluginEnabled).then().catch(this.getLogger().log);
     }
@@ -848,6 +848,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     async getCameraDayData(payload: Parameters<AdvancedNotifierDataFetcher['getCameraDayData']>[0]) { return this.dataFetcherOrCreate.getCameraDayData(payload); }
     async getClusteredDayData(payload: Parameters<AdvancedNotifierDataFetcher['getClusteredDayData']>[0]) { return this.dataFetcherOrCreate.getClusteredDayData(payload); }
     async getClusterEvents(payload: Parameters<AdvancedNotifierDataFetcher['getClusterEvents']>[0]) { return this.dataFetcherOrCreate.getClusterEvents(payload); }
+    async getReelEvents(payload: Parameters<AdvancedNotifierDataFetcher['getReelEvents']>[0]) { return this.dataFetcherOrCreate.getReelEvents(payload); }
     async getArtifacts(payload: Parameters<AdvancedNotifierDataFetcher['getArtifacts']>[0]) { return this.dataFetcherOrCreate.getArtifacts(payload); }
     async getLatestRuleArtifacts(payload?: Parameters<AdvancedNotifierDataFetcher['getLatestRuleArtifacts']>[0]) { return this.dataFetcherOrCreate.getLatestRuleArtifacts(payload); }
     async remoteLog(payload: { content: string }) { await this.dataFetcherOrCreate.remoteLog(payload); }
@@ -1163,17 +1164,29 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
         }
 
-        // SPA: serve app for any path under public/app (e.g. /.../public/app/cameras/269) so deep links and refresh always work
-        const spaBase = 'public/app';
+        // SPA: serve Camstack for any path under public/camstack (e.g. /.../public/camstack/...) so deep links and refresh work
+        const spaBase = 'public/camstack';
         const spaBaseIndex = pathname.indexOf(spaBase);
         if (spaBaseIndex !== -1) {
             const afterBase = pathname.slice(spaBaseIndex + spaBase.length).replace(/^\/+/, '') || '';
-            const hasFileExtension = /\.(js|css|ico|png|svg|woff2?|ttf|eot|map)(\?|$)/i.test(afterBase);
+            const hasFileExtension = /\.(js|css|ico|png|svg|woff2?|ttf|eot|map|webmanifest|json)(\?|$)/i.test(afterBase);
             if (afterBase && hasFileExtension) {
-                response.sendFile(`dist/${afterBase.split('?')[0]}`);
+                response.sendFile(`camstack/${afterBase.split('?')[0]}`);
             } else {
-                response.sendFile('dist/index.html');
+                response.sendFile('camstack/index.html');
             }
+            return;
+        }
+
+        // LauncherApplication: Scrypted fetches manifest at .../public/manifest.json; serve from camstack so it returns 200 instead of 403
+        if (pathname.includes('public/manifest.json')) {
+            response.sendFile('camstack/manifest.json');
+            return;
+        }
+        // PWA icons: when manifest is at .../public/manifest.json, relative icon paths resolve to .../public/icon-*.png
+        const publicIconMatch = pathname.match(/\/public\/(icon-[^/]+\.png)$/);
+        if (publicIconMatch) {
+            response.sendFile(`camstack/${publicIconMatch[1]}`);
             return;
         }
 
@@ -1237,7 +1250,19 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                     response.sendFile('dist/index.html');
                 }
                 return;
-            } else if ([webhook, privateWebhook].includes(eventsApp)) {
+            }
+            if ([webhook, privateWebhook].includes('camstack')) {
+                // Camstack SPA: served from fs/camstack (same root as dist for events app)
+                const camstackPath = rest.join('/');
+                const hasFileExtension = /\.(js|css|ico|png|svg|woff2?|ttf|eot|map|webmanifest|json)(\?|$)/i.test(camstackPath);
+                if (camstackPath && hasFileExtension) {
+                    response.sendFile(`camstack/${camstackPath.split('?')[0]}`);
+                } else {
+                    response.sendFile('camstack/index.html');
+                }
+                return;
+            }
+            if ([webhook, privateWebhook].includes(eventsApp)) {
                 if (webhook === eventsApp) {
                     const loginResponse = await checkUserLogin(request);
                     if (!loginResponse) {

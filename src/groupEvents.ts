@@ -82,7 +82,10 @@ export function filterAndGroupEvents(
                           (c) =>
                               detectionClasses.includes(c) ||
                               detectionClasses.includes(detectionClassesDefaultMap[c] ?? '')
-                      );
+                      ) ||
+                      (!!event.label &&
+                          (detectionClasses.includes(event.label) ||
+                              detectionClasses.includes(detectionClassesDefaultMap[event.label] ?? '')));
 
             return (
                 isSourceOk &&
@@ -111,22 +114,34 @@ export function filterAndGroupEvents(
         const groupEvents: ApiDetectionEvent[] = [event];
         assigned.add(event.id);
         const groupClasses = new Set(event.classes);
+        if (event.label) {
+            const labelClass = detectionClassesDefaultMap[event.label];
+            if (labelClass) groupClasses.add(labelClass);
+        }
 
         for (const other of sortedEvents) {
             if (assigned.has(other.id) || other.deviceName !== event.deviceName) continue;
             const timeDiff = Math.abs(other.timestamp - event.timestamp);
             if (timeDiff > timeThreshold) continue;
 
-            const shared = other.classes.some(
-                (c) =>
-                    groupClasses.has(detectionClassesDefaultMap[c] ?? c) || groupClasses.has(c)
-            );
+            const shared =
+                other.classes.some(
+                    (c) =>
+                        groupClasses.has(detectionClassesDefaultMap[c] ?? c) || groupClasses.has(c)
+                ) ||
+                (!!other.label &&
+                    (groupClasses.has(detectionClassesDefaultMap[other.label] ?? other.label) ||
+                        groupClasses.has(other.label)));
 
             if (shared) {
                 if (!assigned.has(other.id)) {
                     groupEvents.push(other);
                     assigned.add(other.id);
                     other.classes.forEach((c) => groupClasses.add(c));
+                    if (other.label) {
+                        const labelClass = detectionClassesDefaultMap[other.label];
+                        if (labelClass) groupClasses.add(labelClass);
+                    }
                 }
             }
         }
