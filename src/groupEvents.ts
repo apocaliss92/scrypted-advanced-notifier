@@ -18,6 +18,10 @@ export interface ApiDetectionEvent {
     /** Rule artifact video/gif for expansion dialog. */
     videoUrl?: string;
     gifUrl?: string;
+    /** Raw key event: one varied detection per object with cropped thumbnail. */
+    keyEvent?: boolean;
+    /** URL for key-event cropped thumbnail (when keyEvent is true). */
+    croppedThumbnailUrl?: string;
 }
 
 export interface ApiDetectionGroup {
@@ -87,10 +91,15 @@ export function filterAndGroupEvents(
                           (detectionClasses.includes(event.label) ||
                               detectionClasses.includes(detectionClassesDefaultMap[event.label] ?? '')));
 
+            const isCameraOk = !cameras.length
+                ? true
+                : cameras.includes(event.deviceName)
+                || (!!event.deviceId && cameras.includes(event.deviceId))
+                || cameras.some((c) => c && event.deviceId && (c === event.deviceId || c.endsWith('_' + event.deviceId) || c.includes(event.deviceId)));
             return (
                 isSourceOk &&
                 isClassOk &&
-                (cameras.length ? cameras.includes(event.deviceName) : true) &&
+                isCameraOk &&
                 (filter
                     ? !!(event.label && event.label.toLowerCase().includes(filter.toLowerCase()))
                     : true)
@@ -146,7 +155,13 @@ export function filterAndGroupEvents(
             }
         }
 
-        const representative = groupEvents.reduce((best, cur) => {
+        const rep = groupEvents.reduce((best, cur) => {
+            // Prefer key events (varied detection with cropped thumbnail) when in Auto mode
+            const key1 = !!best.keyEvent;
+            const key2 = !!cur.keyEvent;
+            if (key2 && !key1) return cur;
+            if (key1 && !key2) return best;
+
             const p1 = SOURCE_PRIORITY[best.source] ?? 99;
             const p2 = SOURCE_PRIORITY[cur.source] ?? 99;
             if (p2 < p1) return cur;
@@ -157,6 +172,9 @@ export function filterAndGroupEvents(
             if (hasLabel1 && !hasLabel2) return best;
             return best;
         });
+        const representative = rep.croppedThumbnailUrl
+            ? { ...rep, thumbnailUrl: rep.croppedThumbnailUrl }
+            : rep;
 
         const classes = uniq(groupEvents.flatMap((e) => e.classes));
         groups.push({

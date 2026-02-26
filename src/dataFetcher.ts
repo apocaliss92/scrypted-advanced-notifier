@@ -6,7 +6,7 @@ import path from 'path';
 import sdk, { EventRecorder, MediaObject, RecordedEvent, RecordedEventOptions, ScryptedDeviceBase, ScryptedInterface, ScryptedMimeTypes, Setting, Settings, SettingValue, VideoClip, VideoClipOptions, VideoClips, VideoClipThumbnailOptions } from '@scrypted/sdk';
 import { StorageSettings, StorageSettingsDict } from '@scrypted/sdk/storage-settings';
 import { DbDetectionEvent, getEventsInRange, getMotionInRange } from './db';
-import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap } from './detectionClasses';
+import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, isMotionClassname } from './detectionClasses';
 import { ApiDetectionEvent, ApiDetectionGroup, filterAndGroupEvents, GroupingParams, RULE_ARTIFACT_SOURCE } from './groupEvents';
 import AdvancedNotifierPlugin from './main';
 import { getRuleArtifactsInRange } from './rulesRegister';
@@ -37,8 +37,8 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
      * V2: returns only events from plugin DBs (NVR/Frigate/Raw are already saved there).
      * Builds direct thumbnail/image URLs. Use this for GetEvents and timeline (GetCameraDayData).
      */
-    async getRecordedEventsV2(options: RecordedEventOptions & { sources?: string[]; deviceIds?: string[] }): Promise<RecordedEvent[]> {
-        const { endTime, startTime, sources, deviceIds } = options;
+    async getRecordedEventsV2(options: RecordedEventOptions & { sources?: string[]; deviceIds?: string[]; keyEventsOnlyForRaw?: boolean }): Promise<RecordedEvent[]> {
+        const { endTime, startTime, sources, deviceIds, keyEventsOnlyForRaw } = options;
         const logger = this.getLogger();
         const { storagePath } = this.plugin.getEventPaths({});
         const [{ privatePathnamePrefix }, { eventThumbnail, eventImage }] = await Promise.all([
@@ -59,6 +59,9 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
             const source = sourceStr(e);
             const thumbnailUrl = `${privatePathnamePrefix}/${eventThumbnail}/${devId}/${eventId}/${source}`;
             const imageUrl = `${privatePathnamePrefix}/${eventImage}/${devId}/${eventId}/${source}`;
+            const croppedThumbnailUrl = (e.keyEvent && e.croppedImageUrl)
+                ? `${privatePathnamePrefix}/${eventThumbnail}/${devId}/${e.croppedImageUrl}/${source}`
+                : undefined;
             return {
                 details: {
                     eventId: e.id,
@@ -68,6 +71,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                     ...e,
                     thumbnailUrl,
                     imageUrl,
+                    ...(croppedThumbnailUrl && { croppedThumbnailUrl }),
                 },
             };
         });
@@ -76,6 +80,11 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
             const sourceSet = new Set(sources);
             filtered = events.filter((e) => e.data?.source && sourceSet.has(e.data.source as string));
         }
+        if (keyEventsOnlyForRaw) {
+            filtered = filtered.filter((e) =>
+                (e.data?.source as string) !== ScryptedEventSource.RawDetection || e.data?.keyEvent === true,
+            );
+        }
         filtered.sort((a, b) => (b.data?.timestamp ?? 0) - (a.data?.timestamp ?? 0));
         return filtered;
     }
@@ -83,7 +92,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
     /**
      * @deprecated Use getRecordedEventsV2. This plugin saves all events (NVR/Frigate/Raw) to DBs; V2 reads only from DBs and builds direct URLs.
      */
-    async getRecordedEvents(options: RecordedEventOptions & { sources?: string[] }): Promise<RecordedEvent[]> {
+    async getRecordedEvents(options: RecordedEventOptions & { sources?: string[]; keyEventsOnlyForRaw?: boolean }): Promise<RecordedEvent[]> {
         return this.getRecordedEventsV2(options);
     }
 
@@ -110,6 +119,8 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
             source: (r.data?.source as string) ?? 'NVR',
             deviceName: r.data?.deviceName ?? '',
             deviceId: r.data?.deviceId,
+            ...(r.data?.keyEvent && { keyEvent: true }),
+            ...(r.data?.croppedThumbnailUrl && { croppedThumbnailUrl: r.data.croppedThumbnailUrl }),
         };
     }
 
@@ -118,10 +129,11 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
             limit?: number;
             offset?: number;
             sources?: string[];
+            keyEventsOnlyForRaw?: boolean;
         } & GroupingParams
     ): Promise<{ groups: ApiDetectionGroup[]; total: number }> {
-        const { limit, offset = 0, sources, cameras = [], detectionClasses = [], eventSource, filter = '', groupingRange = 60, ...rest } = options;
-        const allRecorded = await this.getRecordedEvents({ ...rest, sources } as RecordedEventOptions & { sources?: string[] });
+        const { limit, offset = 0, sources, keyEventsOnlyForRaw, cameras = [], detectionClasses = [], eventSource, filter = '', groupingRange = 60, ...rest } = options;
+        const allRecorded = await this.getRecordedEvents({ ...rest, sources, keyEventsOnlyForRaw } as RecordedEventOptions & { sources?: string[]; keyEventsOnlyForRaw?: boolean });
         const apiEvents: ApiDetectionEvent[] = allRecorded.map((r) => this.recordedToApiEvent(r));
         const allGroups = filterAndGroupEvents(apiEvents, {
             cameras,
@@ -200,7 +212,12 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
         const isOnlyMotion = detectionClassesFilter?.length === 1 && detectionClassesFilter[0] === DetectionClass.Motion;
 
         const filtered = allClips.filter((clip) => {
-            const includeCamera = !camerasFilter?.length || (clip.deviceName && camerasFilter.includes(clip.deviceName));
+            const includeCamera = !camerasFilter?.length || camerasFilter.some((c) => {
+                if (!c) return false;
+                if (clip.deviceId && (c === clip.deviceId || c.endsWith('_' + clip.deviceId) || c.includes(clip.deviceId))) return true;
+                if (clip.deviceName && c === clip.deviceName) return true;
+                return false;
+            });
             if (!includeCamera) return false;
 
             const clipClasses = clip.detectionClasses ?? [];
@@ -345,6 +362,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                 eventSource: typeof eventSource === 'string' ? eventSource : 'Auto',
                 filter: typeof filter === 'string' ? filter : '',
                 groupingRange: typeof groupingRange === 'number' ? groupingRange : 60,
+                keyEventsOnlyForRaw: true,
             });
             const { storagePath } = plugin.getEventPaths({});
             const deviceDirs = await fs.promises.readdir(storagePath).catch(() => []);
@@ -397,6 +415,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
             );
             const total = merged.length;
             const groups = merged.slice(offsetNum, offsetNum + limitNum);
+            logger.info(`[GetEvents] keyEventsOnlyForRaw=true, eventGroups=${eventGroups.length}, ruleArtifacts=${ruleArtifactsGroups.length}, merged=${total}, returned=${groups.length}, cameras=${JSON.stringify(cameras)}`);
             return { statusCode: 200, body: { groups, total } };
         }
 
@@ -426,7 +445,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                 source: (c as { source?: string }).source,
             }));
             if (videoclips.length > 0) {
-                logger.log(`[GetVideoclips] Returning ${videoclips.length} clips. First thumbnailUrl: ${videoclips[0]?.thumbnailUrl?.slice(0, 150)}...`);
+                logger.info(`[GetVideoclips] Returning ${videoclips.length} clips. First thumbnailUrl: ${videoclips[0]?.thumbnailUrl?.slice(0, 150)}...`);
             }
             return { statusCode: 200, body: { videoclips, total } };
         }
@@ -443,7 +462,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
             const endOfDay = moment(day, 'YYYYMMDD').endOf('day').valueOf();
             const { storagePath } = plugin.getEventPaths({});
             const [recorded, motion, artifacts] = await Promise.all([
-                this.getRecordedEventsV2({ startTime: startOfDay, endTime: endOfDay, deviceIds: [deviceId] }),
+                this.getRecordedEventsV2({ startTime: startOfDay, endTime: endOfDay, deviceIds: [deviceId], keyEventsOnlyForRaw: true }),
                 getMotionInRange({ startTimestamp: startOfDay, endTimestamp: endOfDay, storagePath, deviceIds: [deviceId] }),
                 getRuleArtifactsInRange({ storagePath, deviceId, startTimestamp: startOfDay, endTimestamp: endOfDay }),
             ]);
@@ -452,12 +471,14 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                 timestamp: r.data?.timestamp ?? r.details?.eventTime ?? 0,
                 classes: r.data?.classes ?? [],
                 label: r.data?.label,
-                thumbnailUrl: r.data?.thumbnailUrl ?? '',
+                thumbnailUrl: (r.data?.croppedThumbnailUrl ?? r.data?.thumbnailUrl) ?? '',
                 imageUrl: r.data?.imageUrl ?? '',
                 source: (r.data?.source as string) ?? 'NVR',
                 deviceName: r.data?.deviceName ?? '',
                 deviceId: r.data?.deviceId ?? '',
                 detections: r.data?.detections ?? [],
+                keyEvent: r.data?.keyEvent,
+                croppedThumbnailUrl: r.data?.croppedThumbnailUrl,
             }));
             return { statusCode: 200, body: { events, motion, artifacts } };
         }
@@ -486,35 +507,54 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
             // Fetch events, motion, and artifacts for all requested days in parallel
             const dayResults = await Promise.all(
                 (days as string[]).map(async (day: string) => {
-                    if (!moment(day, 'YYYYMMDD').isValid()) return { events: [], motion: [], artifacts: [] };
+                    if (!moment(day, 'YYYYMMDD').isValid()) return { events: [], allRawEvents: [], motion: [], artifacts: [] };
                     const startOfDay = moment(day, 'YYYYMMDD').startOf('day').valueOf();
                     const endOfDay = moment(day, 'YYYYMMDD').endOf('day').valueOf();
-                    const [recorded, motion, artifacts] = await Promise.all([
-                        this.getRecordedEventsV2({ startTime: startOfDay, endTime: endOfDay, deviceIds: [deviceId as string] }),
+                    // Clusters are based only on raw key events; only RawDetection source is used.
+                    const [recordedKey, recordedAllRaw, motion, artifacts] = await Promise.all([
+                        this.getRecordedEventsV2({
+                            startTime: startOfDay,
+                            endTime: endOfDay,
+                            deviceIds: [deviceId as string],
+                            sources: [ScryptedEventSource.RawDetection],
+                            keyEventsOnlyForRaw: true,
+                        }),
+                        this.getRecordedEventsV2({
+                            startTime: startOfDay,
+                            endTime: endOfDay,
+                            deviceIds: [deviceId as string],
+                            sources: [ScryptedEventSource.RawDetection],
+                            keyEventsOnlyForRaw: false,
+                        }),
                         getMotionInRange({ startTimestamp: startOfDay, endTimestamp: endOfDay, storagePath, deviceIds: [deviceId as string] }),
                         getRuleArtifactsInRange({ storagePath, deviceId: deviceId as string, startTimestamp: startOfDay, endTimestamp: endOfDay }),
                     ]);
-                    const events = recorded.map((r) => ({
+                    const toEvent = (r: RecordedEvent) => ({
                         id: r.data?.id ?? r.details?.eventId ?? '',
                         timestamp: r.data?.timestamp ?? r.details?.eventTime ?? 0,
                         classes: r.data?.classes ?? [] as string[],
                         label: r.data?.label as string | undefined,
-                        thumbnailUrl: r.data?.thumbnailUrl ?? '',
+                        thumbnailUrl: (r.data?.croppedThumbnailUrl ?? r.data?.thumbnailUrl) ?? '',
                         imageUrl: r.data?.imageUrl ?? '',
-                        source: (r.data?.source as string) ?? 'NVR',
+                        source: (r.data?.source as string) ?? ScryptedEventSource.RawDetection,
                         deviceName: r.data?.deviceName ?? '',
                         deviceId: r.data?.deviceId ?? '',
-                    }));
-                    return { events, motion, artifacts };
+                    });
+                    const events = recordedKey.map(toEvent);
+                    const allRawEvents = recordedAllRaw.map(toEvent);
+                    return { events, allRawEvents, motion, artifacts };
                 }),
             );
 
-            // Merge all days
-            let allEvents: typeof dayResults[0]['events'] = [];
+            // Merge all days: key events for cluster base, all raw for re-cluster fill
+            type DayEvent = { id: string; timestamp: number; classes: string[]; label?: string; thumbnailUrl: string; imageUrl: string; source: string; deviceName: string; deviceId: string };
+            let allEvents: DayEvent[] = [];
+            let allRawEvents: DayEvent[] = [];
             let allMotion: typeof dayResults[0]['motion'] = [];
             let allArtifacts: typeof dayResults[0]['artifacts'] = [];
             for (const dr of dayResults) {
                 allEvents.push(...dr.events);
+                allRawEvents.push(...(dr as { allRawEvents?: DayEvent[] }).allRawEvents ?? []);
                 allMotion.push(...dr.motion);
                 allArtifacts.push(...dr.artifacts);
             }
@@ -612,9 +652,16 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                         if (evt.label) lblSet.add(evt.label);
                     }
 
-                    // Return only representative event per cluster to reduce payload and improve timeline performance.
+                    // Re-cluster: fill cluster with all raw events in [startMs, endMs], representative first
+                    const inRange = allRawEvents.filter(
+                        (e) => e.timestamp >= startMs && e.timestamp < endMs,
+                    );
+                    const repId = representative.id;
+                    const sortedEvents = inRange.length === 0
+                        ? [representative]
+                        : [representative, ...inRange.filter((e) => e.id !== repId).sort((a, b) => a.timestamp - b.timestamp)];
                     clusters.push({
-                        events: [representative],
+                        events: sortedEvents,
                         representative,
                         classes: [...clsSet],
                         labels: [...lblSet],
@@ -646,13 +693,13 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
             if (end - start > maxSpanMs) {
                 return { statusCode: 400, body: { error: `Time range must be <= ${maxSpanMs / 1000 / 60} minutes` } };
             }
-            const recorded = await this.getRecordedEventsV2({ startTime: start, endTime: end, deviceIds: [deviceId] });
+            const recorded = await this.getRecordedEventsV2({ startTime: start, endTime: end, deviceIds: [deviceId], keyEventsOnlyForRaw: true });
             const events = recorded.map((r) => ({
                 id: r.data?.id ?? r.details?.eventId ?? '',
                 timestamp: r.data?.timestamp ?? r.details?.eventTime ?? 0,
                 classes: r.data?.classes ?? [],
                 label: r.data?.label,
-                thumbnailUrl: r.data?.thumbnailUrl ?? '',
+                thumbnailUrl: (r.data?.croppedThumbnailUrl ?? r.data?.thumbnailUrl) ?? '',
                 imageUrl: r.data?.imageUrl ?? '',
                 source: (r.data?.source as string) ?? 'NVR',
                 deviceName: r.data?.deviceName ?? '',
@@ -662,10 +709,11 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
         }
 
         if (apimethod === 'GetReelEvents') {
-            const { limit = 40, offset = 0, cameras = [] } = (payload ?? {}) as { limit?: number; offset?: number; cameras?: string[] };
+            const { limit = 40, offset = 0, cameras = [], eventSource = 'Auto' } = (payload ?? {}) as { limit?: number; offset?: number; cameras?: string[]; eventSource?: string };
             const tillDate = Date.now();
             const fromDate = tillDate - 24 * 3600 * 1000;
             const camerasList = Array.isArray(cameras) ? cameras.filter((c): c is string => typeof c === 'string') : [];
+            logger.info(`[GetReelEvents] request limit=${limit} offset=${offset} cameras=${camerasList.length} eventSource=${eventSource}`);
             const resp = await this.handleEventsAppRequest('GetEvents', {
                 fromDate,
                 tillDate,
@@ -673,28 +721,77 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                 offset: 0,
                 cameras: camerasList.length ? camerasList : undefined,
                 groupingRange: 0,
+                eventSource: typeof eventSource === 'string' ? eventSource : 'Auto',
             });
             if (resp.statusCode !== 200 || typeof resp.body !== 'object') {
+                logger.info(`[GetReelEvents] GetEvents failed statusCode=${resp.statusCode}`);
                 return { statusCode: resp.statusCode, body: resp.body };
             }
+            type ReelEv = { id: string; camera: string; cameraName: string; label: string; startTime: number; thumbnail?: string; croppedThumbnailUrl?: string; hasClip?: boolean; gifUrl?: string; videoUrl?: string; imageUrl?: string; classes?: string[] };
+            const events: ReelEv[] = [];
             const body = resp.body as { groups?: ApiDetectionGroup[]; total?: number };
             const groups = body.groups ?? [];
-            const events: { id: string; camera: string; cameraName: string; label: string; startTime: number; thumbnail?: string; hasClip?: boolean }[] = [];
+            logger.info(`[GetReelEvents] GetEvents ok groups=${groups.length}`);
             for (const group of groups) {
                 for (const ev of group.events ?? []) {
+                    const evClasses = (ev as { classes?: string[] }).classes ?? [];
+                    const isMotionOnly = evClasses.length > 0 && evClasses.every((c) => isMotionClassname(c));
+                    const cropped = isMotionOnly ? undefined : (ev as { croppedThumbnailUrl?: string }).croppedThumbnailUrl;
+                    const thumb = cropped || ev.thumbnailUrl || ev.imageUrl || undefined;
+                    const label = ev.label ?? evClasses?.[0] ?? 'event';
                     events.push({
                         id: ev.id,
                         camera: ev.deviceId ?? ev.deviceName ?? '',
                         cameraName: ev.deviceName ?? ev.deviceId ?? '',
-                        label: ev.label ?? 'event',
+                        label,
                         startTime: ev.timestamp / 1000,
-                        thumbnail: ev.thumbnailUrl || ev.imageUrl || undefined,
+                        thumbnail: thumb,
+                        ...(cropped && { croppedThumbnailUrl: cropped }),
                         hasClip: !!(ev.videoUrl ?? (ev as { videoId?: string }).videoId),
+                        gifUrl: (ev as { gifUrl?: string }).gifUrl,
+                        videoUrl: ev.videoUrl ?? undefined,
+                        imageUrl: ev.imageUrl ?? (thumb ? thumb : undefined),
+                        ...(evClasses.length > 0 && { classes: evClasses }),
+                    });
+                }
+            }
+            // Rule artifacts: same time range, display order gif > video > image
+            const { storagePath } = plugin.getEventPaths({});
+            const deviceDirsForArtifacts = await fs.promises.readdir(storagePath).catch(() => []);
+            const camerasSet = camerasList.length > 0 ? new Set(camerasList) : null;
+            for (const deviceId of deviceDirsForArtifacts) {
+                const devicePath = path.join(storagePath, deviceId);
+                const stat = await fs.promises.stat(devicePath).catch(() => null);
+                if (!stat?.isDirectory()) continue;
+                const device = sdk.systemManager.getDeviceById(deviceId);
+                const deviceName = (device?.name as string) ?? deviceId;
+                const matchesCamera = !camerasSet
+                    ? true
+                    : camerasSet.has(deviceName)
+                    || camerasSet.has(deviceId)
+                    || [...camerasSet].some((c) => c && (c === deviceId || c.endsWith('_' + deviceId) || c.includes(deviceId)));
+                if (!matchesCamera) continue;
+                const artifacts = await getRuleArtifactsInRange({ storagePath, deviceId, startTimestamp: fromDate, endTimestamp: tillDate });
+                for (const a of artifacts) {
+                    const thumbnail = a.gifUrl ?? a.videoUrl ?? a.imageUrl;
+                    events.push({
+                        id: `rule-${deviceId}-${(a.ruleName ?? '').replace(/\|/g, '-')}-${a.timestamp}`,
+                        camera: deviceId,
+                        cameraName: deviceName,
+                        label: a.ruleName ?? 'rule',
+                        startTime: a.timestamp / 1000,
+                        thumbnail,
+                        hasClip: !!(a.gifUrl || a.videoUrl),
+                        gifUrl: a.gifUrl,
+                        videoUrl: a.videoUrl,
+                        imageUrl: a.imageUrl,
+                        classes: ['rules'],
                     });
                 }
             }
             events.sort((a, b) => b.startTime - a.startTime);
             const sliced = events.slice(offset ?? 0, (offset ?? 0) + (limit ?? 40));
+            logger.info(`[GetReelEvents] response events=${sliced.length} total=${events.length}`);
             return { statusCode: 200, body: { events: sliced, total: events.length } };
         }
 
@@ -780,7 +877,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
             const recordedBySource = await Promise.all([
                 this.getRecordedEventsV2({ startTime: since, endTime: end, sources: [ScryptedEventSource.NVR] }),
                 this.getRecordedEventsV2({ startTime: since, endTime: end, sources: [ScryptedEventSource.Frigate] }),
-                this.getRecordedEventsV2({ startTime: since, endTime: end, sources: [ScryptedEventSource.RawDetection] }),
+                this.getRecordedEventsV2({ startTime: since, endTime: end, sources: [ScryptedEventSource.RawDetection], keyEventsOnlyForRaw: true }),
             ]);
             const nvrSlice = recordedBySource[0].slice(0, limitPerSource);
             const frigateSlice = recordedBySource[1].slice(0, limitPerSource);
@@ -791,7 +888,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                 const deviceId = r.data?.deviceId ?? '';
                 const deviceName = r.data?.deviceName ?? deviceId;
                 const timestamp = r.data?.timestamp ?? r.details?.eventTime ?? 0;
-                const imageUrl = r.data?.imageUrl ?? r.data?.thumbnailUrl ?? '';
+                const imageUrl = (r.data?.croppedThumbnailUrl ?? r.data?.imageUrl ?? r.data?.thumbnailUrl) ?? '';
                 const ruleName = (r.data?.label as string) || source;
                 const classes = (r.data?.classes as string[]) ?? [DetectionClass.Motion];
                 return { id, deviceId, deviceName, ruleName, timestamp, imageUrl, source, classes };
@@ -1018,7 +1115,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                 const authHeader = username && password
                     ? { Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}` }
                     : {};
-                logger.log(`[getVideoClipData] NVR: fetching from ${nvrClipUrl.slice(0, 120)}...`);
+                logger.info(`[getVideoClipData] NVR: fetching from ${nvrClipUrl.slice(0, 120)}...`);
                 try {
                     const res = await axios.get<Buffer>(nvrClipUrl, {
                         responseType: 'arraybuffer',
@@ -1027,7 +1124,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                     });
                 const buffer = Buffer.from(res.data);
                 if (!buffer?.length) throw new Error('Empty NVR video response');
-                logger.log(`[getVideoClipData] NVR: got ${buffer.length} bytes`);
+                logger.info(`[getVideoClipData] NVR: got ${buffer.length} bytes`);
                 yield { mimeType: 'video/mp4' };
                 let offset = 0;
                 while (offset < buffer.length) {
@@ -1045,10 +1142,10 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
         }
 
         const mo = await device.getVideoClip(videoId);
-        logger.log(`[getVideoClipData] converting MediaObject to buffer...`);
+        logger.info(`[getVideoClipData] converting MediaObject to buffer...`);
         const buffer = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'video/mp4');
         if (!buffer?.length) throw new Error('Empty video buffer');
-        logger.log(`[getVideoClipData] got ${buffer.length} bytes`);
+        logger.info(`[getVideoClipData] got ${buffer.length} bytes`);
         yield { mimeType: 'video/mp4' };
         let offset = 0;
         while (offset < buffer.length) {
@@ -1075,7 +1172,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
         const pathParam = payload.pathParam;
 
         const logger = this.getLogger();
-        logger.log(`[getAsset] IN: path=${payload.path?.slice(0, 120)}, pathParam=${pathParam?.slice(0, 80)}... | parsed: type=${type}, deviceId=${deviceId}, id=${id?.slice(0, 30)}..., extra=${extra}`);
+        logger.info(`[getAsset] IN: path=${payload.path?.slice(0, 120)}, pathParam=${pathParam?.slice(0, 80)}... | parsed: type=${type}, deviceId=${deviceId}, id=${id?.slice(0, 30)}..., extra=${extra}`);
 
         const toBase64 = (buf: Buffer, mime: string) => ({ mimeType: mime, data: buf.toString('base64') });
 
@@ -1105,12 +1202,12 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                 const { localAssetsOrigin } = await getAssetsParams({ plugin: this.plugin });
                 const pathToFetch = (pathParam.startsWith('/') ? pathParam.slice(1) : pathParam);
                 const imageUrl = `${localAssetsOrigin}/${pathToFetch}`;
-                logger.log(`[getAsset] eventThumbnail NVR: fetching ${imageUrl.slice(0, 100)}...`);
+                logger.info(`[getAsset] eventThumbnail NVR: fetching ${imageUrl.slice(0, 100)}...`);
                 const res = await axios.get<Buffer>(imageUrl, {
                     responseType: 'arraybuffer',
                     httpsAgent: new https.Agent({ rejectUnauthorized: false }),
                 });
-                logger.log(`[getAsset] eventThumbnail NVR: got ${res.data?.length ?? 0} bytes`);
+                logger.info(`[getAsset] eventThumbnail NVR: got ${res.data?.length ?? 0} bytes`);
                 return toBase64(Buffer.from(res.data), 'image/jpeg');
             }
 
@@ -1121,7 +1218,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                 return toBase64(Buffer.from(res.data), 'image/jpeg');
             }
 
-            logger.log(`[getAsset] eventThumbnail/eventImage: NOT FOUND - no localPath, source=${source}, hasPathParam=${!!pathParam}`);
+            logger.info(`[getAsset] eventThumbnail/eventImage: NOT FOUND - no localPath, source=${source}, hasPathParam=${!!pathParam}`);
             throw new Error(`Asset not found: ${type}/${deviceId}/${id}`);
         }
 

@@ -16,12 +16,14 @@ export type DbDetectionEvent = {
   label?: string;
   thumbnailUrl?: string;
   imageUrl?: string;
+  croppedImageUrl?: string;
   videoUrl?: string;
   source: ScryptedEventSource;
   deviceName: string;
   deviceId: string;
   sensorName?: string;
   detections: ObjectDetectionResult[];
+  keyEvent?: boolean;
 }
 
 /** Motion on/off transition; stored in same JSON as events (path: /motion). */

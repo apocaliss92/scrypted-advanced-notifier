@@ -3020,6 +3020,8 @@ export class AdvancedNotifierCameraMixin
           }
         } else if (reason === GetImageReason.AccumulatedDetections) {
           runners = [checkDecoder, checkDetector, checkSnapshot];
+        } else if (reason === GetImageReason.MotionUpdate) {
+          runners = [checkDecoder, checkVeryRecent, checkLatest, checkSnapshot];
         } else if (forceLatest) {
           runners = [checkDecoder, checkVeryRecent, checkLatest];
         } else if (preferLatest) {
@@ -3027,6 +3029,8 @@ export class AdvancedNotifierCameraMixin
         } else if (isQuickNotification) {
           if (tryDetector) {
             runners = [checkDetector, checkDecoder, checkLatest, checkSnapshot];
+          } else {
+            runners = [checkDecoder, checkVeryRecent, checkLatest, checkSnapshot];
           }
         } else if (tryDetector) {
           runners = [
@@ -5340,6 +5344,12 @@ export class AdvancedNotifierCameraMixin
     this.mixinState.detectionIdEventIdMap[detectionId] = eventId;
     const classnamesLog = getDetectionsLog(detections);
 
+    const isMotionOnly =
+      eventSource === ScryptedEventSource.RawDetection &&
+      candidates.every((c) => isMotionClassname(c.className)) &&
+      !detectionId &&
+      !eventId;
+
     const {
       b64Image: decoderB64ImagFound,
       image: decoderImageFound,
@@ -5351,7 +5361,9 @@ export class AdvancedNotifierCameraMixin
         ? GetImageReason.ObjectUpdate
         : isDetectionFromFrigate
           ? GetImageReason.FromFrigate
-          : GetImageReason.QuickNotification,
+          : isMotionOnly
+            ? GetImageReason.MotionUpdate
+            : GetImageReason.QuickNotification,
       skipResize: true,
     });
 
@@ -5579,6 +5591,7 @@ export class AdvancedNotifierCameraMixin
             image: storeImage,
             eventId: storeEventId,
             detectionId,
+            inputDimensions: detect?.inputDimensions,
           })
           .catch(logger.error);
       }

@@ -22,8 +22,10 @@ import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierDataFetcher } from "./dataFetcher";
 import type { DbDetectionEvent, DbMotionEvent } from "./db";
 import { cleanupEvents, cleanupOldDeviceDbs, migrateDbsToPerDevice, writeEventsAndMotionBatch } from "./db";
-import { DetectionClass, detectionClassesDefaultMap, isLabelDetection, isMotionClassname, isPlateClassname } from "./detectionClasses";
+import { cropImageToDetection } from "./drawingUtils";
+import { DetectionClass, detectionClassesDefaultMap, isAudioClassname, isDoorbellClassname, isLabelDetection, isMotionClassname, isPlateClassname } from "./detectionClasses";
 import { serveGif, serveImage, servePluginGeneratedVideoclip } from "./httpUtils";
+import { selectKeyEventDetection, toPixelBbox } from "./keyEventAlgorithm";
 import { idPrefix, publishPluginValues, publishRuleEnabled, resetAllPluginMqttTopicsAndRediscover, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
@@ -141,6 +143,12 @@ export type PluginSettingKey =
 export default class AdvancedNotifierPlugin extends BasePlugin implements MixinProvider, HttpRequestHandler, DeviceProvider, PushHandler, LauncherApplication {
     private clearVideoclipsQueue: { deviceId: string; task: () => Promise<void> }[] = [];
     private processingClearVideoclips = false;
+    /** Per-device set of object ids already saved as key events (RawDetection); never save same id twice. */
+    private keyEventObjectIdsByDevice: Record<string, Set<string>> = {};
+    /** Per-device timestamp of last audio key event (min 1 minute between audio key events). */
+    private lastAudioKeyEventTimestampByDevice: Record<string, number> = {};
+    /** Per-device timestamp of last key event (any type); used to allow motion-only key event after 2 min gap. */
+    private lastKeyEventTimestampByDevice: Record<string, number> = {};
 
     initStorage: StorageSettingsDict<PluginSettingKey> = {
         ...getBaseSettings({
@@ -5596,7 +5604,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         timestamp: number,
         eventSource: ScryptedEventSource,
         eventId?: string,
-        detectionId?: string
+        detectionId?: string,
+        inputDimensions?: [number, number],
     }) {
         const {
             triggerDevice,
@@ -5608,7 +5617,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             eventSource,
             image,
             eventId,
-            detectionId
+            detectionId,
+            inputDimensions,
         } = props;
         const classNames = uniq(detections.map(det => det.className));
         const label = detections.find(det => det.label)?.label;
@@ -5667,7 +5677,88 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const smallB64Image = await moToB64(resizedImage);
         const smallBase64Data = smallB64Image.replace(/^data:image\/png;base64,/, "");
         await fs.promises.writeFile(eventThumbnailPath, smallBase64Data, 'base64');
+
+        let keyEvent = false;
+        let croppedImageUrl: string | undefined;
+
+        const AUDIO_KEY_EVENT_MIN_INTERVAL_MS = 60 * 1000; // 1 minute
+        const hasAudioDetection = detections.some((d) => isAudioClassname(d.className));
+        const lastAudioKey = this.lastAudioKeyEventTimestampByDevice[device.id] ?? 0;
+        if (hasAudioDetection && timestamp - lastAudioKey >= AUDIO_KEY_EVENT_MIN_INTERVAL_MS) {
+            keyEvent = true;
+            this.lastAudioKeyEventTimestampByDevice[device.id] = timestamp;
+            this.lastKeyEventTimestampByDevice[device.id] = timestamp;
+        }
+
+        if (eventSource === ScryptedEventSource.RawDetection && inputDimensions?.length === 2 && detections?.length) {
+            const keyEventSet = this.keyEventObjectIdsByDevice[device.id] ??= new Set<string>();
+            const selected = selectKeyEventDetection({
+                detections,
+                inputDimensions: inputDimensions as [number, number],
+                objectIdsAlreadyKeyEvent: keyEventSet,
+                logger,
+            });
+            if (selected) {
+                const bbox = selected.detection.boundingBox as [number, number, number, number];
+                const pixelBox = bbox && bbox.length >= 4 ? toPixelBbox(bbox, inputDimensions as [number, number]) : undefined;
+                if (pixelBox) {
+                    try {
+                        const cropResult = await cropImageToDetection({
+                            image,
+                            boundingBox: pixelBox,
+                            inputDimensions: inputDimensions as [number, number],
+                            plugin: this,
+                            console: logger,
+                        });
+                        if (cropResult?.newB64Image) {
+                            const keyEventFileName = `${fileName}_keyEvent`;
+                            const keyEventPath = path.join(thumbnailsPath, `${keyEventFileName}.jpg`);
+                            const cropBase64 = cropResult.newB64Image.replace(/^data:image\/png;base64,/, '');
+                            await fs.promises.writeFile(keyEventPath, cropBase64, 'base64');
+                            keyEvent = true;
+                            croppedImageUrl = keyEventFileName;
+                            keyEventSet.add(selected.objectId);
+                            this.lastKeyEventTimestampByDevice[device.id] = timestamp;
+                        }
+                    } catch (e) {
+                        logger.warn?.('Key event crop failed', e);
+                    }
+                }
+            }
+        }
+
+        // Sensor and doorbell: always key event, no cropped image (like motion)
+        const isSensorOrDoorbellOnly =
+            classNames.length > 0 &&
+            classNames.every(
+                (c) => c === DetectionClass.Sensor || isDoorbellClassname(c)
+            );
+        if (isSensorOrDoorbellOnly) {
+            keyEvent = true;
+            croppedImageUrl = undefined;
+            this.lastKeyEventTimestampByDevice[device.id] = timestamp;
+        }
+
+        // Motion full-screen key event: if no key event in the last minute, allow motion-only as key event
+        const MOTION_KEY_EVENT_GAP_MS = 2 * 60 * 1000; // 2 minutes
+        if (
+            !keyEvent &&
+            eventSource === ScryptedEventSource.RawDetection &&
+            detections?.length &&
+            classNames.length > 0 &&
+            classNames.every((c) => isMotionClassname(c)) &&
+            timestamp - (this.lastKeyEventTimestampByDevice[device.id] ?? 0) >= MOTION_KEY_EVENT_GAP_MS
+        ) {
+            keyEvent = true;
+            this.lastKeyEventTimestampByDevice[device.id] = timestamp;
+        }
+
         const { dbsPath } = this.getEventPaths({ cameraId: device.id });
+
+        if (keyEvent) {
+            const logClasses = classNames.join(', ');
+            (deviceMixin?.getLogger?.() ?? logger).log(`Saving key event (${logClasses}${label ? `, ${label}` : ''})`);
+        }
 
         this.enqueueDbWrite({
             type: 'event',
@@ -5683,6 +5774,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 sensorName: triggerDevice?.name,
                 eventId,
                 detections,
+                ...(keyEvent && { keyEvent: true, ...(croppedImageUrl && { croppedImageUrl }) }),
             },
             logger,
         });
