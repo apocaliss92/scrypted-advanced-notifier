@@ -1589,14 +1589,15 @@ export class AdvancedNotifierCameraMixin
 
         // Audio analyzer should start if classification is needed
         let shouldStartAudioAnalyzer = shouldClassifyAudio;
-        let shouldListenToVolumeControls = false;
+        let shouldListenToVolumeControls = true;
+        // let shouldListenToVolumeControls = false;
         if (!shouldStartAudioAnalyzer && shouldListenAudio) {
           // It should also start if Frigate audio is not enabled
           if (
             this.interfaces.includes(ScryptedInterface.AudioVolumeControl) &&
             !!this.audioVolumes?.dBFS
           ) {
-            shouldListenToVolumeControls = true;
+            // shouldListenToVolumeControls = true;
           } else {
             shouldStartAudioAnalyzer = true;
           }
