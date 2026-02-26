@@ -3,6 +3,8 @@ import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import sdk, { ObjectDetection, ObjectsDetected } from '@scrypted/sdk';
 import { DetectionClass } from './detectionClasses';
 
+export const AUDIO_LEVEL_THRESHOLDS_DBFS: number[] = [-50, -40, -30, -20, -10]
+
 export enum AudioAnalyzerSource {
     Disabled = 'Disabled',
     YAMNET = 'YAMNET',

@@ -1701,7 +1701,8 @@ export const getActiveRules = async (props: {
 
   const hasClips = allAllowedRules.some((rule) => rule.generateClip);
 
-  const shouldListenAudio = !!allowedAudioRules.length;
+  const shouldListenAudio = true;
+  // const shouldListenAudio = !!allowedAudioRules.length;
   const isActiveForMqttReporting =
     pluginEnabled && mqttEnabled && isDeviceEnabledToMqtt;
   const shouldListenDetections =

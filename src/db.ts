@@ -29,6 +29,10 @@ export type DbMotionEvent = {
   timestamp: number;
   deviceId: string;
   motion: 'on' | 'off';
+  type?: 'motion' | 'audio';
+  level?: number;
+  /** For type "audio": dBFS at threshold crossing (for timeline hover). */
+  dBFS?: number;
 }
 
 const MOTION_PATH = '/motion';
@@ -201,7 +205,8 @@ export const addMotionEvent = async (props: {
   }
 
   await db.push(`${MOTION_PATH}[]`, motionEvent);
-  logger.info(`Motion ${motionEvent.motion} at ${motionEvent.timestamp} for device ${motionEvent.deviceId} pushed to motion DB ${dayStr}`);
+  const kind = motionEvent.type === 'audio' ? `audio level ${motionEvent.level}` : 'motion';
+  logger.info(`${kind} ${motionEvent.motion} at ${motionEvent.timestamp} for device ${motionEvent.deviceId} pushed to motion DB ${dayStr}`);
 };
 
 /** Write a batch of events and motion for one device+day in a single DB update. */

@@ -46,6 +46,7 @@ import {
 import { Deferred } from "../../scrypted/server/src/deferred";
 import { checkObjectsOccupancy, confirmDetection } from "./aiUtils";
 import {
+  AUDIO_LEVEL_THRESHOLDS_DBFS,
   AudioAnalyzerSource,
   AudioChunkData,
   AudioRtspFfmpegStream,
@@ -667,6 +668,7 @@ export class AdvancedNotifierCameraMixin
   videoRecorder: VideoRtspFfmpegRecorder;
   audioClassificationLabels: string[];
   audioClassifier: ObjectDetection;
+  lastAudioLevel = 0;
 
   streams: Setting[] = [];
   hasFrigateObjectDetectorMixin: boolean;
@@ -3876,8 +3878,48 @@ export class AdvancedNotifierCameraMixin
   public async processAudioDetection(props: { dBs: number }) {
     const logger = this.getLogger();
     const { dBs } = props;
-    logger.debug(`Audio detection: ${dBs} dB`);
+    if (typeof dBs !== "number" || !Number.isFinite(dBs)) return;
+    logger.info(`Audio detection: ${dBs} dB`);
     const now = Date.now();
+
+    let newLevel = 0;
+    for (let i = 0; i < AUDIO_LEVEL_THRESHOLDS_DBFS.length; i++) {
+      if (dBs >= AUDIO_LEVEL_THRESHOLDS_DBFS[i]) newLevel = i + 1;
+      else break;
+    }
+    const lastLevel = this.lastAudioLevel ?? 0;
+    if (newLevel > lastLevel) {
+      logger.log(
+        `[Audio level] threshold crossed above: level=${newLevel} dBs=${dBs?.toFixed(1)} (${lastLevel} -> ${newLevel})`,
+      );
+      this.plugin.addMotionEvent({
+        motionEvent: {
+          timestamp: now,
+          deviceId: this.id,
+          motion: "on",
+          type: "audio",
+          level: newLevel,
+          dBFS: typeof dBs === "number" && Number.isFinite(dBs) ? dBs : undefined,
+        },
+        logger,
+      }).catch((e) => logger.error("Audio level event write", e));
+    } else if (newLevel < lastLevel) {
+      logger.log(
+        `[Audio level] threshold crossed below: level=${lastLevel} dBs=${dBs?.toFixed(1)} (${lastLevel} -> ${newLevel})`,
+      );
+      this.plugin.addMotionEvent({
+        motionEvent: {
+          timestamp: now,
+          deviceId: this.id,
+          motion: "off",
+          type: "audio",
+          level: lastLevel,
+          dBFS: typeof dBs === "number" && Number.isFinite(dBs) ? dBs : undefined,
+        },
+        logger,
+      }).catch((e) => logger.error("Audio level event write", e));
+    }
+    this.lastAudioLevel = newLevel;
 
     let image: MediaObject;
     let b64Image: string;
@@ -5747,8 +5789,6 @@ export class AdvancedNotifierCameraMixin
           event: ScryptedInterface.AudioVolumeControl,
         },
         async (_, __, data) => {
-          const now = Date.now();
-
           if (data) {
             this.processAudioDetection({
               dBs: data?.dBFS,
