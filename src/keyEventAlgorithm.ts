@@ -13,8 +13,11 @@ import { isFaceClassname, isPlateClassname } from './detectionClasses';
 
 export type BoundingBox = [number, number, number, number];
 
-const MIN_AREA_RATIO = 0.0008; // min ~0.08% of frame area (more permissive to include a decent %)
-const EDGE_MARGIN_RATIO = 0.01; // object must be at least 1% from each edge (not clipped)
+// Inspired by NVR: less restrictive to retain more detections
+const MIN_AREA_RATIO = 0.0003; // min ~0.03% of frame area (allow smaller objects e.g. face at distance)
+const EDGE_MARGIN_RATIO = 0.005; // object must be at least 0.5% from each edge (when area is small)
+const DECENT_AREA_RATIO = 0.002; // ~0.2% of frame: boxes with decent area can touch the edge (10% border zone)
+const MIN_AREA_RATIO_FALLBACK = 0.00015; // very small fallback: include tiny objects when none pass strict visibility
 
 function getKeyEventPriority(className: string): number {
   if (isFaceClassname(className)) return 1;
@@ -22,6 +25,15 @@ function getKeyEventPriority(className: string): number {
   const dc = detectionClassesDefaultMap[className];
   const prio = dc != null ? classnamePrio[dc] : undefined;
   return typeof prio === 'number' ? prio : 10;
+}
+
+function hasMinArea(bbox: BoundingBox, dims: [number, number], ratio: number): boolean {
+  const [, , w, h] = bbox;
+  const [imgW, imgH] = dims;
+  if (!imgW || !imgH || w <= 0 || h <= 0) return false;
+  const area = w * h;
+  const frameArea = imgW * imgH;
+  return area >= frameArea * ratio;
 }
 
 /**
@@ -39,6 +51,9 @@ export function isBoundingBoxWellVisible(
   const area = w * h;
   const frameArea = imgW * imgH;
   if (area < frameArea * MIN_AREA_RATIO) return false;
+
+  // Boxes with decent area can touch the edge (up to 10% border zone)
+  if (area >= frameArea * DECENT_AREA_RATIO) return true;
 
   const marginX = imgW * EDGE_MARGIN_RATIO;
   const marginY = imgH * EDGE_MARGIN_RATIO;
@@ -94,13 +109,20 @@ export function selectKeyEventDetection(
 
   if (!withBbox.length) return null;
 
-  const visible = withBbox.filter((d) => {
+  let candidates = withBbox.filter((d) => {
     const pixelBox = toPixelBbox(d.boundingBox, dims);
     return isBoundingBoxWellVisible(pixelBox, dims);
   });
-  if (!visible.length) return null;
+  // Fallback: when none pass strict visibility, use best available with minimal area (NVR-style: retain more)
+  if (!candidates.length) {
+    candidates = withBbox.filter((d) => {
+      const pixelBox = toPixelBbox(d.boundingBox, dims);
+      return hasMinArea(pixelBox, dims, MIN_AREA_RATIO_FALLBACK);
+    });
+  }
+  if (!candidates.length) return null;
 
-  const notDuplicate = visible.filter((d) => {
+  const notDuplicate = candidates.filter((d) => {
     const id = d.id ?? (d.label ? `${d.className}_${d.label}` : null);
     if (!id) return true;
     if (objectIdsAlreadyKeyEvent.has(id)) return false;
