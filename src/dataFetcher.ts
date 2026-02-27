@@ -375,7 +375,13 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                     if (!stat?.isDirectory()) continue;
                     const device = sdk.systemManager.getDeviceById(deviceId);
                     const deviceName = (device?.name as string) ?? deviceId;
-                    if (camerasSet && !camerasSet.has(deviceName)) continue;
+                    // Match by deviceId or deviceName (camstack sends device IDs, not names)
+                    const matchesCamera = !camerasSet
+                        ? true
+                        : camerasSet.has(deviceName)
+                        || camerasSet.has(deviceId)
+                        || [...camerasSet].some((c) => c && (c === deviceId || c.endsWith('_' + deviceId) || c.includes(deviceId)));
+                    if (!matchesCamera) continue;
                     const artifacts = await getRuleArtifactsInRange({ storagePath, deviceId, startTimestamp: startTime, endTimestamp: endTime });
                     for (const a of artifacts) {
                         allArtifacts.push({
@@ -709,11 +715,12 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
         }
 
         if (apimethod === 'GetReelEvents') {
-            const { limit = 40, offset = 0, cameras = [], eventSource = 'Auto' } = (payload ?? {}) as { limit?: number; offset?: number; cameras?: string[]; eventSource?: string };
+            const { limit = 40, offset = 0, cameras = [], eventSource = 'Auto', detectionClasses = [] } = (payload ?? {}) as { limit?: number; offset?: number; cameras?: string[]; eventSource?: string; detectionClasses?: string[] };
             const tillDate = Date.now();
             const fromDate = tillDate - 24 * 3600 * 1000;
             const camerasList = Array.isArray(cameras) ? cameras.filter((c): c is string => typeof c === 'string') : [];
-            logger.info(`[GetReelEvents] request limit=${limit} offset=${offset} cameras=${camerasList.length} eventSource=${eventSource}`);
+            const detectionClassesList = Array.isArray(detectionClasses) ? detectionClasses.filter((c): c is string => typeof c === 'string') : [];
+            logger.info(`[GetReelEvents] request limit=${limit} offset=${offset} cameras=${camerasList.length} eventSource=${eventSource} detectionClasses=${detectionClassesList.length}`);
             const resp = await this.handleEventsAppRequest('GetEvents', {
                 fromDate,
                 tillDate,
@@ -722,6 +729,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                 cameras: camerasList.length ? camerasList : undefined,
                 groupingRange: 0,
                 eventSource: typeof eventSource === 'string' ? eventSource : 'Auto',
+                detectionClasses: detectionClassesList.length ? detectionClassesList : undefined,
             });
             if (resp.statusCode !== 200 || typeof resp.body !== 'object') {
                 logger.info(`[GetReelEvents] GetEvents failed statusCode=${resp.statusCode}`);
@@ -733,27 +741,28 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
             const groups = body.groups ?? [];
             logger.info(`[GetReelEvents] GetEvents ok groups=${groups.length}`);
             for (const group of groups) {
-                for (const ev of group.events ?? []) {
-                    const evClasses = (ev as { classes?: string[] }).classes ?? [];
-                    const isMotionOnly = evClasses.length > 0 && evClasses.every((c) => isMotionClassname(c));
-                    const cropped = isMotionOnly ? undefined : (ev as { croppedThumbnailUrl?: string }).croppedThumbnailUrl;
-                    const thumb = cropped || ev.thumbnailUrl || ev.imageUrl || undefined;
-                    const label = ev.label ?? evClasses?.[0] ?? 'event';
-                    events.push({
-                        id: ev.id,
-                        camera: ev.deviceId ?? ev.deviceName ?? '',
-                        cameraName: ev.deviceName ?? ev.deviceId ?? '',
-                        label,
-                        startTime: ev.timestamp / 1000,
-                        thumbnail: thumb,
-                        ...(cropped && { croppedThumbnailUrl: cropped }),
-                        hasClip: !!(ev.videoUrl ?? (ev as { videoId?: string }).videoId),
-                        gifUrl: (ev as { gifUrl?: string }).gifUrl,
-                        videoUrl: ev.videoUrl ?? undefined,
-                        imageUrl: ev.imageUrl ?? (thumb ? thumb : undefined),
-                        ...(evClasses.length > 0 && { classes: evClasses }),
-                    });
-                }
+                // Use only the representative per group to avoid duplicate events in the reel
+                const ev = group.representative;
+                if (!ev) continue;
+                const evClasses = (ev as { classes?: string[] }).classes ?? [];
+                const isMotionOnly = evClasses.length > 0 && evClasses.every((c) => isMotionClassname(c));
+                const cropped = isMotionOnly ? undefined : (ev as { croppedThumbnailUrl?: string }).croppedThumbnailUrl;
+                const thumb = cropped || ev.thumbnailUrl || ev.imageUrl || undefined;
+                const label = ev.label ?? evClasses?.[0] ?? 'event';
+                events.push({
+                    id: ev.id,
+                    camera: ev.deviceId ?? ev.deviceName ?? '',
+                    cameraName: ev.deviceName ?? ev.deviceId ?? '',
+                    label,
+                    startTime: ev.timestamp / 1000,
+                    thumbnail: thumb,
+                    ...(cropped && { croppedThumbnailUrl: cropped }),
+                    hasClip: !!(ev.videoUrl ?? (ev as { videoId?: string }).videoId),
+                    gifUrl: (ev as { gifUrl?: string }).gifUrl,
+                    videoUrl: ev.videoUrl ?? undefined,
+                    imageUrl: ev.imageUrl ?? (thumb ? thumb : undefined),
+                    ...(evClasses.length > 0 && { classes: evClasses }),
+                });
             }
             // Rule artifacts: same time range, display order gif > video > image
             const { storagePath } = plugin.getEventPaths({});
