@@ -5,7 +5,7 @@ import moment from 'moment';
 import path from 'path';
 import sdk, { EventRecorder, MediaObject, RecordedEvent, RecordedEventOptions, ScryptedDeviceBase, ScryptedInterface, ScryptedMimeTypes, Setting, Settings, SettingValue, VideoClip, VideoClipOptions, VideoClips, VideoClipThumbnailOptions } from '@scrypted/sdk';
 import { StorageSettings, StorageSettingsDict } from '@scrypted/sdk/storage-settings';
-import { DbDetectionEvent, getEventsInRange, getMotionInRange } from './db';
+import { DbDetectionEvent, DbMotionEvent, getEventsInRange, getMotionInRange } from './db';
 import { DetectionClass, defaultDetectionClasses, detectionClassesDefaultMap, isMotionClassname } from './detectionClasses';
 import { ApiDetectionEvent, ApiDetectionGroup, filterAndGroupEvents, GroupingParams, RULE_ARTIFACT_SOURCE } from './groupEvents';
 import AdvancedNotifierPlugin from './main';
@@ -13,6 +13,99 @@ import { getRuleArtifactsInRange } from './rulesRegister';
 import { getAssetsParams, getWebhooks, getWebHookUrls, NVR_PLUGIN_ID, ScryptedEventSource } from './utils';
 
 export type EventsAppResponse = { statusCode: number; body: unknown };
+
+// ---------------------------------------------------------------------------
+// Server-side motion → segment conversion
+// Converts raw on/off motion events into compact {start, end} segments,
+// drastically reducing payload size (e.g. 32k events → ~200 segments).
+// ---------------------------------------------------------------------------
+
+interface MotionSegment { start: number; end: number }
+interface AudioLevelSegment { start: number; end: number; level: number; dBFS?: number }
+
+/** Convert raw motion on/off events (excluding audio type) into merged segments. */
+function convertMotionToSegments(events: DbMotionEvent[], dayEndMs: number): MotionSegment[] {
+    const motionOnly = events.filter((m) => m.type !== 'audio');
+    if (!motionOnly.length) return [];
+    const sorted = [...motionOnly].sort((a, b) => a.timestamp - b.timestamp);
+    const segments: MotionSegment[] = [];
+    let segStart: number | null = null;
+    for (const m of sorted) {
+        if (m.motion === 'on') segStart = m.timestamp;
+        else if (m.motion === 'off' && segStart != null) {
+            segments.push({ start: segStart, end: m.timestamp });
+            segStart = null;
+        }
+    }
+    if (segStart != null) segments.push({ start: segStart, end: dayEndMs });
+    // Merge overlapping/adjacent
+    if (segments.length <= 1) return segments;
+    const merged: MotionSegment[] = [{ ...segments[0] }];
+    for (let i = 1; i < segments.length; i++) {
+        const prev = merged[merged.length - 1];
+        const curr = segments[i];
+        if (curr.start <= prev.end) {
+            prev.end = Math.max(prev.end, curr.end);
+        } else {
+            merged.push({ ...curr });
+        }
+    }
+    return merged;
+}
+
+/** Convert audio threshold events (type "audio", level 1–5) into level segments. */
+function convertAudioToLevelSegments(events: DbMotionEvent[], dayEndMs: number): AudioLevelSegment[] {
+    const audioItems = events.filter(
+        (m) => m.type === 'audio' && typeof m.level === 'number',
+    );
+    if (!audioItems.length) return [];
+    const byLevel = new Map<number, { timestamp: number; motion: 'on' | 'off'; dBFS?: number }[]>();
+    for (const m of audioItems) {
+        const level = Math.max(1, Math.min(5, m.level!));
+        if (!byLevel.has(level)) byLevel.set(level, []);
+        byLevel.get(level)!.push({
+            timestamp: m.timestamp,
+            motion: m.motion,
+            dBFS: typeof m.dBFS === 'number' && Number.isFinite(m.dBFS) ? m.dBFS : undefined,
+        });
+    }
+    const out: AudioLevelSegment[] = [];
+    for (const [level, levelEvents] of byLevel) {
+        const sorted = [...levelEvents].sort((a, b) => a.timestamp - b.timestamp);
+        let segStart: number | null = null;
+        let segStartdBFS: number | undefined;
+        for (const e of sorted) {
+            if (e.motion === 'on') {
+                segStart = e.timestamp;
+                segStartdBFS = e.dBFS;
+            } else if (e.motion === 'off' && segStart != null) {
+                out.push({ start: segStart, end: e.timestamp, level, dBFS: segStartdBFS });
+                segStart = null;
+            }
+        }
+        if (segStart != null) {
+            out.push({ start: segStart, end: dayEndMs, level, dBFS: segStartdBFS });
+        }
+    }
+    // Merge into continuous bar: extend each segment to the next, merge same-level
+    out.sort((a, b) => a.start - b.start);
+    if (out.length <= 1) return out;
+    const merged: AudioLevelSegment[] = [{ ...out[0] }];
+    for (let i = 1; i < out.length; i++) {
+        const prev = merged[merged.length - 1];
+        const curr = out[i];
+        // Extend previous segment's end to current's start (continuity — no gaps)
+        prev.end = Math.max(prev.end, curr.start);
+        if (curr.level === prev.level) {
+            // Same level — absorb into previous
+            prev.end = Math.max(prev.end, curr.end);
+        } else {
+            // Level changed — start new segment at prev.end
+            merged.push({ ...curr, start: prev.end });
+        }
+    }
+    return merged;
+}
 
 const EVENTS_APP_STATE_JSON_KEY = 'eventsAppStateJson';
 
@@ -486,7 +579,10 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                 keyEvent: r.data?.keyEvent,
                 croppedThumbnailUrl: r.data?.croppedThumbnailUrl,
             }));
-            return { statusCode: 200, body: { events, motion, artifacts } };
+            // Pre-compute segments server-side (drastically reduces payload)
+            const motionSegments = convertMotionToSegments(motion, endOfDay);
+            const audioLevelSegments = convertAudioToLevelSegments(motion, endOfDay);
+            return { statusCode: 200, body: { events, motion: [], motionSegments, audioLevelSegments, artifacts } };
         }
 
         if (apimethod === 'GetClusteredDayData') {
@@ -677,11 +773,21 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                 }
 
                 clusters.sort((a, b) => a.startMs - b.startMs);
-                return { statusCode: 200, body: { clusters, motion: allMotion, artifacts: allArtifacts } };
+
+                // Pre-compute segments server-side (drastically reduces payload)
+                const lastDay = [...(days as string[])].sort().pop()!;
+                const segDayEnd = moment(lastDay, 'YYYYMMDD').endOf('day').valueOf();
+                const motionSegments = convertMotionToSegments(allMotion, segDayEnd);
+                const audioLevelSegments = convertAudioToLevelSegments(allMotion, segDayEnd);
+                return { statusCode: 200, body: { clusters, motion: [], motionSegments, audioLevelSegments, artifacts: allArtifacts } };
             }
 
             // No events or invalid bucket → return empty clusters
-            return { statusCode: 200, body: { clusters: [], motion: allMotion, artifacts: allArtifacts } };
+            const lastDayFallback = [...(days as string[])].sort().pop()!;
+            const segDayEndFallback = moment(lastDayFallback, 'YYYYMMDD').endOf('day').valueOf();
+            const motionSegmentsFallback = convertMotionToSegments(allMotion, segDayEndFallback);
+            const audioLevelSegmentsFallback = convertAudioToLevelSegments(allMotion, segDayEndFallback);
+            return { statusCode: 200, body: { clusters: [], motion: [], motionSegments: motionSegmentsFallback, audioLevelSegments: audioLevelSegmentsFallback, artifacts: allArtifacts } };
         }
 
         /** Get all events in a cluster's time range. Lighter than GetClusteredDayData: loads only the day file(s) covering [startMs, endMs]. */
