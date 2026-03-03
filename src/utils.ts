@@ -1434,6 +1434,7 @@ export const ruleTypeMetadataMap: Record<
 };
 
 export const mixinRulesGroup = "Advanced notifier rules";
+export const mixinBatteryGroup = "Advanced notifier battery management";
 export const pluginRulesGroup = "Rules";
 export const ruleSequencesGroup = "Sequences";
 export const ruleSequencesKey = "ruleSequences";
@@ -5956,6 +5957,142 @@ export enum NotifierPayloadKey {
 
 export type DetectionEvent = DetectionClass | NvrEvent | SupportedSensorType;
 export type RuleDetectionClass = DetectionClass | SupportedSensorType;
+
+// Battery privacy threshold helpers
+
+export const getBatteryPrivacyThresholdKeys = (thresholdName: string) => {
+  const prefix = "batteryPrivacy";
+  return {
+    levelKey: `${prefix}:${thresholdName}:level`,
+    enableRecordingKey: `${prefix}:${thresholdName}:enableRecording`,
+    enableSnapshotsKey: `${prefix}:${thresholdName}:enableSnapshots`,
+    enableRebroadcastKey: `${prefix}:${thresholdName}:enableRebroadcast`,
+  };
+};
+
+export interface BatteryThreshold {
+  name: string;
+  level: number;
+  enableRecording: boolean;
+  enableSnapshots: boolean;
+  enableRebroadcast: boolean;
+}
+
+export const getBatteryPrivacySettings = (props: {
+  storage: StorageSettings<any>;
+}): StorageSetting[] => {
+  const { storage } = props;
+  const settings: StorageSetting[] = [];
+  const group = mixinBatteryGroup;
+
+  const thresholds = safeParseJson<string[]>(
+    storage.getItem("batteryPrivacyThresholds"),
+    [],
+  );
+
+  for (const thresholdName of thresholds) {
+    const subgroup = `BAT: ${thresholdName}`;
+    const {
+      levelKey,
+      enableRecordingKey,
+      enableSnapshotsKey,
+      enableRebroadcastKey,
+    } = getBatteryPrivacyThresholdKeys(thresholdName);
+
+    settings.push(
+      {
+        key: levelKey,
+        title: "Battery level (%)",
+        description:
+          "When battery drops to or below this percentage, these privacy settings will be applied",
+        group,
+        subgroup,
+        type: "number",
+        range: [0, 100],
+        defaultValue: 20,
+      },
+      {
+        key: enableRecordingKey,
+        title: "Enable recording",
+        description:
+          "Whether recording should be enabled at this battery level",
+        group,
+        subgroup,
+        type: "boolean",
+        immediate: true,
+        defaultValue: true,
+      },
+      {
+        key: enableSnapshotsKey,
+        title: "Enable snapshots",
+        description:
+          "Whether snapshots should be enabled at this battery level",
+        group,
+        subgroup,
+        type: "boolean",
+        immediate: true,
+        defaultValue: true,
+      },
+      {
+        key: enableRebroadcastKey,
+        title: "Enable rebroadcast",
+        description:
+          "Whether rebroadcast should be enabled at this battery level",
+        group,
+        subgroup,
+        type: "boolean",
+        immediate: true,
+        defaultValue: true,
+      },
+    );
+  }
+
+  return settings;
+};
+
+export const getMatchingBatteryThreshold = (props: {
+  storage: StorageSettings<any>;
+  batteryLevel: number;
+}): BatteryThreshold | undefined => {
+  const { storage, batteryLevel } = props;
+
+  const enabled = safeParseJson<boolean>(
+    storage.getItem("batteryPrivacyEnabled"),
+    false,
+  );
+  if (!enabled) return undefined;
+
+  const thresholdNames = safeParseJson<string[]>(
+    storage.getItem("batteryPrivacyThresholds"),
+    [],
+  );
+
+  const thresholds: BatteryThreshold[] = thresholdNames.map((name) => {
+    const keys = getBatteryPrivacyThresholdKeys(name);
+    return {
+      name,
+      level: safeParseJson<number>(storage.getItem(keys.levelKey), 0),
+      enableRecording: safeParseJson<boolean>(
+        storage.getItem(keys.enableRecordingKey),
+        true,
+      ),
+      enableSnapshots: safeParseJson<boolean>(
+        storage.getItem(keys.enableSnapshotsKey),
+        true,
+      ),
+      enableRebroadcast: safeParseJson<boolean>(
+        storage.getItem(keys.enableRebroadcastKey),
+        true,
+      ),
+    };
+  });
+
+  // Sort ascending by level so we match the lowest applicable threshold first
+  thresholds.sort((a, b) => a.level - b.level);
+
+  // Return the first threshold where battery is at or below the threshold level
+  return thresholds.find((t) => batteryLevel <= t.level);
+};
 
 export const isDeviceSupported = (device: DeviceBase) => {
   const { interfaces, type } = device;

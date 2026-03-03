@@ -114,6 +114,7 @@ export class CameraMixinState {
     decoderResize: boolean;
     checkingOutatedRules: boolean;
     lastClipGenerationTimestamps: Record<string, number> = {};
+    lastAppliedBatteryThreshold: string | undefined = undefined;
 
     accumulatedDetections: AccumulatedDetection[] = [];
     accumulatedRules: MatchRule[] = [];

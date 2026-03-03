@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 4.8.39
+
+Added section on every battery camera to setup the battery management based on customizable thresholds
+
 ### 4.8.37
 
 - **On-generated sequences**: new sequence hook for Detection, Occupancy and Timelapse rules. Runs when all rule artifacts (video, gif, image) have been generated. Configurable per rule under "On-generated sequences". Script actions in the sequence receive a `payload` object (e.g. `variables.payload` in Scrypted scripts) with `rule`, `videoUrl`, `gifUrl`, `imageUrl` (and for timelapse also `videoPath`, `imagePath`). Any sequence can now receive an optional payload and forward it to linked scripts.

@@ -163,6 +163,9 @@ import {
   moToB64,
   similarityConcidenceThresholdMap,
   splitRules,
+  getBatteryPrivacySettings,
+  getMatchingBatteryThreshold,
+  mixinBatteryGroup,
 } from "./utils";
 import {
   VideoRtspFfmpegRecorder,
@@ -216,6 +219,8 @@ type CameraSettingKey =
   | "storageRetentionDays"
   | "storageEventsRetentionDays"
   | "occupiedSpaceInGb"
+  | "batteryPrivacyEnabled"
+  | "batteryPrivacyThresholds"
   | MixinBaseSettingKey;
 
 export class AdvancedNotifierCameraMixin
@@ -624,6 +629,28 @@ export class AdvancedNotifierCameraMixin
       title: "Minimum posting delay",
       type: "number",
       defaultValue: 15,
+    },
+    batteryPrivacyEnabled: {
+      title: "Battery privacy management",
+      description:
+        "Automatically manage recording, snapshots, and rebroadcast based on battery level thresholds",
+      type: "boolean",
+      group: mixinBatteryGroup,
+      immediate: true,
+      onPut: async () => await this.refreshSettings(),
+    },
+    batteryPrivacyThresholds: {
+      title: "Battery thresholds",
+      description:
+        "Add named thresholds (e.g. 'low', 'critical'). Each threshold defines a battery level and which features to enable/disable",
+      type: "string",
+      multiple: true,
+      combobox: true,
+      group: mixinBatteryGroup,
+      immediate: true,
+      defaultValue: ["Low", "Critical", "Dead"],
+      choices: [],
+      onPut: async () => await this.refreshSettings(),
     },
     // UTILITY
     decoderProcessId: {
@@ -1560,6 +1587,59 @@ export class AdvancedNotifierCameraMixin
           }
         }
 
+        // Battery-based privacy management
+        if (
+          this.cameraDevice.interfaces.includes(ScryptedInterface.Battery)
+        ) {
+          const batteryLevel = this.cameraDevice.batteryLevel;
+          if (batteryLevel !== undefined && batteryLevel !== null) {
+            const matchingThreshold = getMatchingBatteryThreshold({
+              storage: this.mixinState.storageSettings,
+              batteryLevel,
+            });
+
+            const thresholdName = matchingThreshold?.name;
+            const lastApplied =
+              this.mixinState.lastAppliedBatteryThreshold;
+
+            if (thresholdName !== lastApplied) {
+              if (matchingThreshold) {
+                logger.log(
+                  `Battery level ${batteryLevel}% matched threshold "${thresholdName}" (level: ${matchingThreshold.level}%). ` +
+                    `Applying: recording=${matchingThreshold.enableRecording}, ` +
+                    `snapshots=${matchingThreshold.enableSnapshots}, ` +
+                    `rebroadcast=${matchingThreshold.enableRebroadcast}`,
+                );
+
+                await this.toggleRecording(
+                  this.cameraDevice,
+                  matchingThreshold.enableRecording,
+                );
+                await this.toggleSnapshotsEnabled(
+                  this.cameraDevice,
+                  matchingThreshold.enableSnapshots,
+                );
+                await this.toggleRebroadcastEnabled(
+                  this.cameraDevice,
+                  matchingThreshold.enableRebroadcast,
+                );
+              } else if (lastApplied) {
+                logger.log(
+                  `Battery level ${batteryLevel}% is above all thresholds. Restoring defaults.`,
+                );
+                await this.toggleRecording(this.cameraDevice, true);
+                await this.toggleSnapshotsEnabled(this.cameraDevice, true);
+                await this.toggleRebroadcastEnabled(
+                  this.cameraDevice,
+                  true,
+                );
+              }
+
+              this.mixinState.lastAppliedBatteryThreshold = thresholdName;
+            }
+          }
+        }
+
         if (isDetectionListenerRunning && !shouldListenDetections) {
           logger.log("Stopping and cleaning Object listeners.");
           this.resetListeners();
@@ -2287,6 +2367,13 @@ export class AdvancedNotifierCameraMixin
       dynamicSettings.push(...patrolRulesSettings);
     }
 
+    if (this.cameraDevice.interfaces.includes(ScryptedInterface.Battery)) {
+      const batteryPrivacySettings = getBatteryPrivacySettings({
+        storage: this.mixinState.storageSettings,
+      });
+      dynamicSettings.push(...batteryPrivacySettings);
+    }
+
     this.mixinState.storageSettings = await convertSettingsToStorageSettings({
       device: this,
       dynamicSettings,
@@ -2301,7 +2388,20 @@ export class AdvancedNotifierCameraMixin
       audioAnalyzerEnabled,
       audioClassifierSource,
       maxSpaceInGb,
+      batteryPrivacyEnabled,
     } = this.mixinState.storageSettings.values;
+
+    const hasBattery = this.cameraDevice.interfaces.includes(
+      ScryptedInterface.Battery,
+    );
+    if (this.mixinState.storageSettings.settings.batteryPrivacyEnabled) {
+      this.mixinState.storageSettings.settings.batteryPrivacyEnabled.hide =
+        !hasBattery;
+    }
+    if (this.mixinState.storageSettings.settings.batteryPrivacyThresholds) {
+      this.mixinState.storageSettings.settings.batteryPrivacyThresholds.hide =
+        !hasBattery || !batteryPrivacyEnabled;
+    }
 
     if (this.mixinState.storageSettings.settings.lastSnapshotWebhookCloudUrl) {
       this.mixinState.storageSettings.settings.lastSnapshotWebhookCloudUrl.hide =
