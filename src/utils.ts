@@ -6004,7 +6004,7 @@ export const getBatteryPrivacySettings = (props: {
         key: levelKey,
         title: "Battery level (%)",
         description:
-          "When battery drops to or below this percentage, these privacy settings will be applied",
+          "Range upper bound. If battery % is between the previous threshold and this level, these privacy settings apply. Above the highest threshold = all enabled.",
         group,
         subgroup,
         type: "number",
@@ -6087,11 +6087,13 @@ export const getMatchingBatteryThreshold = (props: {
     };
   });
 
-  // Sort ascending by level so we match the lowest applicable threshold first
+  // Sort ascending by level to define ranges [A, B) where config of B applies
+  // dead -> dead; critical -> dead = critical; low -> critical = low; above low = all enabled
+  // If battery % is in [A, B), use config of B. If >= highest threshold, all enabled.
   thresholds.sort((a, b) => a.level - b.level);
 
-  // Return the first threshold where battery is at or below the threshold level
-  return thresholds.find((t) => batteryLevel <= t.level);
+  // Find the first threshold T where battery < T.level → battery is in [prev, T), use config T
+  return thresholds.find((t) => batteryLevel < t.level);
 };
 
 export const isDeviceSupported = (device: DeviceBase) => {

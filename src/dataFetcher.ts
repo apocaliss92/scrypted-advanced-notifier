@@ -762,13 +762,16 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                     const sortedEvents = inRange.length === 0
                         ? [representative]
                         : [representative, ...inRange.filter((e) => e.id !== repId).sort((a, b) => a.timestamp - b.timestamp)];
+                    // Use real event timestamps for precise display (not bucket boundaries)
+                    const realStartMs = Math.min(...bucketEvents.map((e) => e.timestamp));
+                    const realEndMs = Math.max(...bucketEvents.map((e) => e.timestamp));
                     clusters.push({
                         events: sortedEvents,
                         representative,
                         classes: [...clsSet],
                         labels: [...lblSet],
-                        startMs,
-                        endMs,
+                        startMs: realStartMs,
+                        endMs: Math.max(realEndMs, realStartMs + 1000),
                     });
                 }
 
