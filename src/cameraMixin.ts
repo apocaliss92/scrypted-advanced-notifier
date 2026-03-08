@@ -274,7 +274,7 @@ export class AdvancedNotifierCameraMixin
       title: "Notifications enabled",
       description: "Enable notifications related to this camera",
       type: "boolean",
-      subgroup: "MQTT",
+      subgroup: "Notifier",
       immediate: true,
       defaultValue: true,
     },

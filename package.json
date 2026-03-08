@@ -7,6 +7,10 @@
   },
   "version": "4.8.39",
   "scripts": {
+    "docs:dev": "cd docs && npm run dev",
+    "docs:build": "cd docs && npm run build",
+    "docs:start": "cd docs && npm run start",
+    "docs:install": "cd docs && npm install",
     "scrypted-setup-project": "scrypted-setup-project",
     "prescrypted-setup-project": "scrypted-package-json",
     "build": "scrypted-webpack",

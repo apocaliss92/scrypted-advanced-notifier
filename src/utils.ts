@@ -1579,6 +1579,7 @@ export const getMixinBaseSettings = (props: {
         title: "Report to MQTT",
         description: "Autodiscovery this device on MQTT",
         type: "boolean",
+        subgroup: "MQTT",
         defaultValue: !isSensor,
         immediate: true,
       };

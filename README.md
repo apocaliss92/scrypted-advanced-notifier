@@ -34,6 +34,32 @@ The plugin will export to MQTT the following entities:
 - Recording switch (NVR privacy mode)
 - Current dBs (if enabled)
 
+### Autodiscovery — Entities per device type
+
+| Device | Entity | Domain | Values |
+|--------|--------|--------|--------|
+| **Camera** | `triggered` | binary_sensor | `true`/`false` |
+| | `notifications_enabled`, `rebroadcast_enabled`, `snapshots_enabled`, `privacy_enabled` | switch | `true`/`false` |
+| | `{class}_detected` (motion, person, animal, vehicle, audio, face, plate, any_object…) | binary_sensor | `true`/`false` |
+| | `{class}_last_image` | image | base64 |
+| | `{class}_last_detection` | sensor | ISO timestamp |
+| | `{class}_last_recognized` | sensor | label (face/plate) |
+| | `{class}_objects` | sensor | count (animal, person, vehicle) |
+| | `battery`, `online`, `sleeping` | sensor/binary_sensor | if supported |
+| | `recording_enabled` | switch | if NVR |
+| | `reboot`, `ptz-*` | button/select | if supported |
+| | `accessory_siren`, `accessory_light`, `accessory_pir`, `accessory_autotracking` | switch | Reolink/Hikvision |
+| | `{zone}_{class}_detected`, `_last_image`, `_objects` | per zone | Observe zones |
+| **Camera rules** | `{rule}_active`, `{rule}_running`, `{rule}_triggered`, `{rule}_occupied` | switch/binary_sensor | |
+| | `{rule}_last_image`, `{rule}_last_detection` | image/sensor | |
+| **Notifier** | `notifications_enabled` | switch | `true`/`false` |
+| **Plugin** | `notifications_enabled`, `rpc_objects`, `rss_memory`, `heap_memory`, `pending_results` | switch/sensor | |
+| | `{rule}_active`, `{rule}_running` | switch/binary_sensor | plugin rules |
+| **People tracker** | `{person}_last_image`, `{person}_last_detection` | sensor/image | known faces |
+| **Alarm system** | `alarm-system` | alarm_control_panel | `disarmed`, `armed_away`, `armed_home`, `armed_night`, `triggered` |
+
+Topic prefix: `scrypted-an`. Full reference: [docs](https://github.com/apocaliss92/scrypted-advanced-notifier-docs).
+
 IMPORTANT
 If you edit a device name, to force the correct re-creation of the ha entities you will need to delete manually the entities on HA and restart the plugin
 
