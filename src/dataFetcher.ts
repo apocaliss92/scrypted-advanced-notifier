@@ -778,6 +778,28 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
 
                 clusters.sort((a, b) => a.startMs - b.startMs);
 
+                // ── Overlap detection log ──
+                for (let i = 1; i < clusters.length; i++) {
+                    const prev = clusters[i - 1];
+                    const cur = clusters[i];
+                    if (prev.endMs > cur.startMs) {
+                        console.warn(
+                            `[DataFetcher] OVERLAP detected between cluster[${i - 1}] and cluster[${i}]:`,
+                            `prev=[${prev.startMs}..${prev.endMs}]`,
+                            `cur=[${cur.startMs}..${cur.endMs}]`,
+                            `overlap=${prev.endMs - cur.startMs}ms`,
+                            `prevClasses=${prev.classes.join(',')}`,
+                            `curClasses=${cur.classes.join(',')}`,
+                        );
+                    }
+                }
+                if (clusters.length > 0) {
+                    console.log(
+                        `[DataFetcher] GetClusteredDayData: ${clusters.length} clusters, bucketMs=${bucketMs},`,
+                        `range=[${clusters[0].startMs}..${clusters[clusters.length - 1].endMs}]`,
+                    );
+                }
+
                 // Pre-compute segments server-side (drastically reduces payload)
                 const lastDay = [...(days as string[])].sort().pop()!;
                 const segDayEnd = moment(lastDay, 'YYYYMMDD').endOf('day').valueOf();
