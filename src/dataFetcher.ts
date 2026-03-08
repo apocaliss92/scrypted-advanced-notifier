@@ -728,7 +728,6 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                 for (let startMs = firstBucket; startMs <= lastBucket; startMs += bucketMs) {
                     const bucketEvents = buckets.get(startMs);
                     if (!bucketEvents?.length) continue;
-                    const endMs = startMs + bucketMs;
 
                     // Pick representative: event with most classes, or earliest
                     const representative = bucketEvents.reduce((best, cur) => {
@@ -755,14 +754,16 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                     }
 
                     // Re-cluster: fill cluster with all raw events in [startMs, endMs], representative first
+                    const bucketEndMs = startMs + bucketMs;
                     const inRange = allRawEvents.filter(
-                        (e) => e.timestamp >= startMs && e.timestamp < endMs,
+                        (e) => e.timestamp >= startMs && e.timestamp < bucketEndMs,
                     );
                     const repId = representative.id;
                     const sortedEvents = inRange.length === 0
                         ? [representative]
                         : [representative, ...inRange.filter((e) => e.id !== repId).sort((a, b) => a.timestamp - b.timestamp)];
-                    // Use real event timestamps for precise display (not bucket boundaries)
+                    // Use real event timestamps for precise display, but cap endMs
+                    // to bucket boundary to guarantee non-overlapping clusters.
                     const realStartMs = Math.min(...bucketEvents.map((e) => e.timestamp));
                     const realEndMs = Math.max(...bucketEvents.map((e) => e.timestamp));
                     clusters.push({
@@ -771,7 +772,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                         classes: [...clsSet],
                         labels: [...lblSet],
                         startMs: realStartMs,
-                        endMs: Math.max(realEndMs, realStartMs + 1000),
+                        endMs: Math.min(Math.max(realEndMs, realStartMs + 1000), bucketEndMs),
                     });
                 }
 
