@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 5.0.0
+Finally An app is completed. It's called CamStack and it's available on testflight and as pwa on the scrypted local istance. Also available on https://camstack.zentik.app
+New docs is up on https://advanced-notifier-docs.zentik.app/docs/advanced-notifier
+
 ### 4.8.39
 
 Added section on every battery camera to setup the battery management based on customizable thresholds
