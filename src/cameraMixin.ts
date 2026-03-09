@@ -5936,6 +5936,18 @@ export class AdvancedNotifierCameraMixin
               JSON.stringify(detect),
             );
             eventSource = ScryptedEventSource.Frigate;
+          } else if (detect.detections?.length) {
+            const hasOnboardDetection = detect.detections.some((d) => {
+              const className = detectionClassesDefaultMap[d.className];
+              const shouldHaveBoundingBox =
+                (className && isObjectClassname(className)) ||
+                (className && isFaceClassname(className)) ||
+                (className && isPlateClassname(className));
+              return shouldHaveBoundingBox && !d.boundingBox;
+            });
+            if (hasOnboardDetection) {
+              eventSource = ScryptedEventSource.Onboard;
+            }
           }
 
           logger.debug(JSON.stringify({ _, eventDetails, data }));

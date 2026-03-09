@@ -2769,6 +2769,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const sources: ScryptedEventSource[] = [
             ScryptedEventSource.All,
             ScryptedEventSource.RawDetection,
+            ScryptedEventSource.Onboard,
         ];
         if (this.nvrObjectDetectionDevice) {
             sources.push(ScryptedEventSource.NVR);

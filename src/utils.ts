@@ -320,6 +320,7 @@ export enum ScryptedEventSource {
   Default = "Default",
   All = "All",
   RawDetection = "RawDetection",
+  Onboard = "Onboard",
   NVR = "NVR",
   Frigate = "Frigate",
 }

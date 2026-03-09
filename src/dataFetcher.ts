@@ -455,7 +455,8 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                 eventSource: typeof eventSource === 'string' ? eventSource : 'Auto',
                 filter: typeof filter === 'string' ? filter : '',
                 groupingRange: typeof groupingRange === 'number' ? groupingRange : 60,
-                keyEventsOnlyForRaw: true,
+                // For RawDetection/AdvancedNotifier: fetch all events (key + non-key) so non-key events are absorbed into key-event groups
+                keyEventsOnlyForRaw: eventSource !== ScryptedEventSource.RawDetection && eventSource !== 'AdvancedNotifier',
             });
             const { storagePath } = plugin.getEventPaths({});
             const deviceDirs = await fs.promises.readdir(storagePath).catch(() => []);
@@ -1009,20 +1010,23 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                 if (ruleOutput.length >= limitPerSource) break;
             }
 
-            // 2) NVR, Frigate, Raw: exclude motion-only; prefer NVR then Frigate then Raw (source priority order)
+            // 2) NVR, Frigate, Raw, Onboard: exclude motion-only; prefer NVR then Frigate then Raw then Onboard (source priority order)
             const reelSourceOrder: Record<string, number> = {
                 [ScryptedEventSource.NVR]: 0,
                 [ScryptedEventSource.Frigate]: 1,
                 [ScryptedEventSource.RawDetection]: 2,
+                [ScryptedEventSource.Onboard]: 3,
             };
             const recordedBySource = await Promise.all([
                 this.getRecordedEventsV2({ startTime: since, endTime: end, sources: [ScryptedEventSource.NVR] }),
                 this.getRecordedEventsV2({ startTime: since, endTime: end, sources: [ScryptedEventSource.Frigate] }),
                 this.getRecordedEventsV2({ startTime: since, endTime: end, sources: [ScryptedEventSource.RawDetection], keyEventsOnlyForRaw: true }),
+                this.getRecordedEventsV2({ startTime: since, endTime: end, sources: [ScryptedEventSource.Onboard], keyEventsOnlyForRaw: true }),
             ]);
             const nvrSlice = recordedBySource[0].slice(0, limitPerSource);
             const frigateSlice = recordedBySource[1].slice(0, limitPerSource);
             const rawSlice = recordedBySource[2].slice(0, limitPerSource);
+            const onboardSlice = recordedBySource[3].slice(0, limitPerSource);
 
             const recordedToReel = (r: RecordedEvent, source: string): ReelItem => {
                 const id = r.data?.id ?? r.details?.eventId ?? '';
@@ -1038,8 +1042,9 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
             const nvrReel = nvrSlice.map((r) => { const item = recordedToReel(r, ScryptedEventSource.NVR); idToReelItem.set(item.id, item); return item; });
             const frigateReel = frigateSlice.map((r) => { const item = recordedToReel(r, ScryptedEventSource.Frigate); idToReelItem.set(item.id, item); return item; });
             const rawReel = rawSlice.map((r) => { const item = recordedToReel(r, ScryptedEventSource.RawDetection); idToReelItem.set(item.id, item); return item; });
+            const onboardReel = onboardSlice.map((r) => { const item = recordedToReel(r, ScryptedEventSource.Onboard); idToReelItem.set(item.id, item); return item; });
 
-            const detectionReelItems = [...nvrReel, ...frigateReel, ...rawReel]
+            const detectionReelItems = [...nvrReel, ...frigateReel, ...rawReel, ...onboardReel]
                 .filter((item) => !isMotionOnly(item.classes))
                 .sort((a, b) => {
                     if (b.timestamp !== a.timestamp) return b.timestamp - a.timestamp;

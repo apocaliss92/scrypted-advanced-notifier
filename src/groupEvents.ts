@@ -46,6 +46,7 @@ const SOURCE_PRIORITY: Partial<Record<string, number>> = {
     [ScryptedEventSource.NVR]: 1,
     [ScryptedEventSource.Frigate]: 2,
     [ScryptedEventSource.RawDetection]: 3,
+    [ScryptedEventSource.Onboard]: 4,
     ['Auto']: 99,
     ['Default']: 99,
 };
@@ -57,7 +58,8 @@ export function filterAndGroupEvents(
     const { cameras, detectionClasses, eventSource, filter, groupingRange } = params;
     const isOnlyMotion =
         detectionClasses.length === 1 && detectionClasses[0] === DetectionClass.Motion;
-    const isAuto = eventSource === 'Auto' || eventSource === ScryptedEventSource.Default || eventSource === ScryptedEventSource.All;
+    const isRawDetection = eventSource === ScryptedEventSource.RawDetection || eventSource === ScryptedEventSource.Onboard || eventSource === 'AdvancedNotifier';
+    const isAuto = eventSource === 'Auto' || eventSource === ScryptedEventSource.Default || eventSource === ScryptedEventSource.All || isRawDetection;
     const timeThreshold = isAuto ? groupingRange * 1000 : 0;
 
     // Un solo evento per id: evita duplicati da NVR/Frigate/DB e key duplicate in React
@@ -112,7 +114,14 @@ export function filterAndGroupEvents(
             }
             return { ...event, classes };
         })
-        .sort((a, b) => b.timestamp - a.timestamp);
+        .sort((a, b) => {
+            // RawDetection: key events act as group anchors — sort them first
+            if (isRawDetection) {
+                if (a.keyEvent && !b.keyEvent) return -1;
+                if (!a.keyEvent && b.keyEvent) return 1;
+            }
+            return b.timestamp - a.timestamp;
+        });
 
     const groups: ApiDetectionGroup[] = [];
     const assigned = new Set<string>();
