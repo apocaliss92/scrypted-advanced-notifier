@@ -47,6 +47,9 @@ class DiscoveryCapture implements IHaClient {
         } else if (strValue !== '' && strValue.length < 2048) {
             // Capture state publishes (initial entity values), skip large payloads (e.g. base64 images)
             this.initialStates.push({ topic, value: strValue });
+        } else if (strValue.length >= 2048) {
+            // Large payloads (images): send lightweight signal so HA knows an image exists
+            this.initialStates.push({ topic, value: `__image_updated__:${Date.now()}` });
         }
     }
     async subscribe(): Promise<void> {}
@@ -326,36 +329,44 @@ async function handleImage(
     corsHeaders: () => Record<string, string>,
 ): Promise<true> {
     const logger = plugin.getLogger();
-    // Topic format: scrypted-an/scrypted-an-{scryptedId}/{entity}_last_image
     const topic = url.searchParams.get('topic') ?? '';
-    if (!topic) {
-        response.send('Missing topic', { code: 400, headers: corsHeaders() });
+    const deviceId = url.searchParams.get('device_id') ?? '';
+
+    if (!topic && !deviceId) {
+        response.send('Missing topic or device_id', { code: 400, headers: corsHeaders() });
         return true;
     }
-    const parts = topic.split('/');
-    if (parts.length < 3) {
-        response.send('Invalid topic', { code: 400, headers: corsHeaders() });
-        return true;
+
+    let scryptedId: string;
+    let classFilter: string | null = null;
+
+    if (topic) {
+        // Topic format: scrypted-an/scrypted-an-{scryptedId}/{entity}_last_image
+        const parts = topic.split('/');
+        if (parts.length < 3) {
+            response.send('Invalid topic', { code: 400, headers: corsHeaders() });
+            return true;
+        }
+        scryptedId = parts[1].replace(`${idPrefix}-`, '');
+        classFilter = parts[2].replace(/_last_image$/, '');
+    } else {
+        // device_id format: scrypted-an-{scryptedId} — returns most recent image of any class
+        scryptedId = deviceId.replace(`${idPrefix}-`, '');
     }
-    const deviceIdWithPrefix = parts[1]; // e.g. scrypted-an-123
-    const scryptedId = deviceIdWithPrefix.replace(`${idPrefix}-`, '');
-    const entityName = parts[2]; // e.g. person_last_image
 
     try {
         const { storagePath } = plugin.getFsPaths({});
         const detectionsDir = path.join(storagePath, scryptedId, 'detections');
-
-        // Entity name pattern: {className}_last_image or {zone}_{className}_last_image
-        // Extract className by stripping _last_image suffix
-        const className = entityName.replace(/_last_image$/, '');
-
-        // Look for matching detection image files (className.jpg, className__eventSource.jpg, etc.)
+        logger.log(`[HA Image] Looking in ${detectionsDir}, classFilter=${classFilter}`);
         const files = await fs.promises.readdir(detectionsDir);
-        const matching = files
-            .filter(f => f.endsWith('.jpg') && f.split('.')[0].split('__')[0] === className);
+        const matching = files.filter(f => {
+            if (!f.endsWith('.jpg')) return false;
+            if (!classFilter) return true;
+            return f.split('.')[0].split('__')[0] === classFilter;
+        });
+        logger.log(`[HA Image] Found ${files.length} total files, ${matching.length} matching`);
 
         if (matching.length > 0) {
-            // Pick the most recently modified file
             let bestFile = matching[0];
             let bestMtime = 0;
             for (const f of matching) {
@@ -365,6 +376,7 @@ async function handleImage(
                     bestFile = f;
                 }
             }
+            logger.log(`[HA Image] Serving ${bestFile} (${path.join(detectionsDir, bestFile)})`);
             const jpeg = await fs.promises.readFile(path.join(detectionsDir, bestFile));
             response.send(jpeg, {
                 code: 200,
@@ -372,8 +384,9 @@ async function handleImage(
             });
             return true;
         }
+        logger.log(`[HA Image] No matching files for scryptedId=${scryptedId}, classFilter=${classFilter}, files: [${files.slice(0, 10).join(', ')}]`);
     } catch (e) {
-        logger.debug(`[HA Image] Error serving image for topic ${topic}: ${e}`);
+        logger.log(`[HA Image] Error serving image: ${e}`);
     }
 
     response.send('Not found', { code: 404, headers: corsHeaders() });
