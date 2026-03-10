@@ -4388,6 +4388,7 @@ export class AdvancedNotifierCameraMixin
                       room: this.cameraDevice.room,
                       imageSource,
                       triggerTime,
+                      storagePath: this.plugin.getFsPaths({}).storagePath,
                     }).catch(logger.error);
                   }
                 }
@@ -5555,6 +5556,7 @@ export class AdvancedNotifierCameraMixin
                     room: this.cameraDevice.room,
                     imageSource: ImageSource.Input,
                     triggerTime,
+                    storagePath: this.plugin.getFsPaths({}).storagePath,
                   }).catch(logger.error);
                 }
               }

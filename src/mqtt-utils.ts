@@ -1,5 +1,7 @@
 import sdk, { Notifier, ObjectDetectionResult, ObjectDetector, PanTiltZoomCommand, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SecuritySystemMode } from '@scrypted/sdk';
 import { cloneDeep, uniq } from 'lodash';
+import fs from 'fs';
+import path from 'path';
 import { IHaClient } from '../../scrypted-apocaliss-base/src/ha-client';
 import { DetectionClass, detectionClassesDefaultMap, getParentDetectionClass, isAudioClassname, isLabelDetection } from './detectionClasses';
 import { OccupancyRuleData } from './states';
@@ -2166,6 +2168,7 @@ export const publishPeopleData = async (props: {
     room?: string,
     imageSource: ImageSource,
     triggerTime?: number,
+    storagePath?: string,
 }) => {
     const {
         mqttClient,
@@ -2175,6 +2178,7 @@ export const publishPeopleData = async (props: {
         faces,
         imageSource,
         triggerTime,
+        storagePath,
     } = props;
 
     if (!mqttClient) {
@@ -2193,6 +2197,20 @@ export const publishPeopleData = async (props: {
                 if (identifier === MqttEntityIdentifier.LastImage && b64Image) {
                     console.log(`Person ${face} found in ${room}, image found from ${imageSource}`);
                     value = b64Image || null;
+
+                    // Save face image to disk so HA can fetch it via REST
+                    if (storagePath) {
+                        try {
+                            const detectionsDir = path.join(storagePath, peopleTrackerId, 'detections');
+                            await fs.promises.mkdir(detectionsDir, { recursive: true });
+                            const filename = imageSource && imageSource !== ImageSource.Input
+                                ? `${face}__${imageSource}.jpg`
+                                : `${face}.jpg`;
+                            await fs.promises.writeFile(path.join(detectionsDir, filename), b64Image, 'base64');
+                        } catch (e) {
+                            console.log(`Error saving face image for ${face}:`, e);
+                        }
+                    }
                 } else if (identifier === MqttEntityIdentifier.PersonRoom && room) {
                     value = room;
                 } else if (identifier === MqttEntityIdentifier.LastTrigger && triggerTime) {

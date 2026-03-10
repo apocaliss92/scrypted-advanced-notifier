@@ -1908,6 +1908,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         if (haTransport === HomeassistantTransport.websocket) {
             if (!this.wsHaClient) {
+                this.getLogger().log(`[getHaClient] Creating HaEventClient (haTransport=${haTransport})`);
                 this.wsHaClient = new HaEventClient(this.getHaApiUrl.bind(this), this.getLogger());
                 this.wsHaClient.onAuthenticated = () => {
                     this.getLogger().log('[main] HaEventClient authenticated — resetting autodiscovery to push all entities');

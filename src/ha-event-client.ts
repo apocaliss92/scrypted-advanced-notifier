@@ -12,6 +12,8 @@ import { IHaClient, HaMessageCb } from '../../scrypted-apocaliss-base/src/ha-cli
 const HA_WS_PATH = '/api/websocket';
 const HA_EVENT_STATE_UPDATE = 'scrypted_an_state_update';
 const HA_EVENT_ENTITY_CHANGE = 'scrypted_an_entity_change';
+const HA_EVENT_HEARTBEAT = 'scrypted_an_heartbeat';
+const HEARTBEAT_INTERVAL_MS = 30_000;
 
 type GetHaUrl = () => Promise<{ url: string; accessToken: string }>;
 
@@ -20,6 +22,7 @@ export class HaEventClient implements IHaClient {
     private msgId = 0;
     private authenticated = false;
     private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
     private stopped = false;
     /** topic → cb[] — used by the REST command endpoint to route incoming commands */
     private subscribers: Map<string, HaMessageCb[]> = new Map();
@@ -73,8 +76,9 @@ export class HaEventClient implements IHaClient {
             }
             if (data.type === 'auth_ok') {
                 this.authenticated = true;
-                this.stateCache.clear();
                 this.logger.log('[HaEventClient] Authenticated with HA WebSocket');
+                this.startHeartbeat();
+                this.replayStateCache();
                 this.onAuthenticated?.();
                 return;
             }
@@ -92,6 +96,7 @@ export class HaEventClient implements IHaClient {
         ws.onclose = () => {
             this.authenticated = false;
             this.ws = null;
+            this.stopHeartbeat();
             this.logger.log('[HaEventClient] HA WS closed, reconnecting in 10s');
             if (!this.stopped) this.scheduleReconnect(10_000);
         };
@@ -129,13 +134,8 @@ export class HaEventClient implements IHaClient {
             if (!strValue) return;
             const parts = topic.split('/');
             const deviceId = parts[2];
-            let payload: any;
-            try { payload = typeof value === 'object' ? value : JSON.parse(strValue); } catch { payload = strValue; }
-            this.fireEvent(HA_EVENT_ENTITY_CHANGE, {
-                device_id: deviceId,
-                cmps: payload?.cmps,
-                dev: payload?.dev,
-            });
+            // Lightweight notification — HA will fetch full details via REST
+            this.fireEvent(HA_EVENT_ENTITY_CHANGE, { device_id: deviceId });
         } else {
             // Large payloads (base64 images): send lightweight signal, image served from disk via REST
             if (strValue.length >= 2048) {
@@ -164,8 +164,34 @@ export class HaEventClient implements IHaClient {
         }
     }
 
+    private startHeartbeat(): void {
+        this.stopHeartbeat();
+        this.heartbeatTimer = setInterval(() => {
+            this.fireEvent(HA_EVENT_HEARTBEAT, { ts: Date.now() });
+        }, HEARTBEAT_INTERVAL_MS);
+        // Send first heartbeat immediately
+        this.fireEvent(HA_EVENT_HEARTBEAT, { ts: Date.now() });
+    }
+
+    private stopHeartbeat(): void {
+        if (this.heartbeatTimer) {
+            clearInterval(this.heartbeatTimer);
+            this.heartbeatTimer = null;
+        }
+    }
+
+    /** Replay all cached state values after reconnection so HA gets current values. */
+    private replayStateCache(): void {
+        if (this.stateCache.size === 0) return;
+        this.logger.log(`[HaEventClient] Replaying ${this.stateCache.size} cached states`);
+        for (const [topic, value] of this.stateCache) {
+            this.fireEvent(HA_EVENT_STATE_UPDATE, { topic, value });
+        }
+    }
+
     async disconnect(): Promise<void> {
         this.stopped = true;
+        this.stopHeartbeat();
         if (this.reconnectTimer) {
             clearTimeout(this.reconnectTimer);
             this.reconnectTimer = null;
