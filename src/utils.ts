@@ -1686,7 +1686,8 @@ export const getActiveRules = async (props: {
     device,
   });
 
-  const { pluginEnabled, mqttEnabled } = plugin.storageSettings.values;
+  const { pluginEnabled, mqttEnabled, haTransport } = plugin.storageSettings.values;
+  const haIntegrationEnabled = mqttEnabled || haTransport === HomeassistantTransport.websocket;
   const isDeviceEnabledToMqtt = deviceStorage?.values.enabledToMqtt;
 
   const allAvailableRules = [
@@ -1711,7 +1712,7 @@ export const getActiveRules = async (props: {
 
   const shouldListenAudio = !!allowedAudioRules.length;
   const isActiveForMqttReporting =
-    pluginEnabled && mqttEnabled && isDeviceEnabledToMqtt;
+    pluginEnabled && haIntegrationEnabled && isDeviceEnabledToMqtt;
   const shouldListenDetections =
     !!allowedDetectionRules.length ||
     !!allowedPatrolRules.length ||

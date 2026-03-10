@@ -7,7 +7,7 @@ import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import { DetectionClass } from "./detectionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, reportSensorValues, setupSensorAutodiscovery, subscribeToSensorMqttTopics } from "./mqtt-utils";
-import { BinarySensorMetadata, binarySensorMetadataMap, cameraFilter, convertSettingsToStorageSettings, DetectionRule, DeviceInterface, getActiveRules, getDetectionRulesSettings, GetImageReason, getMixinBaseSettings, getRuleKeys, MixinBaseSettingKey, NotifyRuleSource, RuleSource, RuleType, ScryptedEventSource, splitRules, SupportedSensorType } from "./utils";
+import { BinarySensorMetadata, binarySensorMetadataMap, cameraFilter, convertSettingsToStorageSettings, DetectionRule, DeviceInterface, getActiveRules, getDetectionRulesSettings, GetImageReason, getMixinBaseSettings, getRuleKeys, HomeassistantTransport, MixinBaseSettingKey, NotifyRuleSource, RuleSource, RuleType, ScryptedEventSource, splitRules, SupportedSensorType } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -78,6 +78,11 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
     }
 
     async getMqttClient() {
+        const { haTransport } = this.plugin.storageSettings.values;
+        if (haTransport === HomeassistantTransport.websocket) {
+            return this.plugin.getHaClient();
+        }
+
         if (!this.mqttClient && !this.initializingMqtt) {
             const { mqttEnabled, useMqttPluginCredentials, pluginEnabled, mqttHost, mqttUsename, mqttPassword } = this.plugin.storageSettings.values;
             if (mqttEnabled && pluginEnabled) {

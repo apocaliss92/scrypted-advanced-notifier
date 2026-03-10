@@ -42,6 +42,7 @@ import {
   convertSettingsToStorageSettings,
   DeviceInterface,
   HOMEASSISTANT_PLUGIN_ID,
+  HomeassistantTransport,
   isDeviceSupported,
   NotificationPriority,
   NTFY_PLUGIN_ID,
@@ -604,6 +605,11 @@ export class AdvancedNotifierAlarmSystem
   }
 
   async getMqttClient() {
+    const { haTransport } = this.plugin.storageSettings.values;
+    if (haTransport === HomeassistantTransport.websocket) {
+      return this.plugin.getHaClient();
+    }
+
     if (!this.mqttClient && !this.initializingMqtt) {
       const {
         mqttEnabled,

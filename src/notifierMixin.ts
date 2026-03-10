@@ -5,7 +5,7 @@ import { getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, reportNotifierValues, setupNotifierAutodiscovery, subscribeToNotifierMqttTopics } from "./mqtt-utils";
-import { convertSettingsToStorageSettings, DeviceInterface, GetImageReason, getMixinBaseSettings, getTextSettings, getWebHookUrls, isSchedulerActive, MixinBaseSettingKey, moToB64, NotifierPayloadKey, NVR_NOTIFIER_INTERFACE, parseNvrNotificationMessage, TextSettingKey } from "./utils";
+import { convertSettingsToStorageSettings, DeviceInterface, GetImageReason, getMixinBaseSettings, getTextSettings, getWebHookUrls, HomeassistantTransport, isSchedulerActive, MixinBaseSettingKey, moToB64, NotifierPayloadKey, NVR_NOTIFIER_INTERFACE, parseNvrNotificationMessage, TextSettingKey } from "./utils";
 
 export type SendNotificationToPluginFn = (notifierId: string, title: string, options?: NotifierOptions, media?: MediaObject, icon?: MediaObject | string) => Promise<void>
 
@@ -207,6 +207,11 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
     }
 
     async getMqttClient() {
+        const { haTransport } = this.plugin.storageSettings.values;
+        if (haTransport === HomeassistantTransport.websocket) {
+            return this.plugin.getHaClient();
+        }
+
         if (!this.mqttClient && !this.initializingMqtt) {
             const { mqttEnabled, useMqttPluginCredentials, pluginEnabled, mqttHost, mqttUsename, mqttPassword } = this.plugin.storageSettings.values;
             if (mqttEnabled && pluginEnabled) {

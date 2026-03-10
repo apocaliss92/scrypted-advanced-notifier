@@ -23,6 +23,10 @@ export class HaEventClient implements IHaClient {
     private stopped = false;
     /** topic → cb[] — used by the REST command endpoint to route incoming commands */
     private subscribers: Map<string, HaMessageCb[]> = new Map();
+    /** State cache: topic → last published value. Avoids firing state_update when value hasn't changed. */
+    private stateCache: Map<string, string> = new Map();
+    /** Called each time the WS authenticates (first connect or reconnect). */
+    onAuthenticated?: () => void;
 
     constructor(
         private readonly getHaUrl: GetHaUrl,
@@ -69,7 +73,9 @@ export class HaEventClient implements IHaClient {
             }
             if (data.type === 'auth_ok') {
                 this.authenticated = true;
+                this.stateCache.clear();
                 this.logger.log('[HaEventClient] Authenticated with HA WebSocket');
+                this.onAuthenticated?.();
                 return;
             }
             if (data.type === 'auth_invalid') {
@@ -119,6 +125,8 @@ export class HaEventClient implements IHaClient {
         const strValue = value == null ? '' : (typeof value === 'object' ? JSON.stringify(value) : String(value));
 
         if (topic.startsWith('homeassistant/device/')) {
+            // Skip empty-value publishes (clearRetainedTopic no-ops in WS mode)
+            if (!strValue) return;
             const parts = topic.split('/');
             const deviceId = parts[2];
             let payload: any;
@@ -129,6 +137,13 @@ export class HaEventClient implements IHaClient {
                 dev: payload?.dev,
             });
         } else {
+            // Only fire state_update if value changed (prevents HA event storm).
+            // Skip cache for large payloads (e.g. base64 images) to avoid costly string comparison.
+            if (strValue.length < 2048) {
+                const cached = this.stateCache.get(topic);
+                if (cached === strValue) return;
+                this.stateCache.set(topic, strValue);
+            }
             this.fireEvent(HA_EVENT_STATE_UPDATE, { topic, value: strValue });
         }
     }

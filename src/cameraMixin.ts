@@ -162,6 +162,7 @@ import {
   getTimelapseRulesSettings,
   getUrlLog,
   getWebHookUrls,
+  HomeassistantTransport,
   moToB64,
   similarityConcidenceThresholdMap,
   splitRules,
@@ -1079,6 +1080,11 @@ export class AdvancedNotifierCameraMixin
   }
 
   async getHaClient(): Promise<IHaClient | null> {
+    const { haTransport } = this.plugin.storageSettings.values;
+    if (haTransport === HomeassistantTransport.websocket) {
+      return this.plugin.getHaClient();
+    }
+
     if (!this.mixinState.mqttClient && !this.mixinState.initializingMqtt) {
       const {
         mqttEnabled,
@@ -2620,11 +2626,12 @@ export class AdvancedNotifierCameraMixin
 
   getStreamDestinations(): ScryptedStreamDestination[] {
     if (!this.streams?.length) return [];
+    const snapshotUrl = this.mixinState?.storageSettings?.values?.lastSnapshotWebhookLocalUrl as string | undefined;
     return this.streams
       .map((setting) => {
         const name = setting.subgroup?.replace('Stream: ', '') ?? setting.key ?? 'Stream';
         const rtspUrl = setting.value as string | undefined;
-        return rtspUrl ? { name, rtspUrl } : null;
+        return rtspUrl ? { name, rtspUrl, snapshotUrl } : null;
       })
       .filter(Boolean) as ScryptedStreamDestination[];
   }

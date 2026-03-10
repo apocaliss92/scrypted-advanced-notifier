@@ -28,7 +28,7 @@ import { cropImageToDetection } from "./drawingUtils";
 import { DetectionClass, detectionClassesDefaultMap, isAudioClassname, isDoorbellClassname, isLabelDetection, isMotionClassname, isPlateClassname } from "./detectionClasses";
 import { serveGif, serveImage, servePluginGeneratedVideoclip } from "./httpUtils";
 import { selectKeyEventDetection, toPixelBbox } from "./keyEventAlgorithm";
-import { alarmSystemId, idPrefix, peopleTrackerId, pluginIds, publishPluginValues, publishRuleEnabled, resetAllPluginMqttTopicsAndRediscover, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
+import { alarmSystemId, idPrefix, peopleTrackerId, pluginIds, publishPluginValues, publishRuleEnabled, resetAllPluginMqttTopicsAndRediscover, setupAlarmSystemAutodiscovery, setupCameraAutodiscovery, setupNotifierAutodiscovery, setupPluginAutodiscovery, setupSensorAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { addOrUpdateRuleArtifacts, getRulesRegisterPath, migrateDeviceRulesRegister, REGISTER_FILENAME, removeRuleArtifactUrl } from "./rulesRegister";
@@ -144,6 +144,32 @@ export type PluginSettingKey =
     | 'haAllowedOrigins'
     | BaseSettingsKey
     | TextSettingKey;
+
+/** IHaClient implementation that captures discovery payloads instead of publishing them. */
+class DiscoveryCapture implements IHaClient {
+    readonly captures = new Map<string, { cmps: any; dev: any }>();
+    readonly initialStates: Array<{ topic: string; value: string }> = [];
+    async publish(topic: string, value: any): Promise<void> {
+        if (!value && value !== '') return;
+        const strValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
+        if (topic.startsWith('homeassistant/device/')) {
+            try {
+                const payload = JSON.parse(strValue);
+                if (!payload?.cmps) return;
+                // Use dev.ids[0] as device ID (matches HA device registry), fallback to topic path
+                const deviceId = payload.dev?.ids?.[0] ?? topic.split('/')[2];
+                this.captures.set(deviceId, { cmps: payload.cmps, dev: payload.dev });
+            } catch { /* ignore non-JSON */ }
+        } else if (strValue !== '') {
+            // Capture state publishes (initial entity values)
+            this.initialStates.push({ topic, value: strValue });
+        }
+    }
+    async subscribe(): Promise<void> {}
+    async unsubscribe(): Promise<void> {}
+    async disconnect(): Promise<void> {}
+    async cleanupAutodiscoveryTopics(): Promise<void> {}
+}
 
 export default class AdvancedNotifierPlugin extends BasePlugin implements MixinProvider, HttpRequestHandler, DeviceProvider, PushHandler, LauncherApplication {
     private clearVideoclipsQueue: { deviceId: string; task: () => Promise<void> }[] = [];
@@ -1248,15 +1274,112 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             if (pathname.includes('public/ha/entities')) {
                 const requestedIds = (url.searchParams.get('device_ids') ?? '').split(',').map((s: string) => s.trim()).filter(Boolean);
-                const allMixins = Object.values(this.currentCameraMixinsMap);
-                const filtered = requestedIds.length > 0
-                    ? allMixins.filter(m => requestedIds.includes(`${idPrefix}-${m.id}`))
-                    : allMixins;
-                const devices = filtered.map(mixin => ({
-                    device_id: `${idPrefix}-${mixin.id}`,
-                    device_name: mixin.name,
+                const shouldInclude = (id: string) => requestedIds.length === 0 || requestedIds.includes(id);
+                const capture = new DiscoveryCapture();
+                const haLogger = this.getLogger();
+                const { facesSourceForMqtt } = this.storageSettings.values;
+                const rules = this.allAvailableRules ?? [];
+
+                // Build device_id → name map for response
+                const deviceNameMap = new Map<string, string>();
+                for (const m of Object.values(this.currentCameraMixinsMap)) deviceNameMap.set(`${idPrefix}-${m.id}`, m.name);
+                for (const m of Object.values(this.currentSensorMixinsMap)) deviceNameMap.set(`${idPrefix}-${m.id}`, m.name);
+                for (const m of Object.values(this.currentNotifierMixinsMap)) deviceNameMap.set(`${idPrefix}-${m.id}`, m.name);
+                deviceNameMap.set(pluginIds, 'Advanced Notifier (Plugin)');
+                deviceNameMap.set(`${idPrefix}-${peopleTrackerId}`, 'Advanced Notifier (People tracker)');
+                deviceNameMap.set(`${idPrefix}-${alarmSystemId}`, 'Advanced Notifier (Alarm system)');
+
+                const tasks: Promise<unknown>[] = [];
+
+                // Plugin + people tracker
+                if (shouldInclude(pluginIds) || shouldInclude(`${idPrefix}-${peopleTrackerId}`)) {
+                    tasks.push(setupPluginAutodiscovery({
+                        mqttClient: capture,
+                        people: await this.getKnownPeople(facesSourceForMqtt),
+                        console: haLogger,
+                        rules,
+                    }).catch(haLogger.error));
+                }
+
+                // Alarm system
+                if (shouldInclude(`${idPrefix}-${alarmSystemId}`)) {
+                    try {
+                        const alarm = await this.getDevice(ALARM_SYSTEM_NATIVE_ID) as any;
+                        const supportedModes = alarm?.securitySystemState?.supportedModes ?? [];
+                        tasks.push(setupAlarmSystemAutodiscovery({
+                            mqttClient: capture,
+                            console: haLogger,
+                            supportedModes,
+                        }).catch(haLogger.error));
+                    } catch (e) {
+                        haLogger.error('Error getting alarm system for entity capture', e);
+                    }
+                }
+
+                // Cameras
+                for (const mixin of Object.values(this.currentCameraMixinsMap)) {
+                    if (!shouldInclude(`${idPrefix}-${mixin.id}`)) continue;
+                    tasks.push((async () => {
+                        try {
+                            const zones = await mixin.getMqttZones();
+                            await setupCameraAutodiscovery({
+                                mqttClient: capture,
+                                device: mixin.cameraDevice as any,
+                                console: haLogger,
+                                rules,
+                                zones,
+                                accessorySwitchKinds: (mixin as any).cameraAccessorySwitchKinds,
+                                streamDestinations: mixin.getStreamDestinations(),
+                            });
+                        } catch (e) {
+                            haLogger.error(`Error capturing camera ${mixin.id} discovery`, e);
+                        }
+                    })());
+                }
+
+                // Sensors
+                for (const mixin of Object.values(this.currentSensorMixinsMap)) {
+                    if (!shouldInclude(`${idPrefix}-${mixin.id}`)) continue;
+                    tasks.push((async () => {
+                        try {
+                            const { availableDetectionRules } = await getActiveRules({
+                                device: mixin as any,
+                                console: haLogger,
+                                plugin: this,
+                                deviceStorage: mixin.storageSettings,
+                            });
+                            await setupSensorAutodiscovery({
+                                mqttClient: capture,
+                                device: mixin.sensorDevice as any,
+                                rules: availableDetectionRules,
+                                console: haLogger,
+                            });
+                        } catch (e) {
+                            haLogger.error(`Error capturing sensor ${mixin.id} discovery`, e);
+                        }
+                    })());
+                }
+
+                // Notifiers
+                for (const mixin of Object.values(this.currentNotifierMixinsMap)) {
+                    if (!shouldInclude(`${idPrefix}-${mixin.id}`)) continue;
+                    tasks.push(setupNotifierAutodiscovery({
+                        mqttClient: capture,
+                        device: mixin.notifierDevice as any,
+                        console: haLogger,
+                    }).catch(haLogger.error));
+                }
+
+                await Promise.all(tasks);
+
+                const devices = Array.from(capture.captures.entries()).map(([device_id, { cmps, dev }]) => ({
+                    device_id,
+                    device_name: deviceNameMap.get(device_id) ?? device_id,
+                    cmps,
+                    dev,
                 }));
-                response.send(JSON.stringify({ devices }), { code: 200, headers: { ...corsHeaders(), 'Content-Type': 'application/json' } });
+
+                response.send(JSON.stringify({ devices, states: capture.initialStates }), { code: 200, headers: { ...corsHeaders(), 'Content-Type': 'application/json' } });
                 return;
             }
 
@@ -1974,6 +2097,16 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if (haTransport === HomeassistantTransport.websocket) {
             if (!this.wsHaClient) {
                 this.wsHaClient = new HaEventClient(this.getHaApiUrl.bind(this), this.getLogger());
+                this.wsHaClient.onAuthenticated = () => {
+                    this.getLogger().log('[main] HaEventClient authenticated — resetting autodiscovery to push all entities');
+                    this.lastAutoDiscovery = 0;
+                    for (const id of Object.keys(this.lastCameraAutodiscoveryMap)) {
+                        delete this.lastCameraAutodiscoveryMap[id];
+                    }
+                    for (const mixin of Object.values(this.currentSensorMixinsMap)) { mixin.lastAutoDiscovery = 0; }
+                    for (const mixin of Object.values(this.currentNotifierMixinsMap)) { mixin.lastAutoDiscovery = 0; }
+                    if (this.alarmSystem) { this.alarmSystem.lastAutoDiscovery = 0; }
+                };
                 this.wsHaClient.connect().catch(e => this.getLogger().warn('[main] HaEventClient connect error:', e));
             }
             return this.wsHaClient;
@@ -2052,8 +2185,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     private async setupMqttEntities() {
-        const { mqttEnabled, mqttActiveEntitiesTopic } = this.storageSettings.values;
-        if (mqttEnabled) {
+        const { mqttEnabled, haTransport, mqttActiveEntitiesTopic } = this.storageSettings.values;
+        if (mqttEnabled || haTransport === HomeassistantTransport.websocket) {
             try {
                 const mqttClient = await this.getHaClient();
                 const logger = this.getLogger();
@@ -2342,8 +2475,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 await this.checkPluginConfigurations(false);
             }
 
-            const { mqttEnabled, notificationsEnabled, devNotifications, devNotifier, facesSourceForMqtt } = this.storageSettings.values;
-            if (mqttEnabled) {
+            const { mqttEnabled, haTransport, notificationsEnabled, devNotifications, devNotifier, facesSourceForMqtt } = this.storageSettings.values;
+            const haIntegrationEnabled = mqttEnabled || haTransport === HomeassistantTransport.websocket;
+            if (haIntegrationEnabled) {
                 const mqttClient = await this.getHaClient();
                 if (mqttClient) {
                     const logger = this.getLogger();
