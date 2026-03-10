@@ -2199,13 +2199,15 @@ export const publishPeopleData = async (props: {
                     value = b64Image || null;
 
                     // Save face image to disk so HA can fetch it via REST
+                    // Use snake_case name to match the topic entity key used by handleImage
                     if (storagePath) {
                         try {
                             const detectionsDir = path.join(storagePath, peopleTrackerId, 'detections');
                             await fs.promises.mkdir(detectionsDir, { recursive: true });
+                            const faceId = toSnakeCase(face);
                             const filename = imageSource && imageSource !== ImageSource.Input
-                                ? `${face}__${imageSource}.jpg`
-                                : `${face}.jpg`;
+                                ? `${faceId}__${imageSource}.jpg`
+                                : `${faceId}.jpg`;
                             await fs.promises.writeFile(path.join(detectionsDir, filename), b64Image, 'base64');
                         } catch (e) {
                             console.log(`Error saving face image for ${face}:`, e);
