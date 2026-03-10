@@ -407,7 +407,7 @@ export class AdvancedNotifierCameraMixin
           haApiUrl,
           haApiToken,
           initialCameraState,
-          streamDestinations: this.getStreamDestinations(),
+          streamDestinations: await this.getStreamDestinations(),
         });
         if (result.haError) {
           logger.warn("Rediscover completed with HA warning:", result.haError);
@@ -1471,7 +1471,7 @@ export class AdvancedNotifierCameraMixin
                   zones,
                   accessorySwitchKinds: this.cameraAccessorySwitchKinds,
                   initialCameraState,
-                  streamDestinations: this.getStreamDestinations(),
+                  streamDestinations: await this.getStreamDestinations(),
                 });
 
                 logger.debug(`Subscribing to mqtt topics`);
@@ -2625,7 +2625,7 @@ export class AdvancedNotifierCameraMixin
     };
   }
 
-  getStreamDestinations(): ScryptedStreamDestination[] {
+  async getStreamDestinations(): Promise<ScryptedStreamDestination[]> {
     if (!this.streams?.length) return [];
     const snapshotUrl = this.mixinState?.storageSettings?.values?.lastSnapshotWebhookLocalUrl as string | undefined;
 
@@ -2634,6 +2634,12 @@ export class AdvancedNotifierCameraMixin
     const localIp = Array.isArray(localAddresses) && localAddresses.length > 0
       ? localAddresses[0] as string
       : undefined;
+
+    // Match stream names to their Scrypted destinations (default, remote, remote-recorder, etc.)
+    let streamOptions: ResponseMediaStreamOptions[] = [];
+    try {
+      streamOptions = await this.cameraDevice.getVideoStreamOptions();
+    } catch { /* ignore — destinations will be empty */ }
 
     return this.streams
       .map((setting) => {
@@ -2645,7 +2651,10 @@ export class AdvancedNotifierCameraMixin
         const resolvedSnapshotUrl = snapshotUrl && localIp
           ? snapshotUrl.replace('localhost', localIp)
           : snapshotUrl;
-        return rtspUrl ? { name, rtspUrl, snapshotUrl: resolvedSnapshotUrl } : null;
+        // Find the first Scrypted destination for this stream name
+        const matchedStream = streamOptions.find(s => s.name === name);
+        const destination = matchedStream?.destinations?.[0];
+        return rtspUrl ? { name, destination, rtspUrl, snapshotUrl: resolvedSnapshotUrl } : null;
       })
       .filter(Boolean) as ScryptedStreamDestination[];
   }

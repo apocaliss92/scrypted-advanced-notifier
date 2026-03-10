@@ -17,6 +17,8 @@ export type CameraAccessorySwitchKind = CameraNativeIdAccessoryKind;
 export interface ScryptedStreamDestination {
     /** Stream label, e.g. "Main", "Sub" */
     name: string;
+    /** First Scrypted destination assignment, e.g. "default", "remote", "remote-recorder" */
+    destination?: string;
     /** RTSP URL from rebroadcast plugin settings */
     rtspUrl?: string;
     /** Snapshot URL (plugin /public endpoint) */
@@ -738,9 +740,12 @@ const buildDeviceDiscoveryPayload = (props: {
     if (streamDestinations?.length) {
         for (const dest of streamDestinations) {
             const key = `camera_${dest.name.toLowerCase().replace(/\s+/g, '_')}`;
+            const displayName = dest.destination
+                ? `${dest.name} (${dest.destination})`
+                : dest.name;
             cmps[key] = {
                 platform: 'camera',
-                name: dest.name,
+                name: displayName,
                 rtsp_url: dest.rtspUrl,
                 still_image_url: dest.snapshotUrl,
             };

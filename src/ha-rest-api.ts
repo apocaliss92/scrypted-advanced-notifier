@@ -234,7 +234,7 @@ async function handleEntities(
                     rules,
                     zones,
                     accessorySwitchKinds,
-                    streamDestinations: mixin.getStreamDestinations(),
+                    streamDestinations: await mixin.getStreamDestinations(),
                 });
             } catch (e) {
                 logger.error(`Error capturing camera ${mixin.id} discovery`, e);
