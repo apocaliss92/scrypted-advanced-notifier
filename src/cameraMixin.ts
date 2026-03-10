@@ -169,6 +169,7 @@ import {
   getBatteryPrivacySettings,
   getMatchingBatteryThreshold,
   mixinBatteryGroup,
+  safeParseJson,
 } from "./utils";
 import {
   VideoRtspFfmpegRecorder,
@@ -2627,11 +2628,24 @@ export class AdvancedNotifierCameraMixin
   getStreamDestinations(): ScryptedStreamDestination[] {
     if (!this.streams?.length) return [];
     const snapshotUrl = this.mixinState?.storageSettings?.values?.lastSnapshotWebhookLocalUrl as string | undefined;
+
+    // Scrypted returns RTSP URLs with localhost — replace with actual local IP
+    const localAddresses = safeParseJson(this.plugin.storageSettings.getItem('localAddresses'));
+    const localIp = Array.isArray(localAddresses) && localAddresses.length > 0
+      ? localAddresses[0] as string
+      : undefined;
+
     return this.streams
       .map((setting) => {
         const name = setting.subgroup?.replace('Stream: ', '') ?? setting.key ?? 'Stream';
-        const rtspUrl = setting.value as string | undefined;
-        return rtspUrl ? { name, rtspUrl, snapshotUrl } : null;
+        let rtspUrl = setting.value as string | undefined;
+        if (rtspUrl && localIp) {
+          rtspUrl = rtspUrl.replace('localhost', localIp);
+        }
+        const resolvedSnapshotUrl = snapshotUrl && localIp
+          ? snapshotUrl.replace('localhost', localIp)
+          : snapshotUrl;
+        return rtspUrl ? { name, rtspUrl, snapshotUrl: resolvedSnapshotUrl } : null;
       })
       .filter(Boolean) as ScryptedStreamDestination[];
   }
