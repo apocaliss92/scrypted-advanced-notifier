@@ -130,6 +130,7 @@ export class HaEventClient implements IHaClient {
             this.ws = null;
             this.stopHeartbeat();
             this.stopPing();
+            this.pendingResults.clear();
             this.logger.log('[HaEventClient] HA WS closed, reconnecting in 10s');
             if (!this.stopped) this.scheduleReconnect(10_000);
         };
@@ -169,6 +170,7 @@ export class HaEventClient implements IHaClient {
         this.stopHeartbeat();
         this.stopPing();
         this.authenticated = false;
+        this.pendingResults.clear();
         if (this.ws) {
             try { this.ws.close(); } catch { /* ignore */ }
             this.ws = null;
@@ -202,9 +204,8 @@ export class HaEventClient implements IHaClient {
 
     async subscribe(topics: string[], cb: HaMessageCb): Promise<void> {
         for (const topic of topics) {
-            const existing = this.subscribers.get(topic) ?? [];
-            existing.push(cb);
-            this.subscribers.set(topic, existing);
+            // Replace callbacks for the topic to prevent accumulation on reconnect
+            this.subscribers.set(topic, [cb]);
         }
     }
 
