@@ -6,6 +6,7 @@ on:
     paths:
       - "custom_components/**"
       - "HA_VERSION"
+      - "CODEOWNERS"
       - "hacs.json"
   workflow_dispatch:
 
