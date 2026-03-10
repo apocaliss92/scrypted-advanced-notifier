@@ -5586,17 +5586,19 @@ export class AdvancedNotifierCameraMixin
             }
           }
 
+          // Inject synthetic AnyObject once, used by both MQTT and filesystem storage
+          if (
+            !candidates.some((d) => d.className === DetectionClass.AnyObject) &&
+            candidates.some((d) => isObjectClassname(d.className))
+          ) {
+            candidates.push({
+              className: DetectionClass.AnyObject,
+              score: 1,
+            });
+          }
+
           if (canUpdateDetectionsOnMqtt) {
             if (mqttClient) {
-              if (
-                candidates.some((elem) => isObjectClassname(elem.className))
-              ) {
-                candidates.push({
-                  className: DetectionClass.AnyObject,
-                  score: 1,
-                });
-              }
-
               const spamBlockedDetections = candidates.filter(
                 (det) =>
                   this.isDelayPassed({
@@ -5694,7 +5696,7 @@ export class AdvancedNotifierCameraMixin
           device: this.cameraDevice,
           timestamp: triggerTime,
           b64Image: mqttFsB64Image,
-          detections,
+          detections: candidates,
           eventSource,
         });
       }
