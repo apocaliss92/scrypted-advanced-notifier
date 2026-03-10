@@ -1,0 +1,4 @@
+# Code owners for Scrypted Advanced Notifier integration
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+/custom_components/scrypted_an/ @apocaliss92
