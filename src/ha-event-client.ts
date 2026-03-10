@@ -113,9 +113,19 @@ export class HaEventClient implements IHaClient {
 
         ws.onerror = (e) => {
             this.logger.warn('[HaEventClient] WebSocket error:', (e as any)?.message ?? e);
+            // In some runtimes onerror fires without a subsequent onclose.
+            // Clean up and schedule reconnect to be safe.
+            if (this.ws === ws) {
+                this.authenticated = false;
+                this.ws = null;
+                this.stopHeartbeat();
+                this.stopPing();
+                if (!this.stopped) this.scheduleReconnect(10_000);
+            }
         };
 
         ws.onclose = () => {
+            if (this.ws !== ws && this.ws !== null) return; // already handled by onerror
             this.authenticated = false;
             this.ws = null;
             this.stopHeartbeat();

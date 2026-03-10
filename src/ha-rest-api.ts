@@ -184,8 +184,6 @@ async function handleEntities(
     const facesSourceForMqtt = plugin.storageSettings.values.facesSourceForMqtt as ScryptedEventSource;
     const rules = plugin.allAvailableRules ?? [];
 
-    logger.log(`[HA entities] Requested device IDs: [${requestedIds.join(', ')}]`);
-
     const deviceNameMap = new Map<string, string>();
     for (const m of Object.values(plugin.currentCameraMixinsMap)) deviceNameMap.set(`${idPrefix}-${m.id}`, m.name);
     for (const m of Object.values(plugin.currentSensorMixinsMap)) deviceNameMap.set(`${idPrefix}-${m.id}`, m.name);
@@ -198,7 +196,6 @@ async function handleEntities(
 
     // Plugin + people tracker
     if (shouldInclude(pluginIds) || shouldInclude(`${idPrefix}-${peopleTrackerId}`)) {
-        logger.log(`[HA entities] Including plugin (${pluginIds}) / people tracker (${idPrefix}-${peopleTrackerId})`);
         tasks.push(setupPluginAutodiscovery({
             mqttClient: capture,
             people: await plugin.getKnownPeople(facesSourceForMqtt),
@@ -209,12 +206,10 @@ async function handleEntities(
 
     // Alarm system
     const alarmDeviceId = `${idPrefix}-${alarmSystemId}`;
-    logger.log(`[HA entities] Alarm system ID: ${alarmDeviceId}, shouldInclude: ${shouldInclude(alarmDeviceId)}`);
     if (shouldInclude(alarmDeviceId)) {
         try {
             const alarm = await plugin.getDevice(ALARM_SYSTEM_NATIVE_ID) as (ScryptedDeviceBase & SecuritySystem) | undefined;
             const supportedModes = alarm?.securitySystemState?.supportedModes ?? [];
-            logger.log(`[HA entities] Alarm system found, supportedModes: [${supportedModes.join(', ')}]`);
             tasks.push(setupAlarmSystemAutodiscovery({
                 mqttClient: capture,
                 console: logger,
@@ -282,8 +277,6 @@ async function handleEntities(
 
     await Promise.all(tasks);
 
-    logger.log(`[HA entities] Captured ${capture.captures.size} devices: [${Array.from(capture.captures.keys()).join(', ')}], ${capture.initialStates.length} initial states`);
-
     const devices = Array.from(capture.captures.entries()).map(([device_id, { cmps, dev }]) => ({
         device_id,
         device_name: deviceNameMap.get(device_id) ?? device_id,
@@ -291,9 +284,8 @@ async function handleEntities(
         dev,
     }));
 
-    for (const d of devices) {
-        logger.log(`[HA entities] Device: ${d.device_id} (${d.device_name}), cmps: [${Object.keys(d.cmps).join(', ')}]`);
-    }
+    const totalCmps = devices.reduce((sum, d) => sum + Object.keys(d.cmps).length, 0);
+    logger.log(`[HA entities] Sending ${devices.length} devices, ${totalCmps} entities, ${capture.initialStates.length} initial states`);
 
     response.send(JSON.stringify({ devices, states: capture.initialStates }), {
         code: 200,
