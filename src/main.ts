@@ -255,31 +255,31 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         },
         mqttActiveEntitiesTopic: {
             title: 'Active entities topic',
-            subgroup: 'MQTT',
+            subgroup: 'Homeassistant',
             description: 'Topic containing a list of device names/ids, it will be used for the "OnActive" rules',
             onPut: async () => {
                 await this.setupMqttEntities();
             },
         },
         mqttResetAllTopics: {
-            title: 'Reset all MQTT topics',
-            subgroup: 'MQTT',
+            title: 'Reset all topics',
+            subgroup: 'Homeassistant',
             type: 'button',
-            description: 'Clears retained MQTT topics for ALL Advanced Notifier devices (plugin, people tracker, alarm system, cameras, sensors, notifiers) including Home Assistant discovery topics, then republishes discovery. Use if entities are missing/duplicated or discovery is out of sync. This may take a few seconds and Home Assistant may need a short time to refresh entities.',
+            description: 'Clears retained topics for ALL Advanced Notifier devices (plugin, people tracker, alarm system, cameras, sensors, notifiers) including Home Assistant discovery topics, then republishes discovery. Use if entities are missing/duplicated or discovery is out of sync. This may take a few seconds and Home Assistant may need a short time to refresh entities.',
             onPut: async () => {
                 await this.resetAllMqttTopicsAndRediscover();
             },
         },
         mqttMemoryCacheEnabled: {
             title: 'Cache topics in memory',
-            description: 'Enable caching of MQTT topics in memory to reduce MQTT broker load. Recommended for large installations or when using cloud MQTT brokers.',
+            description: 'Enable caching of topics in memory to reduce MQTT broker load. Recommended for large installations or when using cloud MQTT brokers.',
             subgroup: 'MQTT',
             type: 'boolean',
             defaultValue: true,
             immediate: true,
         },
         haTransport: {
-            title: 'HA Transport',
+            title: 'Discovery layer',
             description: 'Transport used to push state updates to Home Assistant. "mqtt" uses the existing MQTT broker; "websocket" exposes a WebSocket server that the HA custom integration connects to directly.',
             subgroup: 'Homeassistant',
             type: 'string',
@@ -303,25 +303,25 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         },
         updateFrequencyMotionImagesInSeconds: {
             title: 'Motion image update frequency (seconds)',
-            description: 'Minimum seconds between MQTT image updates for motion when using non-NVR sources (decoder/raw). Defaults to the camera min MQTT publish delay behavior.',
-            subgroup: 'MQTT',
+            description: 'Minimum seconds between image updates for motion when using non-NVR sources (decoder/raw). Defaults to the camera min publish delay behavior.',
+            subgroup: 'Homeassistant',
             type: 'number',
             defaultValue: 5,
             immediate: true,
         },
         updateFrequencyObjectImagesInSeconds: {
             title: 'Object image update frequency (seconds)',
-            description: 'Minimum seconds between MQTT image updates for object detections when using non-NVR sources (decoder/raw). Defaults to the camera min MQTT publish delay behavior.',
-            subgroup: 'MQTT',
+            description: 'Minimum seconds between image updates for object detections when using non-NVR sources (decoder/raw). Defaults to the camera min publish delay behavior.',
+            subgroup: 'Homeassistant',
             type: 'number',
             defaultValue: 5,
             immediate: true,
         },
         detectionSourceForMqtt: {
             title: 'Detections source',
-            description: 'Which source should be used to update MQTT',
+            description: 'Which source should be used to update Home Assistant',
             type: 'string',
-            subgroup: 'MQTT',
+            subgroup: 'Homeassistant',
             immediate: true,
             combobox: true,
             choices: [],
@@ -331,7 +331,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             title: 'Faces source',
             description: 'Which source should be used to update the people tracker.',
             type: 'string',
-            subgroup: 'MQTT',
+            subgroup: 'Homeassistant',
             immediate: true,
             combobox: true,
             choices: [],
@@ -339,9 +339,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         },
         zonesSourceForMqtt: {
             title: 'Zones source',
-            description: 'Which zone list should be used for MQTT zone entities. Scrypted uses Observe zones; Frigate uses zones defined in the Frigate interface.',
+            description: 'Which zone list should be used for zone entities. Scrypted uses Observe zones; Frigate uses zones defined in the Frigate interface.',
             type: 'string',
-            subgroup: 'MQTT',
+            subgroup: 'Homeassistant',
             immediate: true,
             combobox: true,
             choices: [],
@@ -349,9 +349,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         },
         // occupancySourceForMqtt: {
         //     title: 'Static objects source',
-        //     description: 'Define which source should be used to update MQTT static objects occupancy states.',
+        //     description: 'Define which source should be used to update static objects occupancy states.',
         //     type: 'string',
-        //     subgroup: 'MQTT',
+        //     subgroup: 'Homeassistant',
         //     immediate: true,
         //     combobox: true,
         //     choices: [],
@@ -2738,14 +2738,18 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         const {
             mqttEnabled,
+            haTransport,
             testDevice,
             testNotifier,
             testGenerateClip,
             haEnabled,
         } = this.storageSettings.values;
 
+        const haIntegrationActive = mqttEnabled || haTransport === HomeassistantTransport.websocket;
+        const isMqttOnly = mqttEnabled && haTransport !== HomeassistantTransport.websocket;
+
         try {
-            if (mqttEnabled) {
+            if (haIntegrationActive) {
                 this.storageSettings.settings.detectionSourceForMqtt.choices = this.enabledDetectionSources;
                 this.storageSettings.settings.facesSourceForMqtt.choices = this.enabledFacesSources;
                 this.storageSettings.settings.zonesSourceForMqtt.choices = this.enabledZonesSources;
@@ -2754,14 +2758,14 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.storageSettings.settings.testEventSource.choices = this.enabledDetectionSources
                 .filter(s => s !== ScryptedEventSource.All);
 
-            this.storageSettings.settings.detectionSourceForMqtt.hide = !mqttEnabled;
-            this.storageSettings.settings.facesSourceForMqtt.hide = !mqttEnabled;
-            this.storageSettings.settings.zonesSourceForMqtt.hide = !mqttEnabled;
-            // this.storageSettings.settings.occupancySourceForMqtt.hide = !mqttEnabled;
-            this.storageSettings.settings.mqttActiveEntitiesTopic.hide = !mqttEnabled;
-            this.storageSettings.settings.mqttResetAllTopics.hide = !mqttEnabled;
-            this.storageSettings.settings.updateFrequencyMotionImagesInSeconds.hide = !mqttEnabled;
-            this.storageSettings.settings.updateFrequencyObjectImagesInSeconds.hide = !mqttEnabled;
+            this.storageSettings.settings.detectionSourceForMqtt.hide = !haIntegrationActive;
+            this.storageSettings.settings.facesSourceForMqtt.hide = !haIntegrationActive;
+            this.storageSettings.settings.zonesSourceForMqtt.hide = !haIntegrationActive;
+            // this.storageSettings.settings.occupancySourceForMqtt.hide = !haIntegrationActive;
+            this.storageSettings.settings.mqttActiveEntitiesTopic.hide = !isMqttOnly;
+            this.storageSettings.settings.mqttResetAllTopics.hide = !isMqttOnly;
+            this.storageSettings.settings.updateFrequencyMotionImagesInSeconds.hide = !haIntegrationActive;
+            this.storageSettings.settings.updateFrequencyObjectImagesInSeconds.hide = !haIntegrationActive;
 
             this.storageSettings.settings.scryptedToken.hide = !haEnabled;
 

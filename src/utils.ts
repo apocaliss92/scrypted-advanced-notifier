@@ -1582,10 +1582,10 @@ export const getMixinBaseSettings = (props: {
 
     if (isCamera || isNotifier || isSensor) {
       settings.enabledToMqtt = {
-        title: "Report to MQTT",
-        description: "Autodiscovery this device on MQTT",
+        title: "Report to Home Assistant",
+        description: "Autodiscovery this device on Home Assistant",
         type: "boolean",
-        subgroup: "MQTT",
+        subgroup: "Homeassistant",
         defaultValue: !isSensor,
         immediate: true,
       };
@@ -3686,9 +3686,9 @@ export const getDetectionRulesSettings = async (props: {
       },
       {
         key: minMqttPublishDelayKey,
-        title: "Minimum MQTT publish delay",
+        title: "Minimum publish delay",
         description:
-          "Minimum amount of seconds to wait until a new image is published on MQTT",
+          "Minimum amount of seconds to wait until a new image is published to Home Assistant",
         group,
         subgroup,
         type: "number",

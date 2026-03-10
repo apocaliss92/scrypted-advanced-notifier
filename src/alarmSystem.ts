@@ -146,7 +146,7 @@ export class AdvancedNotifierAlarmSystem
     },
     logeLevel: logLevelSetting,
     mqttEnabled: {
-      title: "MQTT enabled",
+      title: "Report to Home Assistant",
       type: "boolean",
       defaultValue: true,
       immediate: true,
@@ -420,7 +420,9 @@ export class AdvancedNotifierAlarmSystem
         const now = Date.now();
 
         const { mqttEnabled } = this.storageSettings.values;
-        if (mqttEnabled) {
+        const { haTransport } = this.plugin.storageSettings.values;
+        const haIntegrationActive = mqttEnabled || haTransport === HomeassistantTransport.websocket;
+        if (haIntegrationActive) {
           const mqttClient = await this.getMqttClient();
           if (mqttClient) {
             if (

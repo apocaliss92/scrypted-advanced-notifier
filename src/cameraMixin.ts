@@ -329,9 +329,9 @@ export class AdvancedNotifierCameraMixin
     detectionSourceForMqtt: {
       title: "Detections source",
       description:
-        "Which source should be used to update MQTT. Default will use the plugin setting",
+        "Which source should be used to update Home Assistant. Default will use the plugin setting",
       type: "string",
-      subgroup: "MQTT",
+      subgroup: "Homeassistant",
       immediate: true,
       combobox: true,
       defaultValue: ScryptedEventSource.Default,
@@ -344,17 +344,17 @@ export class AdvancedNotifierCameraMixin
       type: "string",
       immediate: true,
       combobox: true,
-      subgroup: "MQTT",
+      subgroup: "Homeassistant",
       defaultValue: ScryptedEventSource.Default,
       choices: [],
     },
     zonesSourceForMqtt: {
       title: "Zones source",
       description:
-        "Which zone list should be used for MQTT zone entities. Default will use the plugin setting. Scrypted uses Observe zones; Frigate uses zones defined in the Frigate interface.",
+        "Which zone list should be used for zone entities. Default will use the plugin setting. Scrypted uses Observe zones; Frigate uses zones defined in the Frigate interface.",
       type: "string",
       immediate: true,
-      subgroup: "MQTT",
+      subgroup: "Homeassistant",
       combobox: true,
       defaultValue: ZonesSource.Default,
       choices: [],
@@ -365,16 +365,16 @@ export class AdvancedNotifierCameraMixin
         "Select the source of the frame occupancy check, i.e. how many cars are on a camera",
       type: "string",
       immediate: true,
-      subgroup: "MQTT",
+      subgroup: "Homeassistant",
       choices: [],
       defaultValue: OccupancySource.Off,
     },
     mqttRediscoverDevice: {
-      title: "Rediscover MQTT device",
-      subgroup: "MQTT",
+      title: "Rediscover device on Home Assistant",
+      subgroup: "Homeassistant",
       type: "button",
       description:
-        "Removes this camera from Home Assistant (if HA API URL and token are set in plugin settings), clears all MQTT topics for this camera, then republishes discovery. Use if entities are missing, duplicated or out of sync.",
+        "Removes this camera from Home Assistant (if HA API URL and token are set in plugin settings), clears all topics for this camera, then republishes discovery. Use if entities are missing, duplicated or out of sync.",
       onPut: async () => {
         const logger = this.getLogger();
         const mqttClient = await this.getHaClient();
@@ -1584,17 +1584,15 @@ export class AdvancedNotifierCameraMixin
               });
             }
 
-            if (this.plugin.storageSettings.values.mqttEnabled) {
-              const cameraState = await this.getCameraMqttCurrentState();
-              publishCameraValues({
-                ...cameraState,
-                console: logger,
-                device: this.cameraDevice,
-                mqttClient,
-                rulesToEnable,
-                rulesToDisable,
-              }).catch(logger.error);
-            }
+            const cameraState = await this.getCameraMqttCurrentState();
+            publishCameraValues({
+              ...cameraState,
+              console: logger,
+              device: this.cameraDevice,
+              mqttClient,
+              rulesToEnable,
+              rulesToDisable,
+            }).catch(logger.error);
           }
         }
 
