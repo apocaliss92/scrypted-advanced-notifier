@@ -23,11 +23,15 @@ export class HaEventClient implements IHaClient {
     private authenticated = false;
     private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+    private pingTimer: ReturnType<typeof setInterval> | null = null;
+    private pongReceived = true;
     private stopped = false;
     /** topic → cb[] — used by the REST command endpoint to route incoming commands */
     private subscribers: Map<string, HaMessageCb[]> = new Map();
     /** State cache: topic → last published value. Avoids firing state_update when value hasn't changed. */
     private stateCache: Map<string, string> = new Map();
+    /** Track pending fire_event results to detect failures */
+    private pendingResults: Map<number, string> = new Map();
     /** Called each time the WS authenticates (first connect or reconnect). */
     onAuthenticated?: () => void;
 
@@ -78,6 +82,7 @@ export class HaEventClient implements IHaClient {
                 this.authenticated = true;
                 this.logger.log('[HaEventClient] Authenticated with HA WebSocket');
                 this.startHeartbeat();
+                this.startPing();
                 this.replayStateCache();
                 this.onAuthenticated?.();
                 return;
@@ -85,6 +90,23 @@ export class HaEventClient implements IHaClient {
             if (data.type === 'auth_invalid') {
                 this.logger.error('[HaEventClient] HA auth invalid — check access token');
                 ws.close();
+                return;
+            }
+            // Track fire_event results
+            if (data.type === 'result') {
+                this.pongReceived = true; // Any message from HA counts as alive
+                const label = this.pendingResults.get(data.id);
+                if (label) {
+                    this.pendingResults.delete(data.id);
+                    if (!data.success) {
+                        this.logger.warn(`[HaEventClient] fire_event FAILED for ${label}: ${JSON.stringify(data.error)}`);
+                    }
+                }
+                return;
+            }
+            // HA sends pong responses
+            if (data.type === 'pong') {
+                this.pongReceived = true;
                 return;
             }
         };
@@ -97,6 +119,7 @@ export class HaEventClient implements IHaClient {
             this.authenticated = false;
             this.ws = null;
             this.stopHeartbeat();
+            this.stopPing();
             this.logger.log('[HaEventClient] HA WS closed, reconnecting in 10s');
             if (!this.stopped) this.scheduleReconnect(10_000);
         };
@@ -114,16 +137,33 @@ export class HaEventClient implements IHaClient {
 
     private fireEvent(eventType: string, eventData: Record<string, unknown>): void {
         if (!this.ws || !this.authenticated) return;
+        const id = this.nextId();
         try {
+            this.pendingResults.set(id, eventType);
             this.ws.send(JSON.stringify({
-                id: this.nextId(),
+                id,
                 type: 'fire_event',
                 event_type: eventType,
                 event_data: eventData,
             }));
         } catch (e) {
+            this.pendingResults.delete(id);
             this.logger.warn('[HaEventClient] Failed to fire event:', e);
+            // Send failure likely means dead connection — force reconnect
+            this.forceReconnect();
         }
+    }
+
+    private forceReconnect(): void {
+        this.logger.warn('[HaEventClient] Forcing reconnect due to dead connection');
+        this.stopHeartbeat();
+        this.stopPing();
+        this.authenticated = false;
+        if (this.ws) {
+            try { this.ws.close(); } catch { /* ignore */ }
+            this.ws = null;
+        }
+        if (!this.stopped) this.scheduleReconnect(5_000);
     }
 
     async publish(topic: string, value: any, _retain?: boolean): Promise<void> {
@@ -166,10 +206,13 @@ export class HaEventClient implements IHaClient {
 
     private startHeartbeat(): void {
         this.stopHeartbeat();
+        this.logger.log('[HaEventClient] Starting heartbeat timer (every 30s)');
         this.heartbeatTimer = setInterval(() => {
+            this.logger.log('[HaEventClient] Sending heartbeat');
             this.fireEvent(HA_EVENT_HEARTBEAT, { ts: Date.now() });
         }, HEARTBEAT_INTERVAL_MS);
         // Send first heartbeat immediately
+        this.logger.log('[HaEventClient] Sending initial heartbeat');
         this.fireEvent(HA_EVENT_HEARTBEAT, { ts: Date.now() });
     }
 
@@ -177,6 +220,34 @@ export class HaEventClient implements IHaClient {
         if (this.heartbeatTimer) {
             clearInterval(this.heartbeatTimer);
             this.heartbeatTimer = null;
+        }
+    }
+
+    /** Ping HA every 30s to detect dead connections. HA supports { type: 'ping' } → { type: 'pong' }. */
+    private startPing(): void {
+        this.stopPing();
+        this.pongReceived = true;
+        this.pingTimer = setInterval(() => {
+            if (!this.pongReceived) {
+                this.logger.warn('[HaEventClient] No pong received — connection seems dead');
+                this.forceReconnect();
+                return;
+            }
+            this.pongReceived = false;
+            if (this.ws && this.authenticated) {
+                try {
+                    this.ws.send(JSON.stringify({ id: this.nextId(), type: 'ping' }));
+                } catch {
+                    this.forceReconnect();
+                }
+            }
+        }, HEARTBEAT_INTERVAL_MS);
+    }
+
+    private stopPing(): void {
+        if (this.pingTimer) {
+            clearInterval(this.pingTimer);
+            this.pingTimer = null;
         }
     }
 
@@ -192,6 +263,7 @@ export class HaEventClient implements IHaClient {
     async disconnect(): Promise<void> {
         this.stopped = true;
         this.stopHeartbeat();
+        this.stopPing();
         if (this.reconnectTimer) {
             clearTimeout(this.reconnectTimer);
             this.reconnectTimer = null;
