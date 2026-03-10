@@ -137,13 +137,15 @@ export class HaEventClient implements IHaClient {
                 dev: payload?.dev,
             });
         } else {
-            // Only fire state_update if value changed (prevents HA event storm).
-            // Skip cache for large payloads (e.g. base64 images) to avoid costly string comparison.
-            if (strValue.length < 2048) {
-                const cached = this.stateCache.get(topic);
-                if (cached === strValue) return;
-                this.stateCache.set(topic, strValue);
+            // Large payloads (base64 images): send lightweight signal, image served from disk via REST
+            if (strValue.length >= 2048) {
+                this.fireEvent(HA_EVENT_STATE_UPDATE, { topic, value: `__image_updated__:${Date.now()}` });
+                return;
             }
+            // Only fire state_update if value changed (prevents HA event storm).
+            const cached = this.stateCache.get(topic);
+            if (cached === strValue) return;
+            this.stateCache.set(topic, strValue);
             this.fireEvent(HA_EVENT_STATE_UPDATE, { topic, value: strValue });
         }
     }
