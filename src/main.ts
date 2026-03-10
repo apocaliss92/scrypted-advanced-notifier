@@ -28,7 +28,7 @@ import { cropImageToDetection } from "./drawingUtils";
 import { DetectionClass, detectionClassesDefaultMap, isAudioClassname, isDoorbellClassname, isLabelDetection, isMotionClassname, isPlateClassname } from "./detectionClasses";
 import { serveGif, serveImage, servePluginGeneratedVideoclip } from "./httpUtils";
 import { selectKeyEventDetection, toPixelBbox } from "./keyEventAlgorithm";
-import { idPrefix, publishPluginValues, publishRuleEnabled, resetAllPluginMqttTopicsAndRediscover, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
+import { alarmSystemId, idPrefix, peopleTrackerId, pluginIds, publishPluginValues, publishRuleEnabled, resetAllPluginMqttTopicsAndRediscover, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { addOrUpdateRuleArtifacts, getRulesRegisterPath, migrateDeviceRulesRegister, REGISTER_FILENAME, removeRuleArtifactUrl } from "./rulesRegister";
@@ -1214,6 +1214,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             const token = (authHeader as string).replace(/^Bearer\s+/i, '');
 
             if (!originAllowed) {
+                logger.warn(`[HA] Origin not allowed: '${origin}'. Allowed: [${allowedOrigins.join(', ')}]. Add this origin to haAllowedOrigins in plugin settings.`);
                 response.send('Forbidden', { code: 403, headers: corsHeaders() });
                 return;
             }
@@ -1223,10 +1224,24 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             }
 
             if (pathname.includes('public/ha/devices')) {
-                const devices = Object.values(this.currentCameraMixinsMap).map(mixin => ({
+                const cameraDevices = Object.values(this.currentCameraMixinsMap).map(mixin => ({
                     device_id: `${idPrefix}-${mixin.id}`,
-                    device_name: mixin.name,
+                    device_name: `${mixin.name} (${mixin.type ?? 'Camera'})`,
                 }));
+                const sensorDevices = Object.values(this.currentSensorMixinsMap).map(mixin => ({
+                    device_id: `${idPrefix}-${mixin.id}`,
+                    device_name: `${mixin.name} (${mixin.type ?? 'Sensor'})`,
+                }));
+                const notifierDevices = Object.values(this.currentNotifierMixinsMap).map(mixin => ({
+                    device_id: `${idPrefix}-${mixin.id}`,
+                    device_name: `${mixin.name} (Notifier)`,
+                }));
+                const specialDevices = [
+                    { device_id: pluginIds, device_name: 'Advanced Notifier (Plugin)' },
+                    { device_id: `${idPrefix}-${peopleTrackerId}`, device_name: 'Advanced Notifier (People tracker)' },
+                    { device_id: `${idPrefix}-${alarmSystemId}`, device_name: 'Advanced Notifier (Alarm system)' },
+                ];
+                const devices = [...cameraDevices, ...sensorDevices, ...notifierDevices, ...specialDevices];
                 response.send(JSON.stringify({ devices }), { code: 200, headers: { ...corsHeaders(), 'Content-Type': 'application/json' } });
                 return;
             }

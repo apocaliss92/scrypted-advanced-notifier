@@ -150,8 +150,8 @@ const detectionClassMdiIconMap: Partial<Record<DetectionClass, string>> = {
 
 export const idPrefix = 'scrypted-an';
 const namePrefix = 'Scrypted AN';
-const pluginIds = `${idPrefix}-main-settings`;
-const peopleTrackerId = 'people-tracker';
+export const pluginIds = `${idPrefix}-main-settings`;
+export const peopleTrackerId = 'people-tracker';
 export const alarmSystemId = 'alarm-system';
 const pluginId = 'plugin';
 
