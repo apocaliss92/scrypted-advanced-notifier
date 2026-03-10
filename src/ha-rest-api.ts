@@ -6,15 +6,20 @@
  * - GET /public/ha/entities  — full entity discovery payload (cmps/dev/states)
  * - POST /public/ha/command  — route a command from HA to registered subscribers
  * - GET /public/ha/image     — serve detection images from disk
+ * - GET /public/ha/snapshot  — take a live snapshot via takePicture and serve it
  */
 
-import { HttpRequest, HttpResponse } from "@scrypted/sdk";
+import sdk, { HttpRequest, HttpResponse, SecuritySystem, ScryptedDeviceBase } from "@scrypted/sdk";
 import fs from 'fs';
 import path from 'path';
-import { IHaClient, HaMessageCb } from '../../scrypted-apocaliss-base/src/ha-client';
+import { IHaClient } from '../../scrypted-apocaliss-base/src/ha-client';
 import { HaEventClient } from './ha-event-client';
+import { AdvancedNotifierCameraMixin } from './cameraMixin';
+import { AdvancedNotifierSensorMixin } from './sensorMixin';
+import { AdvancedNotifierNotifierMixin } from './notifierMixin';
 import {
     alarmSystemId,
+    CameraAccessorySwitchKind,
     idPrefix,
     peopleTrackerId,
     pluginIds,
@@ -24,31 +29,28 @@ import {
     setupPluginAutodiscovery,
     setupSensorAutodiscovery,
 } from "./mqtt-utils";
-import { getActiveRules, ALARM_SYSTEM_NATIVE_ID } from "./utils";
+import { BaseRule, DeviceInterface, getActiveRules, ALARM_SYSTEM_NATIVE_ID, ScryptedEventSource } from "./utils";
 
 /**
  * DiscoveryCapture — Mock IHaClient that captures autodiscovery payloads
  * instead of sending them over a real transport.
  */
 class DiscoveryCapture implements IHaClient {
-    readonly captures = new Map<string, { cmps: any; dev: any }>();
+    readonly captures = new Map<string, { cmps: Record<string, unknown>; dev: Record<string, unknown> }>();
     readonly initialStates: Array<{ topic: string; value: string }> = [];
-    async publish(topic: string, value: any): Promise<void> {
+    async publish(topic: string, value: unknown): Promise<void> {
         if (!value && value !== '') return;
         const strValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
         if (topic.startsWith('homeassistant/device/')) {
             try {
                 const payload = JSON.parse(strValue);
                 if (!payload?.cmps) return;
-                // Use dev.ids[0] as device ID (matches HA device registry), fallback to topic path
                 const deviceId = payload.dev?.ids?.[0] ?? topic.split('/')[2];
                 this.captures.set(deviceId, { cmps: payload.cmps, dev: payload.dev });
             } catch { /* ignore non-JSON */ }
         } else if (strValue !== '' && strValue.length < 2048) {
-            // Capture state publishes (initial entity values), skip large payloads (e.g. base64 images)
             this.initialStates.push({ topic, value: strValue });
         } else if (strValue.length >= 2048) {
-            // Large payloads (images): send lightweight signal so HA knows an image exists
             this.initialStates.push({ topic, value: `__image_updated__:${Date.now()}` });
         }
     }
@@ -60,15 +62,15 @@ class DiscoveryCapture implements IHaClient {
 
 /** Minimal interface for the plugin instance — avoids importing the full class (circular dep). */
 export interface HaRestApiPlugin {
-    storageSettings: { values: Record<string, any> };
-    currentCameraMixinsMap: Record<string, any>;
-    currentSensorMixinsMap: Record<string, any>;
-    currentNotifierMixinsMap: Record<string, any>;
+    storageSettings: { values: Record<string, unknown> };
+    currentCameraMixinsMap: Record<string, AdvancedNotifierCameraMixin>;
+    currentSensorMixinsMap: Record<string, AdvancedNotifierSensorMixin>;
+    currentNotifierMixinsMap: Record<string, AdvancedNotifierNotifierMixin>;
     wsHaClient: HaEventClient | null;
-    allAvailableRules: any[] | undefined;
+    allAvailableRules: BaseRule[];
     getLogger(): Console;
-    getKnownPeople(source: any): Promise<string[]>;
-    getDevice(nativeId: string): Promise<any>;
+    getKnownPeople(source: ScryptedEventSource): Promise<string[]>;
+    getDevice(nativeId: string): Promise<ScryptedDeviceBase | undefined>;
     getFsPaths(props: { cameraId?: string; triggerTime?: number }): {
         storagePath: string;
         cameraPath?: string;
@@ -94,12 +96,12 @@ export async function handleHaRestApi(
     const logger = plugin.getLogger();
     const { haSecret, haAllowedOrigins } = plugin.storageSettings.values;
     const origin = request.headers?.['origin'] ?? '';
-    const allowedOrigins = (haAllowedOrigins as string ?? '').split(',').map((s: string) => s.trim()).filter(Boolean);
+    const allowedOrigins = (String(haAllowedOrigins ?? '')).split(',').map(s => s.trim()).filter(Boolean);
     const originAllowed = allowedOrigins.length > 0 && allowedOrigins.some(
-        (o: string) => o.replace(/\/$/, '').toLowerCase() === (origin as string).replace(/\/$/, '').toLowerCase()
+        o => o.replace(/\/$/, '').toLowerCase() === String(origin).replace(/\/$/, '').toLowerCase()
     );
     const authHeader = request.headers?.['authorization'] ?? '';
-    const token = (authHeader as string).replace(/^Bearer\s+/i, '');
+    const token = String(authHeader).replace(/^Bearer\s+/i, '');
 
     if (!originAllowed) {
         logger.warn(`[HA] Origin not allowed: '${origin}'. Allowed: [${allowedOrigins.join(', ')}]. Add this origin to haAllowedOrigins in plugin settings.`);
@@ -119,6 +121,9 @@ export async function handleHaRestApi(
     }
     if (pathname.includes('public/ha/command') && request.method === 'POST') {
         return handleCommand(plugin, request, response, corsHeaders);
+    }
+    if (pathname.includes('public/ha/snapshot')) {
+        return handleSnapshot(plugin, url, response, corsHeaders);
     }
     if (pathname.includes('public/ha/image')) {
         return handleImage(plugin, url, response, corsHeaders);
@@ -173,15 +178,14 @@ async function handleEntities(
     corsHeaders: () => Record<string, string>,
 ): Promise<true> {
     const logger = plugin.getLogger();
-    const requestedIds = (url.searchParams.get('device_ids') ?? '').split(',').map((s: string) => s.trim()).filter(Boolean);
+    const requestedIds = (url.searchParams.get('device_ids') ?? '').split(',').map(s => s.trim()).filter(Boolean);
     const shouldInclude = (id: string) => requestedIds.length === 0 || requestedIds.includes(id);
     const capture = new DiscoveryCapture();
-    const { facesSourceForMqtt } = plugin.storageSettings.values;
+    const facesSourceForMqtt = plugin.storageSettings.values.facesSourceForMqtt as ScryptedEventSource;
     const rules = plugin.allAvailableRules ?? [];
 
     logger.log(`[HA entities] Requested device IDs: [${requestedIds.join(', ')}]`);
 
-    // Build device_id → name map for response
     const deviceNameMap = new Map<string, string>();
     for (const m of Object.values(plugin.currentCameraMixinsMap)) deviceNameMap.set(`${idPrefix}-${m.id}`, m.name);
     for (const m of Object.values(plugin.currentSensorMixinsMap)) deviceNameMap.set(`${idPrefix}-${m.id}`, m.name);
@@ -208,7 +212,7 @@ async function handleEntities(
     logger.log(`[HA entities] Alarm system ID: ${alarmDeviceId}, shouldInclude: ${shouldInclude(alarmDeviceId)}`);
     if (shouldInclude(alarmDeviceId)) {
         try {
-            const alarm = await plugin.getDevice(ALARM_SYSTEM_NATIVE_ID) as any;
+            const alarm = await plugin.getDevice(ALARM_SYSTEM_NATIVE_ID) as (ScryptedDeviceBase & SecuritySystem) | undefined;
             const supportedModes = alarm?.securitySystemState?.supportedModes ?? [];
             logger.log(`[HA entities] Alarm system found, supportedModes: [${supportedModes.join(', ')}]`);
             tasks.push(setupAlarmSystemAutodiscovery({
@@ -227,13 +231,14 @@ async function handleEntities(
         tasks.push((async () => {
             try {
                 const zones = await mixin.getMqttZones();
+                const accessorySwitchKinds = (mixin as unknown as { cameraAccessorySwitchKinds: CameraAccessorySwitchKind[] }).cameraAccessorySwitchKinds;
                 await setupCameraAutodiscovery({
                     mqttClient: capture,
-                    device: mixin.cameraDevice as any,
+                    device: mixin.cameraDevice as DeviceInterface,
                     console: logger,
                     rules,
                     zones,
-                    accessorySwitchKinds: (mixin as any).cameraAccessorySwitchKinds,
+                    accessorySwitchKinds,
                     streamDestinations: mixin.getStreamDestinations(),
                 });
             } catch (e) {
@@ -248,14 +253,14 @@ async function handleEntities(
         tasks.push((async () => {
             try {
                 const { availableDetectionRules } = await getActiveRules({
-                    device: mixin as any,
+                    device: mixin as unknown as Parameters<typeof getActiveRules>[0]['device'],
                     console: logger,
-                    plugin: plugin as any,
+                    plugin: plugin as unknown as Parameters<typeof getActiveRules>[0]['plugin'],
                     deviceStorage: mixin.storageSettings,
                 });
                 await setupSensorAutodiscovery({
                     mqttClient: capture,
-                    device: mixin.sensorDevice as any,
+                    device: mixin.sensorDevice as DeviceInterface,
                     rules: availableDetectionRules,
                     console: logger,
                 });
@@ -270,7 +275,7 @@ async function handleEntities(
         if (!shouldInclude(`${idPrefix}-${mixin.id}`)) continue;
         tasks.push(setupNotifierAutodiscovery({
             mqttClient: capture,
-            device: mixin.notifierDevice as any,
+            device: mixin.notifierDevice as DeviceInterface,
             console: logger,
         }).catch(logger.error));
     }
@@ -307,7 +312,7 @@ function handleCommand(
     response: HttpResponse,
     corsHeaders: () => Record<string, string>,
 ): true {
-    let body: any;
+    let body: { topic?: string; value?: string };
     try { body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body; } catch { body = {}; }
     const topic = body?.topic ?? '';
     const value = body?.value ?? '';
@@ -319,7 +324,62 @@ function handleCommand(
 }
 
 // ---------------------------------------------------------------------------
-// /public/ha/image
+// /public/ha/snapshot — take a live picture via takePicture and serve it
+// ---------------------------------------------------------------------------
+
+async function handleSnapshot(
+    plugin: HaRestApiPlugin,
+    url: URL,
+    response: HttpResponse,
+    corsHeaders: () => Record<string, string>,
+): Promise<true> {
+    const logger = plugin.getLogger();
+    const deviceId = url.searchParams.get('device_id') ?? '';
+
+    if (!deviceId) {
+        response.send('Missing device_id', { code: 400, headers: corsHeaders() });
+        return true;
+    }
+
+    const scryptedId = deviceId.replace(`${idPrefix}-`, '');
+    const mixin = Object.values(plugin.currentCameraMixinsMap).find(m => m.id === scryptedId);
+
+    if (!mixin) {
+        logger.log(`[HA Snapshot] No camera mixin found for scryptedId=${scryptedId}`);
+        response.send('Not found', { code: 404, headers: corsHeaders() });
+        return true;
+    }
+
+    try {
+        logger.log(`[HA Snapshot] Taking live snapshot for device ${scryptedId}`);
+        const mo = await mixin.cameraDevice.takePicture({ reason: 'event', timeout: 10000 });
+        const buffer = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
+        if (buffer?.length) {
+            // Save to disk for future requests
+            const { storagePath } = plugin.getFsPaths({});
+            const deviceDir = path.join(storagePath, scryptedId, 'detections');
+            await fs.promises.mkdir(deviceDir, { recursive: true });
+            const snapshotPath = path.join(deviceDir, 'snapshot.jpg');
+            await fs.promises.writeFile(snapshotPath, buffer);
+            logger.log(`[HA Snapshot] Saved ${buffer.length} bytes to ${snapshotPath}`);
+
+            response.send(buffer, {
+                code: 200,
+                headers: { ...corsHeaders(), 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-cache' },
+            });
+            return true;
+        }
+        logger.log(`[HA Snapshot] takePicture returned empty buffer for ${scryptedId}`);
+    } catch (e) {
+        logger.log(`[HA Snapshot] Error taking snapshot for ${scryptedId}: ${e}`);
+    }
+
+    response.send('Snapshot failed', { code: 500, headers: corsHeaders() });
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// /public/ha/image — serve detection images from disk
 // ---------------------------------------------------------------------------
 
 async function handleImage(
@@ -386,7 +446,7 @@ async function handleImage(
         }
         logger.log(`[HA Image] No matching files for scryptedId=${scryptedId}, classFilter=${classFilter}, files: [${files.slice(0, 10).join(', ')}]`);
     } catch (e) {
-        logger.log(`[HA Image] Error serving image: ${e}`);
+        logger.log(`[HA Image] Error reading detections dir: ${e}`);
     }
 
     response.send('Not found', { code: 404, headers: corsHeaders() });
