@@ -1,0 +1,13 @@
+{
+  "domain": "scrypted_an",
+  "name": "Scrypted Advanced Notifier",
+  "version": "1.0.0",
+  "documentation": "https://github.com/apocaliss92/scrypted-advanced-notifier",
+  "requirements": [],
+  "dependencies": [],
+  "codeowners": [
+    "@apocaliss92"
+  ],
+  "config_flow": true,
+  "iot_class": "local_push"
+}

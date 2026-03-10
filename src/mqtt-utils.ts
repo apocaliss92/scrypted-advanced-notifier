@@ -1,6 +1,6 @@
 import sdk, { Notifier, ObjectDetectionResult, ObjectDetector, PanTiltZoomCommand, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, SecuritySystemMode } from '@scrypted/sdk';
 import { cloneDeep, uniq } from 'lodash';
-import MqttClient from '../../scrypted-apocaliss-base/src/mqtt-client';
+import { IHaClient } from '../../scrypted-apocaliss-base/src/ha-client';
 import { DetectionClass, detectionClassesDefaultMap, getParentDetectionClass, isAudioClassname, isLabelDetection } from './detectionClasses';
 import { OccupancyRuleData } from './states';
 import {
@@ -11,6 +11,15 @@ import { BaseRule, DetectionsPerZone, DeviceInterface, ImageSource, isDetectionR
 import { deleteMqttDeviceByIdentifier } from '../../scrypted-apocaliss-base/src/basePlugin';
 
 export type CameraAccessorySwitchKind = CameraNativeIdAccessoryKind;
+
+export interface ScryptedStreamDestination {
+    /** Stream label, e.g. "Main", "Sub" */
+    name: string;
+    /** RTSP URL from rebroadcast plugin settings */
+    rtspUrl?: string;
+    /** Snapshot URL (plugin /public endpoint) */
+    snapshotUrl?: string;
+}
 
 export type ClassOccupancy = Partial<Record<DetectionClass, number>>;
 export type ClassZoneOccupancy = Record<string, ClassOccupancy>;
@@ -704,8 +713,9 @@ const buildDeviceDiscoveryPayload = (props: {
     deviceId: string,
     mqttEntities: MqttEntity[],
     device: MqttDeviceType,
+    streamDestinations?: ScryptedStreamDestination[],
 }) => {
-    const { mqttDevice, deviceId, mqttEntities, device } = props;
+    const { mqttDevice, deviceId, mqttEntities, device, streamDestinations } = props;
     const cmps: Record<string, Record<string, unknown>> = {};
 
     for (const mqttEntity of mqttEntities) {
@@ -722,6 +732,19 @@ const buildDeviceDiscoveryPayload = (props: {
         cmps[toDeviceDiscoveryComponentId(mqttEntity)] = componentConfig as Record<string, unknown>;
     }
 
+    // Add camera components for each stream destination (WS-transport: platform field guides HA integration)
+    if (streamDestinations?.length) {
+        for (const dest of streamDestinations) {
+            const key = `camera_${dest.name.toLowerCase().replace(/\s+/g, '_')}`;
+            cmps[key] = {
+                platform: 'camera',
+                name: dest.name,
+                rtsp_url: dest.rtspUrl,
+                still_image_url: dest.snapshotUrl,
+            };
+        }
+    }
+
     return {
         dev: mqttDevice,
         o: { name: namePrefix, url: 'https://github.com/apocaliss92/scrypted-advanced-notifier' },
@@ -734,14 +757,16 @@ const buildDeviceDiscoveryPayload = (props: {
  * Clears any old single-component topics for this device so HA does not see conflicting discovery.
  */
 export const publishMqttDeviceDiscovery = async (props: {
-    mqttClient?: MqttClient,
+    mqttClient?: IHaClient,
     mqttEntities: MqttEntity[],
     device: MqttDeviceType,
     console: Console,
     /** Initial entity states to publish right after discovery (e.g. for switches with retain so HA shows correct state) */
-    initialEntityStates?: Record<string, string>
+    initialEntityStates?: Record<string, string>,
+    /** Stream destinations to expose as camera entities (WS transport only) */
+    streamDestinations?: ScryptedStreamDestination[],
 }) => {
-    const { mqttClient, mqttEntities, device, console, initialEntityStates } = props;
+    const { mqttClient, mqttEntities, device, console, initialEntityStates, streamDestinations } = props;
 
     if (!mqttClient) {
         return;
@@ -750,7 +775,7 @@ export const publishMqttDeviceDiscovery = async (props: {
     const deviceIdParent = typeof device === 'string' ? device : device?.id;
     const { mqttDevice, deviceId } = await getMqttDevice(device);
 
-    const devicePayload = buildDeviceDiscoveryPayload({ mqttDevice, deviceId, mqttEntities, device });
+    const devicePayload = buildDeviceDiscoveryPayload({ mqttDevice, deviceId, mqttEntities, device, streamDestinations });
     await mqttClient.publish(getDeviceDiscoveryTopic(device), JSON.stringify(devicePayload), true);
     console.log(`Device ${idPrefix}-${deviceIdParent}: discovered ${mqttEntities.length} entities (device-based)`);
 
@@ -792,12 +817,12 @@ const getDeviceDiscoveryTopic = (device: MqttDeviceType) => {
     return `homeassistant/device/${idPrefix}-${deviceIdParent}/config`;
 }
 
-const clearRetainedTopic = async (mqttClient: MqttClient, topic: string) => {
+const clearRetainedTopic = async (mqttClient: IHaClient, topic: string) => {
     await mqttClient.publish(topic, '', true);
 }
 
 const clearTopicsForEntities = async (props: {
-    mqttClient: MqttClient,
+    mqttClient: IHaClient,
     device: MqttDeviceType,
     mqttEntities: MqttEntity[],
 }) => {
@@ -813,7 +838,7 @@ const clearTopicsForEntities = async (props: {
 }
 
 export const resetAllPluginMqttTopicsAndRediscover = async (props: {
-    mqttClient?: MqttClient,
+    mqttClient?: IHaClient,
     console: Console,
     rules: BaseRule[],
     people: string[],
@@ -1011,7 +1036,7 @@ export const resetAllPluginMqttTopicsAndRediscover = async (props: {
 }
 
 export const setupPluginAutodiscovery = async (props: {
-    mqttClient?: MqttClient,
+    mqttClient?: IHaClient,
     people: string[],
     console: Console,
     rules: BaseRule[];
@@ -1077,7 +1102,7 @@ export const setupPluginAutodiscovery = async (props: {
 }
 
 export const setupAlarmSystemAutodiscovery = async (props: {
-    mqttClient?: MqttClient,
+    mqttClient?: IHaClient,
     console: Console,
     supportedModes: SecuritySystemMode[],
 }) => {
@@ -1106,7 +1131,7 @@ export const setupAlarmSystemAutodiscovery = async (props: {
 
 export const subscribeToPluginMqttTopics = async (
     props: {
-        mqttClient?: MqttClient,
+        mqttClient?: IHaClient,
         entitiesActiveTopic?: string,
         rules: BaseRule[],
         activeEntitiesCb: (activeEntities: string[]) => void,
@@ -1184,7 +1209,7 @@ export const subscribeToPluginMqttTopics = async (
 
 export const subscribeToAlarmSystemMqttTopics = async (
     props: {
-        mqttClient?: MqttClient,
+        mqttClient?: IHaClient,
         modeSwitchCb: (mode: SecuritySystemMode) => void,
         triggerCb?: () => void,
         console: Console,
@@ -1260,7 +1285,7 @@ const getPtzCommandEntities = (device: ScryptedDeviceBase) => {
 
 export const subscribeToCameraMqttTopics = async (
     props: {
-        mqttClient?: MqttClient,
+        mqttClient?: IHaClient,
         rules: BaseRule[],
         device: ScryptedDeviceBase,
         console: Console,
@@ -1499,7 +1524,7 @@ export const subscribeToCameraMqttTopics = async (
 
 export const subscribeToNotifierMqttTopics = async (
     props: {
-        mqttClient?: MqttClient,
+        mqttClient?: IHaClient,
         device: ScryptedDeviceBase,
         console: Console,
         switchNotificationsEnabledCb: (active: boolean) => void,
@@ -1560,7 +1585,7 @@ export const subscribeToNotifierMqttTopics = async (
 
 export const subscribeToSensorMqttTopics = async (
     props: {
-        mqttClient?: MqttClient,
+        mqttClient?: IHaClient,
         device: ScryptedDeviceBase,
         console: Console,
     }
@@ -1866,7 +1891,7 @@ const buildCameraInitialEntityStates = (props: {
 };
 
 export const setupCameraAutodiscovery = async (props: {
-    mqttClient?: MqttClient,
+    mqttClient?: IHaClient,
     device: ScryptedDeviceBase & ObjectDetector,
     console: Console,
     rules: BaseRule[],
@@ -1874,14 +1899,16 @@ export const setupCameraAutodiscovery = async (props: {
     accessorySwitchKinds?: CameraAccessorySwitchKind[],
     /** If provided, initial switch states are published right after discovery so HA shows correct state. */
     initialCameraState?: InitialCameraState,
+    /** Stream destinations to expose as camera entities (included in WS entity_change payload). */
+    streamDestinations?: ScryptedStreamDestination[],
 }) => {
-    const { device, mqttClient, rules, console, zones, accessorySwitchKinds, initialCameraState } = props;
+    const { device, mqttClient, rules, console, zones, accessorySwitchKinds, initialCameraState, streamDestinations } = props;
     if (!mqttClient) {
         return;
     }
     const mqttEntities = await getCameraMqttEntitiesForDiscovery({ device, rules, console, zones, accessorySwitchKinds });
     const initialEntityStates = buildCameraInitialEntityStates({ device, initialCameraState, accessorySwitchKinds });
-    return await publishMqttDeviceDiscovery({ mqttClient, mqttEntities, device, console, initialEntityStates });
+    return await publishMqttDeviceDiscovery({ mqttClient, mqttEntities, device, console, initialEntityStates, streamDestinations });
 };
 
 /**
@@ -1890,7 +1917,7 @@ export const setupCameraAutodiscovery = async (props: {
  * Note: HA may log "No device components to cleanup for <id>, node_id 'None'" when removing the device; that message is from HA and is harmless.
  */
 export const rediscoverCameraMqttDevice = async (props: {
-    mqttClient?: MqttClient,
+    mqttClient?: IHaClient,
     device: ScryptedDeviceBase & ObjectDetector,
     console: Console,
     rules: BaseRule[],
@@ -1900,8 +1927,9 @@ export const rediscoverCameraMqttDevice = async (props: {
     haApiToken?: string,
     /** If provided, initial switch states are published right after discovery. */
     initialCameraState?: InitialCameraState,
+    streamDestinations?: ScryptedStreamDestination[],
 }): Promise<{ haDeviceDeleted?: boolean; haError?: string }> => {
-    const { device, mqttClient, rules, console, zones, accessorySwitchKinds, haApiUrl, haApiToken, initialCameraState } = props;
+    const { device, mqttClient, rules, console, zones, accessorySwitchKinds, haApiUrl, haApiToken, initialCameraState, streamDestinations } = props;
     const result: { haDeviceDeleted?: boolean; haError?: string } = {};
 
     if (mqttClient && haApiUrl?.trim() && haApiToken?.trim()) {
@@ -1920,12 +1948,12 @@ export const rediscoverCameraMqttDevice = async (props: {
 
     const mqttEntities = await getCameraMqttEntitiesForDiscovery({ device, rules, console, zones, accessorySwitchKinds });
     await clearTopicsForEntities({ mqttClient, device, mqttEntities });
-    await setupCameraAutodiscovery({ mqttClient, device, rules, console, zones, accessorySwitchKinds, initialCameraState });
+    await setupCameraAutodiscovery({ mqttClient, device, rules, console, zones, accessorySwitchKinds, initialCameraState, streamDestinations });
     return result;
 };
 
 export const setupNotifierAutodiscovery = async (props: {
-    mqttClient?: MqttClient,
+    mqttClient?: IHaClient,
     device: ScryptedDeviceBase & Notifier,
     console: Console,
 }) => {
@@ -1947,7 +1975,7 @@ export const setupNotifierAutodiscovery = async (props: {
 }
 
 export const setupSensorAutodiscovery = async (props: {
-    mqttClient?: MqttClient,
+    mqttClient?: IHaClient,
     device: ScryptedDeviceBase,
     rules: BaseRule[],
     console: Console,
@@ -1987,7 +2015,7 @@ export const setupSensorAutodiscovery = async (props: {
 }
 
 export const publishResetDetectionsEntities = async (props: {
-    mqttClient?: MqttClient,
+    mqttClient?: IHaClient,
     device: ScryptedDeviceBase & ObjectDetector,
     console: Console,
     classnames?: string[],
@@ -2019,7 +2047,7 @@ export const publishResetDetectionsEntities = async (props: {
 }
 
 export const publishResetRuleEntities = async (props: {
-    mqttClient?: MqttClient,
+    mqttClient?: IHaClient,
     device: ScryptedDeviceBase,
     rule: BaseRule,
     console: Console
@@ -2071,7 +2099,7 @@ export const getClassnameEntities = async (props: { device: DeviceInterface, det
 }
 
 export const publishBasicDetectionData = async (props: {
-    mqttClient?: MqttClient,
+    mqttClient?: IHaClient,
     device: DeviceInterface,
     console: Console,
     detection?: ObjectDetectionResult,
@@ -2131,7 +2159,7 @@ export const publishBasicDetectionData = async (props: {
 }
 
 export const publishPeopleData = async (props: {
-    mqttClient?: MqttClient,
+    mqttClient?: IHaClient,
     console: Console,
     faces: string[],
     b64Image?: string,
@@ -2199,7 +2227,7 @@ const getZoneEntities = (detectionsPerZone: DetectionsPerZone) => {
 }
 
 export const publishClassnameImages = async (props: {
-    mqttClient?: MqttClient,
+    mqttClient?: IHaClient,
     device: DeviceInterface,
     console: Console,
     triggerTime: number,
@@ -2246,7 +2274,7 @@ export const publishClassnameImages = async (props: {
 }
 
 export const publishCameraValues = async (props: {
-    mqttClient?: MqttClient,
+    mqttClient?: IHaClient,
     device: ScryptedDeviceBase,
     isRecording?: boolean,
     isSnapshotsEnabled?: boolean,
@@ -2362,7 +2390,7 @@ export const publishCameraValues = async (props: {
 }
 
 export const publishPluginValues = async (props: {
-    mqttClient?: MqttClient,
+    mqttClient?: IHaClient,
     notificationsEnabled: boolean,
     rulesToEnable: BaseRule[],
     rulesToDisable: BaseRule[],
@@ -2434,7 +2462,7 @@ export const publishPluginValues = async (props: {
 }
 
 export const publishAlarmSystemValues = async (props: {
-    mqttClient?: MqttClient,
+    mqttClient?: IHaClient,
     mode: string,
     info?: any
 }) => {
@@ -2458,7 +2486,7 @@ export const publishAlarmSystemValues = async (props: {
 }
 
 export const reportNotifierValues = async (props: {
-    mqttClient?: MqttClient,
+    mqttClient?: IHaClient,
     device?: ScryptedDeviceBase,
     notificationsEnabled: boolean,
     console: Console,
@@ -2480,7 +2508,7 @@ export const reportNotifierValues = async (props: {
 }
 
 export const reportSensorValues = async (props: {
-    mqttClient?: MqttClient,
+    mqttClient?: IHaClient,
     device?: ScryptedDeviceBase,
     console: Console,
 }) => {
@@ -2500,7 +2528,7 @@ export const publishRuleData = async (props: {
     device: ScryptedDeviceBase,
     rule: BaseRule,
     console: Console,
-    mqttClient?: MqttClient,
+    mqttClient?: IHaClient,
     b64Image: string,
     triggerTime: number,
     triggerValue?: boolean,
@@ -2560,7 +2588,7 @@ export const publishRuleData = async (props: {
 export const publishRuleCurrentlyActive = async (props: {
     rule: BaseRule,
     console: Console,
-    mqttClient?: MqttClient,
+    mqttClient?: IHaClient,
     active?: boolean,
     device?: ScryptedDeviceBase
 }) => {
@@ -2581,7 +2609,7 @@ export const publishRuleCurrentlyActive = async (props: {
 export const publishRuleEnabled = async (props: {
     rule: BaseRule,
     console: Console,
-    mqttClient?: MqttClient,
+    mqttClient?: IHaClient,
     enabled?: boolean,
     device?: ScryptedDeviceBase
 }) => {
@@ -2600,7 +2628,7 @@ export const publishRuleEnabled = async (props: {
 }
 
 export const publishOccupancy = async (props: {
-    mqttClient?: MqttClient,
+    mqttClient?: IHaClient,
     device: ScryptedDeviceBase,
     console: Console,
     occupancyRulesData: OccupancyRuleData[],

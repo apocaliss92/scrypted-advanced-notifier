@@ -36,6 +36,7 @@ import fs from "fs";
 import { cloneDeep, keyBy, sortBy, uniq, uniqBy } from "lodash";
 import moment from "moment";
 import { getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
+import { IHaClient } from '../../scrypted-apocaliss-base/src/ha-client';
 import { filterOverlappedDetections } from "../../scrypted-basic-object-detector/src/util";
 import {
   audioDetectorNativeId,
@@ -88,6 +89,7 @@ import {
   publishRuleData,
   publishRuleEnabled,
   rediscoverCameraMqttDevice,
+  ScryptedStreamDestination,
   setupCameraAutodiscovery,
   subscribeToCameraMqttTopics,
 } from "./mqtt-utils";
@@ -373,7 +375,7 @@ export class AdvancedNotifierCameraMixin
         "Removes this camera from Home Assistant (if HA API URL and token are set in plugin settings), clears all MQTT topics for this camera, then republishes discovery. Use if entities are missing, duplicated or out of sync.",
       onPut: async () => {
         const logger = this.getLogger();
-        const mqttClient = await this.getMqttClient();
+        const mqttClient = await this.getHaClient();
         const { allAvailableRules } = await getActiveRules({
           device: this.cameraDevice,
           deviceStorage: this.mixinState.storageSettings,
@@ -403,6 +405,7 @@ export class AdvancedNotifierCameraMixin
           haApiUrl,
           haApiToken,
           initialCameraState,
+          streamDestinations: this.getStreamDestinations(),
         });
         if (result.haError) {
           logger.warn("Rediscover completed with HA warning:", result.haError);
@@ -1075,7 +1078,7 @@ export class AdvancedNotifierCameraMixin
     }
   }
 
-  async getMqttClient() {
+  async getHaClient(): Promise<IHaClient | null> {
     if (!this.mixinState.mqttClient && !this.mixinState.initializingMqtt) {
       const {
         mqttEnabled,
@@ -1208,7 +1211,7 @@ export class AdvancedNotifierCameraMixin
       try {
         const { enabledToMqtt } = this.mixinState.storageSettings.values;
         if (enabledToMqtt) {
-          await this.getMqttClient();
+          await this.getHaClient();
         }
 
         const {
@@ -1445,7 +1448,7 @@ export class AdvancedNotifierCameraMixin
         if (isActiveForMqttReporting) {
           const { occupancySourceForMqtt } =
             this.mixinState.storageSettings.values;
-          const mqttClient = await this.getMqttClient();
+          const mqttClient = await this.getHaClient();
           if (mqttClient) {
             const lastGlobal = this.plugin.lastCameraAutodiscoveryMap[this.id];
             if (!lastGlobal || now - lastGlobal > 1000 * 60 * 60) {
@@ -1461,6 +1464,7 @@ export class AdvancedNotifierCameraMixin
                   zones,
                   accessorySwitchKinds: this.cameraAccessorySwitchKinds,
                   initialCameraState,
+                  streamDestinations: this.getStreamDestinations(),
                 });
 
                 logger.debug(`Subscribing to mqtt topics`);
@@ -2247,7 +2251,7 @@ export class AdvancedNotifierCameraMixin
 
   async toggleRule(ruleName: string, ruleType: RuleType, enabled: boolean) {
     const logger = this.getLogger();
-    const mqttClient = await this.getMqttClient();
+    const mqttClient = await this.getHaClient();
 
     if (!mqttClient) {
       return;
@@ -2614,6 +2618,17 @@ export class AdvancedNotifierCameraMixin
     };
   }
 
+  getStreamDestinations(): ScryptedStreamDestination[] {
+    if (!this.streams?.length) return [];
+    return this.streams
+      .map((setting) => {
+        const name = setting.subgroup?.replace('Stream: ', '') ?? setting.key ?? 'Stream';
+        const rtspUrl = setting.value as string | undefined;
+        return rtspUrl ? { name, rtspUrl } : null;
+      })
+      .filter(Boolean) as ScryptedStreamDestination[];
+  }
+
   async getMqttZones(sourceParent?: ZonesSource): Promise<string[]> {
     const source = sourceParent ?? this.zonesSourceForMqtt;
     const zones: string[] = [];
@@ -2814,7 +2829,7 @@ export class AdvancedNotifierCameraMixin
         });
 
       if (this.isActiveForMqttReporting) {
-        const mqttClient = await this.getMqttClient();
+        const mqttClient = await this.getHaClient();
         if (mqttClient) {
           try {
             publishRuleData({
@@ -3842,7 +3857,7 @@ export class AdvancedNotifierCameraMixin
           logger.info(`Refreshing lastCheck only for rule ${name}`);
         }
       }
-      const mqttClient = await this.getMqttClient();
+      const mqttClient = await this.getHaClient();
 
       if (
         enabledToMqtt &&
@@ -4325,7 +4340,7 @@ export class AdvancedNotifierCameraMixin
         }
 
         if (!!faceDetections.length && this.isActiveForMqttReporting) {
-          const mqttClient = await this.getMqttClient();
+          const mqttClient = await this.getHaClient();
           if (mqttClient) {
             let inputDimensions: [number, number] =
               faceDetections[0].inputDimensions;
@@ -5512,7 +5527,7 @@ export class AdvancedNotifierCameraMixin
       }
 
       if (this.isActiveForMqttReporting) {
-        const mqttClient = await this.getMqttClient();
+        const mqttClient = await this.getHaClient();
         if (mqttClient) {
           if (facesFound.length) {
             const room = this.cameraDevice.room;
@@ -6022,7 +6037,7 @@ export class AdvancedNotifierCameraMixin
     const { resetSource, classnames } = props;
     const isFromSensor = resetSource === "MotionSensor";
     const logger = this.getLogger();
-    const mqttClient = await this.getMqttClient();
+    const mqttClient = await this.getHaClient();
 
     if (!mqttClient) {
       return;
@@ -6060,7 +6075,7 @@ export class AdvancedNotifierCameraMixin
 
   async resetRuleEntities(rule: BaseRule) {
     const logger = this.getLogger();
-    const mqttClient = await this.getMqttClient();
+    const mqttClient = await this.getHaClient();
     if (!mqttClient) {
       return;
     }

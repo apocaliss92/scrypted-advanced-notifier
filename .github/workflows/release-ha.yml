@@ -1,0 +1,77 @@
+name: HA Integration Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "custom_components/**"
+      - "HA_VERSION"
+      - "hacs.json"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Hassfest
+        uses: home-assistant/actions/hassfest@master
+
+      - name: HACS validation
+        uses: hacs/action@main
+        with:
+          category: integration
+          ignore: brands description topics
+
+  release:
+    runs-on: ubuntu-latest
+    needs: validate
+
+    steps:
+      - name: Checkout (full history for tags)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Bump HA version (patch)
+        id: bump
+        run: |
+          node scripts/bump-ha-version.js patch
+          VERSION=$(cat HA_VERSION | tr -d '\n')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=ha-v${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add HA_VERSION custom_components/scrypted_an/manifest.json
+          if git diff --staged --quiet; then
+            echo "No version changes to commit"
+          else
+            git commit -m "chore: bump HA version to ${{ steps.bump.outputs.version }} [skip ci]"
+            git push origin main
+          fi
+
+      - name: Create tag
+        run: |
+          git tag -a "${{ steps.bump.outputs.tag }}" -m "HA Release ${{ steps.bump.outputs.tag }}"
+          git push origin "${{ steps.bump.outputs.tag }}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.bump.outputs.tag }}
+          name: ${{ steps.bump.outputs.tag }}
+          generate_release_notes: true

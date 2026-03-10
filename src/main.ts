@@ -9,6 +9,8 @@ import { cloneDeep, isEqual, max, sortBy, uniq } from 'lodash';
 import moment from 'moment';
 import path from 'path';
 import { applySettingsShow, BasePlugin, BaseSettingsKey, getBaseSettings, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
+import { IHaClient } from '../../scrypted-apocaliss-base/src/ha-client';
+import { HaEventClient } from './ha-event-client';
 import { getFrigatePluginSettings } from "../../scrypted-frigate-bridge/src/utils";
 import { getRpcData } from '../../scrypted-monitor/src/utils';
 import { ffmpegFilterImageBuffer } from "../../scrypted/plugins/snapshot/src/ffmpeg-image-filter";
@@ -32,7 +34,7 @@ import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
 import { addOrUpdateRuleArtifacts, getRulesRegisterPath, migrateDeviceRulesRegister, REGISTER_FILENAME, removeRuleArtifactUrl } from "./rulesRegister";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { CameraMixinState, OccupancyRuleData } from "./states";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, calculateSize, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, DevNotifications, ExtendedNotificationAction, formatSize, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getActiveRules, getAllAvailableUrls, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getBaseRuleDefaults, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRecordingRules, getRecordingRulesSettings, getRuleKeys, getSequenceObject, getSequencesSettings, getSnoozeId, getTextSettings, getUrlLog, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, OccupancySource, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RecordingRule, RuleActionsSequence, RuleActionType, ruleSequencesGroup, ruleSequencesKey, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType, ZENTIK_PLUGIN_ID, ZonesSource } from "./utils";
+import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, calculateSize, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, DevNotifications, ExtendedNotificationAction, formatSize, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getActiveRules, getAllAvailableUrls, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getBaseRuleDefaults, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRecordingRules, getRecordingRulesSettings, getRuleKeys, getSequenceObject, getSequencesSettings, getSnoozeId, getTextSettings, getUrlLog, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, HomeassistantTransport, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, OccupancySource, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RecordingRule, RuleActionsSequence, RuleActionType, ruleSequencesGroup, ruleSequencesKey, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType, ZENTIK_PLUGIN_ID, ZonesSource } from "./utils";
 import { parseVideoFileName } from "./videoRecorderUtils";
 
 const { systemManager, mediaManager } = sdk;
@@ -137,12 +139,16 @@ export type PluginSettingKey =
     | 'includeUserToken'
     | 'migrationDbPerDeviceDone'
     | 'migrationRulesArtifactsRegisterDone'
+    | 'haTransport'
+    | 'haSecret'
+    | 'haAllowedOrigins'
     | BaseSettingsKey
     | TextSettingKey;
 
 export default class AdvancedNotifierPlugin extends BasePlugin implements MixinProvider, HttpRequestHandler, DeviceProvider, PushHandler, LauncherApplication {
     private clearVideoclipsQueue: { deviceId: string; task: () => Promise<void> }[] = [];
     private processingClearVideoclips = false;
+    private wsHaClient: HaEventClient | null = null;
     /** Per-device set of object ids already saved as key events (RawDetection); never save same id twice. */
     private keyEventObjectIdsByDevice: Record<string, Set<string>> = {};
     /** Per-device timestamp of last audio key event (min 1 minute between audio key events). */
@@ -268,6 +274,29 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             subgroup: 'MQTT',
             type: 'boolean',
             defaultValue: true,
+            immediate: true,
+        },
+        haTransport: {
+            title: 'HA Transport',
+            description: 'Transport used to push state updates to Home Assistant. "mqtt" uses the existing MQTT broker; "websocket" exposes a WebSocket server that the HA custom integration connects to directly.',
+            subgroup: 'Homeassistant',
+            type: 'string',
+            choices: [HomeassistantTransport.mqtt, HomeassistantTransport.websocket],
+            defaultValue: HomeassistantTransport.mqtt,
+            immediate: true,
+        },
+        haSecret: {
+            title: 'HA WebSocket Secret',
+            description: 'Auto-generated secret. Copy this value into the HA custom integration config flow.',
+            subgroup: 'Homeassistant',
+            type: 'string',
+            readonly: true,
+        },
+        haAllowedOrigins: {
+            title: 'HA Allowed Origins',
+            description: 'Comma-separated list of HA base URLs allowed to connect (e.g. http://homeassistant.local:8123). Must match the Scrypted URL configured in the HA integration.',
+            subgroup: 'Homeassistant',
+            type: 'string',
             immediate: true,
         },
         updateFrequencyMotionImagesInSeconds: {
@@ -844,6 +873,9 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             href: '/endpoint/@apocaliss92/scrypted-advanced-notifier/public/camstack',
             cloudHref: '/endpoint/@apocaliss92/scrypted-advanced-notifier/public/camstack',
         }
+        if (!this.storageSettings.values.haSecret) {
+            this.storageSettings.putSetting('haSecret', crypto.randomUUID());
+        }
         this.startStop(this.storageSettings.values.pluginEnabled).then().catch(this.getLogger().log);
     }
 
@@ -1170,6 +1202,63 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 }
                 return;
             }
+        }
+
+        // HA REST endpoints: /public/ha/devices, /public/ha/entities, /public/ha/state, /public/ha/command
+        if (pathname.includes('public/ha/')) {
+            const { haSecret, haAllowedOrigins } = this.storageSettings.values;
+            const origin = request.headers?.['origin'] ?? '';
+            const allowedOrigins = (haAllowedOrigins as string ?? '').split(',').map((s: string) => s.trim()).filter(Boolean);
+            const originAllowed = allowedOrigins.length > 0 && allowedOrigins.some((o: string) => o.replace(/\/$/, '').toLowerCase() === (origin as string).replace(/\/$/, '').toLowerCase());
+            const authHeader = request.headers?.['authorization'] ?? '';
+            const token = (authHeader as string).replace(/^Bearer\s+/i, '');
+
+            if (!originAllowed) {
+                response.send('Forbidden', { code: 403, headers: corsHeaders() });
+                return;
+            }
+            if (token !== haSecret) {
+                response.send('Unauthorized', { code: 401, headers: corsHeaders() });
+                return;
+            }
+
+            if (pathname.includes('public/ha/devices')) {
+                const devices = Object.values(this.currentCameraMixinsMap).map(mixin => ({
+                    device_id: `${idPrefix}-${mixin.id}`,
+                    device_name: mixin.name,
+                }));
+                response.send(JSON.stringify({ devices }), { code: 200, headers: { ...corsHeaders(), 'Content-Type': 'application/json' } });
+                return;
+            }
+
+            if (pathname.includes('public/ha/entities')) {
+                const requestedIds = (url.searchParams.get('device_ids') ?? '').split(',').map((s: string) => s.trim()).filter(Boolean);
+                const allMixins = Object.values(this.currentCameraMixinsMap);
+                const filtered = requestedIds.length > 0
+                    ? allMixins.filter(m => requestedIds.includes(`${idPrefix}-${m.id}`))
+                    : allMixins;
+                const devices = filtered.map(mixin => ({
+                    device_id: `${idPrefix}-${mixin.id}`,
+                    device_name: mixin.name,
+                }));
+                response.send(JSON.stringify({ devices }), { code: 200, headers: { ...corsHeaders(), 'Content-Type': 'application/json' } });
+                return;
+            }
+
+            if (pathname.includes('public/ha/command') && request.method === 'POST') {
+                let body: any;
+                try { body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body; } catch { body = {}; }
+                const topic = body?.topic ?? '';
+                const value = body?.value ?? '';
+                if (this.wsHaClient) {
+                    this.wsHaClient.routeCommand(topic, value);
+                }
+                response.send('{}', { code: 200, headers: { ...corsHeaders(), 'Content-Type': 'application/json' } });
+                return;
+            }
+
+            response.send('Not found', { code: 404, headers: corsHeaders() });
+            return;
         }
 
         // SPA: serve Camstack for any path under public/camstack (e.g. /.../public/camstack/...) so deep links and refresh work
@@ -1864,7 +1953,17 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         return this.storageSettings.putSetting(key, value);
     }
 
-    async getMqttClient() {
+    async getHaClient(): Promise<IHaClient | null> {
+        const { haTransport } = this.storageSettings.values;
+
+        if (haTransport === HomeassistantTransport.websocket) {
+            if (!this.wsHaClient) {
+                this.wsHaClient = new HaEventClient(this.getHaApiUrl.bind(this), this.getLogger());
+                this.wsHaClient.connect().catch(e => this.getLogger().warn('[main] HaEventClient connect error:', e));
+            }
+            return this.wsHaClient;
+        }
+
         try {
             if (!this.mqttClient && !this.initializingMqtt) {
                 const { mqttMemoryCacheEnabled, mqttEnabled, useMqttPluginCredentials, pluginEnabled, mqttHost, mqttUsename, mqttPassword } = this.storageSettings.values;
@@ -1941,7 +2040,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         const { mqttEnabled, mqttActiveEntitiesTopic } = this.storageSettings.values;
         if (mqttEnabled) {
             try {
-                const mqttClient = await this.getMqttClient();
+                const mqttClient = await this.getHaClient();
                 const logger = this.getLogger();
 
                 if (mqttClient) {
@@ -1974,7 +2073,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
     private async resetAllMqttTopicsAndRediscover() {
         const logger = this.getLogger();
-        const mqttClient = await this.getMqttClient();
+        const mqttClient = await this.getHaClient();
         if (!mqttClient) {
             logger.log('MQTT client not available, cannot reset topics');
             return;
@@ -2230,7 +2329,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
             const { mqttEnabled, notificationsEnabled, devNotifications, devNotifier, facesSourceForMqtt } = this.storageSettings.values;
             if (mqttEnabled) {
-                const mqttClient = await this.getMqttClient();
+                const mqttClient = await this.getHaClient();
                 if (mqttClient) {
                     const logger = this.getLogger();
                     if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
@@ -2502,7 +2601,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
     }
 
     async toggleRule(ruleName: string, ruleType: RuleType, enabled: boolean) {
-        const mqttClient = await this.getMqttClient();
+        const mqttClient = await this.getHaClient();
 
         if (mqttClient) {
             const logger = this.getLogger();

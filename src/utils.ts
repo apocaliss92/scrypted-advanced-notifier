@@ -68,6 +68,11 @@ const { endpointManager } = sdk;
 import fs from "fs";
 import path from "path";
 
+export enum HomeassistantTransport {
+  websocket = "websocket",
+  mqtt = "mqtt",
+}
+
 export type DeviceInterface = ScryptedDevice &
   Camera &
   ScryptedDeviceBase &
