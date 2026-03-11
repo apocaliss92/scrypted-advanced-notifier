@@ -337,13 +337,13 @@ async function handleSnapshot(
     const mixin = Object.values(plugin.currentCameraMixinsMap).find(m => m.id === scryptedId);
 
     if (!mixin) {
-        logger.log(`[HA Snapshot] No camera mixin found for scryptedId=${scryptedId}`);
+        logger.error(`[HA Snapshot] No camera mixin found for scryptedId=${scryptedId}`);
         response.send('Not found', { code: 404, headers: corsHeaders() });
         return true;
     }
 
     try {
-        logger.log(`[HA Snapshot] Taking live snapshot for device ${scryptedId}`);
+        logger.info(`[HA Snapshot] Taking live snapshot for device ${scryptedId}`);
         const mo = await mixin.cameraDevice.takePicture({ reason: 'event', timeout: 10000 });
         const buffer = await sdk.mediaManager.convertMediaObjectToBuffer(mo, 'image/jpeg');
         if (buffer?.length) {
@@ -353,7 +353,7 @@ async function handleSnapshot(
             await fs.promises.mkdir(deviceDir, { recursive: true });
             const snapshotPath = path.join(deviceDir, 'snapshot.jpg');
             await fs.promises.writeFile(snapshotPath, buffer);
-            logger.log(`[HA Snapshot] Saved ${buffer.length} bytes to ${snapshotPath}`);
+            logger.info(`[HA Snapshot] Saved ${buffer.length} bytes to ${snapshotPath}`);
 
             response.send(buffer, {
                 code: 200,
@@ -361,9 +361,9 @@ async function handleSnapshot(
             });
             return true;
         }
-        logger.log(`[HA Snapshot] takePicture returned empty buffer for ${scryptedId}`);
+        logger.info(`[HA Snapshot] takePicture returned empty buffer for ${scryptedId}`);
     } catch (e) {
-        logger.log(`[HA Snapshot] Error taking snapshot for ${scryptedId}: ${e}`);
+        logger.error(`[HA Snapshot] Error taking snapshot for ${scryptedId}: ${e}`);
     }
 
     response.send('Snapshot failed', { code: 500, headers: corsHeaders() });
@@ -409,14 +409,14 @@ async function handleImage(
     try {
         const { storagePath } = plugin.getFsPaths({});
         const detectionsDir = path.join(storagePath, scryptedId, 'detections');
-        logger.log(`[HA Image] Looking in ${detectionsDir}, classFilter=${classFilter}`);
+        logger.info(`[HA Image] Looking in ${detectionsDir}, classFilter=${classFilter}`);
         const files = await fs.promises.readdir(detectionsDir);
         const matching = files.filter(f => {
             if (!f.endsWith('.jpg')) return false;
             if (!classFilter) return true;
             return f.split('.')[0].split('__')[0] === classFilter;
         });
-        logger.log(`[HA Image] Found ${files.length} total files, ${matching.length} matching`);
+        logger.info(`[HA Image] Found ${files.length} total files, ${matching.length} matching`);
 
         if (matching.length > 0) {
             let bestFile = matching[0];
@@ -428,7 +428,7 @@ async function handleImage(
                     bestFile = f;
                 }
             }
-            logger.log(`[HA Image] Serving ${bestFile} (${path.join(detectionsDir, bestFile)})`);
+            logger.info(`[HA Image] Serving ${bestFile} (${path.join(detectionsDir, bestFile)})`);
             const jpeg = await fs.promises.readFile(path.join(detectionsDir, bestFile));
             response.send(jpeg, {
                 code: 200,
@@ -436,9 +436,9 @@ async function handleImage(
             });
             return true;
         }
-        logger.log(`[HA Image] No matching files for scryptedId=${scryptedId}, classFilter=${classFilter}, files: [${files.slice(0, 10).join(', ')}]`);
+        logger.info(`[HA Image] No matching files for scryptedId=${scryptedId}, classFilter=${classFilter}, files: [${files.slice(0, 10).join(', ')}]`);
     } catch (e) {
-        logger.log(`[HA Image] Error reading detections dir: ${e}`);
+        logger.error(`[HA Image] Error reading detections dir: ${e}`);
     }
 
     response.send('Not found', { code: 404, headers: corsHeaders() });
