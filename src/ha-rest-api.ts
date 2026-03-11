@@ -227,6 +227,7 @@ async function handleEntities(
             try {
                 const zones = await mixin.getMqttZones();
                 const accessorySwitchKinds = (mixin as unknown as { cameraAccessorySwitchKinds: CameraAccessorySwitchKind[] }).cameraAccessorySwitchKinds;
+                const initialCameraState = await mixin.getCameraMqttCurrentState();
                 await setupCameraAutodiscovery({
                     mqttClient: capture,
                     device: mixin.cameraDevice as DeviceInterface,
@@ -234,6 +235,7 @@ async function handleEntities(
                     rules,
                     zones,
                     accessorySwitchKinds,
+                    initialCameraState,
                     streamDestinations: await mixin.getStreamDestinations(),
                 });
             } catch (e) {
