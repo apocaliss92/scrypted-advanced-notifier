@@ -142,6 +142,7 @@ export type PluginSettingKey =
     | 'migrationRulesArtifactsRegisterDone'
     | 'haTransport'
     | 'haSecret'
+    | 'regenerateHaSecret'
     | 'haAllowedOrigins'
     | BaseSettingsKey
     | TextSettingKey;
@@ -288,11 +289,20 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             immediate: true,
         },
         haSecret: {
-            title: 'HA WebSocket Secret',
+            title: 'HA Secret',
             description: 'Auto-generated secret. Copy this value into the HA custom integration config flow.',
             subgroup: 'Homeassistant',
             type: 'string',
             readonly: true,
+        },
+        regenerateHaSecret: {
+            title: 'Regenerate HA Secret',
+            description: 'Generate a new secret and push it to HA.',
+            subgroup: 'Homeassistant',
+            type: 'button',
+            onPut: async () => {
+                await this.regenerateHaSecret();
+            },
         },
         haAllowedOrigins: {
             title: 'HA Allowed Origins',
@@ -879,6 +889,59 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             this.storageSettings.putSetting('haSecret', crypto.randomUUID());
         }
         this.startStop(this.storageSettings.values.pluginEnabled).then().catch(this.getLogger().log);
+    }
+
+    /**
+     * Generate a new ha_secret and push the rotation to the HA custom integration.
+     * The plugin secret is always updated. If HA cannot be reached, an alert is shown.
+     */
+    private async regenerateHaSecret(): Promise<void> {
+        const logger = this.getLogger();
+        const oldSecret = String(this.storageSettings.values.haSecret ?? '');
+        const newSecret = crypto.randomUUID();
+
+        // Always update the plugin secret
+        await this.storageSettings.putSetting('haSecret', newSecret);
+        logger.log('[regenerateHaSecret] New secret generated on plugin side');
+
+        // Try to push the rotation to HA so it updates automatically
+        let haUpdated = false;
+        let failReason = '';
+        try {
+            const haUrl = await this.getHaBaseUrl();
+            const pushUrl = `${haUrl}/api/scrypted_an/push`;
+            logger.log('[regenerateHaSecret] Sending secret rotation to HA...');
+            const resp = await axios.post(
+                pushUrl,
+                { type: 'rotate_secret', new_secret: newSecret },
+                {
+                    headers: { 'Authorization': `Bearer ${oldSecret}` },
+                    timeout: 10_000,
+                    httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+                },
+            );
+            if (resp.status === 200) {
+                haUpdated = true;
+            }
+        } catch (e: any) {
+            const status = e?.response?.status;
+            if (status === 401) {
+                failReason = 'The old secret did not match the one on HA (401). The secret may have already been changed on one side.';
+            } else {
+                failReason = (e as Error)?.message ?? String(e);
+            }
+        }
+
+        if (haUpdated) {
+            logger.log('[regenerateHaSecret] Secret rotated successfully on both plugin and HA. No manual action required.');
+        } else {
+            const reason = failReason ? ` Reason: ${failReason}` : '';
+            logger.warn(`[regenerateHaSecret] Secret updated on plugin only — could not push to HA.${reason} Update it manually in HA → Settings → Integrations → Scrypted Advanced Notifier → Configure → "Update HA Secret".`);
+            this.log.a(
+                'HA secret regenerated on plugin but could not be updated on Home Assistant automatically. '
+                + 'Go to HA → Settings → Integrations → Scrypted Advanced Notifier → Configure → "Update HA Secret" and paste the new secret.',
+            );
+        }
     }
 
     // --- EventsAppApi (interfaceDescriptors): proxy to dataFetcher ---
@@ -1909,7 +1972,12 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
         if (haTransport === HomeassistantTransport.websocket) {
             if (!this.wsHaClient) {
                 this.getLogger().log(`[getHaClient] Creating HaEventClient (haTransport=${haTransport})`);
-                this.wsHaClient = new HaEventClient(this.getHaApiUrl.bind(this), this.getLogger());
+                const getHaPushConfig = async () => {
+                    const haUrl = await this.getHaBaseUrl();
+                    const { haSecret } = this.storageSettings.values;
+                    return { haUrl, haSecret: String(haSecret ?? '') };
+                };
+                this.wsHaClient = new HaEventClient(getHaPushConfig, this.getLogger());
                 this.wsHaClient.onAuthenticated = () => {
                     this.getLogger().log('[main] HaEventClient authenticated — resetting autodiscovery to push all entities');
                     this.lastAutoDiscovery = 0;

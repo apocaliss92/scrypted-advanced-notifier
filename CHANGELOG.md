@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 5.0.3
+
+Use REST interface to update entities instead of websocket, to avoid usage of admin permissions
+
 ### 5.0.2
 
 Native HA component now available. Follow docs on page https://advanced-notifier-docs.zentik.app/docs/advanced-notifier/discovery for how to install and configure it
