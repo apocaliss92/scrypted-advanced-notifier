@@ -80,6 +80,7 @@ import {
   idPrefix,
   InitialCameraState,
   publishBasicDetectionData,
+  publishImmediateDetectionState,
   publishCameraValues,
   publishClassnameImages,
   publishOccupancy,
@@ -5493,6 +5494,43 @@ export class AdvancedNotifierCameraMixin
       candidates.every((c) => isMotionClassname(c.className)) &&
       !detectionId &&
       !eventId;
+
+    // Publish binary_sensor Detected states immediately BEFORE getImage()
+    // to avoid multi-second delays caused by image acquisition (takePicture, decoder, etc.)
+    const canUpdateDetectionsOnMqttEarly =
+      eventSource === detectionSourceForMqtt ||
+      detectionSourceForMqtt === ScryptedEventSource.All;
+
+    if (this.isActiveForMqttReporting && canUpdateDetectionsOnMqttEarly) {
+      const earlyClassnames = candidates
+        .filter((det) =>
+          this.isDelayPassed({
+            type: DelayType.BasicDetectionTrigger,
+            classname: det.className,
+            label: det.label,
+            eventSource,
+          })?.timePassed,
+        )
+        .map((det) => {
+          const dc = detectionClassesDefaultMap[det.className];
+          return dc || det.className;
+        })
+        .filter(Boolean);
+
+      if (earlyClassnames.length > 0) {
+        this.getHaClient().then(mqttClient => {
+          if (mqttClient) {
+            publishImmediateDetectionState({
+              mqttClient,
+              device: this.cameraDevice,
+              console: logger,
+              classnames: earlyClassnames,
+              detected: true,
+            }).catch(logger.log);
+          }
+        }).catch(logger.log);
+      }
+    }
 
     const {
       b64Image: decoderB64ImagFound,

@@ -2078,6 +2078,38 @@ export const publishResetRuleEntities = async (props: {
     }
 }
 
+/**
+ * Publish an immediate motion state change (ON/OFF) to MQTT without waiting for images.
+ * This bypasses processDetections/getImage to avoid multi-second delays on HA binary_sensors.
+ */
+export const publishImmediateDetectionState = async (props: {
+    mqttClient?: IHaClient,
+    device: MqttDeviceType,
+    console: Console,
+    classnames: string[],
+    detected: boolean,
+}) => {
+    const { mqttClient, device, console: logger, classnames, detected } = props;
+
+    if (!mqttClient) {
+        return;
+    }
+
+    try {
+        const mqttEntities = getDetectionClassMqttEntities(classnames)
+            .filter(entity => entity.identifier === MqttEntityIdentifier.Detected);
+
+        for (const mqttEntity of mqttEntities) {
+            const { stateTopic } = getMqttTopics({ mqttEntity, device });
+            await mqttClient.publish(stateTopic, detected, mqttEntity.retain);
+        }
+
+        logger.debug(`Immediate motion state published: ${classnames.join(', ')} = ${detected}`);
+    } catch (e) {
+        logger.log(`Error publishing immediate motion state`, e);
+    }
+}
+
 export const getClassnameEntities = async (props: { device: DeviceInterface, detection: ObjectDetectionResult }) => {
     const { detection, device } = props;
     let objectTypes: string[] = [];
