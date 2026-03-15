@@ -5497,20 +5497,10 @@ export class AdvancedNotifierCameraMixin
 
     // Publish binary_sensor Detected states immediately BEFORE getImage()
     // to avoid multi-second delays caused by image acquisition (takePicture, decoder, etc.)
-    const canUpdateDetectionsOnMqttEarly =
-      eventSource === detectionSourceForMqtt ||
-      detectionSourceForMqtt === ScryptedEventSource.All;
-
-    if (this.isActiveForMqttReporting && canUpdateDetectionsOnMqttEarly) {
+    // This is NOT gated by detectionSourceForMqtt — the ON/OFF state should reflect
+    // reality as fast as possible regardless of which source provides images/metadata.
+    if (this.isActiveForMqttReporting && candidates.length > 0) {
       const earlyClassnames = candidates
-        .filter((det) =>
-          this.isDelayPassed({
-            type: DelayType.BasicDetectionTrigger,
-            classname: det.className,
-            label: det.label,
-            eventSource,
-          })?.timePassed,
-        )
         .map((det) => {
           const dc = detectionClassesDefaultMap[det.className];
           return dc || det.className;
