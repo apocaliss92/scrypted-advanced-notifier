@@ -807,13 +807,24 @@ export const publishMqttDeviceDiscovery = async (props: {
 
     // Publish initial entity states (e.g. for switches) right after discovery so HA shows correct state
     if (initialEntityStates) {
+        console.info(`[publishMqttDeviceDiscovery] Publishing ${Object.keys(initialEntityStates).length} initial entity states: ${JSON.stringify(initialEntityStates)}`);
         for (const [entityName, value] of Object.entries(initialEntityStates)) {
             const entity = mqttEntities.find(e => e.entity === entityName);
             if (entity) {
                 const { stateTopic } = getMqttTopics({ mqttEntity: entity, device });
                 await mqttClient.publish(stateTopic, value, true);
+            } else {
+                console.info(`[publishMqttDeviceDiscovery] Entity "${entityName}" not found in mqttEntities, skipping initial state`);
             }
         }
+    } else {
+        console.info(`[publishMqttDeviceDiscovery] No initialEntityStates provided`);
+    }
+
+    // Log entities with valueToDispatch that were published
+    const dispatchedEntities = mqttEntities.filter(e => e.valueToDispatch !== undefined).map(e => ({ entity: e.entity, value: e.valueToDispatch }));
+    if (dispatchedEntities.length) {
+        console.info(`[publishMqttDeviceDiscovery] Entities with valueToDispatch: ${JSON.stringify(dispatchedEntities)}`);
     }
 
     return [getDeviceDiscoveryTopic(device)];
@@ -1796,13 +1807,19 @@ export const getCameraMqttEntitiesForDiscovery = async (props: {
 
     mqttEntities.push(...getCameraAccessorySwitchEntities(accessorySwitchKinds));
 
-    if (device.interfaces.includes(ScryptedInterface.Battery)) {
+    const hasBattery = device.interfaces.includes(ScryptedInterface.Battery);
+    const hasOnline = device.interfaces.includes(ScryptedInterface.Online);
+    const hasSleep = device.interfaces.includes(ScryptedInterface.Sleep);
+    console.info(`[getCameraMqttEntitiesForDiscovery] Device "${device.name}" (${device.id}) diagnostic interfaces: Battery=${hasBattery}, Online=${hasOnline}, Sleep=${hasSleep}`);
+    console.info(`[getCameraMqttEntitiesForDiscovery] Device interfaces: ${JSON.stringify(device.interfaces)}`);
+
+    if (hasBattery) {
         mqttEntities.push(cloneDeep(batteryEntity));
     }
-    if (device.interfaces.includes(ScryptedInterface.Online)) {
+    if (hasOnline) {
         mqttEntities.push(cloneDeep(onlineEntity));
     }
-    if (device.interfaces.includes(ScryptedInterface.Sleep)) {
+    if (hasSleep) {
         mqttEntities.push(cloneDeep(sleepingEntity));
     }
     if (device.interfaces.includes(ScryptedInterface.VideoRecorder)) {
@@ -1825,8 +1842,10 @@ export const getCameraMqttEntitiesForDiscovery = async (props: {
         const ruleEntities = getRuleMqttEntities({ rule, device, forDiscovery: true });
         for (const mqttEntity of ruleEntities) {
             if (mqttEntity.identifier === MqttEntityIdentifier.RuleActive) {
+                console.info(`[getCameraMqttEntitiesForDiscovery] Rule "${rule.name}" (source=${rule.source}): RuleActive valueToDispatch=${rule.isEnabled}`);
                 mqttEntities.push({ ...mqttEntity, valueToDispatch: rule.isEnabled });
             } else if (mqttEntity.identifier === MqttEntityIdentifier.RuleRunning) {
+                console.info(`[getCameraMqttEntitiesForDiscovery] Rule "${rule.name}" (source=${rule.source}): RuleRunning valueToDispatch=${rule.currentlyActive}`);
                 mqttEntities.push({ ...mqttEntity, valueToDispatch: rule.currentlyActive });
             } else {
                 mqttEntities.push(mqttEntity);
@@ -1854,14 +1873,19 @@ const buildCameraInitialEntityStates = (props: {
     device: ScryptedDeviceBase & ObjectDetector;
     initialCameraState?: InitialCameraState;
     accessorySwitchKinds?: CameraAccessorySwitchKind[];
+    console?: Console;
 }): Record<string, string> | undefined => {
-    const { device, initialCameraState, accessorySwitchKinds } = props;
+    const { device, initialCameraState, accessorySwitchKinds, console } = props;
     if (!initialCameraState) {
+        console?.info(`[buildCameraInitialEntityStates] No initialCameraState provided for device "${device.name}"`);
         return undefined;
     }
     const {
+        batteryEntity,
         notificationsEnabledEntity,
+        onlineEntity,
         recordingEntity,
+        sleepingEntity,
         snapshotsEntity,
         rebroadcastEntity,
         privacyEntity,
@@ -1885,6 +1909,21 @@ const buildCameraInitialEntityStates = (props: {
         out[rebroadcastEntity.entity] = initialCameraState.isRebroadcastEnabled ? PAYLOAD_ON : PAYLOAD_OFF;
     }
     out[privacyEntity.entity] = isPrivacy ? PAYLOAD_ON : PAYLOAD_OFF;
+
+    // Publish diagnostic entity initial states so HA doesn't show "Unknown"
+    if (device.interfaces.includes(ScryptedInterface.Battery) && device.batteryLevel !== undefined && device.batteryLevel !== null) {
+        out[batteryEntity.entity] = String(device.batteryLevel);
+        console?.info(`[buildCameraInitialEntityStates] Including battery initial state: ${device.batteryLevel}`);
+    }
+    if (device.interfaces.includes(ScryptedInterface.Online) && device.online !== undefined && device.online !== null) {
+        out[onlineEntity.entity] = device.online ? PAYLOAD_ON : PAYLOAD_OFF;
+        console?.info(`[buildCameraInitialEntityStates] Including online initial state: ${device.online}`);
+    }
+    if (device.interfaces.includes(ScryptedInterface.Sleep) && device.sleeping !== undefined && device.sleeping !== null) {
+        out[sleepingEntity.entity] = device.sleeping ? PAYLOAD_ON : PAYLOAD_OFF;
+        console?.info(`[buildCameraInitialEntityStates] Including sleeping initial state: ${device.sleeping}`);
+    }
+
     if (initialCameraState.accessorySwitchStates && accessorySwitchKinds?.length) {
         for (const kind of accessorySwitchKinds) {
             const state = initialCameraState.accessorySwitchStates[kind];
@@ -1894,6 +1933,7 @@ const buildCameraInitialEntityStates = (props: {
             out[mqttEntity.entity] = state ? PAYLOAD_ON : PAYLOAD_OFF;
         }
     }
+    console?.info(`[buildCameraInitialEntityStates] Built initial states for device "${device.name}": ${JSON.stringify(Object.keys(out))}`);
     return Object.keys(out).length ? out : undefined;
 };
 
@@ -1914,7 +1954,7 @@ export const setupCameraAutodiscovery = async (props: {
         return;
     }
     const mqttEntities = await getCameraMqttEntitiesForDiscovery({ device, rules, console, zones, accessorySwitchKinds });
-    const initialEntityStates = buildCameraInitialEntityStates({ device, initialCameraState, accessorySwitchKinds });
+    const initialEntityStates = buildCameraInitialEntityStates({ device, initialCameraState, accessorySwitchKinds, console });
     return await publishMqttDeviceDiscovery({ mqttClient, mqttEntities, device, console, initialEntityStates, streamDestinations });
 };
 
@@ -2379,17 +2419,37 @@ export const publishCameraValues = async (props: {
         (!hasRecording || !isRecording);
 
     if (device) {
-        if (device.interfaces.includes(ScryptedInterface.Battery) && device.batteryLevel) {
+        const hasBattery = device.interfaces.includes(ScryptedInterface.Battery);
+        const hasOnline = device.interfaces.includes(ScryptedInterface.Online);
+        const hasSleep = device.interfaces.includes(ScryptedInterface.Sleep);
+        console.info(`[publishCameraValues] Diagnostic interfaces: Battery=${hasBattery} (level=${device.batteryLevel}), Online=${hasOnline} (value=${device.online}), Sleep=${hasSleep} (value=${device.sleeping})`);
+
+        if (hasBattery) {
             const { stateTopic } = getMqttTopics({ mqttEntity: batteryEntity, device });
-            await mqttClient.publish(stateTopic, device.batteryLevel, batteryEntity.retain);
+            if (device.batteryLevel !== undefined && device.batteryLevel !== null) {
+                await mqttClient.publish(stateTopic, device.batteryLevel, batteryEntity.retain);
+                console.info(`[publishCameraValues] Published battery: ${device.batteryLevel} to ${stateTopic}`);
+            } else {
+                console.info(`[publishCameraValues] Skipped battery publish: batteryLevel is ${device.batteryLevel}`);
+            }
         }
-        if (device.interfaces.includes(ScryptedInterface.Online)) {
+        if (hasOnline) {
             const { stateTopic } = getMqttTopics({ mqttEntity: onlineEntity, device });
-            await mqttClient.publish(stateTopic, device.online, onlineEntity.retain);
+            if (device.online !== undefined && device.online !== null) {
+                await mqttClient.publish(stateTopic, device.online, onlineEntity.retain);
+                console.info(`[publishCameraValues] Published online: ${device.online} to ${stateTopic}`);
+            } else {
+                console.info(`[publishCameraValues] Skipped online publish: value is ${device.online}`);
+            }
         }
-        if (device.interfaces.includes(ScryptedInterface.Sleep)) {
+        if (hasSleep) {
             const { stateTopic } = getMqttTopics({ mqttEntity: sleepingEntity, device });
-            await mqttClient.publish(stateTopic, device.sleeping, sleepingEntity.retain);
+            if (device.sleeping !== undefined && device.sleeping !== null) {
+                await mqttClient.publish(stateTopic, device.sleeping, sleepingEntity.retain);
+                console.info(`[publishCameraValues] Published sleeping: ${device.sleeping} to ${stateTopic}`);
+            } else {
+                console.info(`[publishCameraValues] Skipped sleeping publish: value is ${device.sleeping}`);
+            }
         }
         if (device.interfaces.includes(ScryptedInterface.VideoRecorder)) {
             const { stateTopic } = getMqttTopics({ mqttEntity: recordingEntity, device });
@@ -2649,7 +2709,7 @@ export const publishRuleCurrentlyActive = async (props: {
     active?: boolean,
     device?: ScryptedDeviceBase
 }) => {
-    const { mqttClient, rule, active, device } = props;
+    const { mqttClient, rule, active, device, console } = props;
 
     if (!mqttClient) {
         return;
@@ -2660,6 +2720,7 @@ export const publishRuleCurrentlyActive = async (props: {
     const { stateTopic } = getMqttTopics({ mqttEntity, device });
     const isActive = active ?? false;
 
+    console.info(`[publishRuleCurrentlyActive] Rule "${rule.name}" (source=${rule.source}): active param=${active}, publishing=${isActive}, currentlyActive=${rule.currentlyActive}, topic=${stateTopic}`);
     await mqttClient.publish(stateTopic, JSON.stringify(isActive), mqttEntity.retain);
 }
 
