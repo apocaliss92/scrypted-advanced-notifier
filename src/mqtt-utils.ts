@@ -890,6 +890,9 @@ export const resetAllPluginMqttTopicsAndRediscover = async (props: {
                 entityToPublish = { ...mqttEntity, valueToDispatch: rule.isEnabled };
             } else if (mqttEntity.identifier === MqttEntityIdentifier.RuleRunning) {
                 entityToPublish = { ...mqttEntity, valueToDispatch: rule.currentlyActive };
+            } else if (mqttEntity.identifier === MqttEntityIdentifier.Triggered
+                || mqttEntity.identifier === MqttEntityIdentifier.Occupied) {
+                entityToPublish = { ...mqttEntity, valueToDispatch: mqttEntity.valueToDispatch ?? PAYLOAD_OFF };
             }
             pluginEntities.push(entityToPublish);
         }
@@ -1081,6 +1084,12 @@ export const setupPluginAutodiscovery = async (props: {
                 entityToPublish = {
                     ...mqttEntity,
                     valueToDispatch: rule.currentlyActive
+                };
+            } else if (mqttEntity.identifier === MqttEntityIdentifier.Triggered
+                || mqttEntity.identifier === MqttEntityIdentifier.Occupied) {
+                entityToPublish = {
+                    ...mqttEntity,
+                    valueToDispatch: mqttEntity.valueToDispatch ?? PAYLOAD_OFF,
                 };
             }
 

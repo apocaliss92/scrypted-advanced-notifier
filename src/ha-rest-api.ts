@@ -394,7 +394,7 @@ async function handleSnapshot(
     const mixin = Object.values(plugin.currentCameraMixinsMap).find(m => m.id === scryptedId);
 
     if (!mixin) {
-        logger.error(`[HA Snapshot] No camera mixin found for scryptedId=${scryptedId}`);
+        logger.log(`[HA Snapshot] No camera mixin found for scryptedId=${scryptedId}`);
         response.send('Not found', { code: 404, headers: corsHeaders() });
         return true;
     }
@@ -420,7 +420,7 @@ async function handleSnapshot(
         }
         logger.info(`[HA Snapshot] takePicture returned empty buffer for ${scryptedId}`);
     } catch (e) {
-        logger.error(`[HA Snapshot] Error taking snapshot for ${scryptedId}: ${e}`);
+        logger.log(`[HA Snapshot] Error taking snapshot for ${scryptedId}: ${e}`);
     }
 
     response.send('Snapshot failed', { code: 500, headers: corsHeaders() });
