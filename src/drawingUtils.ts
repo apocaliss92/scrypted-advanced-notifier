@@ -402,22 +402,32 @@ export const getCropResizeOptions = (props: {
     } else if (cropLeft + cropWidth > inputWidth) {
         cropLeft = inputWidth - cropWidth;
     }
+    // Ensure cropLeft is non-negative (cropWidth may exceed inputWidth)
+    cropLeft = Math.max(0, cropLeft);
 
     if (cropTop < 0) {
         cropTop = 0;
     } else if (cropTop + cropHeight > inputHeight) {
         cropTop = inputHeight - cropHeight;
     }
+    // Ensure cropTop is non-negative (cropHeight may exceed inputHeight)
+    cropTop = Math.max(0, cropTop);
 
     const finalWidth = Math.min(cropWidth, inputWidth - cropLeft);
     const finalHeight = Math.min(cropHeight, inputHeight - cropTop);
 
+    // Round and ensure the crop region stays within image bounds
+    const roundedLeft = Math.round(cropLeft);
+    const roundedTop = Math.round(cropTop);
+    const roundedWidth = Math.min(Math.round(finalWidth), inputWidth - roundedLeft);
+    const roundedHeight = Math.min(Math.round(finalHeight), inputHeight - roundedTop);
+
     return {
         crop: {
-            left: Math.round(cropLeft),
-            top: Math.round(cropTop),
-            width: Math.round(finalWidth),
-            height: Math.round(finalHeight)
+            left: roundedLeft,
+            top: roundedTop,
+            width: Math.max(1, roundedWidth),
+            height: Math.max(1, roundedHeight),
         },
         boundingBox: newBoundingBox
     };
