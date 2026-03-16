@@ -121,6 +121,11 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
         this.startStop(this.plugin.storageSettings.values.pluginEnabled).then().catch(logger.log);
     }
 
+    /** Whether this notifier is enabled for HA integration (enabledToMqtt setting). */
+    get isEnabledForHa(): boolean {
+        return !!this.storageSettings?.values?.enabledToMqtt;
+    }
+
     async initValues() {
         const logger = this.getLogger();
         try {

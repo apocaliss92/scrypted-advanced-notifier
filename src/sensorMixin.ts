@@ -67,6 +67,11 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
     }
 
 
+    /** Whether this sensor is enabled for HA integration (enabledToMqtt setting). */
+    get isEnabledForHa(): boolean {
+        return !!this.storageSettings?.values?.enabledToMqtt;
+    }
+
     public async startStop(enabled: boolean) {
         const logger = this.getLogger();
 

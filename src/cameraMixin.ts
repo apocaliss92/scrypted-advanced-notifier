@@ -771,6 +771,11 @@ export class AdvancedNotifierCameraMixin
     return this.plugin.cameraStates[this.id];
   }
 
+  /** Whether this camera is enabled for HA integration (enabledToMqtt setting). */
+  get isEnabledForHa(): boolean {
+    return !!this.mixinState?.storageSettings?.values?.enabledToMqtt;
+  }
+
   async getVideoClips(options?: VideoClipOptions): Promise<VideoClip[]> {
     const videoClips: VideoClip[] = [];
     const { showVideoclips } = this.mixinState.storageSettings.values;

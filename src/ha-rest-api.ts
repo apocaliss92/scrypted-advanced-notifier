@@ -142,18 +142,43 @@ function handleDevices(
     response: HttpResponse,
     corsHeaders: () => Record<string, string>,
 ): true {
-    const cameraDevices = Object.values(plugin.currentCameraMixinsMap).map(mixin => ({
-        device_id: `${idPrefix}-${mixin.id}`,
-        device_name: `${mixin.name} (${mixin.type ?? 'Camera'})`,
-    }));
-    const sensorDevices = Object.values(plugin.currentSensorMixinsMap).map(mixin => ({
-        device_id: `${idPrefix}-${mixin.id}`,
-        device_name: `${mixin.name} (${mixin.type ?? 'Sensor'})`,
-    }));
-    const notifierDevices = Object.values(plugin.currentNotifierMixinsMap).map(mixin => ({
-        device_id: `${idPrefix}-${mixin.id}`,
-        device_name: `${mixin.name} (Notifier)`,
-    }));
+    const logger = plugin.getLogger();
+    const cameraDevices = Object.values(plugin.currentCameraMixinsMap)
+        .filter(mixin => {
+            if (!mixin.isEnabledForHa) {
+                logger.debug(`[HA devices] Skipping camera "${mixin.name}" (${mixin.id}): not enabled for HA integration`);
+                return false;
+            }
+            return true;
+        })
+        .map(mixin => ({
+            device_id: `${idPrefix}-${mixin.id}`,
+            device_name: `${mixin.name} (${mixin.type ?? 'Camera'})`,
+        }));
+    const sensorDevices = Object.values(plugin.currentSensorMixinsMap)
+        .filter(mixin => {
+            if (!mixin.isEnabledForHa) {
+                logger.debug(`[HA devices] Skipping sensor "${mixin.name}" (${mixin.id}): not enabled for HA integration`);
+                return false;
+            }
+            return true;
+        })
+        .map(mixin => ({
+            device_id: `${idPrefix}-${mixin.id}`,
+            device_name: `${mixin.name} (${mixin.type ?? 'Sensor'})`,
+        }));
+    const notifierDevices = Object.values(plugin.currentNotifierMixinsMap)
+        .filter(mixin => {
+            if (!mixin.isEnabledForHa) {
+                logger.debug(`[HA devices] Skipping notifier "${mixin.name}" (${mixin.id}): not enabled for HA integration`);
+                return false;
+            }
+            return true;
+        })
+        .map(mixin => ({
+            device_id: `${idPrefix}-${mixin.id}`,
+            device_name: `${mixin.name} (Notifier)`,
+        }));
     const specialDevices = [
         { device_id: pluginIds, device_name: 'Advanced Notifier (Plugin)' },
         { device_id: `${idPrefix}-${peopleTrackerId}`, device_name: 'Advanced Notifier (People tracker)' },
@@ -223,6 +248,10 @@ async function handleEntities(
     // Cameras
     for (const mixin of Object.values(plugin.currentCameraMixinsMap)) {
         if (!shouldInclude(`${idPrefix}-${mixin.id}`)) continue;
+        if (!mixin.isEnabledForHa) {
+            logger.warn(`[HA entities] Camera "${mixin.name}" (${mixin.id}) is requested by HA but not enabled for HA integration in the plugin. Enable "HA integration" in the device settings.`);
+            continue;
+        }
         tasks.push((async () => {
             try {
                 const zones = await mixin.getMqttZones();
@@ -247,6 +276,10 @@ async function handleEntities(
     // Sensors
     for (const mixin of Object.values(plugin.currentSensorMixinsMap)) {
         if (!shouldInclude(`${idPrefix}-${mixin.id}`)) continue;
+        if (!mixin.isEnabledForHa) {
+            logger.warn(`[HA entities] Sensor "${mixin.name}" (${mixin.id}) is requested by HA but not enabled for HA integration in the plugin. Enable "HA integration" in the device settings.`);
+            continue;
+        }
         tasks.push((async () => {
             try {
                 const { availableDetectionRules } = await getActiveRules({
@@ -270,6 +303,10 @@ async function handleEntities(
     // Notifiers
     for (const mixin of Object.values(plugin.currentNotifierMixinsMap)) {
         if (!shouldInclude(`${idPrefix}-${mixin.id}`)) continue;
+        if (!mixin.isEnabledForHa) {
+            logger.warn(`[HA entities] Notifier "${mixin.name}" (${mixin.id}) is requested by HA but not enabled for HA integration in the plugin. Enable "HA integration" in the device settings.`);
+            continue;
+        }
         tasks.push(setupNotifierAutodiscovery({
             mqttClient: capture,
             device: mixin.notifierDevice as DeviceInterface,
@@ -312,6 +349,21 @@ function handleCommand(
     const value = body?.value ?? '';
     if (plugin.wsHaClient) {
         plugin.getLogger().info(`[handleCommand] Routing command: topic="${topic}" value="${value}"`);
+        // Extract device id from topic (format: scrypted-an/scrypted-an-{deviceId}/{entity}/set)
+        const topicParts = topic.split('/');
+        const deviceIdPart = topicParts[1] ?? ''; // e.g. "scrypted-an-303"
+        const scryptedId = deviceIdPart.replace(`${idPrefix}-`, ''); // e.g. "303"
+        // Check if the target device is enabled for HA (skip special devices like plugin, alarm-system, people-tracker)
+        const specialIds = ['plugin', peopleTrackerId, alarmSystemId];
+        if (!specialIds.includes(scryptedId)) {
+            const cameraMixin = plugin.currentCameraMixinsMap[scryptedId];
+            const sensorMixin = plugin.currentSensorMixinsMap[scryptedId];
+            const notifierMixin = plugin.currentNotifierMixinsMap[scryptedId];
+            const mixin = cameraMixin || sensorMixin || notifierMixin;
+            if (mixin && !mixin.isEnabledForHa) {
+                plugin.getLogger().warn(`[handleCommand] Command for device "${mixin.name}" (${scryptedId}) ignored: device is not enabled for HA integration. Enable "HA integration" in the device settings on the plugin.`);
+            }
+        }
         plugin.wsHaClient.routeCommand(topic, value);
     } else {
         plugin.getLogger().warn(`[handleCommand] No wsHaClient available, command dropped: topic="${topic}" value="${value}"`);
