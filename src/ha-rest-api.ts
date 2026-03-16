@@ -311,7 +311,10 @@ function handleCommand(
     const topic = body?.topic ?? '';
     const value = body?.value ?? '';
     if (plugin.wsHaClient) {
+        plugin.getLogger().info(`[handleCommand] Routing command: topic="${topic}" value="${value}"`);
         plugin.wsHaClient.routeCommand(topic, value);
+    } else {
+        plugin.getLogger().warn(`[handleCommand] No wsHaClient available, command dropped: topic="${topic}" value="${value}"`);
     }
     response.send('{}', { code: 200, headers: { ...corsHeaders(), 'Content-Type': 'application/json' } });
     return true;

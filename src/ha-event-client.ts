@@ -116,6 +116,7 @@ export class HaEventClient implements IHaClient {
             // Replace callbacks for the topic to prevent accumulation on reconnect
             this.subscribers.set(topic, [cb]);
         }
+        this.logger.info(`[HaEventClient] subscribe: registered ${topics.length} topics: ${JSON.stringify(topics)}, total registered: ${this.subscribers.size}`);
     }
 
     async unsubscribe(topics: string[]): Promise<void> {
@@ -146,16 +147,27 @@ export class HaEventClient implements IHaClient {
      */
     routeCommand(topic: string, value: string): void {
         const cbs = this.subscribers.get(topic) ?? [];
+        this.logger.info(`[HaEventClient] routeCommand: topic="${topic}" value="${value}" directSubscribers=${cbs.length} totalRegisteredTopics=${this.subscribers.size}`);
+        if (cbs.length === 0) {
+            // Log all registered topics for debugging
+            const registeredTopics = Array.from(this.subscribers.keys());
+            this.logger.info(`[HaEventClient] No direct subscriber found. Registered topics: ${JSON.stringify(registeredTopics)}`);
+        }
         for (const cb of cbs) {
             cb(topic, value).catch(e => this.logger.warn('[HaEventClient] Command cb error:', e));
         }
         // Wildcard matching
+        let wildcardMatches = 0;
         for (const [pattern, patternCbs] of Array.from(this.subscribers.entries())) {
             if (pattern !== topic && this.topicMatches(pattern, topic)) {
+                wildcardMatches += patternCbs.length;
                 for (const cb of patternCbs) {
                     cb(topic, value).catch(e => this.logger.warn('[HaEventClient] Wildcard cb error:', e));
                 }
             }
+        }
+        if (cbs.length === 0 && wildcardMatches === 0) {
+            this.logger.warn(`[HaEventClient] routeCommand: NO handler found for topic="${topic}"`);
         }
     }
 
