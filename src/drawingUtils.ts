@@ -238,9 +238,14 @@ export const cropImageToDetection = async (props: {
     const { image, boundingBox, inputDimensions, plugin, sizeIncrease, console } = props;
     const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(image, ScryptedMimeTypes.Image);
 
+    // Use actual image dimensions for clamping when available (inputDimensions from NVR may be swapped)
+    const realDims: [number, number] = (convertedImage.width && convertedImage.height)
+        ? [convertedImage.width, convertedImage.height]
+        : inputDimensions;
+
     const { postProcessingCropSizeIncrease, postProcessingAspectRatio } = plugin.storageSettings.values;
     const { crop, boundingBox: newBoundingBox } = getCropResizeOptions({
-        inputDimensions,
+        inputDimensions: realDims,
         aspectRatio: postProcessingAspectRatio || 'camera',
         sizeIncrease: sizeIncrease ?? postProcessingCropSizeIncrease,
         boundingBox,

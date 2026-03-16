@@ -155,6 +155,13 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
             const croppedThumbnailUrl = (e.keyEvent && e.croppedImageUrl)
                 ? `${privatePathnamePrefix}/${eventThumbnail}/${devId}/${e.croppedImageUrl}/${source}`
                 : undefined;
+            const additionalCrops = (e.keyEvent && e.additionalCrops?.length)
+                ? e.additionalCrops.map(c => ({
+                    ...c,
+                    thumbnailUrl: `${privatePathnamePrefix}/${eventThumbnail}/${devId}/${c.url}/${source}`,
+                    imageUrl: `${privatePathnamePrefix}/${eventImage}/${devId}/${c.url}/${source}`,
+                }))
+                : undefined;
             return {
                 details: {
                     eventId: e.id,
@@ -165,6 +172,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                     thumbnailUrl,
                     imageUrl,
                     ...(croppedThumbnailUrl && { croppedThumbnailUrl }),
+                    ...(additionalCrops && { additionalCrops }),
                 },
             };
         });
@@ -214,6 +222,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
             deviceId: r.data?.deviceId,
             ...(r.data?.keyEvent && { keyEvent: true }),
             ...(r.data?.croppedThumbnailUrl && { croppedThumbnailUrl: r.data.croppedThumbnailUrl }),
+            ...(r.data?.additionalCrops?.length && { additionalCrops: r.data.additionalCrops }),
         };
     }
 
@@ -579,6 +588,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                 detections: r.data?.detections ?? [],
                 keyEvent: r.data?.keyEvent,
                 croppedThumbnailUrl: r.data?.croppedThumbnailUrl,
+                ...(r.data?.additionalCrops?.length && { additionalCrops: r.data.additionalCrops }),
             }));
             // Pre-compute segments server-side (drastically reduces payload)
             const motionSegments = convertMotionToSegments(motion, endOfDay);
@@ -868,7 +878,8 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                 logger.info(`[GetReelEvents] GetEvents failed statusCode=${resp.statusCode}`);
                 return { statusCode: resp.statusCode, body: resp.body };
             }
-            type ReelEv = { id: string; camera: string; cameraName: string; label: string; startTime: number; thumbnail?: string; croppedThumbnailUrl?: string; hasClip?: boolean; gifUrl?: string; videoUrl?: string; imageUrl?: string; classes?: string[] };
+            type ReelCrop = { thumbnailUrl: string; imageUrl: string; className: string; label?: string; score?: number };
+            type ReelEv = { id: string; camera: string; cameraName: string; label: string; startTime: number; thumbnail?: string; croppedThumbnailUrl?: string; additionalCrops?: ReelCrop[]; hasClip?: boolean; gifUrl?: string; videoUrl?: string; imageUrl?: string; classes?: string[] };
             const events: ReelEv[] = [];
             const body = resp.body as { groups?: ApiDetectionGroup[]; total?: number };
             const groups = body.groups ?? [];
@@ -890,6 +901,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                     startTime: ev.timestamp / 1000,
                     thumbnail: thumb,
                     ...(cropped && { croppedThumbnailUrl: cropped }),
+                    ...(ev.additionalCrops?.length && { additionalCrops: ev.additionalCrops }),
                     hasClip: !!(ev.videoUrl ?? (ev as { videoId?: string }).videoId),
                     gifUrl: (ev as { gifUrl?: string }).gifUrl,
                     videoUrl: ev.videoUrl ?? undefined,

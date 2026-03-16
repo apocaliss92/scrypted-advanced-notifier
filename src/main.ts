@@ -27,7 +27,7 @@ import { cleanupEvents, cleanupOldDeviceDbs, migrateDbsToPerDevice, writeEventsA
 import { cropImageToDetection } from "./drawingUtils";
 import { DetectionClass, detectionClassesDefaultMap, isAudioClassname, isDoorbellClassname, isLabelDetection, isMotionClassname, isPlateClassname } from "./detectionClasses";
 import { serveGif, serveImage, servePluginGeneratedVideoclip } from "./httpUtils";
-import { selectKeyEventDetection, toPixelBbox } from "./keyEventAlgorithm";
+import { selectKeyEventDetections, toPixelBbox } from "./keyEventAlgorithm";
 import { idPrefix, publishPluginValues, publishRuleEnabled, resetAllPluginMqttTopicsAndRediscover, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
 import { handleHaRestApi } from "./ha-rest-api";
 import { AdvancedNotifierNotifier } from "./notifier";
@@ -2366,7 +2366,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                         this.lastAutoDiscovery = now;
                         this.aiMessageResponseMap = {};
 
-                        logger.log('Starting MQTT autodiscovery');
+                        logger.log('Starting autodiscovery');
                         setupPluginAutodiscovery({
                             mqttClient,
                             people: await this.getKnownPeople(facesSourceForMqtt),
@@ -5814,6 +5814,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         let keyEvent = false;
         let croppedImageUrl: string | undefined;
+        const additionalCrops: import('./db').DbCropInfo[] = [];
 
         const AUDIO_KEY_EVENT_MIN_INTERVAL_MS = 60 * 1000; // 1 minute
         const hasAudioDetection = detections.some((d) => isAudioClassname(d.className));
@@ -5826,37 +5827,63 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
 
         if (eventSource === ScryptedEventSource.RawDetection && inputDimensions?.length === 2 && detections?.length) {
             const keyEventSet = this.keyEventObjectIdsByDevice[device.id] ??= new Set<string>();
-            const selected = selectKeyEventDetection({
+            const { candidates: allCandidates, stationary } = selectKeyEventDetections({
                 detections,
                 inputDimensions: inputDimensions as [number, number],
                 objectIdsAlreadyKeyEvent: keyEventSet,
                 logger,
             });
-            if (selected) {
-                const bbox = selected.detection.boundingBox as [number, number, number, number];
+            if (stationary.length) {
+                logger.debug?.(`Stationary objects detected: ${stationary.map(s => `${s.detection.className}(${s.objectId})`).join(', ')}`);
+            }
+            for (let i = 0; i < allCandidates.length; i++) {
+                const candidate = allCandidates[i];
+                const bbox = candidate.detection.boundingBox as [number, number, number, number];
                 const pixelBox = bbox && bbox.length >= 4 ? toPixelBbox(bbox, inputDimensions as [number, number]) : undefined;
-                if (pixelBox) {
-                    try {
-                        const cropResult = await cropImageToDetection({
-                            image,
-                            boundingBox: pixelBox,
-                            inputDimensions: inputDimensions as [number, number],
-                            plugin: this,
-                            console: logger,
-                        });
-                        if (cropResult?.newB64Image) {
-                            const keyEventFileName = `${fileName}_keyEvent`;
-                            const keyEventPath = path.join(thumbnailsPath, `${keyEventFileName}.jpg`);
-                            const cropBase64 = cropResult.newB64Image.replace(/^data:image\/png;base64,/, '');
-                            await fs.promises.writeFile(keyEventPath, cropBase64, 'base64');
-                            keyEvent = true;
-                            croppedImageUrl = keyEventFileName;
-                            keyEventSet.add(selected.objectId);
-                            this.lastKeyEventTimestampByDevice[device.id] = timestamp;
+                if (!pixelBox) continue;
+                try {
+                    const cropResult = await cropImageToDetection({
+                        image,
+                        boundingBox: pixelBox,
+                        inputDimensions: inputDimensions as [number, number],
+                        plugin: this,
+                        console: logger,
+                    });
+                    if (cropResult?.newB64Image) {
+                        const suffix = i === 0 ? '_keyEvent' : `_keyEvent_${i}`;
+                        const keyEventFileName = `${fileName}${suffix}`;
+                        const cropBase64 = cropResult.newB64Image.replace(/^data:image\/png;base64,/, '');
+                        // Save full-size crop
+                        await fs.promises.writeFile(path.join(imagesPath, `${keyEventFileName}.jpg`), cropBase64, 'base64');
+                        // Save thumbnail crop (resized to 400px height)
+                        try {
+                            const croppedConverted = await sdk.mediaManager.convertMediaObject<Image>(cropResult.newImage, ScryptedMimeTypes.Image);
+                            const croppedThumb = await croppedConverted.toImage({ resize: { height: 400 } });
+                            const thumbB64 = await moToB64(croppedThumb);
+                            const thumbBase64 = thumbB64.replace(/^data:image\/png;base64,/, '');
+                            await fs.promises.writeFile(path.join(thumbnailsPath, `${keyEventFileName}.jpg`), thumbBase64, 'base64');
+                        } catch {
+                            // Fallback: save full-size as thumbnail too
+                            await fs.promises.writeFile(path.join(thumbnailsPath, `${keyEventFileName}.jpg`), cropBase64, 'base64');
                         }
-                    } catch (e) {
-                        logger.warn?.('Key event crop failed', e);
+                        keyEvent = true;
+                        const cropInfo: import('./db').DbCropInfo = {
+                            url: keyEventFileName,
+                            className: candidate.detection.className,
+                            label: candidate.detection.label,
+                            score: candidate.detection.score,
+                        };
+                        // First candidate (best priority/score) is the primary cropped image
+                        if (!croppedImageUrl) {
+                            croppedImageUrl = keyEventFileName;
+                        } else {
+                            additionalCrops.push(cropInfo);
+                        }
+                        keyEventSet.add(candidate.objectId);
+                        this.lastKeyEventTimestampByDevice[device.id] = timestamp;
                     }
+                } catch (e) {
+                    logger.warn?.(`Key event crop failed for candidate ${i} (${candidate.objectId})`, e);
                 }
             }
         }
@@ -5894,6 +5921,8 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
             (deviceMixin?.getLogger?.() ?? logger).log(`Saving key event (${logClasses}${label ? `, ${label}` : ''})`);
         }
 
+        const bestScore = detections.reduce((best, d) => Math.max(best, d.score ?? 0), 0) || undefined;
+
         this.enqueueDbWrite({
             type: 'event',
             dbsPath,
@@ -5901,6 +5930,7 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 id: fileId,
                 classes: classNames,
                 label,
+                score: bestScore,
                 timestamp,
                 source: eventSource,
                 deviceName: device.name,
@@ -5908,7 +5938,11 @@ export default class AdvancedNotifierPlugin extends BasePlugin implements MixinP
                 sensorName: triggerDevice?.name,
                 eventId,
                 detections,
-                ...(keyEvent && { keyEvent: true, ...(croppedImageUrl && { croppedImageUrl }) }),
+                ...(keyEvent && {
+                    keyEvent: true,
+                    ...(croppedImageUrl && { croppedImageUrl }),
+                    ...(additionalCrops.length > 0 && { additionalCrops }),
+                }),
             },
             logger,
         });

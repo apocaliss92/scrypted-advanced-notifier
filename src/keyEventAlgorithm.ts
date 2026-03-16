@@ -1,14 +1,15 @@
 /**
  * Key-event selection for RawDetection events.
- * Chooses at most one detection per event to mark as keyEvent and save a cropped image:
+ * Returns all detections that match key-event criteria, sorted by priority:
  * - Prefer face/plate, then person/vehicle/animal; avoid duplicating object-detection results.
  * - Only well-visible objects (sufficient bbox size, not clipped at frame edges).
  * - Never save the same object id twice (dedupe by detection id).
+ * - Only moving objects get cropped; stationary objects are tracked separately.
  */
 
 import type { ObjectDetectionResult } from '@scrypted/sdk';
 import { sortBy } from 'lodash';
-import { classnamePrio, detectionClassesDefaultMap } from './detectionClasses';
+import { classnamePrio, detectionClassesDefaultMap, isMotionClassname } from './detectionClasses';
 import { isFaceClassname, isPlateClassname } from './detectionClasses';
 
 export type BoundingBox = [number, number, number, number];
@@ -84,6 +85,23 @@ export function toPixelBbox(
   return bbox;
 }
 
+function getObjectId(d: ObjectDetectionResult): string {
+  return d.id ?? (d.label ? `${d.className}_${d.label}` : null) ?? d.className ?? '';
+}
+
+/** True if the detection is a pure motion bbox (no real object class). */
+function isMotionOnly(d: ObjectDetectionResult): boolean {
+  return isMotionClassname(d.className);
+}
+
+/** True if the detection has movement data indicating it is actively moving. */
+function isMoving(d: ObjectDetectionResult): boolean {
+  const movement = (d as any).movement;
+  // No movement data = not tracked by NVR, treat as moving (e.g. onboard detections)
+  if (!movement) return true;
+  return !!movement.moving;
+}
+
 export interface SelectKeyEventDetectionProps {
   detections: ObjectDetectionResult[];
   inputDimensions: [number, number] | undefined;
@@ -92,51 +110,116 @@ export interface SelectKeyEventDetectionProps {
   logger?: Console;
 }
 
+export interface KeyEventCandidate {
+  detection: ObjectDetectionResult;
+  objectId: string;
+}
+
+/** A stationary object detected but not cropped. */
+export interface StationaryObject {
+  detection: ObjectDetectionResult;
+  objectId: string;
+  boundingBox: BoundingBox;
+}
+
+export interface KeyEventSelectionResult {
+  /** Moving objects to crop as key events. */
+  candidates: KeyEventCandidate[];
+  /** Stationary objects detected but not cropped (for future use). */
+  stationary: StationaryObject[];
+}
+
 /**
- * Select at most one detection to use as key event for this raw event.
- * Returns the best candidate or null if none (duplicate id, not visible, or no bbox).
+ * Select all detections that qualify as key events for this raw event,
+ * sorted by priority (face/plate first, then by score descending).
+ * Excludes: motion-only bboxes, stationary objects, duplicates, and objects not well visible.
+ * Stationary objects are returned separately for reference tracking.
  */
-export function selectKeyEventDetection(
+export function selectKeyEventDetections(
   props: SelectKeyEventDetectionProps,
-): { detection: ObjectDetectionResult; objectId: string } | null {
-  const { detections, inputDimensions, objectIdsAlreadyKeyEvent, logger } = props;
-  if (!detections?.length || !inputDimensions?.length) return null;
+): KeyEventSelectionResult {
+  const { detections, inputDimensions, objectIdsAlreadyKeyEvent } = props;
+  if (!detections?.length || !inputDimensions?.length) return { candidates: [], stationary: [] };
 
   const dims = inputDimensions as [number, number];
-  const withBbox = detections.filter(
-    (d) => d.boundingBox && Array.isArray(d.boundingBox) && d.boundingBox.length >= 4,
+
+  // Filter: has bbox, is not pure motion class
+  const realObjects = detections.filter(
+    (d) =>
+      d.boundingBox &&
+      Array.isArray(d.boundingBox) &&
+      d.boundingBox.length >= 4 &&
+      !isMotionOnly(d),
   ) as (ObjectDetectionResult & { boundingBox: BoundingBox })[];
 
-  if (!withBbox.length) return null;
+  if (!realObjects.length) return { candidates: [], stationary: [] };
 
-  let candidates = withBbox.filter((d) => {
+  // Split into moving vs stationary
+  const moving: typeof realObjects = [];
+  const stationaryRaw: typeof realObjects = [];
+  for (const d of realObjects) {
+    if (isMoving(d)) {
+      moving.push(d);
+    } else {
+      stationaryRaw.push(d);
+    }
+  }
+
+  // Build stationary references (no dedup check — we want to track all sightings)
+  const stationary: StationaryObject[] = stationaryRaw
+    .filter((d) => {
+      const pixelBox = toPixelBbox(d.boundingBox, dims);
+      return hasMinArea(pixelBox, dims, MIN_AREA_RATIO_FALLBACK);
+    })
+    .map((d) => ({
+      detection: d,
+      objectId: String(getObjectId(d) || d.className || ''),
+      boundingBox: toPixelBbox(d.boundingBox, dims),
+    }));
+
+  // Filter moving objects for visibility
+  let candidates = moving.filter((d) => {
     const pixelBox = toPixelBbox(d.boundingBox, dims);
     return isBoundingBoxWellVisible(pixelBox, dims);
   });
-  // Fallback: when none pass strict visibility, use best available with minimal area (NVR-style: retain more)
+  // Fallback: when none pass strict visibility, use best available with minimal area
   if (!candidates.length) {
-    candidates = withBbox.filter((d) => {
+    candidates = moving.filter((d) => {
       const pixelBox = toPixelBbox(d.boundingBox, dims);
       return hasMinArea(pixelBox, dims, MIN_AREA_RATIO_FALLBACK);
     });
   }
-  if (!candidates.length) return null;
+  if (!candidates.length) return { candidates: [], stationary };
 
+  // Remove duplicates (already saved object ids)
   const notDuplicate = candidates.filter((d) => {
-    const id = d.id ?? (d.label ? `${d.className}_${d.label}` : null);
+    const id = getObjectId(d);
     if (!id) return true;
-    if (objectIdsAlreadyKeyEvent.has(id)) return false;
-    return true;
+    return !objectIdsAlreadyKeyEvent.has(id);
   });
-  if (!notDuplicate.length) return null;
+  if (!notDuplicate.length) return { candidates: [], stationary };
 
-  const sorted = sortBy(notDuplicate, (d) => [
+  // Deduplicate by objectId within this event (keep the highest score per id)
+  const bestByObjectId = new Map<string, ObjectDetectionResult>();
+  for (const d of notDuplicate) {
+    const id = getObjectId(d);
+    const existing = bestByObjectId.get(id);
+    if (!existing || (d.score ?? 0) > (existing.score ?? 0)) {
+      bestByObjectId.set(id, d);
+    }
+  }
+
+  const unique = Array.from(bestByObjectId.values());
+  const sorted = sortBy(unique, (d) => [
     getKeyEventPriority(d.className),
     -(d.score ?? 0),
   ]);
-  const best = sorted[0];
-  const objectId = best.id ?? (best.label ? `${best.className}_${best.label}` : null) ?? best.className ?? '';
-  if (objectId && objectIdsAlreadyKeyEvent.has(objectId)) return null;
 
-  return { detection: best, objectId: String(objectId || best.className || '') };
+  return {
+    candidates: sorted.map((d) => ({
+      detection: d,
+      objectId: String(getObjectId(d) || d.className || ''),
+    })),
+    stationary,
+  };
 }

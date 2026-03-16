@@ -22,6 +22,21 @@ export interface ApiDetectionEvent {
     keyEvent?: boolean;
     /** URL for key-event cropped thumbnail (when keyEvent is true). */
     croppedThumbnailUrl?: string;
+    /** Additional cropped thumbnails with detection metadata. */
+    additionalCrops?: ApiCropInfo[];
+}
+
+export interface ApiCropInfo {
+    /** Resolved thumbnail URL (resized). */
+    thumbnailUrl: string;
+    /** Resolved full-size image URL. */
+    imageUrl: string;
+    /** Detection class (e.g. person, vehicle, face). */
+    className: string;
+    /** Detection label (e.g. plate text, face name). */
+    label?: string;
+    /** Detection confidence score. */
+    score?: number;
 }
 
 export interface ApiDetectionGroup {

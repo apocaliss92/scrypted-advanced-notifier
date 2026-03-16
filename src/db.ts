@@ -8,15 +8,29 @@ import { ObjectDetectionResult } from '@scrypted/sdk';
 
 const dbFileFormat = 'YYYYMMDD';
 
+export type DbCropInfo = {
+  /** File name of the cropped image (relative to thumbnails dir). */
+  url: string;
+  /** Detection class (e.g. person, vehicle, face). */
+  className: string;
+  /** Detection label (e.g. plate text, face name). */
+  label?: string;
+  /** Detection confidence score. */
+  score?: number;
+}
+
 export type DbDetectionEvent = {
   id: string;
   eventId?: string;
   timestamp: number;
   classes: string[];
   label?: string;
+  /** Best detection score among all detections in this event. */
+  score?: number;
   thumbnailUrl?: string;
   imageUrl?: string;
   croppedImageUrl?: string;
+  additionalCrops?: DbCropInfo[];
   videoUrl?: string;
   source: ScryptedEventSource;
   deviceName: string;

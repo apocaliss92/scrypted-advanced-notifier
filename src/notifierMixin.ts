@@ -258,7 +258,7 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
                     if (mqttClient) {
                         // Every 60 minutes repeat the autodiscovery
                         if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
-                            logger.log('Starting MQTT autodiscovery');
+                            logger.log('Starting autodiscovery');
                             setupNotifierAutodiscovery({
                                 mqttClient,
                                 device: this.notifierDevice,

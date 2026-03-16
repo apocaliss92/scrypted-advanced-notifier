@@ -431,7 +431,7 @@ export class AdvancedNotifierAlarmSystem
             ) {
               this.lastAutoDiscovery = now;
 
-              logger.log("Starting MQTT autodiscovery");
+              logger.log("Starting autodiscovery");
               setupAlarmSystemAutodiscovery({
                 mqttClient,
                 console: logger,

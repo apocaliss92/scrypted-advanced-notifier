@@ -1467,7 +1467,7 @@ export class AdvancedNotifierCameraMixin
             if (!lastGlobal || now - lastGlobal > 1000 * 60 * 60) {
               this.plugin.enqueueCameraAutodiscovery(this.id, async () => {
                 const zones = await this.getMqttZones();
-                logger.log("Starting MQTT autodiscovery (queued)");
+                logger.log("Starting autodiscovery (queued)");
                 const initialCameraState = await this.getCameraMqttCurrentState();
                 await setupCameraAutodiscovery({
                   mqttClient,
@@ -1586,7 +1586,7 @@ export class AdvancedNotifierCameraMixin
                 this.ensureMixinsOrder();
                 await this.refreshSettings();
 
-                logger.log("MQTT autodiscovery completed");
+                logger.log("Autodiscovery completed");
               });
             }
 
