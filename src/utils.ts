@@ -87,6 +87,8 @@ export type DeviceInterface = ScryptedDevice &
   PanTiltZoom &
   OnOff;
 export const ADVANCED_NOTIFIER_INTERFACE = name;
+/** How often autodiscovery runs (ms). */
+export const AUTODISCOVERY_INTERVAL_MS = 1000 * 60 * 60 * 2; // 2 hours
 export const ADVANCED_NOTIFIER_CAMERA_INTERFACE = `${ADVANCED_NOTIFIER_INTERFACE}:Camera`;
 export const ADVANCED_NOTIFIER_NOTIFIER_INTERFACE = `${ADVANCED_NOTIFIER_INTERFACE}:Notifier`;
 export const ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE = `${ADVANCED_NOTIFIER_INTERFACE}:SecuritySystem`;

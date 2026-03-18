@@ -37,6 +37,7 @@ import {
   subscribeToAlarmSystemMqttTopics,
 } from "./mqtt-utils";
 import {
+  AUTODISCOVERY_INTERVAL_MS,
   BaseRule,
   binarySensorMetadataMap,
   convertSettingsToStorageSettings,
@@ -427,7 +428,7 @@ export class AdvancedNotifierAlarmSystem
           if (mqttClient) {
             if (
               !this.lastAutoDiscovery ||
-              now - this.lastAutoDiscovery > 1000 * 60 * 60
+              now - this.lastAutoDiscovery > AUTODISCOVERY_INTERVAL_MS
             ) {
               this.lastAutoDiscovery = now;
 

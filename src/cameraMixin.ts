@@ -111,6 +111,7 @@ import {
 } from "./accessoryUtils";
 import {
   ADVANCED_NOTIFIER_INTERFACE,
+  AUTODISCOVERY_INTERVAL_MS,
   BaseRule,
   DecoderType,
   DelayType,
@@ -1464,7 +1465,7 @@ export class AdvancedNotifierCameraMixin
           const mqttClient = await this.getHaClient();
           if (mqttClient) {
             const lastGlobal = this.plugin.lastCameraAutodiscoveryMap[this.id];
-            if (!lastGlobal || now - lastGlobal > 1000 * 60 * 60) {
+            if (!lastGlobal || now - lastGlobal > AUTODISCOVERY_INTERVAL_MS) {
               this.plugin.enqueueCameraAutodiscovery(this.id, async () => {
                 const zones = await this.getMqttZones();
                 logger.log("Starting autodiscovery (queued)");
@@ -2059,6 +2060,8 @@ export class AdvancedNotifierCameraMixin
           this.mixinState.lastFrame = await image.toBuffer({
             format: "jpg",
           });
+          await image.close().catch(() => {});
+          await convertedImage.close().catch(() => {});
           this.mixinState.lastFrameAcquired = now;
 
           this.plugin
@@ -3039,6 +3042,24 @@ export class AdvancedNotifierCameraMixin
     };
 
     const findFromSnapshot = (force: boolean, timeout: number) => async () => {
+      const SNAPSHOT_MAX_CONSECUTIVE_ERRORS = 3;
+      const SNAPSHOT_DEFER_DURATION_MS = 60_000;
+
+      const deferredUntil = this.mixinState.snapshotDeferredUntil;
+      if (deferredUntil && now < deferredUntil) {
+        const remainingSec = Math.round((deferredUntil - now) / 1000);
+        logger.log(
+          `Snapshot deferred for ${remainingSec}s due to repeated failures (${this.mixinState.snapshotConsecutiveErrors} consecutive errors)`,
+        );
+        return;
+      }
+
+      if (deferredUntil && now >= deferredUntil) {
+        logger.log(`Snapshot defer period expired, resuming snapshot attempts`);
+        this.mixinState.snapshotDeferredUntil = undefined;
+        this.mixinState.snapshotConsecutiveErrors = 0;
+      }
+
       const timePassed =
         !this.mixinState.lastPictureTaken ||
         msPassedFromSnapshot >= 1000 * minSnapshotDelay;
@@ -3057,12 +3078,21 @@ export class AdvancedNotifierCameraMixin
           this.mixinState.lastPictureTaken = now;
           imageSource = ImageSource.Snapshot;
           this.mixinState.currentSnapshotTimeout = 4000;
+          this.mixinState.snapshotConsecutiveErrors = 0;
+          this.mixinState.snapshotDeferredUntil = undefined;
         } catch (e) {
+          this.mixinState.snapshotConsecutiveErrors++;
           logger.log(
-            `Error taking a snapshot for reason ${reason} (timeout ${snapshotTimeout} ms): (${e.message})`,
+            `Error taking a snapshot for reason ${reason} (timeout ${snapshotTimeout} ms, consecutive errors: ${this.mixinState.snapshotConsecutiveErrors}): (${e.message})`,
           );
           this.mixinState.lastPictureTaken = undefined;
-          if (
+
+          if (this.mixinState.snapshotConsecutiveErrors >= SNAPSHOT_MAX_CONSECUTIVE_ERRORS) {
+            this.mixinState.snapshotDeferredUntil = Date.now() + SNAPSHOT_DEFER_DURATION_MS;
+            logger.log(
+              `Snapshot deferred for ${SNAPSHOT_DEFER_DURATION_MS / 1000}s after ${this.mixinState.snapshotConsecutiveErrors} consecutive errors`,
+            );
+          } else if (
             this.mixinState.currentSnapshotTimeout <
             1000 * minSnapshotDelay
           ) {
@@ -4386,6 +4416,7 @@ export class AdvancedNotifierCameraMixin
                   ScryptedMimeTypes.Image,
                 );
               inputDimensions = [convertedImage.width, convertedImage.height];
+              await convertedImage.close().catch(() => {});
             }
 
             const room = this.cameraDevice.room;

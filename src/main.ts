@@ -1,21 +1,67 @@
-import sdk, { DeviceBase, DeviceProvider, Entry, HttpRequest, HttpRequestHandler, HttpResponse, Image, LauncherApplication, Lock, MediaObject, MixinProvider, Notifier, NotifierOptions, ObjectDetection, ObjectDetectionResult, OnOff, PanTiltZoom, PanTiltZoomMovement, Program, PushHandler, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedMimeTypes, SecuritySystem, SecuritySystemMode, Settings, SettingValue, VideoClips, WritableDeviceState } from "@scrypted/sdk";
-import { StorageSetting, StorageSettings, StorageSettingsDict } from "@scrypted/sdk/storage-settings";
+import sdk, {
+  DeviceBase,
+  DeviceProvider,
+  Entry,
+  HttpRequest,
+  HttpRequestHandler,
+  HttpResponse,
+  Image,
+  LauncherApplication,
+  Lock,
+  MediaObject,
+  MixinProvider,
+  Notifier,
+  NotifierOptions,
+  ObjectDetection,
+  ObjectDetectionResult,
+  OnOff,
+  PanTiltZoom,
+  PanTiltZoomMovement,
+  Program,
+  PushHandler,
+  ScryptedDeviceBase,
+  ScryptedDeviceType,
+  ScryptedInterface,
+  ScryptedMimeTypes,
+  SecuritySystem,
+  SecuritySystemMode,
+  Settings,
+  SettingValue,
+  VideoClips,
+  WritableDeviceState,
+} from "@scrypted/sdk";
+import {
+  StorageSetting,
+  StorageSettings,
+  StorageSettingsDict,
+} from "@scrypted/sdk/storage-settings";
 import axios from "axios";
-import child_process from 'child_process';
+import child_process from "child_process";
 import { once } from "events";
-import fs from 'fs';
-import https from 'https';
-import { cloneDeep, isEqual, max, sortBy, uniq } from 'lodash';
-import moment from 'moment';
-import path from 'path';
-import { applySettingsShow, BasePlugin, BaseSettingsKey, getBaseSettings, getMqttBasicClient } from '../../scrypted-apocaliss-base/src/basePlugin';
-import { IHaClient } from '../../scrypted-apocaliss-base/src/ha-client';
-import { HaEventClient } from './ha-event-client';
+import fs from "fs";
+import https from "https";
+import { cloneDeep, isEqual, max, sortBy, uniq } from "lodash";
+import moment from "moment";
+import path from "path";
+import {
+  applySettingsShow,
+  BasePlugin,
+  BaseSettingsKey,
+  getBaseSettings,
+  getMqttBasicClient,
+} from "../../scrypted-apocaliss-base/src/basePlugin";
+import { IHaClient } from "../../scrypted-apocaliss-base/src/ha-client";
+import { HaEventClient } from "./ha-event-client";
 import { getFrigatePluginSettings } from "../../scrypted-frigate-bridge/src/utils";
-import { getRpcData } from '../../scrypted-monitor/src/utils';
+import { getRpcData } from "../../scrypted-monitor/src/utils";
 import { ffmpegFilterImageBuffer } from "../../scrypted/plugins/snapshot/src/ffmpeg-image-filter";
-import { name as pluginName } from '../package.json';
-import { AiSource, getAiMessage, getAiSettingKeys, getAiSettings } from "./aiUtils";
+import { name as pluginName } from "../package.json";
+import {
+  AiSource,
+  getAiMessage,
+  getAiSettingKeys,
+  getAiSettings,
+} from "./aiUtils";
 import { AdvancedNotifierAlarmSystem } from "./alarmSystem";
 import { haAlarmAutomation, haAlarmAutomationId } from "./alarmUtils";
 import { AudioAnalyzerSource } from "./audioAnalyzerUtils";
@@ -23,5994 +69,7334 @@ import { AdvancedNotifierCamera } from "./camera";
 import { AdvancedNotifierCameraMixin } from "./cameraMixin";
 import { AdvancedNotifierDataFetcher } from "./dataFetcher";
 import type { DbDetectionEvent, DbMotionEvent } from "./db";
-import { cleanupEvents, cleanupOldDeviceDbs, migrateDbsToPerDevice, writeEventsAndMotionBatch } from "./db";
+import {
+  cleanupEvents,
+  cleanupOldDeviceDbs,
+  migrateDbsToPerDevice,
+  writeEventsAndMotionBatch,
+} from "./db";
 import { cropImageToDetection } from "./drawingUtils";
-import { DetectionClass, detectionClassesDefaultMap, isAudioClassname, isDoorbellClassname, isLabelDetection, isMotionClassname, isPlateClassname } from "./detectionClasses";
-import { serveGif, serveImage, servePluginGeneratedVideoclip } from "./httpUtils";
+import {
+  DetectionClass,
+  detectionClassesDefaultMap,
+  isAudioClassname,
+  isDoorbellClassname,
+  isLabelDetection,
+  isMotionClassname,
+  isPlateClassname,
+} from "./detectionClasses";
+import {
+  serveGif,
+  serveImage,
+  servePluginGeneratedVideoclip,
+} from "./httpUtils";
 import { selectKeyEventDetections, toPixelBbox } from "./keyEventAlgorithm";
-import { idPrefix, publishPluginValues, publishRuleEnabled, resetAllPluginMqttTopicsAndRediscover, setupPluginAutodiscovery, subscribeToPluginMqttTopics } from "./mqtt-utils";
+import {
+  idPrefix,
+  publishPluginValues,
+  publishRuleEnabled,
+  resetAllPluginMqttTopicsAndRediscover,
+  setupPluginAutodiscovery,
+  subscribeToPluginMqttTopics,
+} from "./mqtt-utils";
 import { handleHaRestApi } from "./ha-rest-api";
 import { AdvancedNotifierNotifier } from "./notifier";
 import { AdvancedNotifierNotifierMixin } from "./notifierMixin";
-import { addOrUpdateRuleArtifacts, getRulesRegisterPath, migrateDeviceRulesRegister, REGISTER_FILENAME, removeRuleArtifactUrl } from "./rulesRegister";
+import {
+  addOrUpdateRuleArtifacts,
+  getRulesRegisterPath,
+  migrateDeviceRulesRegister,
+  REGISTER_FILENAME,
+  removeRuleArtifactUrl,
+} from "./rulesRegister";
 import { AdvancedNotifierSensorMixin } from "./sensorMixin";
 import { CameraMixinState, OccupancyRuleData } from "./states";
-import { ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE, ADVANCED_NOTIFIER_CAMERA_INTERFACE, ADVANCED_NOTIFIER_INTERFACE, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE, ALARM_SYSTEM_NATIVE_ID, AssetOriginSource, AudioRule, BaseRule, calculateSize, CAMERA_NATIVE_ID, checkUserLogin, convertSettingsToStorageSettings, DATA_FETCHER_NATIVE_ID, DecoderType, DelayType, DetectionEvent, DetectionRule, DetectionRuleActivation, deviceFilter, DeviceInterface, DevNotifications, ExtendedNotificationAction, formatSize, FRIGATE_BRIDGE_PLUGIN_NAME, generatePrivateKey, getActiveRules, getAllAvailableUrls, getAllDevices, getAssetSource, getAssetsParams, getB64ImageLog, getBaseRuleDefaults, getDetectionRules, getDetectionRulesSettings, getDetectionsLog, getDetectionsLogShort, getElegibleDevices, getEventTextKey, getFrigateTextKey, GetImageReason, getNotifierData, getRecordingRules, getRecordingRulesSettings, getRuleKeys, getSequenceObject, getSequencesSettings, getSnoozeId, getTextSettings, getUrlLog, getWebhooks, getWebHookUrls, HARD_MIN_RPC_OBJECTS, haSnoozeAutomation, haSnoozeAutomationId, HOMEASSISTANT_PLUGIN_ID, HomeassistantTransport, ImagePostProcessing, ImageSource, isDetectionClass, isDeviceSupported, isSecretValid, MAX_PENDING_RESULT_PER_CAMERA, MAX_RPC_OBJECTS_PER_CAMERA, MAX_RPC_OBJECTS_PER_NOTIFIER, MAX_RPC_OBJECTS_PER_PLUGIN, MAX_RPC_OBJECTS_PER_SENSOR, moToB64, NotificationPriority, NOTIFIER_NATIVE_ID, notifierFilter, NotifyDetectionProps, NotifyRuleSource, NTFY_PLUGIN_ID, NVR_PLUGIN_ID, nvrAcceleratedMotionSensorId, NvrEvent, OccupancyRule, OccupancySource, ParseNotificationMessageResult, parseNvrNotificationMessage, pluginRulesGroup, PUSHOVER_PLUGIN_ID, RecordingRule, RuleActionsSequence, RuleActionType, ruleSequencesGroup, ruleSequencesKey, RuleSource, RuleType, ruleTypeMetadataMap, safeParseJson, SCRYPTED_NVR_OBJECT_DETECTION_NAME, ScryptedEventSource, SNAPSHOT_WIDTH, SnoozeItem, SOFT_MIN_RPC_OBJECTS, SOFT_RPC_OBJECTS_PER_CAMERA, SOFT_RPC_OBJECTS_PER_NOTIFIER, SOFT_RPC_OBJECTS_PER_PLUGIN, SOFT_RPC_OBJECTS_PER_SENSOR, splitRules, TELEGRAM_PLUGIN_ID, TextSettingKey, TimelapseRule, VideoclipSpeed, videoclipSpeedMultiplier, VideoclipType, ZENTIK_PLUGIN_ID, ZonesSource } from "./utils";
+import {
+  ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE,
+  ADVANCED_NOTIFIER_CAMERA_INTERFACE,
+  ADVANCED_NOTIFIER_INTERFACE,
+  ADVANCED_NOTIFIER_NOTIFIER_INTERFACE,
+  AUTODISCOVERY_INTERVAL_MS,
+  ALARM_SYSTEM_NATIVE_ID,
+  AssetOriginSource,
+  AudioRule,
+  BaseRule,
+  calculateSize,
+  CAMERA_NATIVE_ID,
+  checkUserLogin,
+  convertSettingsToStorageSettings,
+  DATA_FETCHER_NATIVE_ID,
+  DecoderType,
+  DelayType,
+  DetectionEvent,
+  DetectionRule,
+  DetectionRuleActivation,
+  deviceFilter,
+  DeviceInterface,
+  DevNotifications,
+  ExtendedNotificationAction,
+  formatSize,
+  FRIGATE_BRIDGE_PLUGIN_NAME,
+  generatePrivateKey,
+  getActiveRules,
+  getAllAvailableUrls,
+  getAllDevices,
+  getAssetSource,
+  getAssetsParams,
+  getB64ImageLog,
+  getBaseRuleDefaults,
+  getDetectionRules,
+  getDetectionRulesSettings,
+  getDetectionsLog,
+  getDetectionsLogShort,
+  getElegibleDevices,
+  getEventTextKey,
+  getFrigateTextKey,
+  GetImageReason,
+  getNotifierData,
+  getRecordingRules,
+  getRecordingRulesSettings,
+  getRuleKeys,
+  getSequenceObject,
+  getSequencesSettings,
+  getSnoozeId,
+  getTextSettings,
+  getUrlLog,
+  getWebhooks,
+  getWebHookUrls,
+  HARD_MIN_RPC_OBJECTS,
+  haSnoozeAutomation,
+  haSnoozeAutomationId,
+  HOMEASSISTANT_PLUGIN_ID,
+  HomeassistantTransport,
+  ImagePostProcessing,
+  ImageSource,
+  isDetectionClass,
+  isDeviceSupported,
+  isSecretValid,
+  MAX_PENDING_RESULT_PER_CAMERA,
+  MAX_RPC_OBJECTS_PER_CAMERA,
+  MAX_RPC_OBJECTS_PER_NOTIFIER,
+  MAX_RPC_OBJECTS_PER_PLUGIN,
+  MAX_RPC_OBJECTS_PER_SENSOR,
+  moToB64,
+  NotificationPriority,
+  NOTIFIER_NATIVE_ID,
+  notifierFilter,
+  NotifyDetectionProps,
+  NotifyRuleSource,
+  NTFY_PLUGIN_ID,
+  NVR_PLUGIN_ID,
+  nvrAcceleratedMotionSensorId,
+  NvrEvent,
+  OccupancyRule,
+  OccupancySource,
+  ParseNotificationMessageResult,
+  parseNvrNotificationMessage,
+  pluginRulesGroup,
+  PUSHOVER_PLUGIN_ID,
+  RecordingRule,
+  RuleActionsSequence,
+  RuleActionType,
+  ruleSequencesGroup,
+  ruleSequencesKey,
+  RuleSource,
+  RuleType,
+  ruleTypeMetadataMap,
+  safeParseJson,
+  SCRYPTED_NVR_OBJECT_DETECTION_NAME,
+  ScryptedEventSource,
+  SNAPSHOT_WIDTH,
+  SnoozeItem,
+  SOFT_MIN_RPC_OBJECTS,
+  SOFT_RPC_OBJECTS_PER_CAMERA,
+  SOFT_RPC_OBJECTS_PER_NOTIFIER,
+  SOFT_RPC_OBJECTS_PER_PLUGIN,
+  SOFT_RPC_OBJECTS_PER_SENSOR,
+  splitRules,
+  TELEGRAM_PLUGIN_ID,
+  TextSettingKey,
+  TimelapseRule,
+  VideoclipSpeed,
+  videoclipSpeedMultiplier,
+  VideoclipType,
+  ZENTIK_PLUGIN_ID,
+  ZonesSource,
+} from "./utils";
 import { parseVideoFileName } from "./videoRecorderUtils";
 
 const { systemManager, mediaManager } = sdk;
 
 /** Parse NVR videoId to filename (startTime-duration-playbackRate.mp4). */
 function parseNvrVideoIdToFilename(videoId: string): string | null {
-    if (!videoId?.trim()) return null;
-    try {
-        const parsed = JSON.parse(videoId) as { startTime?: number; duration?: number; playbackRate?: number };
-        const startTime = parsed?.startTime;
-        const duration = parsed?.duration;
-        if (typeof startTime === 'number' && typeof duration === 'number' && duration > 0) {
-            return `${startTime}-${duration}-${parsed?.playbackRate ?? 1}.mp4`;
-        }
-    } catch { /* try filename format */ }
-    const match = videoId.match(/^(\d+)-(\d+)(?:-\d+)?(?:\.mp4)?$/);
-    if (match) {
-        const duration = parseInt(match[2], 10);
-        if (duration > 0) return videoId.includes('.mp4') ? videoId : `${match[1]}-${match[2]}-1.mp4`;
+  if (!videoId?.trim()) return null;
+  try {
+    const parsed = JSON.parse(videoId) as {
+      startTime?: number;
+      duration?: number;
+      playbackRate?: number;
+    };
+    const startTime = parsed?.startTime;
+    const duration = parsed?.duration;
+    if (
+      typeof startTime === "number" &&
+      typeof duration === "number" &&
+      duration > 0
+    ) {
+      return `${startTime}-${duration}-${parsed?.playbackRate ?? 1}.mp4`;
     }
-    return null;
+  } catch {
+    /* try filename format */
+  }
+  const match = videoId.match(/^(\d+)-(\d+)(?:-\d+)?(?:\.mp4)?$/);
+  if (match) {
+    const duration = parseInt(match[2], 10);
+    if (duration > 0)
+      return videoId.includes(".mp4")
+        ? videoId
+        : `${match[1]}-${match[2]}-1.mp4`;
+  }
+  return null;
 }
 
-interface FrigateData { cameras: string[]; faces: string[]; labels: string[] };
+interface FrigateData {
+  cameras: string[];
+  faces: string[];
+  labels: string[];
+}
 
 /** Item for the DB write queue (events and motion). */
 type DbWriteQueueItem =
-    | { type: 'event'; dbsPath: string; event: DbDetectionEvent; logger: Console }
-    | { type: 'motion'; dbsPath: string; motionEvent: DbMotionEvent; logger: Console };
+  | { type: "event"; dbsPath: string; event: DbDetectionEvent; logger: Console }
+  | {
+      type: "motion";
+      dbsPath: string;
+      motionEvent: DbMotionEvent;
+      logger: Console;
+    };
 
 export type PluginSettingKey =
-    | 'pluginEnabled'
-    | 'mqttEnabled'
-    | 'notificationsEnabled'
-    | 'frigateEnabled'
-    | 'devNotifications'
-    | 'serverId'
-    | 'localAddresses'
-    | 'scryptedToken'
-    | 'nvrUrl'
-    | 'mqttActiveEntitiesTopic'
-    | 'mqttResetAllTopics'
-    | 'mqttMemoryCacheEnabled'
-    | 'updateFrequencyMotionImagesInSeconds'
-    | 'updateFrequencyObjectImagesInSeconds'
-    | 'detectionSourceForMqtt'
-    | 'facesSourceForMqtt'
-    | 'zonesSourceForMqtt'
-    | 'onActiveDevices'
-    | 'objectDetectionDevice'
-    | 'clipDevice'
-    | 'securitySystem'
-    | 'snoozes'
-    | 'testDevice'
-    | 'testNotifier'
-    | 'testEventSource'
-    | 'testEventType'
-    | 'testLabel'
-    | 'testPriority'
-    | 'testPostProcessing'
-    | 'testZones'
-    | 'testShowActiveZones'
-    | 'testGenerateClip'
-    | 'testGenerateClipSpeed'
-    | 'testClipPreSeconds'
-    | 'testClipPostSeconds'
-    | 'testGenerateClipType'
-    | 'testUseAi'
-    | 'testSound'
-    | 'testBypassSnooze'
-    | 'testAddSnoozing'
-    | 'testAddActions'
-    | 'testButton'
-    | 'checkConfigurations'
-    | 'aiSource'
-    | 'imagesPath'
-    | 'totalAvailableSpaceInGb'
-    | 'totalOccupiedSpaceInGb'
-    | typeof ruleSequencesKey
-    | 'storeEvents'
-    | 'cleanupEvents'
-    | 'forceStorageCleanup'
-    | 'enableDecoder'
-    | 'assetsOriginSource'
-    | 'customOriginUrl'
-    | 'privateKey'
-    | 'postProcessingCropSizeIncrease'
-    | 'postProcessingMarkingSizeIncrease'
-    | 'postProcessingVehicleBoundingColor'
-    | 'postProcessingPersonBoundingColor'
-    | 'postProcessingAnimalBoundingColor'
-    | 'postProcessingFaceBoundingColor'
-    | 'postProcessingPlateBoundingColor'
-    | 'postProcessingOtherBoundingColor'
-    | 'postProcessingFontSize'
-    | 'postProcessingLineThickness'
-    | 'postProcessingShowScore'
-    | 'postProcessingAspectRatio'
-    | 'postProcessingFillOpacity'
-    | 'postProcessingZonesColor'
-    | 'postProcessingZonesStrokeWidth'
-    | 'includeUserToken'
-    | 'migrationDbPerDeviceDone'
-    | 'migrationRulesArtifactsRegisterDone'
-    | 'haTransport'
-    | 'haSecret'
-    | 'regenerateHaSecret'
-    | 'haAllowedOrigins'
-    | BaseSettingsKey
-    | TextSettingKey;
+  | "pluginEnabled"
+  | "mqttEnabled"
+  | "notificationsEnabled"
+  | "frigateEnabled"
+  | "devNotifications"
+  | "serverId"
+  | "localAddresses"
+  | "scryptedToken"
+  | "nvrUrl"
+  | "mqttActiveEntitiesTopic"
+  | "mqttResetAllTopics"
+  | "mqttMemoryCacheEnabled"
+  | "updateFrequencyMotionImagesInSeconds"
+  | "updateFrequencyObjectImagesInSeconds"
+  | "detectionSourceForMqtt"
+  | "facesSourceForMqtt"
+  | "zonesSourceForMqtt"
+  | "onActiveDevices"
+  | "objectDetectionDevice"
+  | "clipDevice"
+  | "securitySystem"
+  | "snoozes"
+  | "testDevice"
+  | "testNotifier"
+  | "testEventSource"
+  | "testEventType"
+  | "testLabel"
+  | "testPriority"
+  | "testPostProcessing"
+  | "testZones"
+  | "testShowActiveZones"
+  | "testGenerateClip"
+  | "testGenerateClipSpeed"
+  | "testClipPreSeconds"
+  | "testClipPostSeconds"
+  | "testGenerateClipType"
+  | "testUseAi"
+  | "testSound"
+  | "testBypassSnooze"
+  | "testAddSnoozing"
+  | "testAddActions"
+  | "testButton"
+  | "checkConfigurations"
+  | "aiSource"
+  | "imagesPath"
+  | "totalAvailableSpaceInGb"
+  | "totalOccupiedSpaceInGb"
+  | typeof ruleSequencesKey
+  | "storeEvents"
+  | "cleanupEvents"
+  | "forceStorageCleanup"
+  | "enableDecoder"
+  | "assetsOriginSource"
+  | "customOriginUrl"
+  | "privateKey"
+  | "postProcessingCropSizeIncrease"
+  | "postProcessingMarkingSizeIncrease"
+  | "postProcessingVehicleBoundingColor"
+  | "postProcessingPersonBoundingColor"
+  | "postProcessingAnimalBoundingColor"
+  | "postProcessingFaceBoundingColor"
+  | "postProcessingPlateBoundingColor"
+  | "postProcessingOtherBoundingColor"
+  | "postProcessingFontSize"
+  | "postProcessingLineThickness"
+  | "postProcessingShowScore"
+  | "postProcessingAspectRatio"
+  | "postProcessingFillOpacity"
+  | "postProcessingZonesColor"
+  | "postProcessingZonesStrokeWidth"
+  | "includeUserToken"
+  | "migrationDbPerDeviceDone"
+  | "migrationRulesArtifactsRegisterDone"
+  | "haTransport"
+  | "haSecret"
+  | "regenerateHaSecret"
+  | "haAllowedOrigins"
+  | BaseSettingsKey
+  | TextSettingKey;
 
+export default class AdvancedNotifierPlugin
+  extends BasePlugin
+  implements
+    MixinProvider,
+    HttpRequestHandler,
+    DeviceProvider,
+    PushHandler,
+    LauncherApplication
+{
+  private clearVideoclipsQueue: {
+    deviceId: string;
+    task: () => Promise<void>;
+  }[] = [];
+  private processingClearVideoclips = false;
+  wsHaClient: HaEventClient | null = null;
+  /** Per-device set of object ids already saved as key events (RawDetection); never save same id twice. */
+  private keyEventObjectIdsByDevice: Record<string, Set<string>> = {};
+  /** Per-device timestamp of last audio key event (min 1 minute between audio key events). */
+  private lastAudioKeyEventTimestampByDevice: Record<string, number> = {};
+  /** Per-device timestamp of last key event (any type); used to allow motion-only key event after 2 min gap. */
+  private lastKeyEventTimestampByDevice: Record<string, number> = {};
 
-export default class AdvancedNotifierPlugin extends BasePlugin implements MixinProvider, HttpRequestHandler, DeviceProvider, PushHandler, LauncherApplication {
-    private clearVideoclipsQueue: { deviceId: string; task: () => Promise<void> }[] = [];
-    private processingClearVideoclips = false;
-    wsHaClient: HaEventClient | null = null;
-    /** Per-device set of object ids already saved as key events (RawDetection); never save same id twice. */
-    private keyEventObjectIdsByDevice: Record<string, Set<string>> = {};
-    /** Per-device timestamp of last audio key event (min 1 minute between audio key events). */
-    private lastAudioKeyEventTimestampByDevice: Record<string, number> = {};
-    /** Per-device timestamp of last key event (any type); used to allow motion-only key event after 2 min gap. */
-    private lastKeyEventTimestampByDevice: Record<string, number> = {};
+  initStorage: StorageSettingsDict<PluginSettingKey> = {
+    ...getBaseSettings({
+      onPluginSwitch: async (_, enabled) => {
+        this.getLogger().log(`Plugin switch set to ${enabled}`);
+        await this.startStop(enabled);
+        await this.startStopMixins(enabled);
+      },
+      hideHa: false,
+      baseGroupName: "",
+      onRefresh: async () => await this.refreshSettings(),
+    }),
+    pluginEnabled: {
+      title: "Plugin enabled",
+      type: "boolean",
+      defaultValue: true,
+      immediate: true,
+    },
+    frigateEnabled: {
+      title: "Frifate enabled",
+      type: "boolean",
+      defaultValue: false,
+      immediate: true,
+      hide: true,
+    },
+    notificationsEnabled: {
+      title: "Notifications enabled",
+      type: "boolean",
+      defaultValue: true,
+      immediate: true,
+    },
+    devNotifications: {
+      title: "Dev notifications",
+      description: "Enable the notifications you want to receive",
+      type: "string",
+      multiple: true,
+      combobox: true,
+      choices: Object.keys(DevNotifications),
+      defaultValue: [],
+      immediate: true,
 
-    initStorage: StorageSettingsDict<PluginSettingKey> = {
-        ...getBaseSettings({
-            onPluginSwitch: async (_, enabled) => {
-                this.getLogger().log(`Plugin switch set to ${enabled}`);
-                await this.startStop(enabled);
-                await this.startStopMixins(enabled);
-            },
-            hideHa: false,
-            baseGroupName: '',
-            onRefresh: async () => await this.refreshSettings()
-        }),
-        pluginEnabled: {
-            title: 'Plugin enabled',
-            type: 'boolean',
-            defaultValue: true,
-            immediate: true,
-        },
-        frigateEnabled: {
-            title: 'Frifate enabled',
-            type: 'boolean',
-            defaultValue: false,
-            immediate: true,
-            hide: true,
-        },
-        notificationsEnabled: {
-            title: 'Notifications enabled',
-            type: 'boolean',
-            defaultValue: true,
-            immediate: true,
-        },
-        devNotifications: {
-            title: 'Dev notifications',
-            description: 'Enable the notifications you want to receive',
-            type: 'string',
-            multiple: true,
-            combobox: true,
-            choices: Object.keys(DevNotifications),
-            defaultValue: [],
-            immediate: true,
+      subgroup: "Advanced",
+    },
+    privateKey: {
+      title: "Secret",
+      description:
+        "Random string used to protect public resources.Used either as token either as public secret generator for limited time tokens",
+      type: "string",
+      subgroup: "Advanced",
+    },
+    serverId: {
+      title: "Server identifier",
+      type: "string",
+      hide: true,
+      subgroup: "Advanced",
+    },
+    localAddresses: {
+      title: "Local addresses",
+      type: "string",
+      multiple: true,
+      hide: true,
+      subgroup: "Advanced",
+    },
+    scryptedToken: {
+      title: "Scrypted token",
+      description:
+        "Token to be found on the Homeassistant entity generated by the Scrypted integration (i.e. sensor.scrypted_token_{ip}",
+      type: "string",
+      subgroup: "Homeassistant",
+    },
+    nvrUrl: {
+      title: "NVR url",
+      description:
+        "Url pointing to the NVR instance, useful to generate direct links to timeline",
+      type: "string",
+      defaultValue: "https://nvr.scrypted.app/",
+      placeholder: "https://nvr.scrypted.app/",
+      subgroup: "Advanced",
+    },
+    includeUserToken: {
+      title: "Include user token in payload",
+      description:
+        "Include the user token webhooks. Enable in case you get authentication errors interacting with urls pointing to your scrypted instance",
+      type: "boolean",
+      defaultValue: true,
+      immediate: true,
+      subgroup: "Advanced",
+    },
+    migrationDbPerDeviceDone: {
+      title: "Migration DB per device done",
+      type: "boolean",
+      defaultValue: false,
+      hide: true,
+    },
+    migrationRulesArtifactsRegisterDone: {
+      title: "Migration rules artifacts register done",
+      type: "boolean",
+      defaultValue: false,
+      hide: true,
+    },
+    mqttActiveEntitiesTopic: {
+      title: "Active entities topic",
+      subgroup: "Homeassistant",
+      description:
+        'Topic containing a list of device names/ids, it will be used for the "OnActive" rules',
+      onPut: async () => {
+        await this.setupMqttEntities();
+      },
+    },
+    mqttResetAllTopics: {
+      title: "Reset all topics",
+      subgroup: "Homeassistant",
+      type: "button",
+      description:
+        "Clears retained topics for ALL Advanced Notifier devices (plugin, people tracker, alarm system, cameras, sensors, notifiers) including Home Assistant discovery topics, then republishes discovery. Use if entities are missing/duplicated or discovery is out of sync. This may take a few seconds and Home Assistant may need a short time to refresh entities.",
+      onPut: async () => {
+        await this.resetAllMqttTopicsAndRediscover();
+      },
+    },
+    mqttMemoryCacheEnabled: {
+      title: "Cache topics in memory",
+      description:
+        "Enable caching of topics in memory to reduce MQTT broker load. Recommended for large installations or when using cloud MQTT brokers.",
+      subgroup: "MQTT",
+      type: "boolean",
+      defaultValue: true,
+      immediate: true,
+    },
+    haTransport: {
+      title: "Discovery layer",
+      description:
+        'Transport used to push state updates to Home Assistant. "mqtt" uses the existing MQTT broker; "websocket" exposes a WebSocket server that the HA custom integration connects to directly.',
+      subgroup: "Homeassistant",
+      type: "string",
+      choices: [HomeassistantTransport.mqtt, HomeassistantTransport.websocket],
+      defaultValue: HomeassistantTransport.mqtt,
+      immediate: true,
+    },
+    haSecret: {
+      title: "HA Secret",
+      description:
+        "Auto-generated secret. Copy this value into the HA custom integration config flow.",
+      subgroup: "Homeassistant",
+      type: "string",
+      readonly: true,
+    },
+    regenerateHaSecret: {
+      title: "Regenerate HA Secret",
+      description: "Generate a new secret and push it to HA.",
+      subgroup: "Homeassistant",
+      type: "button",
+      onPut: async () => {
+        await this.regenerateHaSecret();
+      },
+    },
+    haAllowedOrigins: {
+      title: "HA Allowed Origins",
+      description:
+        "Comma-separated list of HA base URLs allowed to connect (e.g. http://homeassistant.local:8123). Must match the Scrypted URL configured in the HA integration.",
+      subgroup: "Homeassistant",
+      type: "string",
+    },
+    updateFrequencyMotionImagesInSeconds: {
+      title: "Motion image update frequency (seconds)",
+      description:
+        "Minimum seconds between image updates for motion when using non-NVR sources (decoder/raw). Defaults to the camera min publish delay behavior.",
+      subgroup: "Homeassistant",
+      type: "number",
+      defaultValue: 5,
+      immediate: true,
+    },
+    updateFrequencyObjectImagesInSeconds: {
+      title: "Object image update frequency (seconds)",
+      description:
+        "Minimum seconds between image updates for object detections when using non-NVR sources (decoder/raw). Defaults to the camera min publish delay behavior.",
+      subgroup: "Homeassistant",
+      type: "number",
+      defaultValue: 5,
+      immediate: true,
+    },
+    detectionSourceForMqtt: {
+      title: "Detections source",
+      description: "Which source should be used to update Home Assistant",
+      type: "string",
+      subgroup: "Homeassistant",
+      immediate: true,
+      combobox: true,
+      choices: [],
+      defaultValue: ScryptedEventSource.NVR,
+    },
+    facesSourceForMqtt: {
+      title: "Faces source",
+      description: "Which source should be used to update the people tracker.",
+      type: "string",
+      subgroup: "Homeassistant",
+      immediate: true,
+      combobox: true,
+      choices: [],
+      defaultValue: ScryptedEventSource.All,
+    },
+    zonesSourceForMqtt: {
+      title: "Zones source",
+      description:
+        "Which zone list should be used for zone entities. Scrypted uses Observe zones; Frigate uses zones defined in the Frigate interface.",
+      type: "string",
+      subgroup: "Homeassistant",
+      immediate: true,
+      combobox: true,
+      choices: [],
+      defaultValue: ZonesSource.All,
+    },
+    // occupancySourceForMqtt: {
+    //     title: 'Static objects source',
+    //     description: 'Define which source should be used to update static objects occupancy states.',
+    //     type: 'string',
+    //     subgroup: 'Homeassistant',
+    //     immediate: true,
+    //     combobox: true,
+    //     choices: [],
+    //     defaultValue: OccupancySource.Off,
+    // },
+    ...getTextSettings({ forMixin: false }),
+    [ruleTypeMetadataMap[RuleType.Detection].rulesKey]: {
+      title: "Detection rules",
+      group: pluginRulesGroup,
+      type: "string",
+      multiple: true,
+      immediate: true,
+      combobox: true,
+      choices: [],
+      defaultValue: [],
+      onPut: async () => await this.refreshSettings(),
+    },
+    [ruleTypeMetadataMap[RuleType.Recording].rulesKey]: {
+      title: "Recording rules",
+      group: pluginRulesGroup,
+      type: "string",
+      multiple: true,
+      immediate: true,
+      combobox: true,
+      choices: [],
+      defaultValue: [],
+      onPut: async () => await this.refreshSettings(),
+    },
+    [ruleSequencesKey]: {
+      title: "Sequences",
+      description: "Define sequences of actions when a rule is triggered",
+      group: ruleSequencesGroup,
+      type: "string",
+      multiple: true,
+      immediate: true,
+      combobox: true,
+      choices: [],
+      defaultValue: [],
+      onPut: async () => await this.refreshSettings(),
+    },
+    onActiveDevices: {
+      title: '"OnActive" devices',
+      group: pluginRulesGroup,
+      type: "device",
+      multiple: true,
+      combobox: true,
+      deviceFilter: deviceFilter,
+      defaultValue: [],
+    },
+    objectDetectionDevice: {
+      title: "Object Detector",
+      subgroup: "Advanced",
+      description:
+        "Select the object detection device to use for detecting objects.",
+      type: "device",
+      deviceFilter: `interfaces.includes('ObjectDetectionPreview') && id !== '${nvrAcceleratedMotionSensorId}'`,
+      immediate: true,
+    },
+    clipDevice: {
+      title: "Clip device",
+      subgroup: "Advanced",
+      description: "Select the clip device plugin to execute text embedding.",
+      type: "device",
+      deviceFilter: `interfaces.includes('TextEmbedding') && interfaces.includes('ImageEmbedding')`,
+      immediate: true,
+    },
+    securitySystem: {
+      title: "Security system",
+      group: pluginRulesGroup,
+      description:
+        "Select the security system device that will be used to enable rules.",
+      type: "device",
+      deviceFilter: `type === '${ScryptedDeviceType.SecuritySystem}' && !interfaces.includes('${ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE}')`,
+      immediate: true,
+    },
+    snoozes: {
+      title: "Default snoozes",
+      group: pluginRulesGroup,
+      description:
+        "Snoozes (In minutes) to use on notifications. Do not apply for Scrypted App notifiers. If multiple of 60 will be shown as hours, otherwise minutes",
+      type: "string",
+      multiple: true,
+      defaultValue: ["10", "30", "60"],
+    },
+    enableDecoder: {
+      title: "Enable decoder",
+      subgroup: "Advanced",
+      description: "Master controller to allow decoder usage.",
+      type: "boolean",
+      defaultValue: true,
+      immediate: true,
+    },
+    assetsOriginSource: {
+      title: "Assets origin source",
+      subgroup: "Advanced",
+      description: "Select the source of the assets",
+      type: "string",
+      defaultValue: AssetOriginSource.CloudSecure,
+      immediate: true,
+      choices: [
+        AssetOriginSource.CloudSecure,
+        AssetOriginSource.LocalSecure,
+        AssetOriginSource.LocalInsecure,
+        AssetOriginSource.Custom,
+      ],
+      onPut: async () => await this.refreshSettings(),
+    },
+    customOriginUrl: {
+      title: "Custom origin URL",
+      subgroup: "Advanced",
+      description:
+        "Enter a custom URL for the asset origin, in case of missing cloud plugin",
+      type: "string",
+    },
+    testDevice: {
+      title: "Device",
+      group: "Test",
+      immediate: true,
+      type: "device",
+      deviceFilter: deviceFilter,
+      onPut: async () => await this.refreshSettings(),
+    },
+    testNotifier: {
+      group: "Test",
+      title: "Notifier",
+      type: "device",
+      deviceFilter: notifierFilter,
+      immediate: true,
+    },
+    testEventSource: {
+      group: "Test",
+      title: "Event source",
+      type: "string",
+      immediate: true,
+      defaultValue: ScryptedEventSource.RawDetection,
+      choices: [],
+      onPut: async () => await this.refreshSettings(),
+    },
+    testEventType: {
+      group: "Test",
+      title: "Event type",
+      type: "string",
+      immediate: true,
+      choices: [...Object.values(DetectionClass), ...Object.values(NvrEvent)],
+      onPut: async () => await this.refreshSettings(),
+    },
+    testZones: {
+      group: "Test",
+      title: "Zones",
+      type: "string",
+      multiple: true,
+      combobox: true,
+      choices: [],
+      immediate: true,
+    },
+    testLabel: {
+      group: "Test",
+      title: "Event label",
+      type: "string",
+    },
+    testPriority: {
+      group: "Test",
+      title: "Priority",
+      type: "string",
+      immediate: true,
+      choices: Object.keys(NotificationPriority),
+      defaultValue: NotificationPriority.Normal,
+    },
+    testPostProcessing: {
+      group: "Test",
+      title: "Image processing",
+      type: "string",
+      immediate: true,
+      choices: Object.keys(ImagePostProcessing),
+      defaultValue: ImagePostProcessing.Default,
+    },
+    testShowActiveZones: {
+      group: "Test",
+      title: "Show active zones",
+      type: "boolean",
+      immediate: true,
+      defaultValue: false,
+    },
+    testGenerateClip: {
+      group: "Test",
+      title: "Generate clip",
+      type: "boolean",
+      immediate: true,
+      defaultValue: false,
+      onPut: async () => await this.refreshSettings(),
+    },
+    testGenerateClipSpeed: {
+      group: "Test",
+      subgroup: "Clip",
+      title: "Clip speed",
+      choices: [
+        VideoclipSpeed.SuperSlow,
+        VideoclipSpeed.Slow,
+        VideoclipSpeed.Realtime,
+        VideoclipSpeed.Fast,
+        VideoclipSpeed.SuperFast,
+      ],
+      type: "string",
+      immediate: true,
+      defaultValue: VideoclipSpeed.Fast,
+    },
+    testClipPreSeconds: {
+      title: "Clip pre event duration",
+      description: "How many seconds to record pre event",
+      group: "Test",
+      subgroup: "Clip",
+      type: "number",
+      defaultValue: getBaseRuleDefaults({
+        ruleType: RuleType.Detection,
+        source: ScryptedEventSource.RawDetection,
+      })?.preClips,
+    },
+    testClipPostSeconds: {
+      title: "Clip post duration",
+      description: "How many seconds to record post event",
+      group: "Test",
+      subgroup: "Clip",
+      type: "number",
+      defaultValue: getBaseRuleDefaults({
+        ruleType: RuleType.Detection,
+        source: ScryptedEventSource.RawDetection,
+      })?.postClips,
+    },
+    testGenerateClipType: {
+      group: "Test",
+      subgroup: "Clip",
+      title: "Clip Type",
+      choices: [VideoclipType.GIF, VideoclipType.MP4],
+      type: "string",
+      immediate: true,
+      defaultValue: VideoclipType.GIF,
+    },
+    testUseAi: {
+      group: "Test",
+      title: "Use AI for descriptions",
+      type: "boolean",
+      immediate: true,
+      defaultValue: false,
+    },
+    testSound: {
+      group: "Test",
+      title: "Sound",
+      type: "string",
+    },
+    testBypassSnooze: {
+      group: "Test",
+      title: "Bypass snoozes",
+      type: "boolean",
+      immediate: true,
+      defaultValue: false,
+    },
+    testAddSnoozing: {
+      group: "Test",
+      title: "Add snoozings",
+      type: "boolean",
+      immediate: true,
+      defaultValue: false,
+    },
+    testAddActions: {
+      group: "Test",
+      title: "Add actions",
+      type: "boolean",
+      immediate: true,
+      defaultValue: false,
+    },
+    testButton: {
+      group: "Test",
+      title: "Send notification",
+      type: "button",
+      onPut: async () => {
+        await this.executeNotificationTest();
+      },
+    },
+    checkConfigurations: {
+      group: "Test",
+      title: "Check configurations",
+      type: "button",
+      onPut: async () => {
+        await this.checkPluginConfigurations(true);
+      },
+    },
+    aiSource: {
+      title: "AI Source",
+      type: "string",
+      group: "AI",
+      immediate: true,
+      // choices: [AiSource.Disabled, AiSource.Manual],
+      choices: Object.values(AiSource),
+      defaultValue: AiSource.Disabled,
+      onPut: async () => await this.refreshSettings(),
+    },
+    imagesPath: {
+      title: "Storage path",
+      group: "Storage",
+      description:
+        "Disk path where to save images and clips. Default will be the plugin folder",
+      type: "string",
+    },
+    storeEvents: {
+      title: "Store event images",
+      group: "Storage",
+      type: "boolean",
+      immediate: true,
+      defaultValue: false,
+    },
+    totalAvailableSpaceInGb: {
+      type: "number",
+      hide: true,
+      defaultValue: 0,
+      group: "Storage",
+    },
+    totalOccupiedSpaceInGb: {
+      title: "Memory occupancy in GB",
+      type: "number",
+      range: [0, 0],
+      readonly: true,
+      placeholder: "GB",
+      group: "Storage",
+    },
+    cleanupEvents: {
+      title: "Cleanup events data",
+      group: "Storage",
+      type: "button",
+      onPut: async () => await this.clearAllEventsData(),
+    },
+    forceStorageCleanup: {
+      title: "Calculate occupied space",
+      group: "Storage",
+      type: "button",
+      onPut: async () => await this.forceStorageCleanup(),
+    },
+    postProcessingCropSizeIncrease: {
+      title: "Size increase",
+      group: "Post-Processing",
+      subgroup: "Crop",
+      description:
+        "Factor to increse the padding of the cropped thumbnails, higher the number more space around the detected object",
+      type: "number",
+      defaultValue: 1.2,
+    },
+    postProcessingAspectRatio: {
+      title: "Aspect ratio",
+      group: "Post-Processing",
+      subgroup: "Crop",
+      description:
+        "Aspect ratio of the cropped thumbnail. Leave blank to use the camera aspect ratio",
+      type: "number",
+      defaultValue: 1,
+    },
+    postProcessingMarkingSizeIncrease: {
+      title: "Size increase",
+      group: "Post-Processing",
+      subgroup: "Marking boundaries",
+      description:
+        "Factor to increse the padding of the boundaries, higher the number more space around the detected object",
+      type: "number",
+    },
+    postProcessingFontSize: {
+      title: "Texts font size",
+      group: "Post-Processing",
+      subgroup: "Marking boundaries",
+      type: "number",
+      defaultValue: 40,
+    },
+    postProcessingLineThickness: {
+      title: "Lines thickness",
+      group: "Post-Processing",
+      subgroup: "Marking boundaries",
+      type: "number",
+      defaultValue: 8,
+    },
+    postProcessingShowScore: {
+      title: "Show score",
+      group: "Post-Processing",
+      subgroup: "Marking boundaries",
+      type: "boolean",
+      defaultValue: true,
+      immediate: true,
+    },
+    postProcessingAnimalBoundingColor: {
+      title: "Animal marking color",
+      group: "Post-Processing",
+      subgroup: "Marking boundaries",
+      description:
+        "Color to use for the marking boundaries around animal objects",
+      type: "string",
+      defaultValue: "#2ECC40",
+    },
+    postProcessingVehicleBoundingColor: {
+      title: "Vehicle marking color",
+      group: "Post-Processing",
+      subgroup: "Marking boundaries",
+      description:
+        "Color to use for the marking boundaries around animal objects",
+      type: "string",
+      defaultValue: "#0074D9",
+    },
+    postProcessingPersonBoundingColor: {
+      title: "Person marking color",
+      group: "Post-Processing",
+      subgroup: "Marking boundaries",
+      description:
+        "Color to use for the marking boundaries around person objects",
+      type: "string",
+      defaultValue: "#FF4136",
+    },
+    postProcessingPlateBoundingColor: {
+      title: "Plate marking color",
+      group: "Post-Processing",
+      subgroup: "Marking boundaries",
+      description:
+        "Color to use for the marking boundaries around plate objects",
+      type: "string",
+      defaultValue: "#B10DC9",
+    },
+    postProcessingFaceBoundingColor: {
+      title: "Face marking color",
+      group: "Post-Processing",
+      subgroup: "Marking boundaries",
+      description:
+        "Color to use for the marking boundaries around face objects",
+      type: "string",
+      defaultValue: "#FF851B",
+    },
+    postProcessingOtherBoundingColor: {
+      title: "Unclassified marking color",
+      group: "Post-Processing",
+      subgroup: "Marking boundaries",
+      description:
+        "Color to use for the marking boundaries around unclassified objects",
+      type: "string",
+      defaultValue: "#AAAAAA",
+    },
+    postProcessingFillOpacity: {
+      title: "Active zones fill opacity",
+      description: "Opacity of the active zones filling, set 0 for no filling",
+      group: "Post-Processing",
+      subgroup: "Active zones",
+      type: "number",
+      defaultValue: 30,
+    },
+    postProcessingZonesColor: {
+      title: "Active zones color",
+      group: "Post-Processing",
+      subgroup: "Active zones",
+      type: "string",
+      defaultValue: "#FF0000",
+    },
+    postProcessingZonesStrokeWidth: {
+      title: "Active zones line thickness",
+      group: "Post-Processing",
+      subgroup: "Active zones",
+      type: "number",
+      defaultValue: 3,
+    },
+  };
+  storageSettings = new StorageSettings(this, this.initStorage);
 
-            subgroup: 'Advanced',
-        },
-        privateKey: {
-            title: 'Secret',
-            description: 'Random string used to protect public resources.Used either as token either as public secret generator for limited time tokens',
-            type: 'string',
-            subgroup: 'Advanced',
-        },
-        serverId: {
-            title: 'Server identifier',
-            type: 'string',
-            hide: true,
-            subgroup: 'Advanced',
-        },
-        localAddresses: {
-            title: 'Local addresses',
-            type: 'string',
-            multiple: true,
-            hide: true,
-            subgroup: 'Advanced',
-        },
-        scryptedToken: {
-            title: 'Scrypted token',
-            description: 'Token to be found on the Homeassistant entity generated by the Scrypted integration (i.e. sensor.scrypted_token_{ip}',
-            type: 'string',
-            subgroup: 'Homeassistant',
-        },
-        nvrUrl: {
-            title: 'NVR url',
-            description: 'Url pointing to the NVR instance, useful to generate direct links to timeline',
-            type: 'string',
-            defaultValue: 'https://nvr.scrypted.app/',
-            placeholder: 'https://nvr.scrypted.app/',
-            subgroup: 'Advanced',
-        },
-        includeUserToken: {
-            title: 'Include user token in payload',
-            description: 'Include the user token webhooks. Enable in case you get authentication errors interacting with urls pointing to your scrypted instance',
-            type: 'boolean',
-            defaultValue: true,
-            immediate: true,
-            subgroup: 'Advanced',
-        },
-        migrationDbPerDeviceDone: {
-            title: 'Migration DB per device done',
-            type: 'boolean',
-            defaultValue: false,
-            hide: true,
-        },
-        migrationRulesArtifactsRegisterDone: {
-            title: 'Migration rules artifacts register done',
-            type: 'boolean',
-            defaultValue: false,
-            hide: true,
-        },
-        mqttActiveEntitiesTopic: {
-            title: 'Active entities topic',
-            subgroup: 'Homeassistant',
-            description: 'Topic containing a list of device names/ids, it will be used for the "OnActive" rules',
-            onPut: async () => {
-                await this.setupMqttEntities();
-            },
-        },
-        mqttResetAllTopics: {
-            title: 'Reset all topics',
-            subgroup: 'Homeassistant',
-            type: 'button',
-            description: 'Clears retained topics for ALL Advanced Notifier devices (plugin, people tracker, alarm system, cameras, sensors, notifiers) including Home Assistant discovery topics, then republishes discovery. Use if entities are missing/duplicated or discovery is out of sync. This may take a few seconds and Home Assistant may need a short time to refresh entities.',
-            onPut: async () => {
-                await this.resetAllMqttTopicsAndRediscover();
-            },
-        },
-        mqttMemoryCacheEnabled: {
-            title: 'Cache topics in memory',
-            description: 'Enable caching of topics in memory to reduce MQTT broker load. Recommended for large installations or when using cloud MQTT brokers.',
-            subgroup: 'MQTT',
-            type: 'boolean',
-            defaultValue: true,
-            immediate: true,
-        },
-        haTransport: {
-            title: 'Discovery layer',
-            description: 'Transport used to push state updates to Home Assistant. "mqtt" uses the existing MQTT broker; "websocket" exposes a WebSocket server that the HA custom integration connects to directly.',
-            subgroup: 'Homeassistant',
-            type: 'string',
-            choices: [HomeassistantTransport.mqtt, HomeassistantTransport.websocket],
-            defaultValue: HomeassistantTransport.mqtt,
-            immediate: true,
-        },
-        haSecret: {
-            title: 'HA Secret',
-            description: 'Auto-generated secret. Copy this value into the HA custom integration config flow.',
-            subgroup: 'Homeassistant',
-            type: 'string',
-            readonly: true,
-        },
-        regenerateHaSecret: {
-            title: 'Regenerate HA Secret',
-            description: 'Generate a new secret and push it to HA.',
-            subgroup: 'Homeassistant',
-            type: 'button',
-            onPut: async () => {
-                await this.regenerateHaSecret();
-            },
-        },
-        haAllowedOrigins: {
-            title: 'HA Allowed Origins',
-            description: 'Comma-separated list of HA base URLs allowed to connect (e.g. http://homeassistant.local:8123). Must match the Scrypted URL configured in the HA integration.',
-            subgroup: 'Homeassistant',
-            type: 'string',
-            immediate: true,
-        },
-        updateFrequencyMotionImagesInSeconds: {
-            title: 'Motion image update frequency (seconds)',
-            description: 'Minimum seconds between image updates for motion when using non-NVR sources (decoder/raw). Defaults to the camera min publish delay behavior.',
-            subgroup: 'Homeassistant',
-            type: 'number',
-            defaultValue: 5,
-            immediate: true,
-        },
-        updateFrequencyObjectImagesInSeconds: {
-            title: 'Object image update frequency (seconds)',
-            description: 'Minimum seconds between image updates for object detections when using non-NVR sources (decoder/raw). Defaults to the camera min publish delay behavior.',
-            subgroup: 'Homeassistant',
-            type: 'number',
-            defaultValue: 5,
-            immediate: true,
-        },
-        detectionSourceForMqtt: {
-            title: 'Detections source',
-            description: 'Which source should be used to update Home Assistant',
-            type: 'string',
-            subgroup: 'Homeassistant',
-            immediate: true,
-            combobox: true,
-            choices: [],
-            defaultValue: ScryptedEventSource.NVR
-        },
-        facesSourceForMqtt: {
-            title: 'Faces source',
-            description: 'Which source should be used to update the people tracker.',
-            type: 'string',
-            subgroup: 'Homeassistant',
-            immediate: true,
-            combobox: true,
-            choices: [],
-            defaultValue: ScryptedEventSource.All
-        },
-        zonesSourceForMqtt: {
-            title: 'Zones source',
-            description: 'Which zone list should be used for zone entities. Scrypted uses Observe zones; Frigate uses zones defined in the Frigate interface.',
-            type: 'string',
-            subgroup: 'Homeassistant',
-            immediate: true,
-            combobox: true,
-            choices: [],
-            defaultValue: ZonesSource.All,
-        },
-        // occupancySourceForMqtt: {
-        //     title: 'Static objects source',
-        //     description: 'Define which source should be used to update static objects occupancy states.',
-        //     type: 'string',
-        //     subgroup: 'Homeassistant',
-        //     immediate: true,
-        //     combobox: true,
-        //     choices: [],
-        //     defaultValue: OccupancySource.Off,
-        // },
-        ...getTextSettings({ forMixin: false }),
-        [ruleTypeMetadataMap[RuleType.Detection].rulesKey]: {
-            title: 'Detection rules',
-            group: pluginRulesGroup,
-            type: 'string',
-            multiple: true,
-            immediate: true,
-            combobox: true,
-            choices: [],
-            defaultValue: [],
-            onPut: async () => await this.refreshSettings()
-        },
-        [ruleTypeMetadataMap[RuleType.Recording].rulesKey]: {
-            title: 'Recording rules',
-            group: pluginRulesGroup,
-            type: 'string',
-            multiple: true,
-            immediate: true,
-            combobox: true,
-            choices: [],
-            defaultValue: [],
-            onPut: async () => await this.refreshSettings()
-        },
-        [ruleSequencesKey]: {
-            title: 'Sequences',
-            description: 'Define sequences of actions when a rule is triggered',
-            group: ruleSequencesGroup,
-            type: 'string',
-            multiple: true,
-            immediate: true,
-            combobox: true,
-            choices: [],
-            defaultValue: [],
-            onPut: async () => await this.refreshSettings()
-        },
-        onActiveDevices: {
-            title: '"OnActive" devices',
-            group: pluginRulesGroup,
-            type: 'device',
-            multiple: true,
-            combobox: true,
-            deviceFilter: deviceFilter,
-            defaultValue: [],
-        },
-        objectDetectionDevice: {
-            title: 'Object Detector',
-            subgroup: 'Advanced',
-            description: 'Select the object detection device to use for detecting objects.',
-            type: 'device',
-            deviceFilter: `interfaces.includes('ObjectDetectionPreview') && id !== '${nvrAcceleratedMotionSensorId}'`,
-            immediate: true,
-        },
-        clipDevice: {
-            title: 'Clip device',
-            subgroup: 'Advanced',
-            description: 'Select the clip device plugin to execute text embedding.',
-            type: 'device',
-            deviceFilter: `interfaces.includes('TextEmbedding') && interfaces.includes('ImageEmbedding')`,
-            immediate: true,
-        },
-        securitySystem: {
-            title: 'Security system',
-            group: pluginRulesGroup,
-            description: 'Select the security system device that will be used to enable rules.',
-            type: 'device',
-            deviceFilter: `type === '${ScryptedDeviceType.SecuritySystem}' && !interfaces.includes('${ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE}')`,
-            immediate: true,
-        },
-        snoozes: {
-            title: 'Default snoozes',
-            group: pluginRulesGroup,
-            description: 'Snoozes (In minutes) to use on notifications. Do not apply for Scrypted App notifiers. If multiple of 60 will be shown as hours, otherwise minutes',
-            type: 'string',
-            multiple: true,
-            defaultValue: ['10', '30', '60'],
-        },
-        enableDecoder: {
-            title: 'Enable decoder',
-            subgroup: 'Advanced',
-            description: 'Master controller to allow decoder usage.',
-            type: 'boolean',
-            defaultValue: true,
-            immediate: true,
-        },
-        assetsOriginSource: {
-            title: 'Assets origin source',
-            subgroup: 'Advanced',
-            description: 'Select the source of the assets',
-            type: 'string',
-            defaultValue: AssetOriginSource.CloudSecure,
-            immediate: true,
-            choices: [
-                AssetOriginSource.CloudSecure,
-                AssetOriginSource.LocalSecure,
-                AssetOriginSource.LocalInsecure,
-                AssetOriginSource.Custom,
-            ],
-            onPut: async () => await this.refreshSettings()
-        },
-        customOriginUrl: {
-            title: 'Custom origin URL',
-            subgroup: 'Advanced',
-            description: 'Enter a custom URL for the asset origin, in case of missing cloud plugin',
-            type: 'string',
-        },
-        testDevice: {
-            title: 'Device',
-            group: 'Test',
-            immediate: true,
-            type: 'device',
-            deviceFilter: deviceFilter,
-            onPut: async () => await this.refreshSettings()
-        },
-        testNotifier: {
-            group: 'Test',
-            title: 'Notifier',
-            type: 'device',
-            deviceFilter: notifierFilter,
-            immediate: true,
-        },
-        testEventSource: {
-            group: 'Test',
-            title: 'Event source',
-            type: 'string',
-            immediate: true,
-            defaultValue: ScryptedEventSource.RawDetection,
-            choices: [],
-            onPut: async () => await this.refreshSettings(),
-        },
-        testEventType: {
-            group: 'Test',
-            title: 'Event type',
-            type: 'string',
-            immediate: true,
-            choices: [
-                ...Object.values(DetectionClass),
-                ...Object.values(NvrEvent),
-            ],
-            onPut: async () => await this.refreshSettings()
-        },
-        testZones: {
-            group: 'Test',
-            title: 'Zones',
-            type: 'string',
-            multiple: true,
-            combobox: true,
-            choices: [],
-            immediate: true,
-        },
-        testLabel: {
-            group: 'Test',
-            title: 'Event label',
-            type: 'string',
-        },
-        testPriority: {
-            group: 'Test',
-            title: 'Priority',
-            type: 'string',
-            immediate: true,
-            choices: Object.keys(NotificationPriority),
-            defaultValue: NotificationPriority.Normal
-        },
-        testPostProcessing: {
-            group: 'Test',
-            title: 'Image processing',
-            type: 'string',
-            immediate: true,
-            choices: Object.keys(ImagePostProcessing),
-            defaultValue: ImagePostProcessing.Default
-        },
-        testShowActiveZones: {
-            group: 'Test',
-            title: 'Show active zones',
-            type: 'boolean',
-            immediate: true,
-            defaultValue: false,
-        },
-        testGenerateClip: {
-            group: 'Test',
-            title: 'Generate clip',
-            type: 'boolean',
-            immediate: true,
-            defaultValue: false,
-            onPut: async () => await this.refreshSettings()
-        },
-        testGenerateClipSpeed: {
-            group: 'Test',
-            subgroup: 'Clip',
-            title: 'Clip speed',
-            choices: [
-                VideoclipSpeed.SuperSlow,
-                VideoclipSpeed.Slow,
-                VideoclipSpeed.Realtime,
-                VideoclipSpeed.Fast,
-                VideoclipSpeed.SuperFast,
-            ],
-            type: 'string',
-            immediate: true,
-            defaultValue: VideoclipSpeed.Fast,
-        },
-        testClipPreSeconds: {
-            title: 'Clip pre event duration',
-            description: 'How many seconds to record pre event',
-            group: 'Test',
-            subgroup: 'Clip',
-            type: 'number',
-            defaultValue: getBaseRuleDefaults({
-                ruleType: RuleType.Detection,
-                source: ScryptedEventSource.RawDetection,
-            })?.preClips,
-        },
-        testClipPostSeconds: {
-            title: 'Clip post duration',
-            description: 'How many seconds to record post event',
-            group: 'Test',
-            subgroup: 'Clip',
-            type: 'number',
-            defaultValue: getBaseRuleDefaults({
-                ruleType: RuleType.Detection,
-                source: ScryptedEventSource.RawDetection,
-            })?.postClips,
-        },
-        testGenerateClipType: {
-            group: 'Test',
-            subgroup: 'Clip',
-            title: 'Clip Type',
-            choices: [
-                VideoclipType.GIF,
-                VideoclipType.MP4,
-            ],
-            type: 'string',
-            immediate: true,
-            defaultValue: VideoclipType.GIF,
-        },
-        testUseAi: {
-            group: 'Test',
-            title: 'Use AI for descriptions',
-            type: 'boolean',
-            immediate: true,
-            defaultValue: false
-        },
-        testSound: {
-            group: 'Test',
-            title: 'Sound',
-            type: 'string',
-        },
-        testBypassSnooze: {
-            group: 'Test',
-            title: 'Bypass snoozes',
-            type: 'boolean',
-            immediate: true,
-            defaultValue: false
-        },
-        testAddSnoozing: {
-            group: 'Test',
-            title: 'Add snoozings',
-            type: 'boolean',
-            immediate: true,
-            defaultValue: false
-        },
-        testAddActions: {
-            group: 'Test',
-            title: 'Add actions',
-            type: 'boolean',
-            immediate: true,
-            defaultValue: false
-        },
-        testButton: {
-            group: 'Test',
-            title: 'Send notification',
-            type: 'button',
-            onPut: async () => {
-                await this.executeNotificationTest();
-            },
-        },
-        checkConfigurations: {
-            group: 'Test',
-            title: 'Check configurations',
-            type: 'button',
-            onPut: async () => {
-                await this.checkPluginConfigurations(true);
-            },
-        },
-        aiSource: {
-            title: 'AI Source',
-            type: 'string',
-            group: 'AI',
-            immediate: true,
-            // choices: [AiSource.Disabled, AiSource.Manual],
-            choices: Object.values(AiSource),
-            defaultValue: AiSource.Disabled,
-            onPut: async () => await this.refreshSettings()
-        },
-        imagesPath: {
-            title: 'Storage path',
-            group: 'Storage',
-            description: 'Disk path where to save images and clips. Default will be the plugin folder',
-            type: 'string',
-        },
-        storeEvents: {
-            title: 'Store event images',
-            group: 'Storage',
-            type: 'boolean',
-            immediate: true,
-            defaultValue: false,
-        },
-        totalAvailableSpaceInGb: {
-            type: 'number',
-            hide: true,
-            defaultValue: 0,
-            group: 'Storage',
-        },
-        totalOccupiedSpaceInGb: {
-            title: 'Memory occupancy in GB',
-            type: 'number',
-            range: [0, 0],
-            readonly: true,
-            placeholder: 'GB',
-            group: 'Storage',
-        },
-        cleanupEvents: {
-            title: 'Cleanup events data',
-            group: 'Storage',
-            type: 'button',
-            onPut: async () => await this.clearAllEventsData()
-        },
-        forceStorageCleanup: {
-            title: 'Calculate occupied space',
-            group: 'Storage',
-            type: 'button',
-            onPut: async () => await this.forceStorageCleanup()
-        },
-        postProcessingCropSizeIncrease: {
-            title: 'Size increase',
-            group: 'Post-Processing',
-            subgroup: 'Crop',
-            description: 'Factor to increse the padding of the cropped thumbnails, higher the number more space around the detected object',
-            type: 'number',
-            defaultValue: 1.2,
-        },
-        postProcessingAspectRatio: {
-            title: 'Aspect ratio',
-            group: 'Post-Processing',
-            subgroup: 'Crop',
-            description: 'Aspect ratio of the cropped thumbnail. Leave blank to use the camera aspect ratio',
-            type: 'number',
-            defaultValue: 1,
-        },
-        postProcessingMarkingSizeIncrease: {
-            title: 'Size increase',
-            group: 'Post-Processing',
-            subgroup: 'Marking boundaries',
-            description: 'Factor to increse the padding of the boundaries, higher the number more space around the detected object',
-            type: 'number',
-        },
-        postProcessingFontSize: {
-            title: 'Texts font size',
-            group: 'Post-Processing',
-            subgroup: 'Marking boundaries',
-            type: 'number',
-            defaultValue: 40,
-        },
-        postProcessingLineThickness: {
-            title: 'Lines thickness',
-            group: 'Post-Processing',
-            subgroup: 'Marking boundaries',
-            type: 'number',
-            defaultValue: 8,
-        },
-        postProcessingShowScore: {
-            title: 'Show score',
-            group: 'Post-Processing',
-            subgroup: 'Marking boundaries',
-            type: 'boolean',
-            defaultValue: true,
-            immediate: true,
-        },
-        postProcessingAnimalBoundingColor: {
-            title: 'Animal marking color',
-            group: 'Post-Processing',
-            subgroup: 'Marking boundaries',
-            description: 'Color to use for the marking boundaries around animal objects',
-            type: 'string',
-            defaultValue: '#2ECC40',
-        },
-        postProcessingVehicleBoundingColor: {
-            title: 'Vehicle marking color',
-            group: 'Post-Processing',
-            subgroup: 'Marking boundaries',
-            description: 'Color to use for the marking boundaries around animal objects',
-            type: 'string',
-            defaultValue: '#0074D9',
-        },
-        postProcessingPersonBoundingColor: {
-            title: 'Person marking color',
-            group: 'Post-Processing',
-            subgroup: 'Marking boundaries',
-            description: 'Color to use for the marking boundaries around person objects',
-            type: 'string',
-            defaultValue: '#FF4136',
-        },
-        postProcessingPlateBoundingColor: {
-            title: 'Plate marking color',
-            group: 'Post-Processing',
-            subgroup: 'Marking boundaries',
-            description: 'Color to use for the marking boundaries around plate objects',
-            type: 'string',
-            defaultValue: '#B10DC9',
-        },
-        postProcessingFaceBoundingColor: {
-            title: 'Face marking color',
-            group: 'Post-Processing',
-            subgroup: 'Marking boundaries',
-            description: 'Color to use for the marking boundaries around face objects',
-            type: 'string',
-            defaultValue: '#FF851B',
-        },
-        postProcessingOtherBoundingColor: {
-            title: 'Unclassified marking color',
-            group: 'Post-Processing',
-            subgroup: 'Marking boundaries',
-            description: 'Color to use for the marking boundaries around unclassified objects',
-            type: 'string',
-            defaultValue: '#AAAAAA',
-        },
-        postProcessingFillOpacity: {
-            title: 'Active zones fill opacity',
-            description: 'Opacity of the active zones filling, set 0 for no filling',
-            group: 'Post-Processing',
-            subgroup: 'Active zones',
-            type: 'number',
-            defaultValue: 30,
-        },
-        postProcessingZonesColor: {
-            title: 'Active zones color',
-            group: 'Post-Processing',
-            subgroup: 'Active zones',
-            type: 'string',
-            defaultValue: '#FF0000',
-        },
-        postProcessingZonesStrokeWidth: {
-            title: 'Active zones line thickness',
-            group: 'Post-Processing',
-            subgroup: 'Active zones',
-            type: 'number',
-            defaultValue: 3,
-        },
+  public deviceVideocameraMap: Record<string, string> = {};
+  public videocameraDevicesMap: Record<string, string[]> = {};
+  public currentCameraMixinsMap: Record<string, AdvancedNotifierCameraMixin> =
+    {};
+  public currentSensorMixinsMap: Record<string, AdvancedNotifierSensorMixin> =
+    {};
+  public currentNotifierMixinsMap: Record<
+    string,
+    AdvancedNotifierNotifierMixin
+  > = {};
+  private mainFlowInterval: NodeJS.Timeout;
+  defaultNotifier: AdvancedNotifierNotifier;
+  camera: AdvancedNotifierCamera;
+  alarmSystem: AdvancedNotifierAlarmSystem;
+  dataFetcher: AdvancedNotifierDataFetcher;
+  runningDetectionRules: DetectionRule[] = [];
+  runningRecordingRules: RecordingRule[] = [];
+  lastNotExistingNotifier: number;
+  public allAvailableRules: BaseRule[] = [];
+  lastAutoDiscovery: number;
+  lastConfigurationsCheck: number;
+  lastKnownPeopleFetched: number;
+  lastFacesSource: ScryptedEventSource;
+  hasCloudPlugin: boolean;
+  frigateApi: string;
+  nvrObjectDetectionDevice: Settings;
+  knownPeople: string[] = [];
+  restartRequested = false;
+  public aiMessageResponseMap: Record<string, string> = {};
+  audioLabels: string[];
+  frigateData: FrigateData;
+  lastFrigateDataFetched: number;
+  lastAudioDataFetched: number;
+  localEndpointInternal: string;
+  connectionTime = Date.now();
+  private cameraAutodiscoveryQueue: {
+    cameraId: string;
+    task: () => Promise<void>;
+  }[] = [];
+  public lastCameraAutodiscoveryMap: Record<string, number> = {};
+  private processingCameraAutodiscovery = false;
+
+  /** Queue of pending DB writes (events + motion). Processed sequentially in main. */
+  private dbWriteQueue: DbWriteQueueItem[] = [];
+  private processingDbWriteQueue = false;
+
+  imageEmbeddingCache: Record<string, Buffer> = {};
+  textEmbeddingCache: Record<string, Buffer> = {};
+
+  lastDelaySet: Record<string, number> = {};
+
+  accumulatedTimelapsesToGenerate: { ruleName: string; deviceId: string }[] =
+    [];
+  mainFlowInProgress = false;
+
+  cameraMotionActive = new Set<string>();
+
+  cameraStates: Record<string, CameraMixinState> = {};
+  audioClassifierMissingLogged = new Set<AudioAnalyzerSource>();
+
+  cameraSpaceOccupancy: Record<
+    string,
+    {
+      totalSize: number;
+      occupiedSize: number;
+    }
+  > = {};
+
+  constructor(nativeId: string) {
+    super(nativeId, {
+      pluginFriendlyName: "Advanced notifier",
+    });
+
+    this.applicationInfo = {
+      name: "Advanced Notifier",
+      description: "CamStack",
+      icon: "fa-play",
+      href: "/endpoint/@apocaliss92/scrypted-advanced-notifier/public/camstack",
+      cloudHref:
+        "/endpoint/@apocaliss92/scrypted-advanced-notifier/public/camstack",
     };
-    storageSettings = new StorageSettings(this, this.initStorage);
+    if (!this.storageSettings.values.haSecret) {
+      this.storageSettings.putSetting("haSecret", crypto.randomUUID());
+    }
+    this.startStop(this.storageSettings.values.pluginEnabled)
+      .then()
+      .catch(this.getLogger().log);
+  }
 
-    public deviceVideocameraMap: Record<string, string> = {};
-    public videocameraDevicesMap: Record<string, string[]> = {};
-    public currentCameraMixinsMap: Record<string, AdvancedNotifierCameraMixin> = {};
-    public currentSensorMixinsMap: Record<string, AdvancedNotifierSensorMixin> = {};
-    public currentNotifierMixinsMap: Record<string, AdvancedNotifierNotifierMixin> = {};
-    private mainFlowInterval: NodeJS.Timeout;
-    defaultNotifier: AdvancedNotifierNotifier;
-    camera: AdvancedNotifierCamera;
-    alarmSystem: AdvancedNotifierAlarmSystem;
-    dataFetcher: AdvancedNotifierDataFetcher;
-    runningDetectionRules: DetectionRule[] = [];
-    runningRecordingRules: RecordingRule[] = [];
-    lastNotExistingNotifier: number;
-    public allAvailableRules: BaseRule[] = [];
-    lastAutoDiscovery: number;
-    lastConfigurationsCheck: number;
-    lastKnownPeopleFetched: number;
-    lastFacesSource: ScryptedEventSource;
-    hasCloudPlugin: boolean;
-    frigateApi: string;
-    nvrObjectDetectionDevice: Settings;
-    knownPeople: string[] = [];
-    restartRequested = false;
-    public aiMessageResponseMap: Record<string, string> = {};
-    audioLabels: string[];
-    frigateData: FrigateData;
-    lastFrigateDataFetched: number;
-    lastAudioDataFetched: number;
-    localEndpointInternal: string;
-    connectionTime = Date.now();
-    private cameraAutodiscoveryQueue: { cameraId: string; task: () => Promise<void> }[] = [];
-    public lastCameraAutodiscoveryMap: Record<string, number> = {};
-    private processingCameraAutodiscovery = false;
+  /**
+   * Generate a new ha_secret and push the rotation to the HA custom integration.
+   * The plugin secret is always updated. If HA cannot be reached, an alert is shown.
+   */
+  private async regenerateHaSecret(): Promise<void> {
+    const logger = this.getLogger();
+    const oldSecret = String(this.storageSettings.values.haSecret ?? "");
+    const newSecret = crypto.randomUUID();
 
-    /** Queue of pending DB writes (events + motion). Processed sequentially in main. */
-    private dbWriteQueue: DbWriteQueueItem[] = [];
-    private processingDbWriteQueue = false;
+    // Always update the plugin secret
+    await this.storageSettings.putSetting("haSecret", newSecret);
+    logger.log("[regenerateHaSecret] New secret generated on plugin side");
 
-    imageEmbeddingCache: Record<string, Buffer> = {};
-    textEmbeddingCache: Record<string, Buffer> = {};
-
-    lastDelaySet: Record<string, number> = {};
-
-    accumulatedTimelapsesToGenerate: { ruleName: string, deviceId: string }[] = [];
-    mainFlowInProgress = false;
-
-    cameraMotionActive = new Set<string>();
-
-    cameraStates: Record<string, CameraMixinState> = {};
-    audioClassifierMissingLogged = new Set<AudioAnalyzerSource>();
-
-    cameraSpaceOccupancy: Record<string, {
-        totalSize: number;
-        occupiedSize: number;
-    }> = {};
-
-    constructor(nativeId: string) {
-        super(nativeId, {
-            pluginFriendlyName: 'Advanced notifier'
-        });
-
-        this.applicationInfo = {
-            name: 'Advanced Notifier',
-            description: 'CamStack',
-            icon: 'fa-play',
-            href: '/endpoint/@apocaliss92/scrypted-advanced-notifier/public/camstack',
-            cloudHref: '/endpoint/@apocaliss92/scrypted-advanced-notifier/public/camstack',
-        }
-        if (!this.storageSettings.values.haSecret) {
-            this.storageSettings.putSetting('haSecret', crypto.randomUUID());
-        }
-        this.startStop(this.storageSettings.values.pluginEnabled).then().catch(this.getLogger().log);
+    // Try to push the rotation to HA so it updates automatically
+    let haUpdated = false;
+    let failReason = "";
+    try {
+      const haUrl = await this.getHaBaseUrl();
+      const pushUrl = `${haUrl}/api/scrypted_an/push`;
+      logger.log("[regenerateHaSecret] Sending secret rotation to HA...");
+      const resp = await axios.post(
+        pushUrl,
+        { type: "rotate_secret", new_secret: newSecret },
+        {
+          headers: { Authorization: `Bearer ${oldSecret}` },
+          timeout: 10_000,
+          httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+        },
+      );
+      if (resp.status === 200) {
+        haUpdated = true;
+      }
+    } catch (e: any) {
+      const status = e?.response?.status;
+      if (status === 401) {
+        failReason =
+          "The old secret did not match the one on HA (401). The secret may have already been changed on one side.";
+      } else {
+        failReason = (e as Error)?.message ?? String(e);
+      }
     }
 
-    /**
-     * Generate a new ha_secret and push the rotation to the HA custom integration.
-     * The plugin secret is always updated. If HA cannot be reached, an alert is shown.
-     */
-    private async regenerateHaSecret(): Promise<void> {
-        const logger = this.getLogger();
-        const oldSecret = String(this.storageSettings.values.haSecret ?? '');
-        const newSecret = crypto.randomUUID();
-
-        // Always update the plugin secret
-        await this.storageSettings.putSetting('haSecret', newSecret);
-        logger.log('[regenerateHaSecret] New secret generated on plugin side');
-
-        // Try to push the rotation to HA so it updates automatically
-        let haUpdated = false;
-        let failReason = '';
-        try {
-            const haUrl = await this.getHaBaseUrl();
-            const pushUrl = `${haUrl}/api/scrypted_an/push`;
-            logger.log('[regenerateHaSecret] Sending secret rotation to HA...');
-            const resp = await axios.post(
-                pushUrl,
-                { type: 'rotate_secret', new_secret: newSecret },
-                {
-                    headers: { 'Authorization': `Bearer ${oldSecret}` },
-                    timeout: 10_000,
-                    httpsAgent: new https.Agent({ rejectUnauthorized: false }),
-                },
-            );
-            if (resp.status === 200) {
-                haUpdated = true;
-            }
-        } catch (e: any) {
-            const status = e?.response?.status;
-            if (status === 401) {
-                failReason = 'The old secret did not match the one on HA (401). The secret may have already been changed on one side.';
-            } else {
-                failReason = (e as Error)?.message ?? String(e);
-            }
-        }
-
-        if (haUpdated) {
-            logger.log('[regenerateHaSecret] Secret rotated successfully on both plugin and HA. No manual action required.');
-        } else {
-            const reason = failReason ? ` Reason: ${failReason}` : '';
-            logger.warn(`[regenerateHaSecret] Secret updated on plugin only — could not push to HA.${reason} Update it manually in HA → Settings → Integrations → Scrypted Advanced Notifier → Configure → "Update HA Secret".`);
-            this.log.a(
-                'HA secret regenerated on plugin but could not be updated on Home Assistant automatically. '
-                + 'Go to HA → Settings → Integrations → Scrypted Advanced Notifier → Configure → "Update HA Secret" and paste the new secret.',
-            );
-        }
+    if (haUpdated) {
+      logger.log(
+        "[regenerateHaSecret] Secret rotated successfully on both plugin and HA. No manual action required.",
+      );
+    } else {
+      const reason = failReason ? ` Reason: ${failReason}` : "";
+      logger.warn(
+        `[regenerateHaSecret] Secret updated on plugin only — could not push to HA.${reason} Update it manually in HA → Settings → Integrations → Scrypted Advanced Notifier → Configure → "Update HA Secret".`,
+      );
+      this.log.a(
+        "HA secret regenerated on plugin but could not be updated on Home Assistant automatically. " +
+          'Go to HA → Settings → Integrations → Scrypted Advanced Notifier → Configure → "Update HA Secret" and paste the new secret.',
+      );
     }
+  }
 
-    // --- EventsAppApi (interfaceDescriptors): proxy to dataFetcher ---
-    private get dataFetcherOrCreate() { return this.dataFetcher ?? (this.dataFetcher = new AdvancedNotifierDataFetcher(DATA_FETCHER_NATIVE_ID, this)); }
-    async getConfigs() { return this.dataFetcherOrCreate.getConfigs(); }
-    async getCamerasStatus() { return { cameras: await this.dataFetcherOrCreate.getCamerasStatus() }; }
-    async getEvents(payload: Parameters<AdvancedNotifierDataFetcher['getEvents']>[0]) { return this.dataFetcherOrCreate.getEvents(payload); }
-    async getVideoclips(payload: Parameters<AdvancedNotifierDataFetcher['getVideoclips']>[0]) { return this.dataFetcherOrCreate.getVideoclips(payload); }
-    async getCameraDayData(payload: Parameters<AdvancedNotifierDataFetcher['getCameraDayData']>[0]) { return this.dataFetcherOrCreate.getCameraDayData(payload); }
-    async getClusteredDayData(payload: Parameters<AdvancedNotifierDataFetcher['getClusteredDayData']>[0]) { return this.dataFetcherOrCreate.getClusteredDayData(payload); }
-    async getClusterEvents(payload: Parameters<AdvancedNotifierDataFetcher['getClusterEvents']>[0]) { return this.dataFetcherOrCreate.getClusterEvents(payload); }
-    async getReelEvents(payload: Parameters<AdvancedNotifierDataFetcher['getReelEvents']>[0]) { return this.dataFetcherOrCreate.getReelEvents(payload); }
-    async getArtifacts(payload: Parameters<AdvancedNotifierDataFetcher['getArtifacts']>[0]) { return this.dataFetcherOrCreate.getArtifacts(payload); }
-    async getLatestRuleArtifacts(payload?: Parameters<AdvancedNotifierDataFetcher['getLatestRuleArtifacts']>[0]) { return this.dataFetcherOrCreate.getLatestRuleArtifacts(payload); }
-    async remoteLog(payload: { content: string }) { await this.dataFetcherOrCreate.remoteLog(payload); }
-    async getAsset(payload: { path: string }) { return this.dataFetcherOrCreate.getAsset(payload); }
-    async getVideoClipThumbnailData(payload: { deviceId: string; videoId: string }) { return this.dataFetcherOrCreate.getVideoClipThumbnailData(payload); }
-    async getVideoClipData(payload: { deviceId: string; videoId: string; username?: string; password?: string }) { return this.dataFetcherOrCreate.getVideoClipData(payload); }
+  // --- EventsAppApi (interfaceDescriptors): proxy to dataFetcher ---
+  private get dataFetcherOrCreate() {
+    return (
+      this.dataFetcher ??
+      (this.dataFetcher = new AdvancedNotifierDataFetcher(
+        DATA_FETCHER_NATIVE_ID,
+        this,
+      ))
+    );
+  }
+  async getConfigs() {
+    return this.dataFetcherOrCreate.getConfigs();
+  }
+  async getCamerasStatus() {
+    return { cameras: await this.dataFetcherOrCreate.getCamerasStatus() };
+  }
+  async getEvents(
+    payload: Parameters<AdvancedNotifierDataFetcher["getEvents"]>[0],
+  ) {
+    return this.dataFetcherOrCreate.getEvents(payload);
+  }
+  async getVideoclips(
+    payload: Parameters<AdvancedNotifierDataFetcher["getVideoclips"]>[0],
+  ) {
+    return this.dataFetcherOrCreate.getVideoclips(payload);
+  }
+  async getCameraDayData(
+    payload: Parameters<AdvancedNotifierDataFetcher["getCameraDayData"]>[0],
+  ) {
+    return this.dataFetcherOrCreate.getCameraDayData(payload);
+  }
+  async getClusteredDayData(
+    payload: Parameters<AdvancedNotifierDataFetcher["getClusteredDayData"]>[0],
+  ) {
+    return this.dataFetcherOrCreate.getClusteredDayData(payload);
+  }
+  async getClusterEvents(
+    payload: Parameters<AdvancedNotifierDataFetcher["getClusterEvents"]>[0],
+  ) {
+    return this.dataFetcherOrCreate.getClusterEvents(payload);
+  }
+  async getReelEvents(
+    payload: Parameters<AdvancedNotifierDataFetcher["getReelEvents"]>[0],
+  ) {
+    return this.dataFetcherOrCreate.getReelEvents(payload);
+  }
+  async getArtifacts(
+    payload: Parameters<AdvancedNotifierDataFetcher["getArtifacts"]>[0],
+  ) {
+    return this.dataFetcherOrCreate.getArtifacts(payload);
+  }
+  async getLatestRuleArtifacts(
+    payload?: Parameters<
+      AdvancedNotifierDataFetcher["getLatestRuleArtifacts"]
+    >[0],
+  ) {
+    return this.dataFetcherOrCreate.getLatestRuleArtifacts(payload);
+  }
+  async remoteLog(payload: { content: string }) {
+    await this.dataFetcherOrCreate.remoteLog(payload);
+  }
+  async getAsset(payload: { path: string }) {
+    return this.dataFetcherOrCreate.getAsset(payload);
+  }
+  async getVideoClipThumbnailData(payload: {
+    deviceId: string;
+    videoId: string;
+  }) {
+    return this.dataFetcherOrCreate.getVideoClipThumbnailData(payload);
+  }
+  async getVideoClipData(payload: {
+    deviceId: string;
+    videoId: string;
+    username?: string;
+    password?: string;
+  }) {
+    return this.dataFetcherOrCreate.getVideoClipData(payload);
+  }
 
-    enqueueCameraAutodiscovery(cameraId: string, task: () => Promise<void>) {
-        if (this.cameraAutodiscoveryQueue.find(e => e.cameraId === cameraId)) {
-            return;
-        }
-        this.cameraAutodiscoveryQueue.push({ cameraId, task });
-        this.processCameraAutodiscoveryQueue();
+  enqueueCameraAutodiscovery(cameraId: string, task: () => Promise<void>) {
+    if (this.cameraAutodiscoveryQueue.find((e) => e.cameraId === cameraId)) {
+      return;
     }
+    this.cameraAutodiscoveryQueue.push({ cameraId, task });
+    this.processCameraAutodiscoveryQueue();
+  }
 
-    private processCameraAutodiscoveryQueue() {
-        if (this.processingCameraAutodiscovery) {
-            return;
-        }
-        const logger = this.getLogger();
-        this.processingCameraAutodiscovery = true;
-
-        const processNext = () => {
-            const entry = this.cameraAutodiscoveryQueue.shift();
-            if (!entry) {
-                this.processingCameraAutodiscovery = false;
-                return;
-            }
-            const start = Date.now();
-            entry.task().catch(e => logger.error('Camera autodiscovery error', entry.cameraId, e)).finally(() => {
-                this.lastCameraAutodiscoveryMap[entry.cameraId] = Date.now();
-                const elapsed = Date.now() - start;
-                const delay = Math.max(0, 300 - elapsed);
-                setTimeout(processNext, delay);
-            });
-        };
-        processNext();
+  private processCameraAutodiscoveryQueue() {
+    if (this.processingCameraAutodiscovery) {
+      return;
     }
+    const logger = this.getLogger();
+    this.processingCameraAutodiscovery = true;
 
-    async init() {
-        const logger = this.getLogger();
-
-        const cloudPlugin = systemManager.getDeviceByName<Settings>('Scrypted Cloud');
-        if (cloudPlugin) {
-            logger.log('Cloud plugin found');
-            this.hasCloudPlugin = true;
-        } else {
-            this.hasCloudPlugin = false;
-
-            const {
-                cloudSecureEndpoint,
-                localInsecureUrl,
-                localSecureUrl,
-            } = await getAllAvailableUrls(false);
-            const {
-                assetsOrigin,
-                cloudEndpoint,
-                localEndpoint,
-                privatePathname,
-                publicPathnamePrefix,
-            } = await getAssetsParams({ plugin: this });
-            logger.log(`Cloud plugin not found, URLs available: ${JSON.stringify({
-                cloudSecureEndpoint: getUrlLog(cloudSecureEndpoint),
-                localInsecureUrl: getUrlLog(localInsecureUrl),
-                localSecureUrl: getUrlLog(localSecureUrl),
-                privatePathname,
-                publicPathnamePrefix: getUrlLog(publicPathnamePrefix),
-                assetsOrigin: getUrlLog(assetsOrigin),
-                cloudEndpoint: getUrlLog(cloudEndpoint),
-                localEndpoint: getUrlLog(localEndpoint),
-            })}`);
-        }
-
-        const objDetectionPlugin = systemManager.getDeviceByName<Settings>(SCRYPTED_NVR_OBJECT_DETECTION_NAME);
-        if (objDetectionPlugin) {
-            this.nvrObjectDetectionDevice = objDetectionPlugin;
-        } else {
-            logger.log('Scrypted NVR Object Detection not found');
-        }
-
-        const frigatePlugin = systemManager.getDeviceByName<Settings>(FRIGATE_BRIDGE_PLUGIN_NAME);
-        if (frigatePlugin) {
-            const settings = await frigatePlugin.getSettings();
-            const serverUrl = settings.find(setting => setting.key === 'serverUrl')?.value as string;
-            logger.log(`Frigate API found ${getUrlLog(serverUrl)}`);
-
-            try {
-                await axios.get(`${serverUrl}/config`, { timeout: 5000 });
-                logger.log(`Frigate server is reachable`);
-                this.frigateApi = serverUrl;
-
-                const frigateData = await this.getFrigateData();
-                logger.log(`Frigate data found ${JSON.stringify(frigateData)}`);
-            } catch (e) {
-                logger.log(`Frigate server not reachable: ${e.message}`);
-                this.frigateApi = undefined;
-            }
-        }
-
-        // const [major, minor, patch] = version.split('.').map(num => parseInt(num, 10));
-
-        await sdk.deviceManager.onDeviceDiscovered(
-            {
-                name: 'Advanced notifier NVR notifier',
-                nativeId: NOTIFIER_NATIVE_ID,
-                interfaces: [ScryptedInterface.Notifier, ScryptedInterface.Settings, ADVANCED_NOTIFIER_NOTIFIER_INTERFACE],
-                type: ScryptedDeviceType.Notifier,
-            },
-        );
-        await sdk.deviceManager.onDeviceDiscovered(
-            {
-                name: 'Advanced notifier alarm system',
-                nativeId: ALARM_SYSTEM_NATIVE_ID,
-                interfaces: [
-                    ScryptedInterface.SecuritySystem,
-                    ScryptedInterface.Settings,
-                    ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE
-                ],
-                type: ScryptedDeviceType.SecuritySystem,
-            }
-        );
-        await sdk.deviceManager.onDeviceDiscovered(
-            {
-                name: 'Advanced notifier data fetcher',
-                nativeId: DATA_FETCHER_NATIVE_ID,
-                interfaces: [
-                    ScryptedInterface.VideoClips,
-                    ScryptedInterface.EventRecorder,
-                    ScryptedInterface.Settings,
-                ],
-                type: ScryptedDeviceType.API,
-            }
-        );
-        await sdk.deviceManager.onDeviceDiscovered(
-            {
-                name: 'Advanced notifier Camera',
-                nativeId: CAMERA_NATIVE_ID,
-                interfaces: [
-                    ScryptedInterface.Camera,
-                    ScryptedInterface.VideoClips,
-                    ScryptedInterface.Settings,
-                    ScryptedInterface.VideoCamera,
-                    ADVANCED_NOTIFIER_CAMERA_INTERFACE
-                ],
-                type: ScryptedDeviceType.Camera,
-            }
-        );
-
-        await this.initPluginSettings();
-
-        const { storagePath } = this.getEventPaths({});
-        try {
-            await fs.promises.access(storagePath);
-        } catch {
-            logger.log(`Creating storage folder at ${storagePath}`);
-            await fs.promises.mkdir(storagePath, { recursive: true });
-        }
-
-        const migrationDone = this.storageSettings.values.migrationDbPerDeviceDone;
-        if (!migrationDone) {
-            try {
-                await migrateDbsToPerDevice({ logger, storagePath });
-                await this.storageSettings.putSetting('migrationDbPerDeviceDone', true);
-            } catch (e) {
-                logger.error('Migration DB per device failed', e);
-            }
-        }
-
-        const migrationRulesArtifactsRegisterDone = this.storageSettings.values.migrationRulesArtifactsRegisterDone;
-        if (!migrationRulesArtifactsRegisterDone) {
-            try {
-                const deviceDirs = await fs.promises.readdir(storagePath).catch(() => []);
-                for (const deviceId of deviceDirs) {
-                    const devicePath = path.join(storagePath, deviceId);
-                    const stat = await fs.promises.stat(devicePath).catch(() => null);
-                    if (!stat?.isDirectory()) continue;
-                    const device = systemManager.getDeviceById<ScryptedDeviceBase>(deviceId);
-                    if (!device) continue;
-                    const mixin = this.currentCameraMixinsMap[deviceId];
-                    let getRuleType: (ruleName: string) => string | undefined;
-                    if (mixin?.mixinState?.storageSettings) {
-                        const { allAvailableRules } = await getActiveRules({
-                            device,
-                            deviceStorage: mixin.mixinState.storageSettings,
-                            plugin: this,
-                            console: logger,
-                        });
-                        getRuleType = (ruleName) => allAvailableRules?.find((r) => r.name === ruleName)?.ruleType;
-                    } else {
-                        getRuleType = (ruleName) => this.allAvailableRules.find((r) => r.name === ruleName)?.ruleType;
-                    }
-                    await migrateDeviceRulesRegister({
-                        storagePath,
-                        deviceId,
-                        logger,
-                        getRuleType,
-                        getUrls: async (ruleName, timestamp) => {
-                            const urls = await getWebHookUrls({
-                                plugin: this,
-                                device,
-                                ruleName,
-                                fileId: String(timestamp),
-                            });
-                            return { imageUrl: urls.imageRuleUrl, gifUrl: urls.gifRuleUrl, videoUrl: urls.videoRuleUrl };
-                        },
-                    });
-                }
-                await this.storageSettings.putSetting('migrationRulesArtifactsRegisterDone', true);
-            } catch (e) {
-                logger.error('Migration rules artifacts register failed', e);
-            }
-        }
-    }
-
-
-    async getDevice(nativeId: string) {
-        if (nativeId === NOTIFIER_NATIVE_ID)
-            return this.defaultNotifier ||= new AdvancedNotifierNotifier(NOTIFIER_NATIVE_ID, this);
-        if (nativeId === CAMERA_NATIVE_ID)
-            return this.camera ||= new AdvancedNotifierCamera(CAMERA_NATIVE_ID, this);
-        if (nativeId === ALARM_SYSTEM_NATIVE_ID)
-            return this.alarmSystem ||= new AdvancedNotifierAlarmSystem(ALARM_SYSTEM_NATIVE_ID, this);
-        if (nativeId === DATA_FETCHER_NATIVE_ID)
-            return this.dataFetcher ||= new AdvancedNotifierDataFetcher(DATA_FETCHER_NATIVE_ID, this);
-    }
-
-    async releaseDevice(id: string, nativeId: string): Promise<void> {
-    }
-
-    async startStop(enabled: boolean) {
-        if (enabled) {
-            await this.start();
-        } else {
-            await this.stop();
-        }
-    }
-
-    async stop() {
-        this.mainFlowInterval && clearInterval(this.mainFlowInterval);
-        await this.mqttClient?.disconnect();
-    }
-
-    async startStopMixins(enabled: boolean) {
-        for (const mixin of Object.values(this.currentCameraMixinsMap)) {
-            await mixin.startStop(enabled, 'from_plugin');
-        }
-        for (const mixin of Object.values(this.currentSensorMixinsMap)) {
-            await mixin.startStop(enabled);
-        }
-        for (const mixin of Object.values(this.currentNotifierMixinsMap)) {
-            await mixin.startStop(enabled);
-        }
-    }
-
-    async start() {
-        try {
-            await this.init();
-            await this.refreshSettings();
-            await this.refreshSettings();
-            await this.mainFlow();
-
-            this.mainFlowInterval = setInterval(async () => {
-                if (!this.mainFlowInProgress) {
-                    await this.mainFlow();
-                }
-            }, 2 * 1000);
-        } catch (e) {
-            this.getLogger().log(`Error in initFlow`, e);
-        }
-    }
-
-    async onRequest(request: HttpRequest, response: HttpResponse): Promise<void> {
-        if (!response) return; // onPush has no response
-        const logger = this.getLogger();
-        const url = new URL(`http://localhost${request.url}`);
-        const pathname = url.pathname || request.url || '';
-
-        const corsHeaders = (): Record<string, string> => {
-            const origin = request.headers?.origin;
-            const h: Record<string, string> = {
-                'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-                'Access-Control-Max-Age': '86400',
-            };
-            if (origin) {
-                h['Access-Control-Allow-Origin'] = origin;
-                h['Access-Control-Allow-Credentials'] = 'true';
-            } else {
-                h['Access-Control-Allow-Origin'] = '*';
-            }
-            return h;
-        };
-        if (request.method?.toLowerCase() === 'options') {
-            response.send('', { code: 200, headers: corsHeaders() });
-            return;
-        }
-        const body = safeParseJson(request.body);
-        if (pathname.includes('eventsApp')) {
-            if (request.method === 'POST' && body?.apimethod) {
-                const loginResponse = await checkUserLogin(request);
-                if (!loginResponse) {
-                    response.send('Unauthorized', { code: 401 });
-                    return;
-                }
-                try {
-                    const { statusCode, body: responseBody } = await this.dataFetcher.handleEventsAppRequest(body.apimethod, body.payload);
-                    response.send(JSON.stringify(responseBody), { code: statusCode, headers: { 'Content-Type': 'application/json' } });
-                } catch (e) {
-                    logger.error('EventsApp API error', e);
-                    response.send(JSON.stringify({ error: String((e as Error)?.message ?? e) }), { code: 500, headers: { 'Content-Type': 'application/json' } });
-                }
-                return;
-            }
-        }
-
-        // HA REST endpoints: /public/ha/devices, /public/ha/entities, /public/ha/command, /public/ha/image
-        if (await handleHaRestApi(this as any, pathname, url, request, response, corsHeaders)) {
-            return;
-        }
-
-        // SPA: serve Camstack for any path under public/camstack (e.g. /.../public/camstack/...) so deep links and refresh work
-        const spaBase = 'public/camstack';
-        const spaBaseIndex = pathname.indexOf(spaBase);
-        if (spaBaseIndex !== -1) {
-            const afterBase = pathname.slice(spaBaseIndex + spaBase.length).replace(/^\/+/, '') || '';
-            const hasFileExtension = /\.(js|css|ico|png|svg|woff2?|ttf|eot|map|webmanifest|json)(\?|$)/i.test(afterBase);
-            if (afterBase && hasFileExtension) {
-                response.sendFile(`camstack/${afterBase.split('?')[0]}`);
-            } else {
-                response.sendFile('camstack/index.html');
-            }
-            return;
-        }
-
-        // LauncherApplication: Scrypted fetches manifest at .../public/manifest.json; serve from camstack so it returns 200 instead of 403
-        if (pathname.includes('public/manifest.json')) {
-            response.sendFile('camstack/manifest.json');
-            return;
-        }
-        // PWA icons: when manifest is at .../public/manifest.json, relative icon paths resolve to .../public/icon-*.png
-        const publicIconMatch = pathname.match(/\/public\/(icon-[^/]+\.png)$/);
-        if (publicIconMatch) {
-            response.sendFile(`camstack/${publicIconMatch[1]}`);
-            return;
-        }
-
-        const [_, __, ___, ____, privateWebhook, webhook, ...rest] = pathname.split('/');
-        const [deviceIdOrActionRaw, ruleNameOrSnoozeIdOrSnapshotId, timelapseNameOrSnoozeTime] = rest
-        let deviceIdOrAction = decodeURIComponent(deviceIdOrActionRaw);
-        const decodedTimelapseNameOrSnoozeTime = decodeURIComponent(timelapseNameOrSnoozeTime);
-        const decodedRuleNameOrSnoozeIdOrSnapshotId = decodeURIComponent(ruleNameOrSnoozeIdOrSnapshotId);
-
-        logger.debug(`Webhook request: ${JSON.stringify({
-            url: request.url,
-            body: request.body,
-            webhook,
-            deviceIdOrActionRaw,
-            deviceIdOrAction,
-            ruleNameOrSnoozeIdOrSnapshotId,
-            decodedRuleNameOrSnoozeIdOrSnapshotId,
-            timelapseNameOrSnoozeTime,
-            decodedTimelapseNameOrSnoozeTime,
-        })}`);
-
-        let nvrSnoozeId: string;
-        let nvrSnoozeAction: string;
-        let isNvrSnooze = false;
-        if (request.body) {
-            const body = safeParseJson(request.body);
-            if (body.snoozeId && body.actionId) {
-                nvrSnoozeId = body.snoozeId;
-                nvrSnoozeAction = body.actionId;
-                isNvrSnooze = true;
-            }
-        }
-        const device = this.currentCameraMixinsMap[deviceIdOrAction];
-        const realDevice = device ? systemManager.getDeviceById<ScryptedDeviceBase>(device.id) : undefined;
-
-        try {
-            const {
-                lastSnapshot,
-                haAction,
-                snoozeNotification,
-                postNotification,
-                setAlarm,
-                eventsApp,
-                eventThumbnail,
-                eventImage,
-                eventVideoclip,
-                eventVideoclipThumbnail,
-                imageRule,
-                videoRule,
-                gifRule,
-                recordedClipThumbnail,
-                recordedClipVideo,
-            } = await getWebhooks();
-            if ([webhook, privateWebhook].includes('app')) {
-                // SPA: static assets (e.g. .../app/assets/index-xxx.js) must be served from dist/; otherwise index.html for client routing
-                const appPath = rest.join('/');
-                const hasFileExtension = /\.(js|css|ico|png|svg|woff2?|ttf|eot|map)(\?|$)/i.test(appPath);
-                if (appPath && hasFileExtension) {
-                    response.sendFile(`dist/${appPath}`);
-                } else {
-                    response.sendFile('dist/index.html');
-                }
-                return;
-            }
-            if ([webhook, privateWebhook].includes('camstack')) {
-                // Camstack SPA: served from fs/camstack (same root as dist for events app)
-                const camstackPath = rest.join('/');
-                const hasFileExtension = /\.(js|css|ico|png|svg|woff2?|ttf|eot|map|webmanifest|json)(\?|$)/i.test(camstackPath);
-                if (camstackPath && hasFileExtension) {
-                    response.sendFile(`camstack/${camstackPath.split('?')[0]}`);
-                } else {
-                    response.sendFile('camstack/index.html');
-                }
-                return;
-            }
-            if ([webhook, privateWebhook].includes(eventsApp)) {
-                if (webhook === eventsApp) {
-                    const loginResponse = await checkUserLogin(request);
-                    if (!loginResponse) {
-                        response.send('Unauthorized', { code: 401 });
-                        return;
-                    }
-                }
-
-                if ([privateWebhook, webhook].includes(eventVideoclipThumbnail)) {
-                    const device = sdk.systemManager.getDeviceById<VideoClips>(deviceIdOrAction);
-                    const thumbMo = await device.getVideoClipThumbnail(decodedRuleNameOrSnoozeIdOrSnapshotId);
-                    const jpeg = await mediaManager.convertMediaObjectToBuffer(thumbMo, 'image/jpeg');
-                    response.send(jpeg, {
-                        code: 200,
-                        headers: {
-                            'Content-Type': 'image/jpeg',
-                            'Cache-Control': 'max-age=31536000',
-                        },
-                    });
-                    return;
-                }
-                if ([privateWebhook, webhook].includes(eventVideoclip)) {
-                    const device = sdk.systemManager.getDeviceById<VideoClips>(deviceIdOrAction);
-                    const mo = await device.getVideoClip(decodedRuleNameOrSnoozeIdOrSnapshotId);
-                    let videoUrl: string;
-                    let isNvrProxyFallback = false;
-                    try {
-                        videoUrl = (await mediaManager.convertMediaObjectToBuffer(mo, ScryptedMimeTypes.LocalUrl)).toString();
-                    } catch (convertErr) {
-                        const nvrFilename = parseNvrVideoIdToFilename(decodedRuleNameOrSnoozeIdOrSnapshotId);
-                        if (nvrFilename) {
-                            const { localAssetsOrigin } = await getAssetsParams({ plugin: this });
-                            videoUrl = `${localAssetsOrigin}/endpoint/${NVR_PLUGIN_ID}/clip/${deviceIdOrAction}/${nvrFilename}`;
-                            isNvrProxyFallback = true;
-                            this.console.log(`[eventVideoclip] NVR convert failed, proxying from ${videoUrl.slice(0, 80)}...`);
-                        } else {
-                            throw convertErr;
-                        }
-                    }
-                    if (videoUrl.startsWith('http')) {
-                        const urlEntity = new URL(videoUrl);
-                        videoUrl = `${urlEntity.pathname}${urlEntity.search}`;
-                    }
-                    const { assetsOrigin, } = await getAssetsParams({ plugin: this });
-                    videoUrl = `${assetsOrigin}${videoUrl}`;
-
-                    const ua = request.headers['user-agent'] ?? '';
-                    const isIosOrMobile = /iPhone|iPad|iPod|CFNetwork|Darwin|Expo|ReactNative|okhttp/i.test(ua);
-                    const urlObj = new URL(`http://localhost${request.url}`);
-                    const forcePrebuffer = urlObj.searchParams.get('prebuffer') === '1';
-                    const { isNvr } = getAssetSource({ videoUrl, sourceId: (mo as { sourceId?: string })?.sourceId });
-
-                    // Prebuffer NVR clips for iOS/mobile to avoid AVFoundation -11850 streaming issues.
-                    // When ?prebuffer=1 is requested, always prebuffer (isNvr can be false if videoUrl
-                    // doesn't contain NVR_PLUGIN_ID, e.g. internal NVR URLs).
-                    // isNvrProxyFallback: always proxy (redirect would 401 on NVR endpoint).
-                    if ((isNvr || forcePrebuffer || isNvrProxyFallback) && (isIosOrMobile || forcePrebuffer || isNvrProxyFallback)) {
-                        const fetchHeaders = { ...request.headers } as Record<string, string>;
-                        delete fetchHeaders.range;
-                        delete fetchHeaders.Range;
-                        const remoteResponse = await axios.get<Buffer[]>(videoUrl, {
-                            headers: fetchHeaders,
-                            httpsAgent: new https.Agent({
-                                rejectUnauthorized: false
-                            }),
-                            responseType: 'stream',
-                        });
-                        const chunks: Buffer[] = [];
-
-                        for await (const chunk of remoteResponse.data) {
-                            chunks.push(chunk);
-                        }
-
-                        const fullBuffer = Buffer.concat(chunks);
-                        const totalLength = fullBuffer.length;
-                        const rangeHeader = request.headers?.range ?? request.headers?.Range;
-                        if (rangeHeader && typeof rangeHeader === 'string') {
-                            const match = rangeHeader.match(/bytes=(\d*)-(\d*)/);
-                            if (match) {
-                                const startStr = match[1];
-                                const endStr = match[2];
-                                let actualStart: number;
-                                let actualEnd: number;
-                                if (startStr && endStr) {
-                                    actualStart = parseInt(startStr, 10);
-                                    actualEnd = Math.min(parseInt(endStr, 10), totalLength - 1);
-                                } else if (startStr) {
-                                    actualStart = parseInt(startStr, 10);
-                                    actualEnd = totalLength - 1;
-                                } else if (endStr) {
-                                    actualEnd = totalLength - 1;
-                                    actualStart = Math.max(0, totalLength - parseInt(endStr, 10));
-                                } else {
-                                    actualStart = 0;
-                                    actualEnd = totalLength - 1;
-                                }
-                                actualStart = Math.min(actualStart, actualEnd);
-                                const chunk = fullBuffer.subarray(actualStart, actualEnd + 1);
-                                response.send(chunk, {
-                                    code: 206,
-                                    headers: {
-                                        'Content-Type': 'video/mp4',
-                                        'Content-Length': chunk.length,
-                                        'Content-Range': `bytes ${actualStart}-${actualEnd}/${totalLength}`,
-                                        'Accept-Ranges': 'bytes',
-                                        ...corsHeaders(),
-                                    },
-                                });
-                                return;
-                            }
-                        }
-                        response.send(fullBuffer, {
-                            code: 200,
-                            headers: {
-                                'Content-Type': 'video/mp4',
-                                'Content-Length': totalLength,
-                                'Accept-Ranges': 'bytes',
-                                ...corsHeaders(),
-                            },
-                        });
-                        return;
-                    } else {
-                        response.send('', {
-                            code: 302,
-                            headers: {
-                                ...request.headers,
-                                Location: videoUrl,
-                            }
-                        });
-                        return;
-                    }
-                } else if ([privateWebhook, webhook].includes(imageRule)) {
-                    const { imageHistoricalPath } = this.getRulePaths({
-                        cameraId: realDevice.id,
-                        ruleName: decodedRuleNameOrSnoozeIdOrSnapshotId,
-                        triggerTime: Number(decodedTimelapseNameOrSnoozeTime),
-                    });
-                    await serveImage({
-                        imagePath: imageHistoricalPath,
-                        plugin: this,
-                        request,
-                        response,
-                    });
-                    return;
-                } else if ([privateWebhook, webhook].includes(gifRule)) {
-                    const triggerTime = decodedTimelapseNameOrSnoozeTime.split('.')[0];
-                    const { gifHistoricalPath } = this.getRulePaths({
-                        cameraId: realDevice.id,
-                        ruleName: decodedRuleNameOrSnoozeIdOrSnapshotId,
-                        triggerTime: Number(triggerTime),
-                    });
-                    await serveGif({
-                        gifPath: gifHistoricalPath,
-                        plugin: this,
-                        request,
-                        response,
-                    });
-                    return;
-                } else if ([privateWebhook, webhook].some(hook => [eventThumbnail, eventImage].includes(hook))) {
-                    const imageSource = timelapseNameOrSnoozeTime as ScryptedEventSource;
-                    const cameraIdForPath = realDevice?.id ?? deviceIdOrAction;
-                    const { eventThumbnailPath, eventImagePath } = this.getEventPaths({ cameraId: cameraIdForPath, fileName: decodedRuleNameOrSnoozeIdOrSnapshotId });
-                    const localPath = webhook === eventThumbnail ? eventThumbnailPath : eventImagePath;
-
-                    // Prefer local file (plugin DB events: NVR/Frigate/Raw saved with thumbnails)
-                    if (localPath) {
-                        try {
-                            const jpeg = await fs.promises.readFile(localPath);
-                            response.send(jpeg, {
-                                headers: {
-                                    "Content-Type": "image/jpeg",
-                                    "Cache-Control": "max-age=31536000",
-                                }
-                            });
-                            return;
-                        } catch {
-                            // File missing, fall through to proxy/Frigate or 404
-                        }
-                    }
-
-                    if (imageSource === ScryptedEventSource.NVR) {
-                        const pathParam = url.searchParams.get('path');
-                        if (pathParam) {
-                            const { localAssetsOrigin } = await getAssetsParams({ plugin: this });
-                            const imageUrl = `${localAssetsOrigin}/${decodeURIComponent(pathParam)}`;
-                            const jpeg = await axios.get<Buffer>(imageUrl, {
-                                responseType: "arraybuffer",
-                                httpsAgent: new https.Agent({
-                                    rejectUnauthorized: false
-                                }),
-                                headers: {
-                                    ...request.headers
-                                }
-                            });
-                            response.send(jpeg.data, {
-                                code: 200,
-                                headers: {
-                                    "Cache-Control": "max-age=31536000",
-                                }
-                            });
-                            return;
-                        }
-                    } else if (imageSource === ScryptedEventSource.Frigate && this.frigateApi) {
-                        const imagePath = webhook === eventThumbnail ? 'thumbnail' : 'snapshot';
-                        const imageUrl = `${this.frigateApi}/events/${decodedRuleNameOrSnoozeIdOrSnapshotId}/${imagePath}.jpg`;
-                        const jpeg = await axios.get<Buffer>(imageUrl, {
-                            responseType: "arraybuffer"
-                        });
-                        response.send(jpeg.data, {
-                            code: 200,
-                            headers: {
-                                ...jpeg.headers,
-                                "Cache-Control": "max-age=31536000",
-                            }
-                        });
-                        return;
-                    }
-
-                    response.send('Not Found', { code: 404 });
-                    return;
-                } else if ([privateWebhook, webhook].some(hook => [videoRule].includes(hook))) {
-                    const triggerTime = decodedTimelapseNameOrSnoozeTime.split('.')[0];
-                    const { videoHistoricalPath } = this.getRulePaths({
-                        cameraId: realDevice.id,
-                        ruleName: decodedRuleNameOrSnoozeIdOrSnapshotId,
-                        triggerTime: Number(triggerTime),
-                    });
-                    await servePluginGeneratedVideoclip({
-                        videoclipPath: videoHistoricalPath,
-                        request,
-                        response,
-                        plugin: this,
-                    });
-                    return;
-                }
-            } else {
-                const publicKey = url.searchParams.get('secret');
-
-                if (!publicKey || !isSecretValid({
-                    publicKey,
-                    secret: this.storageSettings.values.privateKey,
-                })) {
-                    response.send('Unauthorized', {
-                        code: 403
-                    });
-                    return;
-                }
-
-                if (webhook === haAction) {
-                    const { url, accessToken } = await this.getHaApiUrl();
-
-                    await axios.post(`${url}/api/events/mobile_app_notification_action`,
-                        { "action": deviceIdOrAction },
-                        {
-                            headers: {
-                                'Authorization': 'Bearer ' + accessToken,
-                            }
-                        });
-
-                    response.send(`Action ${deviceIdOrAction} executed`, {
-                        code: 200,
-                    });
-                    return;
-                } else if (webhook === videoRule) {
-                    const triggerTime = decodedTimelapseNameOrSnoozeTime.split('.')[0];
-                    const { videoHistoricalPath } = this.getRulePaths({
-                        cameraId: realDevice.id,
-                        ruleName: decodedRuleNameOrSnoozeIdOrSnapshotId,
-                        triggerTime: Number(triggerTime),
-                    });
-                    await servePluginGeneratedVideoclip({
-                        videoclipPath: videoHistoricalPath,
-                        request,
-                        response,
-                        plugin: this,
-                    });
-                    return;
-                } else if (webhook === recordedClipVideo) {
-                    const fileName = decodedTimelapseNameOrSnoozeTime.split('.')[0];
-                    const { recordedClipPath } = this.getRecordedEventPath({
-                        cameraId: realDevice.id,
-                        fileName,
-                    });
-                    await servePluginGeneratedVideoclip({
-                        videoclipPath: recordedClipPath,
-                        request,
-                        response,
-                        plugin: this,
-                    });
-                    return;
-                } else if (webhook === imageRule) {
-                    const triggerTime = decodedTimelapseNameOrSnoozeTime.split('.')[0];
-                    const { imageHistoricalPath } = this.getRulePaths({
-                        cameraId: realDevice.id,
-                        ruleName: decodedRuleNameOrSnoozeIdOrSnapshotId,
-                        triggerTime: Number(triggerTime),
-                    });
-                    await serveImage({
-                        imagePath: imageHistoricalPath,
-                        plugin: this,
-                        request,
-                        response
-                    });
-                    return;
-                } else if (webhook === recordedClipThumbnail) {
-                    const fileName = decodedTimelapseNameOrSnoozeTime.split('.')[0];
-                    const { recordedThumbnailPath } = this.getRecordedEventPath({
-                        cameraId: realDevice.id,
-                        fileName,
-                    });
-                    await serveImage({
-                        imagePath: recordedThumbnailPath,
-                        plugin: this,
-                        request,
-                        response
-                    });
-                    return;
-                } else if (webhook === gifRule) {
-                    const triggerTime = decodedTimelapseNameOrSnoozeTime.split('.')[0];
-                    const { gifHistoricalPath } = this.getRulePaths({
-                        cameraId: realDevice.id,
-                        ruleName: decodedRuleNameOrSnoozeIdOrSnapshotId,
-                        triggerTime: Number(triggerTime),
-                    });
-                    await serveGif({
-                        gifPath: gifHistoricalPath,
-                        plugin: this,
-                        request,
-                        response
-                    });
-                    return;
-                } else if (webhook === lastSnapshot) {
-                    const isWebhookEnabled = device?.mixinState.storageSettings.values.lastSnapshotWebhook;
-
-                    if (isWebhookEnabled) {
-                        const pieces = ruleNameOrSnoozeIdOrSnapshotId.split('__');
-                        const firstPiece = pieces[0];
-
-                        if (firstPiece === 'object-detection') {
-                            const [_, ...rest] = pieces;
-                            const identifier = rest.join('__');
-                            const imageIdentifier = identifier;
-                            const { filePath } = this.getDetectionImagePaths({ device: realDevice, imageIdentifier });
-                            await serveImage({
-                                imagePath: filePath,
-                                plugin: this,
-                                request,
-                                response
-                            })
-                            return;
-                        } else if (firstPiece === 'ruleImage') {
-                            const [_, ruleName, variant] = pieces;
-                            let imagePath: string;
-                            const { imageLatestPath, imageLatestPathVariant } = this.getRulePaths({ cameraId: realDevice.id, ruleName });
-
-                            if (!variant) {
-                                imagePath = imageLatestPath;
-                            } else {
-                                imagePath = imageLatestPathVariant;
-                            }
-                            await serveImage({
-                                imagePath,
-                                plugin: this,
-                                request,
-                                response
-                            });
-                            return;
-                        } else if (firstPiece === 'ruleClip') {
-                            const [_, ruleName] = pieces;
-                            const { videoclipLatestPath } = this.getRulePaths({ cameraId: realDevice.id, ruleName });
-
-                            await servePluginGeneratedVideoclip({
-                                videoclipPath: videoclipLatestPath,
-                                request,
-                                response,
-                                plugin: this,
-                            });
-                            return;
-                        } else if (firstPiece === 'ruleGif') {
-                            const [_, ruleName] = pieces;
-                            const { gifLatestPath } = this.getRulePaths({ cameraId: realDevice.id, ruleName });
-
-                            await serveGif({
-                                gifPath: gifLatestPath,
-                                plugin: this,
-                                request,
-                                response
-                            });
-                            return;
-                        }
-                    }
-                } else if (webhook === imageRule) {
-                    const { imageHistoricalPath } = this.getRulePaths({
-                        cameraId: realDevice.id,
-                        ruleName: decodedRuleNameOrSnoozeIdOrSnapshotId,
-                        triggerTime: Number(decodedTimelapseNameOrSnoozeTime),
-                    });
-                    await serveImage({
-                        imagePath: imageHistoricalPath,
-                        plugin: this,
-                        request,
-                        response
-                    });
-                    return;
-                } else if (webhook === snoozeNotification || isNvrSnooze) {
-                    let device: AdvancedNotifierCameraMixin;
-
-                    let snoozeTime: number;
-                    let snoozeId: string;
-                    let deviceId: string;
-                    if (isNvrSnooze) {
-                        deviceId = nvrSnoozeId.split('_')[1];
-                        device = this.currentCameraMixinsMap[deviceId];
-                        snoozeId = nvrSnoozeId;
-                        snoozeTime = Number(nvrSnoozeAction.split('snooze')[1]);
-                    } else {
-                        snoozeId = decodedRuleNameOrSnoozeIdOrSnapshotId;
-                        deviceId = deviceIdOrAction;
-                        device = this.currentCameraMixinsMap[deviceIdOrAction];
-                        snoozeTime = Number(decodedTimelapseNameOrSnoozeTime);
-                    }
-
-                    const message = await device?.snoozeNotification({
-                        snoozeId,
-                        snoozeTime
-                    });
-
-                    response.send(message, {
-                        code: 200,
-                    });
-                } else if (webhook === setAlarm) {
-                    const mode = deviceIdOrAction as SecuritySystemMode
-                    await this.alarmSystem.armSecuritySystem(mode);
-
-                    response.send(`Alarm set to ${mode}`, {
-                        code: 200,
-                    });
-                } else if (webhook === postNotification && request.method === 'POST') {
-                    const parsedBody = JSON.parse(request.body ?? '{}');
-                    const { cameraId, imageUrl, timestamp, message } = parsedBody;
-                    const notifier = systemManager.getDeviceById(deviceIdOrAction);
-                    const camera = systemManager.getDeviceById<DeviceInterface>(cameraId);
-
-                    let image: MediaObject;
-                    if (imageUrl) {
-                        image = await sdk.mediaManager.createMediaObjectFromUrl(imageUrl);
-                    }
-
-                    const logMessage = `Notifying image ${getB64ImageLog(imageUrl)} to notifier ${notifier.name} through camera ${camera.name}. timestamp ${timestamp}`;
-                    logger.log(logMessage);
-
-                    this.notifyDetection({
-                        triggerDevice: camera,
-                        notifierId: deviceIdOrAction,
-                        time: timestamp,
-                        logger,
-                        message,
-                        image,
-                        rule: { ruleType: RuleType.Detection } as DetectionRule
-                    });
-
-                    response.send(logMessage, {
-                        code: 200,
-                    });
-                }
-            }
-        } catch (e) {
-            logger.log(`Error in onRequest`, e.message, JSON.stringify(request));
-            response.send(`${JSON.stringify(e)}, ${e.message}`, {
-                code: 400,
-            });
-
-            return;
-        }
-
-        response.send(`Webhook not found`, {
-            code: 404,
-        });
-
+    const processNext = () => {
+      const entry = this.cameraAutodiscoveryQueue.shift();
+      if (!entry) {
+        this.processingCameraAutodiscovery = false;
         return;
-    }
-
-    onPush(request: HttpRequest): Promise<void> {
-        return this.onRequest(request, undefined);
-    }
-
-    async getKnownPeople(facesSourceForMqtt: ScryptedEventSource) {
-        const logger = this.getLogger();
-        try {
-            const now = new Date().getTime();
-            const isUpdated = this.lastFacesSource === facesSourceForMqtt &&
-                this.lastKnownPeopleFetched &&
-                (now - this.lastKnownPeopleFetched) <= (1000 * 10);
-
-            if (this.knownPeople && isUpdated) {
-                return this.knownPeople;
-            }
-
-            const faces: string[] = [];
-            const isAll = facesSourceForMqtt === ScryptedEventSource.All;
-
-            if (facesSourceForMqtt === ScryptedEventSource.NVR || isAll) {
-                if (this.nvrObjectDetectionDevice) {
-
-                    const settings = await this.nvrObjectDetectionDevice.getSettings();
-                    const knownPeople = settings?.find(setting => setting.key === 'knownPeople')?.choices
-                        ?.filter(choice => !!choice)
-                        .map(person => person.trim());
-
-                    faces.push(...knownPeople);
-                }
-            }
-
-            if (facesSourceForMqtt === ScryptedEventSource.Frigate || isAll) {
-                const { faces: frigateFaces } = await this.getFrigateData();
-                faces.push(...frigateFaces);
-            }
-
-            this.knownPeople = uniq(faces);
-            this.lastKnownPeopleFetched = now;
-            this.lastFacesSource = facesSourceForMqtt;
-
-            return this.knownPeople
-        } catch (e) {
-            logger.log('Error in getKnownPeople', e.message);
-            return [];
-        }
-    }
-
-    async getFrigateData(): Promise<FrigateData> {
-        try {
-            const now = new Date().getTime();
-
-            if (!this.frigateApi) {
-                return {
-                    cameras: [],
-                    labels: [],
-                    faces: [],
-                };
-            }
-
-            const isUpdated = this.lastFrigateDataFetched && (now - this.lastFrigateDataFetched) <= (1000 * 10);
-
-            if (!isUpdated) {
-                const { audioLabels, cameras, faces, objectLabels } = await getFrigatePluginSettings();
-
-                const labels = [...objectLabels, ...audioLabels];
-                this.lastFrigateDataFetched = now;
-                this.frigateData = {
-                    labels,
-                    cameras,
-                    faces,
-                }
-            }
-
-            return this.frigateData;
-        } catch (e) {
-            this.getLogger().log('Error in getObserveZones', e.message);
-            return {
-                cameras: [],
-                labels: [],
-                faces: [],
-            };
-        }
-    }
-
-    async getAudioData() {
-        try {
-            const now = new Date().getTime();
-
-            const isUpdated = this.lastAudioDataFetched && (now - this.lastAudioDataFetched) <= (1000 * 60);
-            const yamnetPlugin = sdk.systemManager.getDeviceByName<ObjectDetection>('YAMNet Audio Classification');
-
-
-            if (!isUpdated && yamnetPlugin) {
-                const { classes } = await yamnetPlugin.getDetectionModel();
-
-                this.audioLabels = classes;
-            }
-
-            return {
-                labels: this.audioLabels,
-            }
-        } catch (e) {
-            this.getLogger().log('Error in getObserveZones', e.message);
-            return {};
-        }
-    }
-
-    async putSetting(key: string, value: SettingValue): Promise<void> {
-        return this.storageSettings.putSetting(key, value);
-    }
-
-    async getHaClient(): Promise<IHaClient | null> {
-        const { haTransport } = this.storageSettings.values;
-
-        if (haTransport === HomeassistantTransport.websocket) {
-            if (!this.wsHaClient) {
-                this.getLogger().log(`[getHaClient] Creating HaEventClient (haTransport=${haTransport})`);
-                const getHaPushConfig = async () => {
-                    const haUrl = await this.getHaBaseUrl();
-                    const { haSecret } = this.storageSettings.values;
-                    return { haUrl, haSecret: String(haSecret ?? '') };
-                };
-                this.wsHaClient = new HaEventClient(getHaPushConfig, this.getLogger());
-                this.wsHaClient.onAuthenticated = () => {
-                    this.getLogger().log('[main] HaEventClient authenticated — resetting autodiscovery to push all entities');
-                    this.lastAutoDiscovery = 0;
-                    for (const id of Object.keys(this.lastCameraAutodiscoveryMap)) {
-                        delete this.lastCameraAutodiscoveryMap[id];
-                    }
-                    for (const mixin of Object.values(this.currentSensorMixinsMap)) { mixin.lastAutoDiscovery = 0; }
-                    for (const mixin of Object.values(this.currentNotifierMixinsMap)) { mixin.lastAutoDiscovery = 0; }
-                    if (this.alarmSystem) { this.alarmSystem.lastAutoDiscovery = 0; }
-                };
-                this.wsHaClient.connect().catch(e => this.getLogger().warn('[main] HaEventClient connect error:', e));
-            }
-            return this.wsHaClient;
-        }
-
-        try {
-            if (!this.mqttClient && !this.initializingMqtt) {
-                const { mqttMemoryCacheEnabled, mqttEnabled, useMqttPluginCredentials, pluginEnabled, mqttHost, mqttUsename, mqttPassword } = this.storageSettings.values;
-                if (mqttEnabled && pluginEnabled) {
-                    this.initializingMqtt = true;
-                    const logger = this.getLogger();
-
-                    if (this.mqttClient) {
-                        this.mqttClient.disconnect();
-                        this.mqttClient = undefined;
-                    }
-
-                    try {
-                        this.mqttClient = await getMqttBasicClient({
-                            logger,
-                            useMqttPluginCredentials,
-                            mqttHost,
-                            mqttUsename,
-                            mqttPassword,
-                            clientId: `scrypted_an`,
-                            cache: mqttMemoryCacheEnabled,
-                            configTopicPattern: `homeassistant/+/${idPrefix}-${this.pluginId}/+/config`
-                        });
-                        await this.mqttClient?.getMqttClient();
-                    } catch (e) {
-                        logger.log('Error setting up MQTT client', e);
-                    } finally {
-                        this.initializingMqtt = false;
-                    }
-                }
-            }
-        } catch { }
-
-        return this.mqttClient;
-    }
-
-    getRealMixin(id: string) {
-        let mixin: AdvancedNotifierCameraMixin | AdvancedNotifierSensorMixin | AdvancedNotifierNotifierMixin;
-        let settings;
-
-        if (this.currentCameraMixinsMap[id]) {
-            mixin = this.currentCameraMixinsMap[id];
-            settings = mixin?.mixinState.storageSettings;
-        } else if (this.currentSensorMixinsMap[id]) {
-            mixin = this.currentSensorMixinsMap[id];
-            settings = mixin?.storageSettings;
-        } else if (this.currentNotifierMixinsMap[id]) {
-            mixin = this.currentNotifierMixinsMap[id];
-            settings = mixin.storageSettings;
-        }
-
-        return { mixin, settings };
-    }
-
-    getLogger(device?: ScryptedDeviceBase) {
-        if (device) {
-            const deviceId = device.id;
-
-            const { mixin, settings } = this.getRealMixin(deviceId);
-
-            if (mixin) {
-                return super.getLoggerInternal({
-                    console: mixin.console,
-                    storage: settings,
-                    friendlyName: this.cameraStates[deviceId]?.clientId,
-                });
-            }
-        }
-
-        return super.getLoggerInternal({});
-    }
-
-    private async setupMqttEntities() {
-        const { mqttEnabled, haTransport, mqttActiveEntitiesTopic } = this.storageSettings.values;
-        if (mqttEnabled || haTransport === HomeassistantTransport.websocket) {
-            try {
-                const mqttClient = await this.getHaClient();
-                const logger = this.getLogger();
-
-                if (mqttClient) {
-                    this.getLogger().log(`Subscribing to mqtt topics`);
-                    await subscribeToPluginMqttTopics({
-                        entitiesActiveTopic: mqttActiveEntitiesTopic,
-                        mqttClient,
-                        console: logger,
-                        rules: this.allAvailableRules,
-                        activeEntitiesCb: async (message) => {
-                            logger.debug(`Received update for ${mqttActiveEntitiesTopic} topic: ${JSON.stringify(message)}`);
-                            await this.updateOnActiveDevices(message);
-                        },
-                        activationRuleCb: async ({ active, ruleName }) => {
-                            const { common: { enabledKey } } = getRuleKeys({ ruleName, ruleType: RuleType.Detection });
-                            logger.debug(`Setting rule ${ruleName} to ${active}`);
-                            await this.putSetting(enabledKey, active);
-                        },
-                        switchNotificationsEnabledCb: async (active) => {
-                            logger.log(`Setting notifications active to ${!active}`);
-                            await this.storageSettings.putSetting(`notificationsEnabled`, active);
-                        },
-                    });
-                }
-            } catch (e) {
-                this.getLogger().log('Error setting up MQTT client', e);
-            }
-        }
-    }
-
-    private async resetAllMqttTopicsAndRediscover() {
-        const logger = this.getLogger();
-        const mqttClient = await this.getHaClient();
-        if (!mqttClient) {
-            logger.log('MQTT client not available, cannot reset topics');
-            return;
-        }
-
-        const pluginStorage = this.storageSettings;
-        const { availableRules: availableDetectionRules } = getDetectionRules({ pluginStorage, console: logger, plugin: this });
-        const { availableRules: availableRecordingRules } = getRecordingRules({ pluginStorage, console: logger });
-        const rules = [...availableDetectionRules, ...availableRecordingRules];
-
-        const people = await this.getKnownPeople(this.storageSettings.values.facesSourceForMqtt);
-
-        const cameras: Array<{ device: any, rules: BaseRule[], zones: string[], occupancyEnabled: boolean }> = [];
-        for (const mixin of Object.values(this.currentCameraMixinsMap)) {
-            try {
-                const zones = await mixin.getMqttZones();
-                const occupancyEnabled = !!mixin.mixinState?.storageSettings?.values?.checkOccupancy;
-                cameras.push({ device: mixin.cameraDevice as any, rules, zones, occupancyEnabled });
-            } catch (e) {
-                logger.error('Error collecting camera data for MQTT reset', e);
-            }
-        }
-
-        const sensors: Array<{ device: any, rules: BaseRule[] }> = [];
-        for (const mixin of Object.values(this.currentSensorMixinsMap)) {
-            try {
-                const { availableDetectionRules } = await getActiveRules({
-                    device: mixin as any,
-                    console: logger,
-                    plugin: this,
-                    deviceStorage: mixin.storageSettings,
-                });
-                sensors.push({ device: mixin.sensorDevice as any, rules: availableDetectionRules });
-            } catch (e) {
-                logger.error('Error collecting sensor data for MQTT reset', e);
-            }
-        }
-
-        const notifiers: Array<{ device: any }> = [];
-        for (const mixin of Object.values(this.currentNotifierMixinsMap)) {
-            notifiers.push({ device: mixin.notifierDevice as any });
-        }
-
-        let alarmSupportedModes: any[] | undefined;
-        try {
-            const alarm = await this.getDevice(ALARM_SYSTEM_NATIVE_ID) as any;
-            alarmSupportedModes = alarm?.securitySystemState?.supportedModes;
-        } catch (e) {
-            logger.error('Error collecting alarm system data for MQTT reset', e);
-        }
-
-        await resetAllPluginMqttTopicsAndRediscover({
-            mqttClient,
-            console: logger,
-            rules,
-            people,
-            cameras,
-            sensors,
-            notifiers,
-            alarmSupportedModes,
+      }
+      const start = Date.now();
+      entry
+        .task()
+        .catch((e) =>
+          logger.error("Camera autodiscovery error", entry.cameraId, e),
+        )
+        .finally(() => {
+          this.lastCameraAutodiscoveryMap[entry.cameraId] = Date.now();
+          const elapsed = Date.now() - start;
+          const delay = Math.max(0, 300 - elapsed);
+          setTimeout(processNext, delay);
         });
+    };
+    processNext();
+  }
+
+  async init() {
+    const logger = this.getLogger();
+
+    const cloudPlugin =
+      systemManager.getDeviceByName<Settings>("Scrypted Cloud");
+    if (cloudPlugin) {
+      logger.log("Cloud plugin found");
+      this.hasCloudPlugin = true;
+    } else {
+      this.hasCloudPlugin = false;
+
+      const { cloudSecureEndpoint, localInsecureUrl, localSecureUrl } =
+        await getAllAvailableUrls(false);
+      const {
+        assetsOrigin,
+        cloudEndpoint,
+        localEndpoint,
+        privatePathname,
+        publicPathnamePrefix,
+      } = await getAssetsParams({ plugin: this });
+      logger.log(
+        `Cloud plugin not found, URLs available: ${JSON.stringify({
+          cloudSecureEndpoint: getUrlLog(cloudSecureEndpoint),
+          localInsecureUrl: getUrlLog(localInsecureUrl),
+          localSecureUrl: getUrlLog(localSecureUrl),
+          privatePathname,
+          publicPathnamePrefix: getUrlLog(publicPathnamePrefix),
+          assetsOrigin: getUrlLog(assetsOrigin),
+          cloudEndpoint: getUrlLog(cloudEndpoint),
+          localEndpoint: getUrlLog(localEndpoint),
+        })}`,
+      );
     }
 
-    private async updateOnActiveDevices(deviceIdentifiers: string[]) {
-        const logger = this.getLogger();
-        const deviceIds: string[] = [];
-        for (const deviceIdentifier of deviceIdentifiers) {
-            let device = sdk.systemManager.getDeviceById(deviceIdentifier);
+    const objDetectionPlugin = systemManager.getDeviceByName<Settings>(
+      SCRYPTED_NVR_OBJECT_DETECTION_NAME,
+    );
+    if (objDetectionPlugin) {
+      this.nvrObjectDetectionDevice = objDetectionPlugin;
+    } else {
+      logger.log("Scrypted NVR Object Detection not found");
+    }
 
-            if (!device) {
-                device = sdk.systemManager.getDeviceByName(deviceIdentifier);
-            }
+    const frigatePlugin = systemManager.getDeviceByName<Settings>(
+      FRIGATE_BRIDGE_PLUGIN_NAME,
+    );
+    if (frigatePlugin) {
+      const settings = await frigatePlugin.getSettings();
+      const serverUrl = settings.find((setting) => setting.key === "serverUrl")
+        ?.value as string;
+      logger.log(`Frigate API found ${getUrlLog(serverUrl)}`);
 
-            if (device) {
-                deviceIds.push(device.id);
-            } else {
-                logger.log(`Device identifier ${deviceIdentifier} not found`);
-            }
+      try {
+        await axios.get(`${serverUrl}/config`, { timeout: 5000 });
+        logger.log(`Frigate server is reachable`);
+        this.frigateApi = serverUrl;
+
+        const frigateData = await this.getFrigateData();
+        logger.log(`Frigate data found ${JSON.stringify(frigateData)}`);
+      } catch (e) {
+        logger.log(`Frigate server not reachable: ${e.message}`);
+        this.frigateApi = undefined;
+      }
+    }
+
+    // const [major, minor, patch] = version.split('.').map(num => parseInt(num, 10));
+
+    await sdk.deviceManager.onDeviceDiscovered({
+      name: "Advanced notifier NVR notifier",
+      nativeId: NOTIFIER_NATIVE_ID,
+      interfaces: [
+        ScryptedInterface.Notifier,
+        ScryptedInterface.Settings,
+        ADVANCED_NOTIFIER_NOTIFIER_INTERFACE,
+      ],
+      type: ScryptedDeviceType.Notifier,
+    });
+    await sdk.deviceManager.onDeviceDiscovered({
+      name: "Advanced notifier alarm system",
+      nativeId: ALARM_SYSTEM_NATIVE_ID,
+      interfaces: [
+        ScryptedInterface.SecuritySystem,
+        ScryptedInterface.Settings,
+        ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE,
+      ],
+      type: ScryptedDeviceType.SecuritySystem,
+    });
+    await sdk.deviceManager.onDeviceDiscovered({
+      name: "Advanced notifier data fetcher",
+      nativeId: DATA_FETCHER_NATIVE_ID,
+      interfaces: [
+        ScryptedInterface.VideoClips,
+        ScryptedInterface.EventRecorder,
+        ScryptedInterface.Settings,
+      ],
+      type: ScryptedDeviceType.API,
+    });
+    await sdk.deviceManager.onDeviceDiscovered({
+      name: "Advanced notifier Camera",
+      nativeId: CAMERA_NATIVE_ID,
+      interfaces: [
+        ScryptedInterface.Camera,
+        ScryptedInterface.VideoClips,
+        ScryptedInterface.Settings,
+        ScryptedInterface.VideoCamera,
+        ADVANCED_NOTIFIER_CAMERA_INTERFACE,
+      ],
+      type: ScryptedDeviceType.Camera,
+    });
+
+    await this.initPluginSettings();
+
+    const { storagePath } = this.getEventPaths({});
+    try {
+      await fs.promises.access(storagePath);
+    } catch {
+      logger.log(`Creating storage folder at ${storagePath}`);
+      await fs.promises.mkdir(storagePath, { recursive: true });
+    }
+
+    const migrationDone = this.storageSettings.values.migrationDbPerDeviceDone;
+    if (!migrationDone) {
+      try {
+        await migrateDbsToPerDevice({ logger, storagePath });
+        await this.storageSettings.putSetting("migrationDbPerDeviceDone", true);
+      } catch (e) {
+        logger.error("Migration DB per device failed", e);
+      }
+    }
+
+    const migrationRulesArtifactsRegisterDone =
+      this.storageSettings.values.migrationRulesArtifactsRegisterDone;
+    if (!migrationRulesArtifactsRegisterDone) {
+      try {
+        const deviceDirs = await fs.promises
+          .readdir(storagePath)
+          .catch(() => []);
+        for (const deviceId of deviceDirs) {
+          const devicePath = path.join(storagePath, deviceId);
+          const stat = await fs.promises.stat(devicePath).catch(() => null);
+          if (!stat?.isDirectory()) continue;
+          const device =
+            systemManager.getDeviceById<ScryptedDeviceBase>(deviceId);
+          if (!device) continue;
+          const mixin = this.currentCameraMixinsMap[deviceId];
+          let getRuleType: (ruleName: string) => string | undefined;
+          if (mixin?.mixinState?.storageSettings) {
+            const { allAvailableRules } = await getActiveRules({
+              device,
+              deviceStorage: mixin.mixinState.storageSettings,
+              plugin: this,
+              console: logger,
+            });
+            getRuleType = (ruleName) =>
+              allAvailableRules?.find((r) => r.name === ruleName)?.ruleType;
+          } else {
+            getRuleType = (ruleName) =>
+              this.allAvailableRules.find((r) => r.name === ruleName)?.ruleType;
+          }
+          await migrateDeviceRulesRegister({
+            storagePath,
+            deviceId,
+            logger,
+            getRuleType,
+            getUrls: async (ruleName, timestamp) => {
+              const urls = await getWebHookUrls({
+                plugin: this,
+                device,
+                ruleName,
+                fileId: String(timestamp),
+              });
+              return {
+                imageUrl: urls.imageRuleUrl,
+                gifUrl: urls.gifRuleUrl,
+                videoUrl: urls.videoRuleUrl,
+              };
+            },
+          });
         }
+        await this.storageSettings.putSetting(
+          "migrationRulesArtifactsRegisterDone",
+          true,
+        );
+      } catch (e) {
+        logger.error("Migration rules artifacts register failed", e);
+      }
+    }
+  }
 
-        logger.debug(`updateOnActiveDevices: ${JSON.stringify({
-            deviceIdentifiers,
-            stored: this.storageSettings.values.onActiveDevices ?? [],
-            isEqual: isEqual(sortBy(deviceIds), sortBy(this.storageSettings.values.onActiveDevices ?? []))
-        })}`);
+  async getDevice(nativeId: string) {
+    if (nativeId === NOTIFIER_NATIVE_ID)
+      return (this.defaultNotifier ||= new AdvancedNotifierNotifier(
+        NOTIFIER_NATIVE_ID,
+        this,
+      ));
+    if (nativeId === CAMERA_NATIVE_ID)
+      return (this.camera ||= new AdvancedNotifierCamera(
+        CAMERA_NATIVE_ID,
+        this,
+      ));
+    if (nativeId === ALARM_SYSTEM_NATIVE_ID)
+      return (this.alarmSystem ||= new AdvancedNotifierAlarmSystem(
+        ALARM_SYSTEM_NATIVE_ID,
+        this,
+      ));
+    if (nativeId === DATA_FETCHER_NATIVE_ID)
+      return (this.dataFetcher ||= new AdvancedNotifierDataFetcher(
+        DATA_FETCHER_NATIVE_ID,
+        this,
+      ));
+  }
 
-        if (isEqual(sortBy(deviceIds), sortBy(this.storageSettings.values.onActiveDevices ?? []))) {
-            logger.debug('Devices did not change');
+  async releaseDevice(id: string, nativeId: string): Promise<void> {}
+
+  async startStop(enabled: boolean) {
+    if (enabled) {
+      await this.start();
+    } else {
+      await this.stop();
+    }
+  }
+
+  async stop() {
+    this.mainFlowInterval && clearInterval(this.mainFlowInterval);
+    await this.mqttClient?.disconnect();
+  }
+
+  async startStopMixins(enabled: boolean) {
+    for (const mixin of Object.values(this.currentCameraMixinsMap)) {
+      await mixin.startStop(enabled, "from_plugin");
+    }
+    for (const mixin of Object.values(this.currentSensorMixinsMap)) {
+      await mixin.startStop(enabled);
+    }
+    for (const mixin of Object.values(this.currentNotifierMixinsMap)) {
+      await mixin.startStop(enabled);
+    }
+  }
+
+  async start() {
+    try {
+      await this.init();
+      await this.refreshSettings();
+      await this.refreshSettings();
+      await this.mainFlow();
+
+      this.mainFlowInterval = setInterval(async () => {
+        if (!this.mainFlowInProgress) {
+          await this.mainFlow();
+        }
+      }, 2 * 1000);
+    } catch (e) {
+      this.getLogger().log(`Error in initFlow`, e);
+    }
+  }
+
+  async onRequest(request: HttpRequest, response: HttpResponse): Promise<void> {
+    if (!response) return; // onPush has no response
+    const logger = this.getLogger();
+    const url = new URL(`http://localhost${request.url}`);
+    const pathname = url.pathname || request.url || "";
+
+    const corsHeaders = (): Record<string, string> => {
+      const origin = request.headers?.origin;
+      const h: Record<string, string> = {
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Authorization, Content-Type",
+        "Access-Control-Max-Age": "86400",
+      };
+      if (origin) {
+        h["Access-Control-Allow-Origin"] = origin;
+        h["Access-Control-Allow-Credentials"] = "true";
+      } else {
+        h["Access-Control-Allow-Origin"] = "*";
+      }
+      return h;
+    };
+    if (request.method?.toLowerCase() === "options") {
+      response.send("", { code: 200, headers: corsHeaders() });
+      return;
+    }
+    const body = safeParseJson(request.body);
+    if (pathname.includes("eventsApp")) {
+      if (request.method === "POST" && body?.apimethod) {
+        const loginResponse = await checkUserLogin(request);
+        if (!loginResponse) {
+          response.send("Unauthorized", { code: 401 });
+          return;
+        }
+        try {
+          const { statusCode, body: responseBody } =
+            await this.dataFetcher.handleEventsAppRequest(
+              body.apimethod,
+              body.payload,
+            );
+          response.send(JSON.stringify(responseBody), {
+            code: statusCode,
+            headers: { "Content-Type": "application/json" },
+          });
+        } catch (e) {
+          logger.error("EventsApp API error", e);
+          response.send(
+            JSON.stringify({ error: String((e as Error)?.message ?? e) }),
+            { code: 500, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return;
+      }
+    }
+
+    // HA REST endpoints: /public/ha/devices, /public/ha/entities, /public/ha/command, /public/ha/image
+    if (
+      await handleHaRestApi(
+        this as any,
+        pathname,
+        url,
+        request,
+        response,
+        corsHeaders,
+      )
+    ) {
+      return;
+    }
+
+    // SPA: serve Camstack for any path under public/camstack (e.g. /.../public/camstack/...) so deep links and refresh work
+    const spaBase = "public/camstack";
+    const spaBaseIndex = pathname.indexOf(spaBase);
+    if (spaBaseIndex !== -1) {
+      const afterBase =
+        pathname.slice(spaBaseIndex + spaBase.length).replace(/^\/+/, "") || "";
+      const hasFileExtension =
+        /\.(js|css|ico|png|svg|woff2?|ttf|eot|map|webmanifest|json)(\?|$)/i.test(
+          afterBase,
+        );
+      if (afterBase && hasFileExtension) {
+        response.sendFile(`camstack/${afterBase.split("?")[0]}`);
+      } else {
+        response.sendFile("camstack/index.html");
+      }
+      return;
+    }
+
+    // LauncherApplication: Scrypted fetches manifest at .../public/manifest.json; serve from camstack so it returns 200 instead of 403
+    if (pathname.includes("public/manifest.json")) {
+      response.sendFile("camstack/manifest.json");
+      return;
+    }
+    // PWA icons: when manifest is at .../public/manifest.json, relative icon paths resolve to .../public/icon-*.png
+    const publicIconMatch = pathname.match(/\/public\/(icon-[^/]+\.png)$/);
+    if (publicIconMatch) {
+      response.sendFile(`camstack/${publicIconMatch[1]}`);
+      return;
+    }
+
+    const [_, __, ___, ____, privateWebhook, webhook, ...rest] =
+      pathname.split("/");
+    const [
+      deviceIdOrActionRaw,
+      ruleNameOrSnoozeIdOrSnapshotId,
+      timelapseNameOrSnoozeTime,
+    ] = rest;
+    let deviceIdOrAction = decodeURIComponent(deviceIdOrActionRaw);
+    const decodedTimelapseNameOrSnoozeTime = decodeURIComponent(
+      timelapseNameOrSnoozeTime,
+    );
+    const decodedRuleNameOrSnoozeIdOrSnapshotId = decodeURIComponent(
+      ruleNameOrSnoozeIdOrSnapshotId,
+    );
+
+    logger.debug(
+      `Webhook request: ${JSON.stringify({
+        url: request.url,
+        body: request.body,
+        webhook,
+        deviceIdOrActionRaw,
+        deviceIdOrAction,
+        ruleNameOrSnoozeIdOrSnapshotId,
+        decodedRuleNameOrSnoozeIdOrSnapshotId,
+        timelapseNameOrSnoozeTime,
+        decodedTimelapseNameOrSnoozeTime,
+      })}`,
+    );
+
+    let nvrSnoozeId: string;
+    let nvrSnoozeAction: string;
+    let isNvrSnooze = false;
+    if (request.body) {
+      const body = safeParseJson(request.body);
+      if (body.snoozeId && body.actionId) {
+        nvrSnoozeId = body.snoozeId;
+        nvrSnoozeAction = body.actionId;
+        isNvrSnooze = true;
+      }
+    }
+    const device = this.currentCameraMixinsMap[deviceIdOrAction];
+    const realDevice = device
+      ? systemManager.getDeviceById<ScryptedDeviceBase>(device.id)
+      : undefined;
+
+    try {
+      const {
+        lastSnapshot,
+        haAction,
+        snoozeNotification,
+        postNotification,
+        setAlarm,
+        eventsApp,
+        eventThumbnail,
+        eventImage,
+        eventVideoclip,
+        eventVideoclipThumbnail,
+        imageRule,
+        videoRule,
+        gifRule,
+        recordedClipThumbnail,
+        recordedClipVideo,
+      } = await getWebhooks();
+      if ([webhook, privateWebhook].includes("app")) {
+        // SPA: static assets (e.g. .../app/assets/index-xxx.js) must be served from dist/; otherwise index.html for client routing
+        const appPath = rest.join("/");
+        const hasFileExtension =
+          /\.(js|css|ico|png|svg|woff2?|ttf|eot|map)(\?|$)/i.test(appPath);
+        if (appPath && hasFileExtension) {
+          response.sendFile(`dist/${appPath}`);
         } else {
-            logger.log(`"OnActiveDevices" changed: ${JSON.stringify(deviceIds)}`);
-            this.putSetting('onActiveDevices', deviceIds);
+          response.sendFile("dist/index.html");
         }
-    }
-
-    private async initPluginSettings() {
-        const logger = this.getLogger();
-        let defaultAssetOriginSource = AssetOriginSource.LocalInsecure;
-
-        const assetsOriginSources = [
-            AssetOriginSource.LocalSecure,
-            AssetOriginSource.LocalInsecure,
-            AssetOriginSource.Custom,
-        ];
-
-        if (this.hasCloudPlugin) {
-            const mo = await mediaManager.createMediaObject('', 'text/plain')
-            const serverId: string = await mediaManager.convertMediaObject(mo, ScryptedMimeTypes.ServerId);
-
-            logger.log(`Server id found: ${serverId}`);
-            await this.putSetting('serverId', serverId);
-
-            assetsOriginSources.unshift(AssetOriginSource.CloudSecure);
-            defaultAssetOriginSource = AssetOriginSource.CloudSecure;
+        return;
+      }
+      if ([webhook, privateWebhook].includes("camstack")) {
+        // Camstack SPA: served from fs/camstack (same root as dist for events app)
+        const camstackPath = rest.join("/");
+        const hasFileExtension =
+          /\.(js|css|ico|png|svg|woff2?|ttf|eot|map|webmanifest|json)(\?|$)/i.test(
+            camstackPath,
+          );
+        if (camstackPath && hasFileExtension) {
+          response.sendFile(`camstack/${camstackPath.split("?")[0]}`);
+        } else {
+          response.sendFile("camstack/index.html");
         }
-
-        const localAddresses = await sdk.endpointManager.getLocalAddresses();
-        logger.log(`Local addresses found: ${localAddresses}`);
-        await this.putSetting('localAddresses', localAddresses);
-
-        const {
-            assetsOriginSource,
-            haEnabled,
-            privateKey,
-            objectDetectionDevice,
-            clipDevice
-        } = this.storageSettings.values;
-
-        if (!assetsOriginSources.includes(assetsOriginSource)) {
-            logger.log(`Setting assets origin to ${defaultAssetOriginSource}`);
-            this.storageSettings.values.assetsOriginSource = defaultAssetOriginSource;
+        return;
+      }
+      if ([webhook, privateWebhook].includes(eventsApp)) {
+        if (webhook === eventsApp) {
+          const loginResponse = await checkUserLogin(request);
+          if (!loginResponse) {
+            response.send("Unauthorized", { code: 401 });
+            return;
+          }
         }
 
-        this.storageSettings.settings.assetsOriginSource.choices = assetsOriginSources;
-        this.storageSettings.settings.assetsOriginSource.defaultValue = defaultAssetOriginSource;
-
-        if (haEnabled) {
-            await this.generateHomeassistantHelpers();
+        if ([privateWebhook, webhook].includes(eventVideoclipThumbnail)) {
+          const device =
+            sdk.systemManager.getDeviceById<VideoClips>(deviceIdOrAction);
+          const thumbMo = await device.getVideoClipThumbnail(
+            decodedRuleNameOrSnoozeIdOrSnapshotId,
+          );
+          const jpeg = await mediaManager.convertMediaObjectToBuffer(
+            thumbMo,
+            "image/jpeg",
+          );
+          response.send(jpeg, {
+            code: 200,
+            headers: {
+              "Content-Type": "image/jpeg",
+              "Cache-Control": "max-age=31536000",
+            },
+          });
+          return;
         }
-
-        if (!privateKey) {
-            const privateKey = generatePrivateKey(10);
-            logger.log(`Private key not set, new one generated ***${privateKey.substring(3, 7)}***`);
-            this.storageSettings.values.privateKey = privateKey;
-        }
-
-        if (!objectDetectionDevice) {
-            const allDetectors = getAllDevices().filter(dev => dev.interfaces.includes(ScryptedInterface.ObjectDetectionPreview) && dev.id !== nvrAcceleratedMotionSensorId);
-            const nvrOne = sdk.systemManager.getDeviceByName(SCRYPTED_NVR_OBJECT_DETECTION_NAME);
-            let toUse = allDetectors[0];
-            if (nvrOne && allDetectors.some(dev => dev.id === nvrOne.id)) {
-                toUse = nvrOne;
-            }
-
-            logger.log(`Object detector not set, defaulting to ${toUse.name}`);
-            // await this.putSetting('objectDetectionDevice', toUse.id);
-            this.storageSettings.values.objectDetectionDevice = toUse.id;
-        }
-
-        if (!clipDevice) {
-            const allClippers = getAllDevices().filter(dev => dev.interfaces.includes('TextEmbedding') && dev.interfaces.includes('ImageEmbedding'));
-            const toUse = allClippers[0];
-            logger.log(`Clip device not set, defaulting to ${toUse.name}`);
-            // await this.putSetting('clipDevice', toUse.id);
-            this.storageSettings.values.clipDevice = toUse.id;
-        }
-    }
-
-    private async mainFlow() {
-        const logger = this.getLogger();
-        this.mainFlowInProgress = true;
-        try {
-            const deviceVideocameraMap: Record<string, string> = {};
-            const videocameraDevicesMap: Record<string, string[]> = {};
-
-            const allDevices = getElegibleDevices();
-            for (const device of allDevices) {
-                const { isCamera } = isDeviceSupported(device);
-                const deviceId = device.id;
-                try {
-                    const settings = await device.getSettings();
-                    const linkedCamera = settings.find(setting => setting.key === 'homeassistantMetadata:linkedCamera')?.value as string;
-                    const nearbySensors = (settings.find(setting => setting.key === 'recording:nearbySensors')?.value as string[]) ?? [];
-                    const nearbyLocks = (settings.find(setting => setting.key === 'recording:nearbyLocks')?.value as string[]) ?? [];
-
-                    if (linkedCamera) {
-                        const cameraDevice = systemManager.getDeviceById(linkedCamera);
-                        if (cameraDevice) {
-                            const cameraId = cameraDevice.id;
-                            deviceVideocameraMap[deviceId] = cameraId;
-                            if (!videocameraDevicesMap[cameraId]) {
-                                videocameraDevicesMap[cameraId] = [];
-                            }
-                            !videocameraDevicesMap[cameraId].includes(deviceId) && videocameraDevicesMap[cameraId].push(deviceId);
-                        } else {
-                            logger.log(`Device ${device.name} is linked to the cameraId ${linkedCamera}, not available anymore`);
-                        }
-                    }
-
-                    if (isCamera) {
-                        const allLinkedSensorIds = [...nearbySensors, ...nearbyLocks];
-
-                        for (const linkedSensorId of allLinkedSensorIds) {
-                            deviceVideocameraMap[linkedSensorId] = deviceId;
-                            if (!videocameraDevicesMap[deviceId]) {
-                                videocameraDevicesMap[deviceId] = [];
-                            }
-                            !videocameraDevicesMap[deviceId].includes(linkedSensorId) && videocameraDevicesMap[deviceId].push(linkedSensorId);
-                        }
-                    }
-                } catch (e) {
-                    logger.log(`Error in mainFlow-${device}`, e);
-                }
-            }
-
-            const pluginStorage = this.storageSettings;
-            const { availableRules: availableDetectionRules, allowedRules: allowedDetectionRules } = getDetectionRules({ pluginStorage, console: logger, plugin: this });
-            const { availableRules: availableRecordingRules, allowedRules: allowedRecordingRules } = getRecordingRules({ pluginStorage, console: logger });
-
-            const availableRules = [...availableDetectionRules, ...availableRecordingRules];
-            const allowedRules = [...allowedDetectionRules, ...allowedRecordingRules];
-            const currentlyRunningRules = [...this.runningDetectionRules, ...this.runningRecordingRules];
-
-            const [rulesToEnable, rulesToDisable] = splitRules({
-                allRules: availableRules,
-                currentlyRunningRules,
-                rulesToActivate: allowedRules
-            });
-
-            for (const rule of rulesToEnable) {
-                logger.log(`${rule.ruleType} rule started: ${rule.name}`);
-                const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: rule.ruleType });
-                this.putSetting(currentlyActiveKey, 'true');
-            }
-
-            for (const rule of rulesToDisable) {
-                logger.log(`${rule.ruleType} rule stopped: ${rule.name}`);
-                const { common: { currentlyActiveKey } } = getRuleKeys({ ruleName: rule.name, ruleType: rule.ruleType });
-                this.putSetting(currentlyActiveKey, 'false');
-            }
-
-            this.runningDetectionRules = cloneDeep(allowedDetectionRules) || [];
-            this.runningRecordingRules = cloneDeep(allowedRecordingRules) || [];
-            this.deviceVideocameraMap = deviceVideocameraMap;
-            this.videocameraDevicesMap = videocameraDevicesMap;
-            this.allAvailableRules = availableRules;
-
-            const now = Date.now();
-
-            if (!this.lastConfigurationsCheck || (now - this.lastConfigurationsCheck) > 1000 * 60 * 60) {
-                this.lastConfigurationsCheck = now;
-                await this.checkPluginConfigurations(false);
-            }
-
-            const { mqttEnabled, haTransport, notificationsEnabled, devNotifications, devNotifier, facesSourceForMqtt } = this.storageSettings.values;
-            const haIntegrationEnabled = mqttEnabled || haTransport === HomeassistantTransport.websocket;
-            if (haIntegrationEnabled) {
-                const mqttClient = await this.getHaClient();
-                if (mqttClient) {
-                    const logger = this.getLogger();
-                    if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
-                        this.lastAutoDiscovery = now;
-                        this.aiMessageResponseMap = {};
-
-                        logger.log('Starting autodiscovery');
-                        setupPluginAutodiscovery({
-                            mqttClient,
-                            people: await this.getKnownPeople(facesSourceForMqtt),
-                            console: logger,
-                            rules: availableRules,
-                        }).catch(logger.error);
-
-                        await this.setupMqttEntities();
-                    }
-                    let pluginRpcObjects: number | undefined;
-                    let pluginPendingResults: number | undefined;
-                    try {
-                        const { stats } = await getRpcData();
-                        const pluginStats = stats[pluginName];
-                        pluginPendingResults = pluginStats?.pendingResults;
-                        pluginRpcObjects = pluginStats?.rpcObjects;
-                    } catch (e) {
-                        logger?.error('Errore recuperando statistiche RPC per publishPluginValues', e);
-                    }
-
-                    publishPluginValues({
-                        mqttClient,
-                        notificationsEnabled,
-                        rulesToEnable,
-                        rulesToDisable,
-                        rpcObjects: pluginRpcObjects,
-                        pendingResults: pluginPendingResults,
-                        rssMemoryMB: typeof process !== 'undefined' && process.memoryUsage ? Math.round(process.memoryUsage().rss / 1024 / 1024) : undefined,
-                        heapMemoryMB: typeof process !== 'undefined' && process.memoryUsage ? Math.round(process.memoryUsage().heapUsed / 1024 / 1024) : undefined,
-                    }).catch(logger.error);
-                }
-            }
-
-            if (!this.restartRequested) {
-                // const activeDevices = (getAllDevices()
-                //     .filter(device =>
-                //         device.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE) &&
-                //         (device.type === ScryptedDeviceType.Camera || device.type === ScryptedDeviceType.Doorbell)
-                //     )?.length || 0) + 1;
-                const activeCameras = Object.keys(this.currentCameraMixinsMap).length;
-                const activeSensors = Object.keys(this.currentSensorMixinsMap).length;
-                const activeNotifiers = Object.keys(this.currentNotifierMixinsMap).length;
-
-                const activeDevices = activeCameras + activeSensors + activeNotifiers;
-
-                if (!!activeDevices) {
-                    const { stats } = await getRpcData();
-                    const pluginStats = stats[pluginName];
-                    const pluginPendingResults = pluginStats?.pendingResults;
-                    const pluginRpcObjects = pluginStats?.rpcObjects;
-
-                    logger.debug(`PLUGIN-STUCK-CHECK: active devices ${activeDevices}, pending results ${pluginPendingResults} RPC objects ${pluginRpcObjects}`);
-
-                    const camerasHardCap = MAX_RPC_OBJECTS_PER_CAMERA * activeCameras;
-                    const sensorsHardCap = MAX_RPC_OBJECTS_PER_SENSOR * activeSensors;
-                    const notifiersHardCap = MAX_RPC_OBJECTS_PER_NOTIFIER * activeNotifiers;
-
-                    const camerasSoftCap = SOFT_RPC_OBJECTS_PER_CAMERA * activeCameras;
-                    const sensorsSoftCap = SOFT_RPC_OBJECTS_PER_SENSOR * activeSensors;
-                    const notifiersSoftCap = SOFT_RPC_OBJECTS_PER_NOTIFIER * activeNotifiers;
-
-                    let hardCap = MAX_RPC_OBJECTS_PER_PLUGIN + camerasHardCap + sensorsHardCap + notifiersHardCap;
-                    let softCap = SOFT_RPC_OBJECTS_PER_PLUGIN + camerasSoftCap + sensorsSoftCap + notifiersSoftCap;
-
-                    hardCap = max([hardCap, HARD_MIN_RPC_OBJECTS]);
-                    softCap = max([softCap, SOFT_MIN_RPC_OBJECTS]);
-
-                    let shouldRestart = false;
-                    const maxActiveMotion = Math.floor(activeCameras / 15);
-                    let body: string;
-                    if (pluginRpcObjects > softCap && ((now - this.connectionTime) > (1000 * 60 * 60 * 2)) && this.cameraMotionActive.size <= maxActiveMotion) {
-                        body = `${pluginRpcObjects} (> ${softCap}) RPC objects found, soft resetting because not much active motion`;
-                        shouldRestart = true;
-                    } else if (
-                        pluginPendingResults > (MAX_PENDING_RESULT_PER_CAMERA * activeDevices) ||
-                        pluginRpcObjects > hardCap
-                    ) {
-                        shouldRestart = true;
-                        body = `High resources detected, ${pluginPendingResults} pending results and ${pluginRpcObjects} (> ${hardCap}) RPC objects. Restarting`;
-                    }
-
-                    if (shouldRestart) {
-                        this.restartRequested = true;
-                        await sdk.deviceManager.requestRestart();
-                        devNotifications?.includes(DevNotifications.SoftRestart) && (devNotifier as Notifier).sendNotification('Advanced notifier restarted', {
-                            body
-                        });
-                        logger.log(body);
-
-                        for (const mixin of Object.values(this.currentCameraMixinsMap)) {
-                            await mixin.onRestart();
-                        }
-                    }
-                }
-            }
-
-            if (this.accumulatedTimelapsesToGenerate) {
-                const timelapsesToRun = [...this.accumulatedTimelapsesToGenerate];
-                this.accumulatedTimelapsesToGenerate = undefined;
-                this.accumulatedTimelapsesToGenerate = [];
-                const triggerTime = Date.now();
-
-                for (const timelapse of timelapsesToRun) {
-                    const { deviceId, ruleName } = timelapse;
-                    const deviceState = this.cameraStates[deviceId];
-                    const rule = deviceState?.allAvailableRules.find(rule => rule.ruleType === RuleType.Timelapse && rule.name === ruleName);
-                    const device = sdk.systemManager.getDeviceById<DeviceInterface>(deviceId);
-                    const deviceLogger = deviceState.logger;
-                    await this.ensureRuleFoldersExist({ cameraId: device.id, ruleName: rule.name });
-                    await this.generateTimelapse({
-                        rule,
-                        device,
-                        logger: deviceLogger,
-                        triggerTime,
-                    });
-                    await this.notifyTimelapse({
-                        cameraDevice: device,
-                        triggerTime,
-                        rule
-                    });
-                }
-            }
-        } catch (e) {
-            logger.log('Error in mainFlow', e);
-        } finally {
-            this.mainFlowInProgress = false;
-        }
-    }
-
-    private async checkPluginConfigurations(manual: boolean) {
-        const logger = this.getLogger();
-        try {
-            const notifiersRegex = new RegExp('(rule|occupancyRule|timelapseRule):(.*):notifiers');
-            const devicesRegex = new RegExp('(rule|occupancyRule|timelapseRule):(.*):devices');
-            const activationTypeRegex = new RegExp('rule:(.*):activation');
-            const allDevices = getElegibleDevices();
-
-            const missingNotifiersOfDeviceRules: { deviceName: string, ruleName: string, notifierIds: string[] }[] = [];
-            const missingNotifiersOfPluginRules: { ruleName: string, notifierIds: string[] }[] = [];
-            const missingDevicesOfPluginRules: { ruleName: string, deviceIds: string[] }[] = [];
-            const devicesWithoutRoom: string[] = [];
-
-            for (const device of allDevices) {
-                if (!device.room) {
-                    devicesWithoutRoom.push(device.name);
-                }
-
-                const { mixin, settings } = this.getRealMixin(device.id);
-                if (mixin) {
-                    const notifiersSettings = (await settings.getSettings())
-                        .filter((sett) => sett.key?.match(notifiersRegex));
-
-                    for (const notifiersSetting of notifiersSettings) {
-                        const [_, type, name] = notifiersSetting.key.match(notifiersRegex);
-                        const missingNotifiers = (notifiersSetting.value as string[])?.filter(notifierId => !sdk.systemManager.getDeviceById(notifierId));
-                        if (missingNotifiers.length) {
-                            missingNotifiersOfDeviceRules.push({ deviceName: device.name, notifierIds: missingNotifiers, ruleName: `${type}_${name}` });
-                        }
-                    }
-                } else {
-                    logger.info(`Mixin not found for device ${device.name}`);
-                }
-            }
-
-            const pluginStorage = this.storageSettings;
-            const notifiersSettings = (await this.storageSettings.getSettings())
-                .filter((sett) => sett.key?.match(notifiersRegex));
-
-            for (const notifiersSetting of notifiersSettings) {
-                const [_, type, name] = notifiersSetting.key.match(notifiersRegex);
-                const missingNotifiers = (notifiersSetting.value as string[])?.filter(notifierId => !sdk.systemManager.getDeviceById(notifierId));
-                if (missingNotifiers.length) {
-                    missingNotifiersOfPluginRules.push({ notifierIds: missingNotifiers, ruleName: `${type}_${name}` });
-                }
-            }
-
-            const devicesSettings = (await this.storageSettings.getSettings())
-                .filter((sett) => sett.key?.match(devicesRegex));
-
-            for (const devicesSetting of devicesSettings) {
-                const [_, type, name] = devicesSetting.key.match(devicesRegex);
-                const missingDevices = (devicesSetting.value as string[])?.filter(deviceId => !sdk.systemManager.getDeviceById(deviceId));
-                if (missingDevices.length) {
-                    missingDevicesOfPluginRules.push({ deviceIds: missingDevices, ruleName: `${type}_${name}` });
-                }
-            }
-
-            const anyActiveOnRules = Object.entries(pluginStorage)
-                .filter(([key, setting]) => key?.match(activationTypeRegex) && setting.value === DetectionRuleActivation.OnActive);
-
-            const sensorsNotLinkedToAnyCamera = allDevices.filter(
-                device => device.type === ScryptedDeviceType.Sensor && !this.deviceVideocameraMap[device.id]
-            ).map(sensor => sensor.name);
-
-            const {
-                devNotifier,
-                devNotifications,
-                scryptedToken,
-                nvrUrl,
-                objectDetectionDevice,
-                clipDevice,
-                haEnabled,
-                securitySystem,
-            } = this.storageSettings.values;
-            let storagePathError;
-
-            const imagesPath = this.getStoragePath();
-
-            const imagesPathSet = imagesPath && imagesPath !== '';
-
-            if (imagesPathSet) {
-                try {
-                    await fs.promises.access(imagesPath);
-                } catch (e) {
-                    storagePathError = e;
-                }
-            }
-
-            const alertHaIssues = haEnabled && anyActiveOnRules;
-
-            const securitySystemDevice: SecuritySystem = typeof securitySystem === 'string' ? sdk.systemManager.getDeviceById<SecuritySystem>(securitySystem) : securitySystem;
-            const securitySyetemState = securitySystemDevice?.securitySystemState;
-            const securitySystemCorrectMode = securitySyetemState ? Object.keys(SecuritySystemMode).includes(securitySyetemState.mode) : undefined;
-
-            const body = JSON.stringify({
-                missingNotifiersOfDeviceRules: missingNotifiersOfDeviceRules.length ? missingNotifiersOfDeviceRules : undefined,
-                missingNotifiersOfPluginRules: missingNotifiersOfPluginRules.length ? missingNotifiersOfPluginRules : undefined,
-                missingDevicesOfPluginRules: missingDevicesOfPluginRules.length ? missingDevicesOfPluginRules : undefined,
-                sensorsNotLinkedToAnyCamera: sensorsNotLinkedToAnyCamera.length ? sensorsNotLinkedToAnyCamera : undefined,
-                devicesWithoutRoom: devicesWithoutRoom.length ? devicesWithoutRoom : undefined,
-                storagePathError: storagePathError ?? (imagesPathSet ? 'No error' : 'Not set'),
-                scryptedToken: scryptedToken ? 'Set' : 'Not set',
-                serverId: this.storageSettings.getItem('serverId') ? 'Found' : 'Not found',
-                nvrUrl: nvrUrl ? 'Set' : 'Not set',
-                objectDetectionDevice: objectDetectionDevice ? objectDetectionDevice.name : 'Not set',
-                clipDevice: clipDevice ? clipDevice.name : 'Not set',
-                securitySystemSet: securitySystemDevice ? 'Set' : 'Not set',
-                securitySystemState: securitySystemDevice ? securitySystemCorrectMode ? 'Ok' : `Wrong: ${securitySyetemState?.mode}` : undefined
-            });
-
-            if (manual) {
-                logger.log(`checkPluginConfigurations results: ${body}`);
+        if ([privateWebhook, webhook].includes(eventVideoclip)) {
+          const device =
+            sdk.systemManager.getDeviceById<VideoClips>(deviceIdOrAction);
+          const mo = await device.getVideoClip(
+            decodedRuleNameOrSnoozeIdOrSnapshotId,
+          );
+          let videoUrl: string;
+          let isNvrProxyFallback = false;
+          try {
+            videoUrl = (
+              await mediaManager.convertMediaObjectToBuffer(
+                mo,
+                ScryptedMimeTypes.LocalUrl,
+              )
+            ).toString();
+          } catch (convertErr) {
+            const nvrFilename = parseNvrVideoIdToFilename(
+              decodedRuleNameOrSnoozeIdOrSnapshotId,
+            );
+            if (nvrFilename) {
+              const { localAssetsOrigin } = await getAssetsParams({
+                plugin: this,
+              });
+              videoUrl = `${localAssetsOrigin}/endpoint/${NVR_PLUGIN_ID}/clip/${deviceIdOrAction}/${nvrFilename}`;
+              isNvrProxyFallback = true;
+              this.console.log(
+                `[eventVideoclip] NVR convert failed, proxying from ${videoUrl.slice(0, 80)}...`,
+              );
             } else {
-                logger.debug(`Results: ${body}`);
-
-                if (
-                    missingNotifiersOfDeviceRules.length ||
-                    missingNotifiersOfPluginRules.length ||
-                    missingDevicesOfPluginRules.length ||
-                    sensorsNotLinkedToAnyCamera.length ||
-                    (alertHaIssues && devicesWithoutRoom.length) ||
-                    !!storagePathError
-                ) {
-                    devNotifications?.includes(DevNotifications.ConfigCheckError) && (devNotifier as Notifier).sendNotification('Advanced notifier not correctly configured', {
-                        body
-                    });
-                }
+              throw convertErr;
             }
-        } catch (e) {
-            logger.log('Error in checkExistingDevices', e);
+          }
+          if (videoUrl.startsWith("http")) {
+            const urlEntity = new URL(videoUrl);
+            videoUrl = `${urlEntity.pathname}${urlEntity.search}`;
+          }
+          const { assetsOrigin } = await getAssetsParams({ plugin: this });
+          videoUrl = `${assetsOrigin}${videoUrl}`;
+
+          const ua = request.headers["user-agent"] ?? "";
+          const isIosOrMobile =
+            /iPhone|iPad|iPod|CFNetwork|Darwin|Expo|ReactNative|okhttp/i.test(
+              ua,
+            );
+          const urlObj = new URL(`http://localhost${request.url}`);
+          const forcePrebuffer = urlObj.searchParams.get("prebuffer") === "1";
+          const { isNvr } = getAssetSource({
+            videoUrl,
+            sourceId: (mo as { sourceId?: string })?.sourceId,
+          });
+
+          // Prebuffer NVR clips for iOS/mobile to avoid AVFoundation -11850 streaming issues.
+          // When ?prebuffer=1 is requested, always prebuffer (isNvr can be false if videoUrl
+          // doesn't contain NVR_PLUGIN_ID, e.g. internal NVR URLs).
+          // isNvrProxyFallback: always proxy (redirect would 401 on NVR endpoint).
+          if (
+            (isNvr || forcePrebuffer || isNvrProxyFallback) &&
+            (isIosOrMobile || forcePrebuffer || isNvrProxyFallback)
+          ) {
+            const fetchHeaders = { ...request.headers } as Record<
+              string,
+              string
+            >;
+            delete fetchHeaders.range;
+            delete fetchHeaders.Range;
+            const remoteResponse = await axios.get<Buffer[]>(videoUrl, {
+              headers: fetchHeaders,
+              httpsAgent: new https.Agent({
+                rejectUnauthorized: false,
+              }),
+              responseType: "stream",
+            });
+            const chunks: Buffer[] = [];
+
+            for await (const chunk of remoteResponse.data) {
+              chunks.push(chunk);
+            }
+
+            const fullBuffer = Buffer.concat(chunks);
+            const totalLength = fullBuffer.length;
+            const rangeHeader =
+              request.headers?.range ?? request.headers?.Range;
+            if (rangeHeader && typeof rangeHeader === "string") {
+              const match = rangeHeader.match(/bytes=(\d*)-(\d*)/);
+              if (match) {
+                const startStr = match[1];
+                const endStr = match[2];
+                let actualStart: number;
+                let actualEnd: number;
+                if (startStr && endStr) {
+                  actualStart = parseInt(startStr, 10);
+                  actualEnd = Math.min(parseInt(endStr, 10), totalLength - 1);
+                } else if (startStr) {
+                  actualStart = parseInt(startStr, 10);
+                  actualEnd = totalLength - 1;
+                } else if (endStr) {
+                  actualEnd = totalLength - 1;
+                  actualStart = Math.max(0, totalLength - parseInt(endStr, 10));
+                } else {
+                  actualStart = 0;
+                  actualEnd = totalLength - 1;
+                }
+                actualStart = Math.min(actualStart, actualEnd);
+                const chunk = fullBuffer.subarray(actualStart, actualEnd + 1);
+                response.send(chunk, {
+                  code: 206,
+                  headers: {
+                    "Content-Type": "video/mp4",
+                    "Content-Length": chunk.length,
+                    "Content-Range": `bytes ${actualStart}-${actualEnd}/${totalLength}`,
+                    "Accept-Ranges": "bytes",
+                    ...corsHeaders(),
+                  },
+                });
+                return;
+              }
+            }
+            response.send(fullBuffer, {
+              code: 200,
+              headers: {
+                "Content-Type": "video/mp4",
+                "Content-Length": totalLength,
+                "Accept-Ranges": "bytes",
+                ...corsHeaders(),
+              },
+            });
+            return;
+          } else {
+            response.send("", {
+              code: 302,
+              headers: {
+                ...request.headers,
+                Location: videoUrl,
+              },
+            });
+            return;
+          }
+        } else if ([privateWebhook, webhook].includes(imageRule)) {
+          const { imageHistoricalPath } = this.getRulePaths({
+            cameraId: realDevice.id,
+            ruleName: decodedRuleNameOrSnoozeIdOrSnapshotId,
+            triggerTime: Number(decodedTimelapseNameOrSnoozeTime),
+          });
+          await serveImage({
+            imagePath: imageHistoricalPath,
+            plugin: this,
+            request,
+            response,
+          });
+          return;
+        } else if ([privateWebhook, webhook].includes(gifRule)) {
+          const triggerTime = decodedTimelapseNameOrSnoozeTime.split(".")[0];
+          const { gifHistoricalPath } = this.getRulePaths({
+            cameraId: realDevice.id,
+            ruleName: decodedRuleNameOrSnoozeIdOrSnapshotId,
+            triggerTime: Number(triggerTime),
+          });
+          await serveGif({
+            gifPath: gifHistoricalPath,
+            plugin: this,
+            request,
+            response,
+          });
+          return;
+        } else if (
+          [privateWebhook, webhook].some((hook) =>
+            [eventThumbnail, eventImage].includes(hook),
+          )
+        ) {
+          const imageSource = timelapseNameOrSnoozeTime as ScryptedEventSource;
+          const cameraIdForPath = realDevice?.id ?? deviceIdOrAction;
+          const { eventThumbnailPath, eventImagePath } = this.getEventPaths({
+            cameraId: cameraIdForPath,
+            fileName: decodedRuleNameOrSnoozeIdOrSnapshotId,
+          });
+          const localPath =
+            webhook === eventThumbnail ? eventThumbnailPath : eventImagePath;
+
+          // Prefer local file (plugin DB events: NVR/Frigate/Raw saved with thumbnails)
+          if (localPath) {
+            try {
+              const jpeg = await fs.promises.readFile(localPath);
+              response.send(jpeg, {
+                headers: {
+                  "Content-Type": "image/jpeg",
+                  "Cache-Control": "max-age=31536000",
+                },
+              });
+              return;
+            } catch {
+              // File missing, fall through to proxy/Frigate or 404
+            }
+          }
+
+          if (imageSource === ScryptedEventSource.NVR) {
+            const pathParam = url.searchParams.get("path");
+            if (pathParam) {
+              const { localAssetsOrigin } = await getAssetsParams({
+                plugin: this,
+              });
+              const imageUrl = `${localAssetsOrigin}/${decodeURIComponent(pathParam)}`;
+              const jpeg = await axios.get<Buffer>(imageUrl, {
+                responseType: "arraybuffer",
+                httpsAgent: new https.Agent({
+                  rejectUnauthorized: false,
+                }),
+                headers: {
+                  ...request.headers,
+                },
+              });
+              response.send(jpeg.data, {
+                code: 200,
+                headers: {
+                  "Cache-Control": "max-age=31536000",
+                },
+              });
+              return;
+            }
+          } else if (
+            imageSource === ScryptedEventSource.Frigate &&
+            this.frigateApi
+          ) {
+            const imagePath =
+              webhook === eventThumbnail ? "thumbnail" : "snapshot";
+            const imageUrl = `${this.frigateApi}/events/${decodedRuleNameOrSnoozeIdOrSnapshotId}/${imagePath}.jpg`;
+            const jpeg = await axios.get<Buffer>(imageUrl, {
+              responseType: "arraybuffer",
+            });
+            response.send(jpeg.data, {
+              code: 200,
+              headers: {
+                ...jpeg.headers,
+                "Cache-Control": "max-age=31536000",
+              },
+            });
+            return;
+          }
+
+          response.send("Not Found", { code: 404 });
+          return;
+        } else if (
+          [privateWebhook, webhook].some((hook) => [videoRule].includes(hook))
+        ) {
+          const triggerTime = decodedTimelapseNameOrSnoozeTime.split(".")[0];
+          const { videoHistoricalPath } = this.getRulePaths({
+            cameraId: realDevice.id,
+            ruleName: decodedRuleNameOrSnoozeIdOrSnapshotId,
+            triggerTime: Number(triggerTime),
+          });
+          await servePluginGeneratedVideoclip({
+            videoclipPath: videoHistoricalPath,
+            request,
+            response,
+            plugin: this,
+          });
+          return;
         }
+      } else {
+        const publicKey = url.searchParams.get("secret");
+
+        if (
+          !publicKey ||
+          !isSecretValid({
+            publicKey,
+            secret: this.storageSettings.values.privateKey,
+          })
+        ) {
+          response.send("Unauthorized", {
+            code: 403,
+          });
+          return;
+        }
+
+        if (webhook === haAction) {
+          const { url, accessToken } = await this.getHaApiUrl();
+
+          await axios.post(
+            `${url}/api/events/mobile_app_notification_action`,
+            { action: deviceIdOrAction },
+            {
+              headers: {
+                Authorization: "Bearer " + accessToken,
+              },
+            },
+          );
+
+          response.send(`Action ${deviceIdOrAction} executed`, {
+            code: 200,
+          });
+          return;
+        } else if (webhook === videoRule) {
+          const triggerTime = decodedTimelapseNameOrSnoozeTime.split(".")[0];
+          const { videoHistoricalPath } = this.getRulePaths({
+            cameraId: realDevice.id,
+            ruleName: decodedRuleNameOrSnoozeIdOrSnapshotId,
+            triggerTime: Number(triggerTime),
+          });
+          await servePluginGeneratedVideoclip({
+            videoclipPath: videoHistoricalPath,
+            request,
+            response,
+            plugin: this,
+          });
+          return;
+        } else if (webhook === recordedClipVideo) {
+          const fileName = decodedTimelapseNameOrSnoozeTime.split(".")[0];
+          const { recordedClipPath } = this.getRecordedEventPath({
+            cameraId: realDevice.id,
+            fileName,
+          });
+          await servePluginGeneratedVideoclip({
+            videoclipPath: recordedClipPath,
+            request,
+            response,
+            plugin: this,
+          });
+          return;
+        } else if (webhook === imageRule) {
+          const triggerTime = decodedTimelapseNameOrSnoozeTime.split(".")[0];
+          const { imageHistoricalPath } = this.getRulePaths({
+            cameraId: realDevice.id,
+            ruleName: decodedRuleNameOrSnoozeIdOrSnapshotId,
+            triggerTime: Number(triggerTime),
+          });
+          await serveImage({
+            imagePath: imageHistoricalPath,
+            plugin: this,
+            request,
+            response,
+          });
+          return;
+        } else if (webhook === recordedClipThumbnail) {
+          const fileName = decodedTimelapseNameOrSnoozeTime.split(".")[0];
+          const { recordedThumbnailPath } = this.getRecordedEventPath({
+            cameraId: realDevice.id,
+            fileName,
+          });
+          await serveImage({
+            imagePath: recordedThumbnailPath,
+            plugin: this,
+            request,
+            response,
+          });
+          return;
+        } else if (webhook === gifRule) {
+          const triggerTime = decodedTimelapseNameOrSnoozeTime.split(".")[0];
+          const { gifHistoricalPath } = this.getRulePaths({
+            cameraId: realDevice.id,
+            ruleName: decodedRuleNameOrSnoozeIdOrSnapshotId,
+            triggerTime: Number(triggerTime),
+          });
+          await serveGif({
+            gifPath: gifHistoricalPath,
+            plugin: this,
+            request,
+            response,
+          });
+          return;
+        } else if (webhook === lastSnapshot) {
+          const isWebhookEnabled =
+            device?.mixinState.storageSettings.values.lastSnapshotWebhook;
+
+          if (isWebhookEnabled) {
+            const pieces = ruleNameOrSnoozeIdOrSnapshotId.split("__");
+            const firstPiece = pieces[0];
+
+            if (firstPiece === "object-detection") {
+              const [_, ...rest] = pieces;
+              const identifier = rest.join("__");
+              const imageIdentifier = identifier;
+              const { filePath } = this.getDetectionImagePaths({
+                device: realDevice,
+                imageIdentifier,
+              });
+              await serveImage({
+                imagePath: filePath,
+                plugin: this,
+                request,
+                response,
+              });
+              return;
+            } else if (firstPiece === "ruleImage") {
+              const [_, ruleName, variant] = pieces;
+              let imagePath: string;
+              const { imageLatestPath, imageLatestPathVariant } =
+                this.getRulePaths({ cameraId: realDevice.id, ruleName });
+
+              if (!variant) {
+                imagePath = imageLatestPath;
+              } else {
+                imagePath = imageLatestPathVariant;
+              }
+              await serveImage({
+                imagePath,
+                plugin: this,
+                request,
+                response,
+              });
+              return;
+            } else if (firstPiece === "ruleClip") {
+              const [_, ruleName] = pieces;
+              const { videoclipLatestPath } = this.getRulePaths({
+                cameraId: realDevice.id,
+                ruleName,
+              });
+
+              await servePluginGeneratedVideoclip({
+                videoclipPath: videoclipLatestPath,
+                request,
+                response,
+                plugin: this,
+              });
+              return;
+            } else if (firstPiece === "ruleGif") {
+              const [_, ruleName] = pieces;
+              const { gifLatestPath } = this.getRulePaths({
+                cameraId: realDevice.id,
+                ruleName,
+              });
+
+              await serveGif({
+                gifPath: gifLatestPath,
+                plugin: this,
+                request,
+                response,
+              });
+              return;
+            }
+          }
+        } else if (webhook === imageRule) {
+          const { imageHistoricalPath } = this.getRulePaths({
+            cameraId: realDevice.id,
+            ruleName: decodedRuleNameOrSnoozeIdOrSnapshotId,
+            triggerTime: Number(decodedTimelapseNameOrSnoozeTime),
+          });
+          await serveImage({
+            imagePath: imageHistoricalPath,
+            plugin: this,
+            request,
+            response,
+          });
+          return;
+        } else if (webhook === snoozeNotification || isNvrSnooze) {
+          let device: AdvancedNotifierCameraMixin;
+
+          let snoozeTime: number;
+          let snoozeId: string;
+          let deviceId: string;
+          if (isNvrSnooze) {
+            deviceId = nvrSnoozeId.split("_")[1];
+            device = this.currentCameraMixinsMap[deviceId];
+            snoozeId = nvrSnoozeId;
+            snoozeTime = Number(nvrSnoozeAction.split("snooze")[1]);
+          } else {
+            snoozeId = decodedRuleNameOrSnoozeIdOrSnapshotId;
+            deviceId = deviceIdOrAction;
+            device = this.currentCameraMixinsMap[deviceIdOrAction];
+            snoozeTime = Number(decodedTimelapseNameOrSnoozeTime);
+          }
+
+          const message = await device?.snoozeNotification({
+            snoozeId,
+            snoozeTime,
+          });
+
+          response.send(message, {
+            code: 200,
+          });
+        } else if (webhook === setAlarm) {
+          const mode = deviceIdOrAction as SecuritySystemMode;
+          await this.alarmSystem.armSecuritySystem(mode);
+
+          response.send(`Alarm set to ${mode}`, {
+            code: 200,
+          });
+        } else if (webhook === postNotification && request.method === "POST") {
+          const parsedBody = JSON.parse(request.body ?? "{}");
+          const { cameraId, imageUrl, timestamp, message } = parsedBody;
+          const notifier = systemManager.getDeviceById(deviceIdOrAction);
+          const camera = systemManager.getDeviceById<DeviceInterface>(cameraId);
+
+          let image: MediaObject;
+          if (imageUrl) {
+            image = await sdk.mediaManager.createMediaObjectFromUrl(imageUrl);
+          }
+
+          const logMessage = `Notifying image ${getB64ImageLog(imageUrl)} to notifier ${notifier.name} through camera ${camera.name}. timestamp ${timestamp}`;
+          logger.log(logMessage);
+
+          this.notifyDetection({
+            triggerDevice: camera,
+            notifierId: deviceIdOrAction,
+            time: timestamp,
+            logger,
+            message,
+            image,
+            rule: { ruleType: RuleType.Detection } as DetectionRule,
+          });
+
+          response.send(logMessage, {
+            code: 200,
+          });
+        }
+      }
+    } catch (e) {
+      logger.log(`Error in onRequest`, e.message, JSON.stringify(request));
+      response.send(`${JSON.stringify(e)}, ${e.message}`, {
+        code: 400,
+      });
+
+      return;
     }
 
-    async toggleRule(ruleName: string, ruleType: RuleType, enabled: boolean) {
+    response.send(`Webhook not found`, {
+      code: 404,
+    });
+
+    return;
+  }
+
+  onPush(request: HttpRequest): Promise<void> {
+    return this.onRequest(request, undefined);
+  }
+
+  async getKnownPeople(facesSourceForMqtt: ScryptedEventSource) {
+    const logger = this.getLogger();
+    try {
+      const now = new Date().getTime();
+      const isUpdated =
+        this.lastFacesSource === facesSourceForMqtt &&
+        this.lastKnownPeopleFetched &&
+        now - this.lastKnownPeopleFetched <= 1000 * 10;
+
+      if (this.knownPeople && isUpdated) {
+        return this.knownPeople;
+      }
+
+      const faces: string[] = [];
+      const isAll = facesSourceForMqtt === ScryptedEventSource.All;
+
+      if (facesSourceForMqtt === ScryptedEventSource.NVR || isAll) {
+        if (this.nvrObjectDetectionDevice) {
+          const settings = await this.nvrObjectDetectionDevice.getSettings();
+          const knownPeople = settings
+            ?.find((setting) => setting.key === "knownPeople")
+            ?.choices?.filter((choice) => !!choice)
+            .map((person) => person.trim());
+
+          faces.push(...knownPeople);
+        }
+      }
+
+      if (facesSourceForMqtt === ScryptedEventSource.Frigate || isAll) {
+        const { faces: frigateFaces } = await this.getFrigateData();
+        faces.push(...frigateFaces);
+      }
+
+      this.knownPeople = uniq(faces);
+      this.lastKnownPeopleFetched = now;
+      this.lastFacesSource = facesSourceForMqtt;
+
+      return this.knownPeople;
+    } catch (e) {
+      logger.log("Error in getKnownPeople", e.message);
+      return [];
+    }
+  }
+
+  async getFrigateData(): Promise<FrigateData> {
+    try {
+      const now = new Date().getTime();
+
+      if (!this.frigateApi) {
+        return {
+          cameras: [],
+          labels: [],
+          faces: [],
+        };
+      }
+
+      const isUpdated =
+        this.lastFrigateDataFetched &&
+        now - this.lastFrigateDataFetched <= 1000 * 10;
+
+      if (!isUpdated) {
+        const { audioLabels, cameras, faces, objectLabels } =
+          await getFrigatePluginSettings();
+
+        const labels = [...objectLabels, ...audioLabels];
+        this.lastFrigateDataFetched = now;
+        this.frigateData = {
+          labels,
+          cameras,
+          faces,
+        };
+      }
+
+      return this.frigateData;
+    } catch (e) {
+      this.getLogger().log("Error in getObserveZones", e.message);
+      return {
+        cameras: [],
+        labels: [],
+        faces: [],
+      };
+    }
+  }
+
+  async getAudioData() {
+    try {
+      const now = new Date().getTime();
+
+      const isUpdated =
+        this.lastAudioDataFetched &&
+        now - this.lastAudioDataFetched <= 1000 * 60;
+      const yamnetPlugin = sdk.systemManager.getDeviceByName<ObjectDetection>(
+        "YAMNet Audio Classification",
+      );
+
+      if (!isUpdated && yamnetPlugin) {
+        const { classes } = await yamnetPlugin.getDetectionModel();
+
+        this.audioLabels = classes;
+      }
+
+      return {
+        labels: this.audioLabels,
+      };
+    } catch (e) {
+      this.getLogger().log("Error in getObserveZones", e.message);
+      return {};
+    }
+  }
+
+  async putSetting(key: string, value: SettingValue): Promise<void> {
+    return this.storageSettings.putSetting(key, value);
+  }
+
+  async getHaClient(): Promise<IHaClient | null> {
+    const { haTransport } = this.storageSettings.values;
+
+    if (haTransport === HomeassistantTransport.websocket) {
+      if (!this.wsHaClient) {
+        this.getLogger().log(
+          `[getHaClient] Creating HaEventClient (haTransport=${haTransport})`,
+        );
+        const getHaPushConfig = async () => {
+          const haUrl = await this.getHaBaseUrl();
+          const { haSecret } = this.storageSettings.values;
+          return { haUrl, haSecret: String(haSecret ?? "") };
+        };
+        this.wsHaClient = new HaEventClient(getHaPushConfig, this.getLogger());
+        this.wsHaClient.onAuthenticated = () => {
+          this.getLogger().log(
+            "[main] HaEventClient authenticated — resetting autodiscovery to push all entities",
+          );
+          this.lastAutoDiscovery = 0;
+          for (const id of Object.keys(this.lastCameraAutodiscoveryMap)) {
+            delete this.lastCameraAutodiscoveryMap[id];
+          }
+          for (const mixin of Object.values(this.currentSensorMixinsMap)) {
+            mixin.lastAutoDiscovery = 0;
+          }
+          for (const mixin of Object.values(this.currentNotifierMixinsMap)) {
+            mixin.lastAutoDiscovery = 0;
+          }
+          if (this.alarmSystem) {
+            this.alarmSystem.lastAutoDiscovery = 0;
+          }
+        };
+        this.wsHaClient
+          .connect()
+          .catch((e) =>
+            this.getLogger().warn("[main] HaEventClient connect error:", e),
+          );
+      }
+      return this.wsHaClient;
+    }
+
+    try {
+      if (!this.mqttClient && !this.initializingMqtt) {
+        const {
+          mqttMemoryCacheEnabled,
+          mqttEnabled,
+          useMqttPluginCredentials,
+          pluginEnabled,
+          mqttHost,
+          mqttUsename,
+          mqttPassword,
+        } = this.storageSettings.values;
+        if (mqttEnabled && pluginEnabled) {
+          this.initializingMqtt = true;
+          const logger = this.getLogger();
+
+          if (this.mqttClient) {
+            this.mqttClient.disconnect();
+            this.mqttClient = undefined;
+          }
+
+          try {
+            this.mqttClient = await getMqttBasicClient({
+              logger,
+              useMqttPluginCredentials,
+              mqttHost,
+              mqttUsename,
+              mqttPassword,
+              clientId: `scrypted_an`,
+              cache: mqttMemoryCacheEnabled,
+              configTopicPattern: `homeassistant/+/${idPrefix}-${this.pluginId}/+/config`,
+            });
+            await this.mqttClient?.getMqttClient();
+          } catch (e) {
+            logger.log("Error setting up MQTT client", e);
+          } finally {
+            this.initializingMqtt = false;
+          }
+        }
+      }
+    } catch {}
+
+    return this.mqttClient;
+  }
+
+  getRealMixin(id: string) {
+    let mixin:
+      | AdvancedNotifierCameraMixin
+      | AdvancedNotifierSensorMixin
+      | AdvancedNotifierNotifierMixin;
+    let settings;
+
+    if (this.currentCameraMixinsMap[id]) {
+      mixin = this.currentCameraMixinsMap[id];
+      settings = mixin?.mixinState.storageSettings;
+    } else if (this.currentSensorMixinsMap[id]) {
+      mixin = this.currentSensorMixinsMap[id];
+      settings = mixin?.storageSettings;
+    } else if (this.currentNotifierMixinsMap[id]) {
+      mixin = this.currentNotifierMixinsMap[id];
+      settings = mixin.storageSettings;
+    }
+
+    return { mixin, settings };
+  }
+
+  getLogger(device?: ScryptedDeviceBase) {
+    if (device) {
+      const deviceId = device.id;
+
+      const { mixin, settings } = this.getRealMixin(deviceId);
+
+      if (mixin) {
+        return super.getLoggerInternal({
+          console: mixin.console,
+          storage: settings,
+          friendlyName: this.cameraStates[deviceId]?.clientId,
+        });
+      }
+    }
+
+    return super.getLoggerInternal({});
+  }
+
+  private async setupMqttEntities() {
+    const { mqttEnabled, haTransport, mqttActiveEntitiesTopic } =
+      this.storageSettings.values;
+    if (mqttEnabled || haTransport === HomeassistantTransport.websocket) {
+      try {
         const mqttClient = await this.getHaClient();
+        const logger = this.getLogger();
 
         if (mqttClient) {
-            const logger = this.getLogger();
-            const rule = this.allAvailableRules.find(rule => rule.ruleType === ruleType && rule.name === ruleName);
-
-            logger.log(`Setting ${ruleType} rule ${ruleName} enabled to ${enabled}`);
-
-            if (rule) {
-                await publishRuleEnabled({
-                    console: logger,
-                    rule,
-                    enabled,
-                    mqttClient
-                });
-            }
+          this.getLogger().log(`Subscribing to mqtt topics`);
+          await subscribeToPluginMqttTopics({
+            entitiesActiveTopic: mqttActiveEntitiesTopic,
+            mqttClient,
+            console: logger,
+            rules: this.allAvailableRules,
+            activeEntitiesCb: async (message) => {
+              logger.debug(
+                `Received update for ${mqttActiveEntitiesTopic} topic: ${JSON.stringify(message)}`,
+              );
+              await this.updateOnActiveDevices(message);
+            },
+            activationRuleCb: async ({ active, ruleName }) => {
+              const {
+                common: { enabledKey },
+              } = getRuleKeys({ ruleName, ruleType: RuleType.Detection });
+              logger.debug(`Setting rule ${ruleName} to ${active}`);
+              await this.putSetting(enabledKey, active);
+            },
+            switchNotificationsEnabledCb: async (active) => {
+              logger.log(`Setting notifications active to ${!active}`);
+              await this.storageSettings.putSetting(
+                `notificationsEnabled`,
+                active,
+              );
+            },
+          });
         }
-    };
+      } catch (e) {
+        this.getLogger().log("Error setting up MQTT client", e);
+      }
+    }
+  }
 
-
-    async triggerRuleSequences(props: {
-        sequences: RuleActionsSequence[],
-        postFix: 'test' | string,
-        rule: BaseRule,
-        deviceId?: string,
-        payload?: unknown,
-    }) {
-        const { postFix, sequences, rule, deviceId, payload } = props;
-        const isTest = postFix === 'test';
-
-        if (sequences?.length) {
-            const logger = this.getLogger();
-
-            for (const sequence of sequences) {
-                let canExecute = !deviceId;
-                if (deviceId) {
-                    const cameraMixin = deviceId ? this.currentCameraMixinsMap[deviceId] : undefined;
-                    const { timePassed } = cameraMixin.isDelayPassed({
-                        type: DelayType.SequenceExecution,
-                        delay: sequence.minimumExecutionDelay,
-                        postFix,
-                    });
-                    canExecute = timePassed;
-                }
-
-                if (isTest || (canExecute && sequence.enabled)) {
-                    try {
-                        logger.log(`Triggering sequence ${sequence.name} from rule ${rule.name}: ${JSON.stringify(sequence)}`);
-                        for (const action of sequence.actions) {
-                            logger[isTest ? 'log' : 'info'](`Executing action ${action.actionName} of type ${action.type} in sequence ${sequence.name}`);
-
-                            if (action.type === RuleActionType.Wait && action.seconds) {
-                                await new Promise(resolve => setTimeout(resolve, action.seconds * 1000));
-                            } if (action.type === RuleActionType.Script) {
-                                const device = sdk.systemManager.getDeviceById<Program>(action.deviceId);
-                                await device.run(typeof payload !== 'undefined' ? { payload } : undefined);
-                            } else if (action.type === RuleActionType.Ptz) {
-                                const device = sdk.systemManager.getDeviceById<PanTiltZoom>(action.deviceId);
-                                const presetId = action.presetName?.split(':')[1];
-                                await device.ptzCommand({ preset: presetId, movement: PanTiltZoomMovement.Preset });
-                            } else if (action.type === RuleActionType.Switch) {
-                                const device = sdk.systemManager.getDeviceById<OnOff>(action.deviceId);
-                                if (action.turnOn) {
-                                    await device.turnOn();
-                                } else {
-                                    await device.turnOff();
-                                }
-                            } else if (action.type === RuleActionType.Lock) {
-                                const device = sdk.systemManager.getDeviceById<Lock>(action.deviceId);
-                                if (action.lock) {
-                                    await device.lock();
-                                } else {
-                                    await device.unlock();
-                                }
-                            } else if (action.type === RuleActionType.Entry) {
-                                const device = sdk.systemManager.getDeviceById<Entry>(action.deviceId);
-                                if (action.openEntry) {
-                                    await device.openEntry();
-                                } else {
-                                    await device.closeEntry();
-                                }
-                            }
-                        }
-                    } catch (e) {
-                        logger.log(`Error triggering sequence ${sequence.name} from rule ${rule.name}: ${e.message}`);
-                    }
-                } else {
-                    logger[isTest ? 'log' : 'info'](`Skipping sequence ${sequence.name}: enabled ${sequence.enabled}, canExecute ${canExecute}`);
-                }
-            }
-        }
+  private async resetAllMqttTopicsAndRediscover() {
+    const logger = this.getLogger();
+    const mqttClient = await this.getHaClient();
+    if (!mqttClient) {
+      logger.log("MQTT client not available, cannot reset topics");
+      return;
     }
 
-    async testSequence(sequenceName: string) {
-        const logger = this.getLogger();
+    const pluginStorage = this.storageSettings;
+    const { availableRules: availableDetectionRules } = getDetectionRules({
+      pluginStorage,
+      console: logger,
+      plugin: this,
+    });
+    const { availableRules: availableRecordingRules } = getRecordingRules({
+      pluginStorage,
+      console: logger,
+    });
+    const rules = [...availableDetectionRules, ...availableRecordingRules];
 
-        const sequence = getSequenceObject({
-            sequenceName,
-            storage: this.storageSettings,
-        });
+    const people = await this.getKnownPeople(
+      this.storageSettings.values.facesSourceForMqtt,
+    );
 
-        logger.log(`Testing sequence ${sequenceName}: ${JSON.stringify(sequence)}`);
-        await this.triggerRuleSequences({
-            sequences: [sequence],
-            postFix: 'test',
-            rule: {
-                name: 'test',
-            } as BaseRule,
+    const cameras: Array<{
+      device: any;
+      rules: BaseRule[];
+      zones: string[];
+      occupancyEnabled: boolean;
+    }> = [];
+    for (const mixin of Object.values(this.currentCameraMixinsMap)) {
+      try {
+        const zones = await mixin.getMqttZones();
+        const occupancyEnabled =
+          !!mixin.mixinState?.storageSettings?.values?.checkOccupancy;
+        cameras.push({
+          device: mixin.cameraDevice as any,
+          rules,
+          zones,
+          occupancyEnabled,
         });
+      } catch (e) {
+        logger.error("Error collecting camera data for MQTT reset", e);
+      }
     }
 
-    async refreshSettings() {
-        const logger = this.getLogger();
-        const dynamicSettings: StorageSetting[] = [];
-
-        const detectionRulesSettings = await getDetectionRulesSettings({
-            storage: this.storageSettings,
-            ruleSource: RuleSource.Plugin,
-            logger,
-            refreshSettings: this.refreshSettings.bind(this),
-            plugin: this,
+    const sensors: Array<{ device: any; rules: BaseRule[] }> = [];
+    for (const mixin of Object.values(this.currentSensorMixinsMap)) {
+      try {
+        const { availableDetectionRules } = await getActiveRules({
+          device: mixin as any,
+          console: logger,
+          plugin: this,
+          deviceStorage: mixin.storageSettings,
         });
-        dynamicSettings.push(...detectionRulesSettings);
-
-        const recordingRulesSettings = await getRecordingRulesSettings({
-            storage: this.storageSettings,
-            ruleSource: RuleSource.Plugin,
-            logger,
-            plugin: this,
-            refreshSettings: async () => await this.refreshSettings(),
+        sensors.push({
+          device: mixin.sensorDevice as any,
+          rules: availableDetectionRules,
         });
-        dynamicSettings.push(...recordingRulesSettings);
+      } catch (e) {
+        logger.error("Error collecting sensor data for MQTT reset", e);
+      }
+    }
 
-        const actionRuleSettings = await getSequencesSettings({
-            logger,
-            refreshSettings: async () => await this.refreshSettings(),
-            storage: this.storageSettings,
-            onTestSequence: async (sequenceName: string) => {
-                await this.testSequence(sequenceName);
-            }
-        })
-        dynamicSettings.push(...actionRuleSettings);
+    const notifiers: Array<{ device: any }> = [];
+    for (const mixin of Object.values(this.currentNotifierMixinsMap)) {
+      notifiers.push({ device: mixin.notifierDevice as any });
+    }
 
-        dynamicSettings.push(...getAiSettings({
-            storage: this.storageSettings,
-            logger,
-            onRefresh: async () => await this.refreshSettings(),
-        }));
+    let alarmSupportedModes: any[] | undefined;
+    try {
+      const alarm = (await this.getDevice(ALARM_SYSTEM_NATIVE_ID)) as any;
+      alarmSupportedModes = alarm?.securitySystemState?.supportedModes;
+    } catch (e) {
+      logger.error("Error collecting alarm system data for MQTT reset", e);
+    }
 
-        const { labels: frigateLabels } = await this.getFrigateData();
-        const { labels: audioLabels } = await this.getAudioData();
-        const additionalLabels = uniq([...frigateLabels ?? [], ...audioLabels ?? []]);
+    await resetAllPluginMqttTopicsAndRediscover({
+      mqttClient,
+      console: logger,
+      rules,
+      people,
+      cameras,
+      sensors,
+      notifiers,
+      alarmSupportedModes,
+    });
+  }
 
-        if (additionalLabels.length) {
-            for (const label of additionalLabels) {
-                dynamicSettings.push({
-                    key: getFrigateTextKey(label),
-                    group: 'Texts',
-                    subgroup: 'Additional labels',
-                    title: `${label} text`,
-                    type: 'string',
-                    defaultValue: label,
-                    placeholder: label,
-                });
-            }
-        }
+  private async updateOnActiveDevices(deviceIdentifiers: string[]) {
+    const logger = this.getLogger();
+    const deviceIds: string[] = [];
+    for (const deviceIdentifier of deviceIdentifiers) {
+      let device = sdk.systemManager.getDeviceById(deviceIdentifier);
 
-        this.storageSettings = await convertSettingsToStorageSettings({
-            device: this,
-            dynamicSettings,
-            initStorage: this.initStorage
-        });
+      if (!device) {
+        device = sdk.systemManager.getDeviceByName(deviceIdentifier);
+      }
 
-        const {
-            mqttEnabled,
-            haTransport,
-            testDevice,
-            testNotifier,
-            testGenerateClip,
-            haEnabled,
-        } = this.storageSettings.values;
+      if (device) {
+        deviceIds.push(device.id);
+      } else {
+        logger.log(`Device identifier ${deviceIdentifier} not found`);
+      }
+    }
 
-        const haIntegrationActive = mqttEnabled || haTransport === HomeassistantTransport.websocket;
-        const isMqttOnly = mqttEnabled && haTransport !== HomeassistantTransport.websocket;
+    logger.debug(
+      `updateOnActiveDevices: ${JSON.stringify({
+        deviceIdentifiers,
+        stored: this.storageSettings.values.onActiveDevices ?? [],
+        isEqual: isEqual(
+          sortBy(deviceIds),
+          sortBy(this.storageSettings.values.onActiveDevices ?? []),
+        ),
+      })}`,
+    );
 
+    if (
+      isEqual(
+        sortBy(deviceIds),
+        sortBy(this.storageSettings.values.onActiveDevices ?? []),
+      )
+    ) {
+      logger.debug("Devices did not change");
+    } else {
+      logger.log(`"OnActiveDevices" changed: ${JSON.stringify(deviceIds)}`);
+      this.putSetting("onActiveDevices", deviceIds);
+    }
+  }
+
+  private async initPluginSettings() {
+    const logger = this.getLogger();
+    let defaultAssetOriginSource = AssetOriginSource.LocalInsecure;
+
+    const assetsOriginSources = [
+      AssetOriginSource.LocalSecure,
+      AssetOriginSource.LocalInsecure,
+      AssetOriginSource.Custom,
+    ];
+
+    if (this.hasCloudPlugin) {
+      const mo = await mediaManager.createMediaObject("", "text/plain");
+      const serverId: string = await mediaManager.convertMediaObject(
+        mo,
+        ScryptedMimeTypes.ServerId,
+      );
+
+      logger.log(`Server id found: ${serverId}`);
+      await this.putSetting("serverId", serverId);
+
+      assetsOriginSources.unshift(AssetOriginSource.CloudSecure);
+      defaultAssetOriginSource = AssetOriginSource.CloudSecure;
+    }
+
+    const localAddresses = await sdk.endpointManager.getLocalAddresses();
+    logger.log(`Local addresses found: ${localAddresses}`);
+    await this.putSetting("localAddresses", localAddresses);
+
+    const {
+      assetsOriginSource,
+      haEnabled,
+      privateKey,
+      objectDetectionDevice,
+      clipDevice,
+    } = this.storageSettings.values;
+
+    if (!assetsOriginSources.includes(assetsOriginSource)) {
+      logger.log(`Setting assets origin to ${defaultAssetOriginSource}`);
+      this.storageSettings.values.assetsOriginSource = defaultAssetOriginSource;
+    }
+
+    this.storageSettings.settings.assetsOriginSource.choices =
+      assetsOriginSources;
+    this.storageSettings.settings.assetsOriginSource.defaultValue =
+      defaultAssetOriginSource;
+
+    if (haEnabled) {
+      await this.generateHomeassistantHelpers();
+    }
+
+    if (!privateKey) {
+      const privateKey = generatePrivateKey(10);
+      logger.log(
+        `Private key not set, new one generated ***${privateKey.substring(3, 7)}***`,
+      );
+      this.storageSettings.values.privateKey = privateKey;
+    }
+
+    if (!objectDetectionDevice) {
+      const allDetectors = getAllDevices().filter(
+        (dev) =>
+          dev.interfaces.includes(ScryptedInterface.ObjectDetectionPreview) &&
+          dev.id !== nvrAcceleratedMotionSensorId,
+      );
+      const nvrOne = sdk.systemManager.getDeviceByName(
+        SCRYPTED_NVR_OBJECT_DETECTION_NAME,
+      );
+      let toUse = allDetectors[0];
+      if (nvrOne && allDetectors.some((dev) => dev.id === nvrOne.id)) {
+        toUse = nvrOne;
+      }
+
+      logger.log(`Object detector not set, defaulting to ${toUse.name}`);
+      // await this.putSetting('objectDetectionDevice', toUse.id);
+      this.storageSettings.values.objectDetectionDevice = toUse.id;
+    }
+
+    if (!clipDevice) {
+      const allClippers = getAllDevices().filter(
+        (dev) =>
+          dev.interfaces.includes("TextEmbedding") &&
+          dev.interfaces.includes("ImageEmbedding"),
+      );
+      const toUse = allClippers[0];
+      logger.log(`Clip device not set, defaulting to ${toUse.name}`);
+      // await this.putSetting('clipDevice', toUse.id);
+      this.storageSettings.values.clipDevice = toUse.id;
+    }
+  }
+
+  private async mainFlow() {
+    const logger = this.getLogger();
+    this.mainFlowInProgress = true;
+    try {
+      const deviceVideocameraMap: Record<string, string> = {};
+      const videocameraDevicesMap: Record<string, string[]> = {};
+
+      const allDevices = getElegibleDevices();
+      for (const device of allDevices) {
+        const { isCamera } = isDeviceSupported(device);
+        const deviceId = device.id;
         try {
-            if (haIntegrationActive) {
-                this.storageSettings.settings.detectionSourceForMqtt.choices = this.enabledDetectionSources;
-                this.storageSettings.settings.facesSourceForMqtt.choices = this.enabledFacesSources;
-                this.storageSettings.settings.zonesSourceForMqtt.choices = this.enabledZonesSources;
-                // this.storageSettings.settings.occupancySourceForMqtt.choices = this.enabledOccupancySources;
-            }
-            this.storageSettings.settings.testEventSource.choices = this.enabledDetectionSources
-                .filter(s => s !== ScryptedEventSource.All);
+          const settings = await device.getSettings();
+          const linkedCamera = settings.find(
+            (setting) => setting.key === "homeassistantMetadata:linkedCamera",
+          )?.value as string;
+          const nearbySensors =
+            (settings.find(
+              (setting) => setting.key === "recording:nearbySensors",
+            )?.value as string[]) ?? [];
+          const nearbyLocks =
+            (settings.find((setting) => setting.key === "recording:nearbyLocks")
+              ?.value as string[]) ?? [];
 
-            this.storageSettings.settings.detectionSourceForMqtt.hide = !haIntegrationActive;
-            this.storageSettings.settings.facesSourceForMqtt.hide = !haIntegrationActive;
-            this.storageSettings.settings.zonesSourceForMqtt.hide = !haIntegrationActive;
-            // this.storageSettings.settings.occupancySourceForMqtt.hide = !haIntegrationActive;
-            this.storageSettings.settings.mqttActiveEntitiesTopic.hide = !isMqttOnly;
-            this.storageSettings.settings.mqttResetAllTopics.hide = !isMqttOnly;
-            this.storageSettings.settings.updateFrequencyMotionImagesInSeconds.hide = !haIntegrationActive;
-            this.storageSettings.settings.updateFrequencyObjectImagesInSeconds.hide = !haIntegrationActive;
-
-            this.storageSettings.settings.scryptedToken.hide = !haEnabled;
-
-            applySettingsShow(this.storageSettings);
-        } catch (e) {
-            logger.error('Error applying settings show/hide', e);
-        }
-
-        const { isCamera } = testDevice ? isDeviceSupported(testDevice) : {};
-        this.storageSettings.settings.testEventType.hide = !isCamera;
-        this.storageSettings.settings.testEventSource.hide = !isCamera;
-        this.storageSettings.settings.testZones.hide = !isCamera;
-        this.storageSettings.settings.testGenerateClipSpeed.hide = !testGenerateClip;
-        this.storageSettings.settings.testGenerateClipType.hide = !testGenerateClip;
-        this.storageSettings.settings.testClipPostSeconds.hide = !testGenerateClip;
-        this.storageSettings.settings.testClipPreSeconds.hide = !testGenerateClip;
-        // this.storageSettings.settings.frigateEnabled.hide = !this.frigateApi;
-
-        if (testNotifier) {
-            const { priorityChoices } = getNotifierData({ notifierId: testNotifier.id, ruleType: RuleType.Detection });
-            this.storageSettings.settings.testPriority.choices = priorityChoices;
-        }
-
-        // Update testEventSource choices and testZones list based on selected camera and source.
-        if (isCamera && testDevice) {
-            const cameraMixin = this.currentCameraMixinsMap[testDevice.id];
-            if (cameraMixin) {
-                try {
-                    const testEventSource = this.storageSettings.values.testEventSource as ScryptedEventSource;
-                    if (testEventSource === ScryptedEventSource.Frigate) {
-                        const { frigateZones } = await cameraMixin.getFrigateData();
-                        const zoneNames = (frigateZones || []).map(z => z.name).filter(Boolean);
-                        this.storageSettings.settings.testZones.choices = zoneNames;
-                    } else {
-                        const zonesData = await cameraMixin.getObserveZones();
-                        const zoneNames = (zonesData || []).map(z => z.name).filter(Boolean);
-                        this.storageSettings.settings.testZones.choices = zoneNames;
-                    }
-                } catch (e) {
-                    logger.log('Error fetching zones for testZones setting', e);
-                }
-            }
-        }
-
-        const originSource = this.storageSettings.values.assetsOriginSource;
-        this.storageSettings.settings.customOriginUrl.hide = originSource !== AssetOriginSource.Custom;
-
-        this.storageSettings.settings.totalOccupiedSpaceInGb.range = [
-            0, this.storageSettings.values.totalAvailableSpaceInGb
-        ];
-
-        const defaultSource = this.defaultDetectionSource;
-        this.storageSettings.settings.detectionSourceForMqtt.defaultValue = defaultSource;
-        this.storageSettings.settings.facesSourceForMqtt.defaultValue = defaultSource;
-
-        this.onDeviceEvent(ScryptedInterface.Settings, 'settingsChanged');
-    }
-
-    get defaultDetectionSource() {
-        return this.nvrObjectDetectionDevice ?
-            ScryptedEventSource.NVR :
-            ScryptedEventSource.All;
-    }
-
-    get enabledDetectionSources() {
-        const sources: ScryptedEventSource[] = [
-            ScryptedEventSource.All,
-            ScryptedEventSource.RawDetection,
-            ScryptedEventSource.Onboard,
-        ];
-        if (this.nvrObjectDetectionDevice) {
-            sources.push(ScryptedEventSource.NVR);
-        }
-        if (this.frigateApi) {
-            sources.push(ScryptedEventSource.Frigate);
-        }
-        return sources;
-    }
-
-    get defaultFacesSource() {
-        return this.nvrObjectDetectionDevice ?
-            ScryptedEventSource.NVR :
-            ScryptedEventSource.All;
-    }
-
-    get enabledFacesSources() {
-        const sources: ScryptedEventSource[] = [
-            ScryptedEventSource.All,
-        ];
-        if (this.nvrObjectDetectionDevice) {
-            sources.push(ScryptedEventSource.NVR);
-        }
-        if (this.frigateApi) {
-            sources.push(ScryptedEventSource.Frigate);
-        }
-        return sources;
-    }
-
-    get defaultZonesSource() {
-        return ZonesSource.All;
-    }
-
-    get enabledZonesSources() {
-        const sources: ZonesSource[] = [
-            ZonesSource.All,
-            ZonesSource.Scrypted,
-        ];
-        if (this.frigateApi) {
-            sources.push(ZonesSource.Frigate);
-        }
-        return sources;
-    }
-
-    get defaultOccupancySource() {
-        return OccupancySource.Off;
-    }
-
-    get enabledOccupancySources() {
-        const sources: OccupancySource[] = [
-            OccupancySource.Off,
-            OccupancySource.Scrypted,
-        ];
-        if (this.frigateApi) {
-            sources.push(OccupancySource.Frigate);
-        }
-        return sources;
-    }
-
-    async getSettings() {
-        try {
-            const settings = await this.storageSettings.getSettings();
-
-            return settings;
-        } catch (e) {
-            this.getLogger().log('Error in getSettings', e);
-            return [];
-        }
-    }
-
-    generateHomeassistantHelpers = async () => {
-        const logger = this.getLogger();
-
-        try {
-            const haApi = await this.getHaApi();
-            const res = await haApi.postAutomation(haSnoozeAutomationId, haSnoozeAutomation);
-            logger.log(`Generation snoozing automation: ${res.data.result}`);
-            const res2 = await haApi.postAutomation(haAlarmAutomationId, haAlarmAutomation);
-            logger.log(`Generation alarm automation: ${res2.data.result}`);
-        } catch (e) {
-            logger.log(e);
-        }
-    }
-
-    async canMixin(type: ScryptedDeviceType, interfaces: string[]): Promise<string[]> {
-        const { isNotifier, isCamera, isSupported } = isDeviceSupported({ interfaces, type } as DeviceBase);
-
-        if (
-            isSupported &&
-            !interfaces.includes(ADVANCED_NOTIFIER_NOTIFIER_INTERFACE) &&
-            !interfaces.includes(ADVANCED_NOTIFIER_CAMERA_INTERFACE)
-        ) {
-            const interfaces = [ScryptedInterface.Settings, ADVANCED_NOTIFIER_INTERFACE];
-
-            if (isNotifier) {
-                interfaces.push(ScryptedInterface.Notifier);
-            } else if (isCamera) {
-                interfaces.push(ScryptedInterface.VideoClips);
-            }
-
-            return interfaces;
-        }
-
-        return undefined;
-    }
-
-    async checkIfClipRequired(props: {
-        cb: (props: { videoUrl?: string, gifUrl?: string, imageUrl?: string }) => Promise<void>,
-        rule: BaseRule
-        device: ScryptedDeviceBase,
-        logger: Console,
-        triggerTime: number,
-        b64Image?: string,
-    }) {
-        const { cb, rule, device, logger, triggerTime } = props;
-        const deviceMixin = this.currentCameraMixinsMap[device.id];
-
-        let pastMs: number;
-
-        const { postClips } = getBaseRuleDefaults({
-            ruleType: rule.ruleType,
-            source: rule.detectionSource,
-        });
-
-        const pastSeconds = rule.generateClipPreSeconds;
-        if (pastSeconds !== undefined) {
-            pastMs = pastSeconds * 1000;
-        } else {
-            pastMs = postClips * 1000;
-        }
-
-        const prepareClip = async () => {
-            if (rule.generateClipType === VideoclipType.MP4) {
-                const { fileName, filteredFiles, } = await this.generateVideoclip({
-                    device,
-                    logger,
-                    rule,
-                    triggerTime,
-                    pastMs,
-                }) ?? {};
-
-                if (filteredFiles?.length) {
-                    const { videoRuleUrl, imageRuleUrl } = await getWebHookUrls({
-                        console: logger,
-                        fileId: fileName,
-                        plugin: this,
-                        ruleName: rule.name,
-                        device
-                    });
-
-                    await cb({ videoUrl: videoRuleUrl, imageUrl: imageRuleUrl });
-                } else {
-                    await cb({});
-                }
-            } else if (rule.generateClipType === VideoclipType.GIF) {
-                const { filteredFiles } = await this.generateGif({
-                    device,
-                    logger,
-                    rule,
-                    triggerTime,
-                    pastMs,
-                }) ?? {};
-
-                if (filteredFiles?.length) {
-                    const { gifRuleUrl, imageRuleUrl } = await getWebHookUrls({
-                        console: logger,
-                        fileId: String(triggerTime),
-                        plugin: this,
-                        ruleName: rule.name,
-                        device
-                    });
-
-                    await cb({ gifUrl: gifRuleUrl, imageUrl: imageRuleUrl });
-                } else {
-                    await cb({});
-                }
-            }
-        }
-
-        const decoderType = deviceMixin.decoderType;
-        if (rule.generateClip && decoderType !== DecoderType.Off) {
-            const cameraState = this.cameraStates[device.id];
-            const delay = rule.generateClipPostSeconds ?? 3;
-            const key = `${device.id}_${rule.name}`;
-            const now = Date.now();
-            const maxExtensionRange = (rule as any).maxClipExtensionRange || 0;
-            const maxExtensionMs = maxExtensionRange * 1000;
-            const lastGeneration = cameraState.lastClipGenerationTimestamps[key];
-
-            if (lastGeneration && (now - lastGeneration) < maxExtensionMs) {
-                // Extend the existing clip generation by resetting the timeout
-                logger.log(`Extending clip generation for rule ${rule.name} on device ${device.name}, within ${maxExtensionRange}s range`);
-                cameraState.clipGenerationTimeout[rule.name] && clearTimeout(cameraState.clipGenerationTimeout[rule.name]);
-                cameraState.clipGenerationTimeout[rule.name] = setTimeout(async () => {
-                    cameraState.lastClipGenerationTimestamps[key] = Date.now();
-                    await prepareClip();
-                }, 1000 * delay);
+          if (linkedCamera) {
+            const cameraDevice = systemManager.getDeviceById(linkedCamera);
+            if (cameraDevice) {
+              const cameraId = cameraDevice.id;
+              deviceVideocameraMap[deviceId] = cameraId;
+              if (!videocameraDevicesMap[cameraId]) {
+                videocameraDevicesMap[cameraId] = [];
+              }
+              !videocameraDevicesMap[cameraId].includes(deviceId) &&
+                videocameraDevicesMap[cameraId].push(deviceId);
             } else {
-                // Start new clip generation
-                logger.log(`Starting clip ${rule.generateClipType} recording for rule ${rule.name} in ${delay} seconds (${decoderType})`);
-                cameraState.clipGenerationTimeout[rule.name] && clearTimeout(cameraState.clipGenerationTimeout[rule.name]);
-                cameraState.clipGenerationTimeout[rule.name] = setTimeout(async () => {
-                    cameraState.lastClipGenerationTimestamps[key] = Date.now();
-                    await prepareClip();
-                }, 1000 * delay);
+              logger.log(
+                `Device ${device.name} is linked to the cameraId ${linkedCamera}, not available anymore`,
+              );
             }
-        } else {
-            cb({});
-        }
-    }
+          }
 
-    async notifyOccupancyEvent(props: {
-        cameraDevice: DeviceInterface,
-        triggerTime: number,
-        rule: OccupancyRule,
-        image: MediaObject,
-        b64Image: string,
-        occupancyData: OccupancyRuleData
-    }) {
-        const { cameraDevice, rule, triggerTime, image, b64Image, occupancyData } = props;
-        const logger = this.getLogger(cameraDevice);
+          if (isCamera) {
+            const allLinkedSensorIds = [...nearbySensors, ...nearbyLocks];
 
-        await this.ensureRuleFoldersExist({ cameraId: cameraDevice.id, ruleName: rule.name });
-
-        let message = occupancyData.occupies ?
-            rule.zoneOccupiedText :
-            rule.zoneNotOccupiedText;
-
-        message = message.toString()
-            .replace('${detectedObjects}', String(occupancyData.objectsDetected) ?? '')
-            .replace('${maxObjects}', String(rule.maxObjects) ?? '');
-
-        const executeNotify = async (props: { videoUrl?: string, gifUrl?: string, imageUrl?: string }) => {
-            const { gifUrl, videoUrl, } = props;
-
-            const imageUrl = await this.storeRuleImage({
-                device: cameraDevice,
-                rule,
-                b64Image,
-                triggerTime,
-                logger,
-            });
-
-            logger.log(`${rule.notifiers.length} notifiers will be notified: ${JSON.stringify({
-                rule,
-                gifUrl: getUrlLog(gifUrl),
-                videoUrl: getUrlLog(videoUrl),
-                imageUrl: getUrlLog(imageUrl),
-                assetsOriginSource: this.storageSettings.values.assetsOriginSource
-            })} `);
-
-            for (const notifierId of rule.notifiers) {
-                const notifier = systemManager.getDeviceById<DeviceInterface>(notifierId);
-
-                this.sendNotificationInternal({
-                    notifier,
-                    image,
-                    message,
-                    triggerTime,
-                    device: cameraDevice,
-                    rule,
-                    videoUrl,
-                    gifUrl,
-                    imageUrl,
-                }).catch(logger.error);
+            for (const linkedSensorId of allLinkedSensorIds) {
+              deviceVideocameraMap[linkedSensorId] = deviceId;
+              if (!videocameraDevicesMap[deviceId]) {
+                videocameraDevicesMap[deviceId] = [];
+              }
+              !videocameraDevicesMap[deviceId].includes(linkedSensorId) &&
+                videocameraDevicesMap[deviceId].push(linkedSensorId);
             }
-
-            if (rule.onGeneratedSequences?.length) {
-                this.triggerRuleSequences({
-                    sequences: rule.onGeneratedSequences,
-                    postFix: 'generated',
-                    rule,
-                    deviceId: cameraDevice.id,
-                    payload: { rule, videoUrl, gifUrl, imageUrl },
-                }).catch(logger.error);
-            }
-        }
-
-        this.checkIfClipRequired({
-            cb: executeNotify,
-            device: cameraDevice,
-            logger,
-            rule,
-            triggerTime,
-            b64Image,
-        }).catch(logger.error);
-    }
-
-    async ensureRuleFoldersExist(props: { cameraId: string, ruleName: string }) {
-        const { cameraId, ruleName } = props;
-        const logger = this.getLogger();
-        const { generatedPath } = this.getRulePaths({
-            cameraId,
-            ruleName,
-        });
-
-        try {
-            await fs.promises.access(generatedPath);
-        } catch {
-            logger.log(`Creating rule folder at ${generatedPath}`);
-            await fs.promises.mkdir(generatedPath, { recursive: true });
-        }
-    }
-
-    async notifyAudioEvent(props: {
-        cameraDevice: DeviceInterface,
-        triggerTime: number,
-        message: string,
-        b64Image: string,
-        rule: AudioRule,
-        image: MediaObject,
-    }) {
-        const { cameraDevice, rule, triggerTime, b64Image, image, message } = props;
-        const logger = this.getLogger(cameraDevice);
-        const imageUrl = await this.storeRuleImage({
-            device: cameraDevice,
-            rule,
-            b64Image,
-            triggerTime,
-            logger,
-        });
-        await this.ensureRuleFoldersExist({ cameraId: cameraDevice.id, ruleName: rule.name });
-
-        for (const notifierId of rule.notifiers) {
-            const notifier = systemManager.getDeviceById<DeviceInterface>(notifierId);
-
-            await this.sendNotificationInternal({
-                notifier,
-                image,
-                message,
-                triggerTime,
-                device: cameraDevice,
-                rule,
-                imageUrl,
-            });
-        }
-    }
-
-    /**
-     * If rule.additionalStoragePath is set, copies the artifact to that directory as ${deviceId}_${ruleName}_${triggerTime}.${ext}.
-     * Checks directory access (creates if missing, then verifies writable). Logs and ignores errors.
-     */
-    private async copyArtifactToAdditionalStorage(props: {
-        rule: BaseRule;
-        deviceId: string;
-        triggerTime: number;
-        sourcePath: string;
-        ext: string;
-        logger: Console;
-    }): Promise<void> {
-        const { rule, deviceId, triggerTime, sourcePath, ext, logger } = props;
-        const dir = rule.additionalStoragePath?.trim();
-        if (!dir) return;
-        const safeDeviceId = String(deviceId).replace(/[/\\]/g, "_");
-        const safeName = rule.name.replace(/[/\\]/g, "_");
-        const destPath = path.join(dir, `${safeDeviceId}_${safeName}_${triggerTime}.${ext}`);
-        try {
-            try {
-                await fs.promises.access(dir, fs.constants.W_OK);
-            } catch {
-                await fs.promises.mkdir(dir, { recursive: true });
-                await fs.promises.access(dir, fs.constants.W_OK);
-            }
-            await fs.promises.copyFile(sourcePath, destPath);
-            logger.log(`Copied artifact to additional storage: ${destPath}`);
+          }
         } catch (e) {
-            logger.error(`Error copying artifact to additional storage ${dir}: ${e}`);
+          logger.log(`Error in mainFlow-${device}`, e);
         }
-    }
+      }
 
-    async storeRuleImage(props: {
-        device: ScryptedDeviceBase,
-        rule: BaseRule,
-        b64Image?: string,
-        bufferImage?: Buffer,
-        triggerTime: number,
-        logger: Console
-    }) {
-        const { device, rule, b64Image, bufferImage, triggerTime, logger } = props;
-        const { imageLatestPath, imageHistoricalPath, generatedPath } = this.getRulePaths({
+      const pluginStorage = this.storageSettings;
+      const {
+        availableRules: availableDetectionRules,
+        allowedRules: allowedDetectionRules,
+      } = getDetectionRules({ pluginStorage, console: logger, plugin: this });
+      const {
+        availableRules: availableRecordingRules,
+        allowedRules: allowedRecordingRules,
+      } = getRecordingRules({ pluginStorage, console: logger });
+
+      const availableRules = [
+        ...availableDetectionRules,
+        ...availableRecordingRules,
+      ];
+      const allowedRules = [...allowedDetectionRules, ...allowedRecordingRules];
+      const currentlyRunningRules = [
+        ...this.runningDetectionRules,
+        ...this.runningRecordingRules,
+      ];
+
+      const [rulesToEnable, rulesToDisable] = splitRules({
+        allRules: availableRules,
+        currentlyRunningRules,
+        rulesToActivate: allowedRules,
+      });
+
+      for (const rule of rulesToEnable) {
+        logger.log(`${rule.ruleType} rule started: ${rule.name}`);
+        const {
+          common: { currentlyActiveKey },
+        } = getRuleKeys({ ruleName: rule.name, ruleType: rule.ruleType });
+        this.putSetting(currentlyActiveKey, "true");
+      }
+
+      for (const rule of rulesToDisable) {
+        logger.log(`${rule.ruleType} rule stopped: ${rule.name}`);
+        const {
+          common: { currentlyActiveKey },
+        } = getRuleKeys({ ruleName: rule.name, ruleType: rule.ruleType });
+        this.putSetting(currentlyActiveKey, "false");
+      }
+
+      this.runningDetectionRules = cloneDeep(allowedDetectionRules) || [];
+      this.runningRecordingRules = cloneDeep(allowedRecordingRules) || [];
+      this.deviceVideocameraMap = deviceVideocameraMap;
+      this.videocameraDevicesMap = videocameraDevicesMap;
+      this.allAvailableRules = availableRules;
+
+      const now = Date.now();
+
+      if (
+        !this.lastConfigurationsCheck ||
+        now - this.lastConfigurationsCheck > 1000 * 60 * 60
+      ) {
+        this.lastConfigurationsCheck = now;
+        await this.checkPluginConfigurations(false);
+      }
+
+      const {
+        mqttEnabled,
+        haTransport,
+        notificationsEnabled,
+        devNotifications,
+        devNotifier,
+        facesSourceForMqtt,
+      } = this.storageSettings.values;
+      const haIntegrationEnabled =
+        mqttEnabled || haTransport === HomeassistantTransport.websocket;
+      if (haIntegrationEnabled) {
+        const mqttClient = await this.getHaClient();
+        if (mqttClient) {
+          const logger = this.getLogger();
+          if (
+            !this.lastAutoDiscovery ||
+            now - this.lastAutoDiscovery > AUTODISCOVERY_INTERVAL_MS
+          ) {
+            this.lastAutoDiscovery = now;
+            this.aiMessageResponseMap = {};
+
+            logger.log("Starting autodiscovery");
+            setupPluginAutodiscovery({
+              mqttClient,
+              people: await this.getKnownPeople(facesSourceForMqtt),
+              console: logger,
+              rules: availableRules,
+            }).catch(logger.error);
+
+            await this.setupMqttEntities();
+          }
+          let pluginRpcObjects: number | undefined;
+          let pluginPendingResults: number | undefined;
+          try {
+            const { stats } = await getRpcData();
+            const pluginStats = stats[pluginName];
+            pluginPendingResults = pluginStats?.pendingResults;
+            pluginRpcObjects = pluginStats?.rpcObjects;
+          } catch (e) {
+            logger?.error(
+              "Errore recuperando statistiche RPC per publishPluginValues",
+              e,
+            );
+          }
+
+          publishPluginValues({
+            mqttClient,
+            notificationsEnabled,
+            rulesToEnable,
+            rulesToDisable,
+            rpcObjects: pluginRpcObjects,
+            pendingResults: pluginPendingResults,
+            rssMemoryMB:
+              typeof process !== "undefined" && process.memoryUsage
+                ? Math.round(process.memoryUsage().rss / 1024 / 1024)
+                : undefined,
+            heapMemoryMB:
+              typeof process !== "undefined" && process.memoryUsage
+                ? Math.round(process.memoryUsage().heapUsed / 1024 / 1024)
+                : undefined,
+          }).catch(logger.error);
+        }
+      }
+
+      if (!this.restartRequested) {
+        // const activeDevices = (getAllDevices()
+        //     .filter(device =>
+        //         device.interfaces.includes(ADVANCED_NOTIFIER_INTERFACE) &&
+        //         (device.type === ScryptedDeviceType.Camera || device.type === ScryptedDeviceType.Doorbell)
+        //     )?.length || 0) + 1;
+        const activeCameras = Object.keys(this.currentCameraMixinsMap).length;
+        const activeSensors = Object.keys(this.currentSensorMixinsMap).length;
+        const activeNotifiers = Object.keys(
+          this.currentNotifierMixinsMap,
+        ).length;
+
+        const activeDevices = activeCameras + activeSensors + activeNotifiers;
+
+        if (!!activeDevices) {
+          const { stats } = await getRpcData();
+          const pluginStats = stats[pluginName];
+          const pluginPendingResults = pluginStats?.pendingResults;
+          const pluginRpcObjects = pluginStats?.rpcObjects;
+
+          logger.debug(
+            `PLUGIN-STUCK-CHECK: active devices ${activeDevices}, pending results ${pluginPendingResults} RPC objects ${pluginRpcObjects}`,
+          );
+
+          const camerasHardCap = MAX_RPC_OBJECTS_PER_CAMERA * activeCameras;
+          const sensorsHardCap = MAX_RPC_OBJECTS_PER_SENSOR * activeSensors;
+          const notifiersHardCap =
+            MAX_RPC_OBJECTS_PER_NOTIFIER * activeNotifiers;
+
+          const camerasSoftCap = SOFT_RPC_OBJECTS_PER_CAMERA * activeCameras;
+          const sensorsSoftCap = SOFT_RPC_OBJECTS_PER_SENSOR * activeSensors;
+          const notifiersSoftCap =
+            SOFT_RPC_OBJECTS_PER_NOTIFIER * activeNotifiers;
+
+          let hardCap =
+            MAX_RPC_OBJECTS_PER_PLUGIN +
+            camerasHardCap +
+            sensorsHardCap +
+            notifiersHardCap;
+          let softCap =
+            SOFT_RPC_OBJECTS_PER_PLUGIN +
+            camerasSoftCap +
+            sensorsSoftCap +
+            notifiersSoftCap;
+
+          hardCap = max([hardCap, HARD_MIN_RPC_OBJECTS]);
+          softCap = max([softCap, SOFT_MIN_RPC_OBJECTS]);
+
+          let shouldRestart = false;
+          const maxActiveMotion = Math.floor(activeCameras / 15);
+          let body: string;
+          if (
+            pluginRpcObjects > softCap &&
+            now - this.connectionTime > 1000 * 60 * 60 * 2 &&
+            this.cameraMotionActive.size <= maxActiveMotion
+          ) {
+            body = `${pluginRpcObjects} (> ${softCap}) RPC objects found, soft resetting because not much active motion`;
+            shouldRestart = true;
+          } else if (
+            pluginPendingResults >
+              MAX_PENDING_RESULT_PER_CAMERA * activeDevices ||
+            pluginRpcObjects > hardCap
+          ) {
+            shouldRestart = true;
+            body = `High resources detected, ${pluginPendingResults} pending results and ${pluginRpcObjects} (> ${hardCap}) RPC objects. Restarting`;
+          }
+
+          if (shouldRestart) {
+            this.restartRequested = true;
+            await sdk.deviceManager.requestRestart();
+            devNotifications?.includes(DevNotifications.SoftRestart) &&
+              (devNotifier as Notifier).sendNotification(
+                "Advanced notifier restarted",
+                {
+                  body,
+                },
+              );
+            logger.log(body);
+
+            for (const mixin of Object.values(this.currentCameraMixinsMap)) {
+              await mixin.onRestart();
+            }
+          }
+        }
+      }
+
+      if (this.accumulatedTimelapsesToGenerate) {
+        const timelapsesToRun = [...this.accumulatedTimelapsesToGenerate];
+        this.accumulatedTimelapsesToGenerate = undefined;
+        this.accumulatedTimelapsesToGenerate = [];
+        const triggerTime = Date.now();
+
+        for (const timelapse of timelapsesToRun) {
+          const { deviceId, ruleName } = timelapse;
+          const deviceState = this.cameraStates[deviceId];
+          const rule = deviceState?.allAvailableRules.find(
+            (rule) =>
+              rule.ruleType === RuleType.Timelapse && rule.name === ruleName,
+          );
+          const device =
+            sdk.systemManager.getDeviceById<DeviceInterface>(deviceId);
+          const deviceLogger = deviceState.logger;
+          await this.ensureRuleFoldersExist({
             cameraId: device.id,
             ruleName: rule.name,
-            triggerTime
-        });
-
-        logger.log(`Storing rule image for ${rule.name} into ${imageHistoricalPath} and latest at ${imageLatestPath}`);
-
-        try {
-            await fs.promises.access(generatedPath);
-        } catch {
-            await fs.promises.mkdir(generatedPath, { recursive: true });
-        }
-
-        if (b64Image) {
-            const base64Data = b64Image.replace(/^data:image\/png;base64,/, "");
-            await fs.promises.writeFile(imageHistoricalPath, base64Data, 'base64');
-        } else if (bufferImage) {
-            await fs.promises.writeFile(imageHistoricalPath, bufferImage);
-        }
-        await fs.promises.copyFile(imageHistoricalPath, imageLatestPath);
-
-        await this.copyArtifactToAdditionalStorage({ rule, deviceId: device.id, triggerTime, sourcePath: imageHistoricalPath, ext: "jpg", logger });
-
-        const { imageRuleUrl } = await getWebHookUrls({
-            fileId: String(triggerTime),
-            ruleName: rule.name,
-            plugin: this,
-            device,
-        });
-
-        const registerPath = getRulesRegisterPath(this.getStoragePath(), device.id);
-        await addOrUpdateRuleArtifacts(registerPath, { ruleName: rule.name, ruleType: rule.ruleType, timestamp: triggerTime, imageUrl: imageRuleUrl });
-
-        return imageRuleUrl;
-    }
-
-    async notifyTimelapse(props: {
-        cameraDevice: DeviceInterface,
-        rule: TimelapseRule,
-        triggerTime: number,
-    }) {
-        const { cameraDevice, rule, triggerTime } = props;
-        const logger = this.getLogger(cameraDevice);
-
-        const { videoRuleUrl, imageRuleUrl } = await getWebHookUrls({
-            console: logger,
-            plugin: this,
-            fileId: String(triggerTime),
-            ruleName: rule.name,
-            device: cameraDevice,
-        });
-
-        await this.ensureRuleFoldersExist({ cameraId: cameraDevice.id, ruleName: rule.name });
-
-        const registerPath = getRulesRegisterPath(this.getStoragePath(), cameraDevice.id);
-        await addOrUpdateRuleArtifacts(registerPath, { ruleName: rule.name, ruleType: rule.ruleType, timestamp: triggerTime, videoUrl: videoRuleUrl, imageUrl: imageRuleUrl });
-
-        const { videoHistoricalPath } = this.getRulePaths({
-            ruleName: rule.name,
-            cameraId: cameraDevice.id,
-            triggerTime
-        });
-
-        const fileStats = await fs.promises.stat(videoHistoricalPath);
-        const sizeInBytes = fileStats.size;
-
-        for (const notifierId of (rule.notifiers ?? [])) {
-            const notifier = systemManager.getDeviceById<DeviceInterface>(notifierId);
-
-            await this.sendNotificationInternal({
-                notifier,
-                device: cameraDevice,
-                rule,
-                videoUrl: videoRuleUrl,
-                clickUrl: videoRuleUrl,
-                videoSize: sizeInBytes,
-                imageUrl: imageRuleUrl,
-                triggerTime: Date.now()
-            });
-        }
-    }
-
-    async notifyNvrEvent(props: ParseNotificationMessageResult & { cameraDevice: DeviceInterface, triggerTime: number }) {
-        const { eventType, detection, triggerDevice, cameraDevice, triggerTime } = props;
-        const rules = this.runningDetectionRules.filter(rule =>
-            rule.detectionSource === ScryptedEventSource.NVR &&
-            rule.nvrEvents.includes(eventType as NvrEvent)
-        );
-        const logger = this.getLogger();
-
-        for (const rule of rules) {
-            if (rules.length) {
-                logger.log(`Starting notifiers for NVR event rule (${eventType}): ${JSON.stringify({ rule })}`);
-            }
-
-            const notifiers = rule.notifiers
-            for (const notifierId of notifiers) {
-                const notifier = systemManager.getDeviceById<DeviceInterface>(notifierId);
-
-                const title = triggerDevice.name;
-                await this.sendNotificationInternal({
-                    notifier,
-                    device: cameraDevice,
-                    rule,
-                    triggerTime,
-                    detection,
-                    eventType,
-                    title,
-                });
-            }
-        }
-    }
-
-    async onNvrNotification(cameraName: string, options?: NotifierOptions, image?: MediaObject, icon?: MediaObject | string) {
-        const logger = this.getLogger();
-        const triggerTime = options?.recordedEvent?.data.timestamp ?? new Date().getTime();
-        const cameraDevice = sdk.systemManager.getDeviceByName<DeviceInterface>(cameraName);
-        const deviceSensors = this.videocameraDevicesMap[cameraDevice.id] ?? [];
-        const result = await parseNvrNotificationMessage(cameraDevice, deviceSensors, options, logger);
-        const {
-            allDetections,
-            eventType,
-            triggerDevice,
-        } = result;
-        const { isCamera } = isDeviceSupported(triggerDevice);
-
-        const foundDevice = this.currentCameraMixinsMap[triggerDevice.id] || this.currentSensorMixinsMap[triggerDevice.id];
-
-        if (!foundDevice) {
-            logger.info(`Device not found for NVR notification: ${cameraName} ${eventType} ${triggerDevice?.name}`);
-            return;
-        }
-
-        if (isCamera) {
-            logger.info(`NVR detections incoming: ${JSON.stringify({ allDetections, cameraName, options })}`);
-            if (isDetectionClass(eventType)) {
-                await (foundDevice as AdvancedNotifierCameraMixin)?.processDetections({
-                    detect: { ...options.recordedEvent.data, detections: allDetections },
-                    image,
-                    eventSource: ScryptedEventSource.NVR,
-                });
-            } else {
-                if (eventType) {
-                    await this.notifyNvrEvent(
-                        {
-                            ...result,
-                            cameraDevice,
-                            triggerTime
-                        }
-                    );
-                } else {
-                    logger.error(`Notification coming from NVR not mapped yet: ${JSON.stringify({
-                        cameraName,
-                        options,
-                        allDetections,
-                        eventType,
-                        triggerDevice: triggerDevice.name,
-                    })
-                        } `);
-                }
-            }
-        }
-    }
-
-    public getLinkedCamera = async (deviceId: string) => {
-        const device = systemManager.getDeviceById<DeviceInterface>(deviceId);
-        const cameraDevice = await this.getCameraDevice(device);
-
-        if (!device || !cameraDevice) {
-            this.getLogger().log(`Camera device for ID ${deviceId} not found.Device found: ${!!device} and camera was found: ${!!cameraDevice} `);
-        }
-
-        return { device: cameraDevice, triggerDevice: device };
-    }
-
-    public applyAiToMessage = async (props: {
-        logger: Console,
-        b64Image: string,
-        prompt?: string,
-        message: string,
-        match: ObjectDetectionResult,
-        device: ScryptedDeviceBase,
-        triggerTime: number,
-    }) => {
-        const { logger, b64Image, prompt: promptParent, message, match, device, triggerTime } = props;
-        const { aiSource } = this.storageSettings.values;
-
-        let transformedMessage = message;
-
-        if (aiSource !== AiSource.Disabled) {
-            const { systemPromptKey } = getAiSettingKeys();
-
-            const prompt = promptParent || this.storageSettings.getItem(systemPromptKey as any);
-            const aiResponse = await getAiMessage({
-                b64Image,
-                logger,
-                originalTitle: message,
-                plugin: this,
-                detection: match,
-                timeStamp: triggerTime,
-                device,
-                prompt
-            });
-
-            if (aiResponse.message) {
-                transformedMessage = aiResponse.message;
-            }
-
-            if (aiResponse.fromCache) {
-                logger.info(`AI response retrieved from cache: ${JSON.stringify(aiResponse)}`);
-            } else {
-                logger.log(`AI response generated: ${JSON.stringify(aiResponse)}`);
-            }
-        }
-
-        return { transformedMessage };
-    }
-
-    public notifyDetectionEvent = async (props: NotifyDetectionProps) => {
-        const {
-            eventType,
-            triggerDeviceId,
-            snoozeId,
-            triggerTime: triggerTimeParent,
-            forceAi,
-            imageData,
-            matchRule,
-        } = props;
-        const { rule: ruleParent, match } = matchRule;
-        const rule = ruleParent as DetectionRule;
-        const triggerTime = triggerTimeParent || Date.now();
-        const { device: cameraDevice, triggerDevice } = await this.getLinkedCamera(triggerDeviceId);
-        const logger = this.getLogger(cameraDevice);
-        const cameraMixin = this.currentCameraMixinsMap[cameraDevice.id];
-
-        await this.ensureRuleFoldersExist({ cameraId: cameraDevice.id, ruleName: rule.name });
-
-        let image: MediaObject;
-        let b64Image: string;
-        let imageSource: ImageSource;
-
-        if (!imageData) {
-            let { b64Image: newB64Image, image: newImage, imageSource: newImageSource } = await cameraMixin.getImage({
-                reason: GetImageReason.Notification
-            });
-
-            image = newImage;
-            b64Image = newB64Image;
-            imageSource = newImageSource;
-        } else {
-            image = imageData.image;
-            b64Image = image ? await moToB64(image) : undefined;
-            imageSource = imageData.imageSource;
-        }
-
-        if (rule.activationType === DetectionRuleActivation.AdvancedSecuritySystem) {
-            this.alarmSystem.onEventTrigger({ triggerDevice }).catch(logger.log);
-        }
-
-        const executeNotify = async (props: { videoUrl?: string, gifUrl?: string, imageUrl?: string }) => {
-            const { gifUrl, videoUrl } = props;
-
-            const imageUrl = await this.storeRuleImage({
-                device: cameraDevice,
-                rule,
-                b64Image,
-                triggerTime,
-                logger,
-            });
-
-            logger.log(`${rule.notifiers.length} notifiers will be notified with image from ${imageSource}: ${JSON.stringify({
-                match,
-                rule,
-                videoUrl: getUrlLog(videoUrl),
-                gifUrl: getUrlLog(gifUrl),
-                imageUrl: getUrlLog(imageUrl),
-                assetsOriginSource: this.storageSettings.values.assetsOriginSource
-            })} `);
-
-            let message: string;
-
-            if (rule?.customText) {
-                message = rule.customText;
-            } else {
-                const { aiEnabled: cameraAiEnabled } = cameraMixin?.mixinState.storageSettings.values ?? {};
-                const anyNotifierAiEnabled = rule.notifiers.some(notifierId => {
-                    const notifierMixin = this.currentNotifierMixinsMap[notifierId];
-                    const { aiEnabled: notifierAiEnabled } = notifierMixin?.storageSettings.values ?? {};
-                    return notifierAiEnabled;
-                });
-
-                const { aiSource } = this.storageSettings.values;
-                if (forceAi || rule?.useAi || cameraAiEnabled || anyNotifierAiEnabled) {
-                    logger.log(`Notification AI: ${JSON.stringify({
-                        aiSource,
-                        camera: cameraDevice.name,
-                        forceAi,
-                        cameraAiEnabled,
-                        anyNotifierAiEnabled
-                    })}`);
-                }
-
-                const isAiEnabled = forceAi || rule?.useAi || (!rule && cameraAiEnabled && anyNotifierAiEnabled);
-
-                if (isAiEnabled) {
-                    const { transformedMessage } = await this.applyAiToMessage({
-                        b64Image,
-                        device: cameraDevice,
-                        logger,
-                        match,
-                        message,
-                        triggerTime,
-                        prompt: rule?.aiPrompt
-                    });
-
-                    message = transformedMessage;
-                }
-            }
-
-            for (const notifierId of rule.notifiers) {
-                const notifier = systemManager.getDeviceById<Settings & ScryptedDeviceBase>(notifierId);
-
-                this.notifyDetection({
-                    triggerDevice,
-                    cameraDevice,
-                    notifierId,
-                    time: triggerTime,
-                    image,
-                    b64Image,
-                    detection: match,
-                    eventType,
-                    logger,
-                    snoozeId,
-                    rule: rule as DetectionRule,
-                    videoUrl,
-                    gifUrl,
-                    imageUrl,
-                    message,
-                }).catch(e => logger.log(`Error on notifier ${notifier.name} `, e));
-
-                const decoderType = cameraMixin.decoderType;
-                if (rule.generateClip && decoderType !== DecoderType.Off) {
-                    cameraMixin.mixinState.clipGenerationTimeout[rule.name] && clearTimeout(cameraMixin.mixinState.clipGenerationTimeout[rule.name]);
-                    cameraMixin.mixinState.clipGenerationTimeout[rule.name] = undefined;
-                }
-            }
-
-            if (rule.onGeneratedSequences?.length) {
-                this.triggerRuleSequences({
-                    sequences: rule.onGeneratedSequences,
-                    postFix: 'generated',
-                    rule,
-                    deviceId: cameraDevice.id,
-                    payload: { rule, videoUrl, gifUrl, imageUrl },
-                }).catch(logger.error);
-            }
-        }
-
-        this.checkIfClipRequired({
-            cb: executeNotify,
-            device: cameraDevice,
-            logger,
+          });
+          await this.generateTimelapse({
             rule,
+            device,
+            logger: deviceLogger,
             triggerTime,
-        }).catch(logger.error);
-    };
-
-    async getMixin(mixinDevice: any, mixinDeviceInterfaces: ScryptedInterface[], mixinDeviceState: WritableDeviceState): Promise<any> {
-        const props = {
-            mixinDevice,
-            mixinDeviceInterfaces,
-            mixinDeviceState,
-            mixinProviderNativeId: this.nativeId,
-            group: 'Advanced notifier',
-            groupKey: 'homeassistantMetadata',
-        };
-        const logger = this.getLogger();
-
-        const { isCamera, isSensor, isNotifier, sensorType } = isDeviceSupported({ interfaces: mixinDeviceInterfaces } as DeviceBase);
-
-        try {
-            if (isCamera) {
-                const mixin = new AdvancedNotifierCameraMixin(
-                    props,
-                    this
-                );
-                return mixin;
-            } else if (isSensor) {
-                const mixin = new AdvancedNotifierSensorMixin(
-                    props,
-                    sensorType,
-                    this
-                );
-                return mixin;
-            } else if (isNotifier) {
-                const mixin = new AdvancedNotifierNotifierMixin(
-                    props,
-                    this
-                );
-                return mixin;
-            }
-        } catch (e) {
-            logger.log(`Error in getMixin for device ${mixinDeviceState.name}`, e);
-        }
-    }
-
-    async releaseMixin(id: string, mixinDevice: any): Promise<void> {
-        await mixinDevice.release();
-    }
-
-    private getUrls(cameraId: string, time: number) {
-        const serverId = this.storageSettings.getItem('serverId');
-        const nvrUrl = this.storageSettings.getItem('nvrUrl');
-        const scryptedToken = this.storageSettings.getItem('scryptedToken');
-
-        const timelinePart = `#/timeline/${cameraId}?time=${time}&from=notification&serverId=${serverId}&disableTransition=true`;
-        const haUrl = `/api/scrypted/${scryptedToken}/endpoint/@scrypted/nvr/public/${timelinePart} `
-        const externalUrl = `${nvrUrl}/${timelinePart}`
-        return { externalUrl: externalUrl, haUrl: `/scrypted_${scryptedToken}?url=${encodeURIComponent(haUrl)}`, timelinePart }
-    }
-
-    private getTriggerZone = (detection: ObjectDetectionResult, rule: DetectionRule) => {
-        const { zones } = detection ?? {};
-        let zone: string;
-        if (rule?.whitelistedZones) {
-            zone = detection?.zones?.find(detectedZone => rule.whitelistedZones.find(whiltelistedZone => {
-                if (rule.source === RuleSource.Device) {
-                    return whiltelistedZone === detectedZone;
-                } else {
-                    const [_, zonePart] = whiltelistedZone.split('::');
-                    return zonePart === detectedZone;
-                }
-            }));
-        } else {
-            zone = zones?.[0];
-        }
-
-        return zone;
-    }
-
-    getTextKey(props: {
-        textKey: TextSettingKey,
-        notifierId: string
-    }) {
-        const { notifierId, textKey } = props;
-        return this.currentNotifierMixinsMap[notifierId]?.storageSettings.values[textKey] || this.storageSettings.values[textKey];
-    }
-
-    private applyNotificationPlaceholders(props: {
-        text?: string;
-        device: DeviceInterface;
-        detectionTime: number;
-        detection?: ObjectDetectionResult;
-        eventType?: DetectionEvent;
-        notifierId: string;
-        externalUrl?: string;
-        rule?: DetectionRule;
-    }) {
-        const { text, detection, detectionTime, notifierId, device, externalUrl, rule, eventType } = props;
-        if (!text) {
-            return undefined;
-        }
-
-        const { label: labelRaw, className } = detection ?? {};
-
-        let label = labelRaw;
-        if (!isLabelDetection(className)) {
-            const labelAttemptKey = getFrigateTextKey(labelRaw);
-            label = this.getTextKey({ notifierId, textKey: labelAttemptKey }) ?? label;
-        }
-
-        const roomName = device?.room;
-        const { subKey } = getEventTextKey({ eventType, hasLabel: !!label });
-        const subkeyText = subKey ? this.getTextKey({ notifierId, textKey: subKey }) : undefined;
-
-        const detectionTimeText = this.getTextKey({ notifierId, textKey: 'detectionTimeText' });
-        const time = eval(detectionTimeText.replace('${time}', detectionTime));
-
-        const zone = this.getTriggerZone(detection, rule);
-
-        return text.toString()
-            .replaceAll('${time}', String(time ?? ''))
-            .replaceAll('${classnameText}', subkeyText ?? '')
-            .replaceAll('${classname}', subkeyText ?? '')
-            .replaceAll('${nvrLink}', externalUrl ?? '')
-            .replaceAll('${person}', label ?? '')
-            .replaceAll('${plate}', label ?? '')
-            .replaceAll('${streamName}', label ?? '')
-            .replaceAll('${label}', label ?? '')
-            .replaceAll('${zone}', zone ?? '')
-            .replaceAll('${room}', roomName ?? '');
-    }
-
-    private async getNotificationText(
-        props: {
-            device: DeviceInterface,
-            detectionTime: number,
-            detection?: ObjectDetectionResult,
-            eventType?: DetectionEvent,
-            notifierId: string,
-            externalUrl?: string,
-            rule?: DetectionRule,
-        }
-    ) {
-        const { detection, detectionTime, notifierId, device, externalUrl, rule, eventType } = props;
-        const { key } = getEventTextKey({ eventType, hasLabel: !!(detection?.label) });
-        const textToUse = rule?.customText || this.getTextKey({ notifierId, textKey: key });
-
-        return this.applyNotificationPlaceholders({
-            text: textToUse,
-            detection,
-            detectionTime,
-            notifierId,
-            device,
-            externalUrl,
-            rule,
-            eventType,
-        });
-    }
-
-    async buildSnoozes(props: { notifierId: string }) {
-        const { notifierId } = props;
-        const { snoozes } = this.storageSettings.values;
-
-        const snoozePlaceholder = this.getTextKey({ notifierId, textKey: 'snoozeText' });
-        const minutesPlaceholder = this.getTextKey({ notifierId, textKey: 'minutesText' });
-        const hoursPlaceholder = this.getTextKey({ notifierId, textKey: 'hoursText' });
-
-        const snoozeItems: SnoozeItem[] = [];
-
-        for (const minutesText of snoozes) {
-            const minutes = Number(minutesText);
-            const isHours = minutes % 60 === 0;
-            const time = isHours ? minutes / 60 : minutes;
-            const timeString = `${time} ${isHours ? hoursPlaceholder : minutesPlaceholder}`;
-
-            const text = snoozePlaceholder
-                ?.replaceAll('${timeText}', timeString);
-
-            snoozeItems.push({ text, minutes });
-        }
-
-        return { snoozeItems };
-    }
-
-    async getNotificationContent(props: {
-        notifier: DeviceBase & Notifier,
-        rule?: DetectionRule | OccupancyRule | TimelapseRule,
-        triggerTime?: number,
-        message?: string,
-        videoUrl?: string,
-        gifUrl?: string,
-        clickUrl?: string,
-        detection?: ObjectDetectionResult,
-        device?: DeviceInterface,
-        eventType?: DetectionEvent,
-        b64Image?: string,
-        logger: Console,
-        snoozeId?: string,
-        videoSize?: number,
-    }) {
-        const {
-            notifier,
-            rule,
+          });
+          await this.notifyTimelapse({
+            cameraDevice: device,
             triggerTime,
-            device,
-            videoUrl,
-            clickUrl,
-            detection,
-            eventType,
-            message: messageParent,
-            logger,
-            snoozeId: snoozeIdParent,
-            videoSize = 0,
-            gifUrl: giftUrlParent,
-        } = props;
-
-        if (!notifier) {
-            logger?.error?.('getNotificationContent: notifier is undefined, skipping notification content generation.');
-            return {};
-        }
-        const { notifierData } = rule ?? {};
-        const notifierId = notifier.id;
-        const cameraId = device?.id;
-        const { actions, priority, addSnooze, addCameraActions, sound, openInApp, channel, notificationIcon, iconColor } = notifierData?.[notifierId] ?? {};
-        const { withActions, withSnoozing, withSound, withOpenInApp, withChannel, withNotificationIcon,
-            withClearNotification, withDeleteNotification, withOpenNotification } = getNotifierData({ notifierId, ruleType: rule?.ruleType });
-        const cameraMixin = cameraId ? this.currentCameraMixinsMap[cameraId] : undefined;
-        if (cameraId && !cameraMixin) {
-            logger?.error?.(`getNotificationContent: camera mixin not found for cameraId ${cameraId}`);
-        }
-        if (cameraMixin && !cameraMixin?.mixinState?.storageSettings) {
-            logger?.error?.(`getNotificationContent: storageSettings not available for cameraId ${cameraId}`);
-        }
-
-        const { notifierActions } = cameraMixin?.mixinState?.storageSettings?.values ?? {};
-        const { haUrl, externalUrl, timelinePart } = this.getUrls(cameraId, triggerTime);
-        const deviceLogger = this.getLogger(device);
-
-        let additionalMessageText: string = '';
-
-        const actionsEnabled = withActions && addCameraActions;
-        const actionsToUseTmp: ExtendedNotificationAction[] = actionsEnabled ?
-            [...(actions ?? []),
-            ...((notifierActions || []).map(action => safeParseJson(action)) ?? [])] :
-            [];
-        const actionsToUse: ExtendedNotificationAction[] = [];
-
-        let gifUrl = giftUrlParent;
-        if (gifUrl) {
-            const actualUrl = new URL(gifUrl);
-            gifUrl = `${actualUrl.origin}${actualUrl.pathname}${actualUrl.search}`;
-        }
-
-        for (const { action, title, icon, url, destructive } of actionsToUseTmp) {
-            let urlToUse = url;
-
-            // Assuming every action without url is an HA action
-            if (!urlToUse) {
-                const { haActionUrl } = await getWebHookUrls({
-                    cameraIdOrAction: action,
-                    console: deviceLogger,
-                    device,
-                    plugin: this
-                });
-                urlToUse = haActionUrl;
-            }
-
-            actionsToUse.push({
-                action,
-                title,
-                icon,
-                url: urlToUse,
-                destructive,
-            });
-        }
-
-        let snoozeId = snoozeIdParent;
-        if (!snoozeId) {
-            snoozeId = getSnoozeId({
-                cameraId: device?.id,
-                notifierId,
-                priority,
-                rule,
-                detection,
-            });
-        }
-
-        const { snoozeItems } = await this.buildSnoozes({ notifierId });
-        const { snoozeActions, endpoint } = await getWebHookUrls({
-            console: deviceLogger,
-            device,
-            snoozeId,
-            snoozeItems,
-            plugin: this
-        });
-        const openNvrText = this.getTextKey({ notifierId, textKey: 'openNvrText' });
-
-        const addSnozeActions = withSnoozing && addSnooze;
-        let payload: any = {
-            data: {
-                isNotificationFromAnPlugin: true,
-                cameraId,
-                eventType,
-                snoozeId,
-            }
-        };
-
-        if (notifier.pluginId === TELEGRAM_PLUGIN_ID) {
-            payload.data.telegram = {};
-
-            const telegramActions: any[][] = [];
-            const firstLine: any[] = []
-            if (videoUrl) {
-                firstLine.push({
-                    title: 'Clip',
-                    url: videoUrl,
-                });
-            }
-            firstLine.push({
-                title: 'Live',
-                url: externalUrl,
-            });
-            telegramActions.push(firstLine);
-
-            if (addSnozeActions) {
-                const snoozeLine: any[] = [];
-                for (const { data, url } of snoozeActions) {
-                    snoozeLine.push({
-                        action: `scrypted_an_snooze_${cameraId}_${notifierId}_${data}_${snoozeId}`,
-                        title: `${data} mins`,
-                        url,
-                    });
-                }
-                telegramActions.push(snoozeLine);
-            }
-
-            if (actionsToUse.length) {
-                const actionsLine: any[] = [];
-                for (const { url, title, action } of actionsToUse) {
-                    actionsLine.push({
-                        action,
-                        uri: url,
-                        title,
-                    })
-                }
-                telegramActions.push(actionsLine);
-            }
-
-            payload.data.telegram.actions = telegramActions;
-            if (videoUrl) {
-                payload.data.telegram.gifUrl = videoUrl;
-            }
-            if (gifUrl) {
-                payload.data.telegram.gifUrl = gifUrl;
-            }
-
-            payload.silent = priority !== NotificationPriority.Normal;
-        } else if (notifier.pluginId === PUSHOVER_PLUGIN_ID) {
-            payload.data.pushover = {
-                timestamp: triggerTime,
-                url: clickUrl ?? externalUrl,
-                html: 1,
-                sound
-            };
-
-            const acts: ExtendedNotificationAction[] = [];
-            if (addSnozeActions) {
-                acts.push(...snoozeActions);
-            }
-            acts.push(...actionsToUse);
-            if (acts.length) {
-                additionalMessageText += '\n';
-                for (const { title, url } of acts) {
-                    additionalMessageText += `<a href="${url}">${title}</a>\n`;
-                }
-            }
-            if (videoUrl) {
-                additionalMessageText += '\n' + `<a href="${videoUrl}">Clip</a>\n`;
-            }
-
-            const priorityToUse = priority === NotificationPriority.High ? 1 :
-                priority === NotificationPriority.Normal ? 0 :
-                    priority === NotificationPriority.Low ? -1 :
-                        -2;
-
-            payload.data.pushover.priority = priorityToUse;
-
-            if (gifUrl) {
-                const gifMo = await sdk.mediaManager.createMediaObjectFromUrl(gifUrl);
-                const gifData = await sdk.mediaManager.convertMediaObjectToBuffer(gifMo, 'image/gif');
-                payload.data.pushover.file = { name: 'media.gif', data: gifData };
-            }
-        } else if (notifier.pluginId === ZENTIK_PLUGIN_ID) {
-            const zentikActions: any[] = [
-                {
-                    type: 'NAVIGATE',
-                    title: openNvrText,
-                    icon: 'sfsymbols:video',
-                    value: externalUrl,
-                }
-            ];
-
-            if (addSnozeActions) {
-                for (const { url, title } of snoozeActions) {
-                    zentikActions.push({
-                        title,
-                        type: 'BACKGROUND_CALL',
-                        value: `POST::${url}`,
-                        icon: 'sfsymbols:bell',
-                        destructive: false
-                    });
-                }
-            }
-
-            if (actionsToUse.length) {
-                for (const { url, title, icon } of actionsToUse) {
-                    zentikActions.push({
-                        type: 'BACKGROUND_CALL',
-                        value: `POST::${url}`,
-                        title,
-                        icon,
-                        destructive: false
-                    })
-                }
-            }
-
-            const tapUrl = openInApp && rule.ruleType === RuleType.Detection ?
-                externalUrl :
-                undefined;
-
-            payload.data.zentik = {
-                deliveryType: priority === NotificationPriority.High ? 'CRITICAL' :
-                    priority === NotificationPriority.Low ? 'SILENT' : 'NORMAL',
-                addMarkAsReadAction: withClearNotification,
-                addOpenNotificationAction: !!withOpenNotification && !!openInApp,
-                addDeleteAction: withDeleteNotification,
-                gifUrl,
-                videoUrl,
-                actions: zentikActions,
-                tapUrl
-            };
-
-        } else if (notifier.pluginId === HOMEASSISTANT_PLUGIN_ID) {
-            const fileSizeInMegabytes = videoSize / (1024 * 1024);
-            const isVideoValid = fileSizeInMegabytes < 50;
-
-            const urlToUse = withOpenInApp && openInApp ? haUrl : externalUrl;
-            payload.data.ha = {
-                ttl: 0,
-                importance: 'max',
-                priority: 'high',
-                url: clickUrl ?? urlToUse,
-                clickAction: clickUrl ?? urlToUse,
-                video: isVideoValid ? videoUrl : undefined,
-                channel: withChannel ? channel : undefined,
-                notification_icon: withNotificationIcon ? notificationIcon : undefined,
-                color: iconColor,
-                push: {
-                    sound: {
-                        name: withSound && sound ? sound : 'default'
-                    }
-                }
-            };
-
-            const haActions: any[] = [];
-            if (videoUrl) {
-                haActions.push({
-                    action: `URI`,
-                    icon: 'sfsymbols:video.circle',
-                    title: 'Clip',
-                    uri: videoUrl,
-                });
-            }
-            if (addSnozeActions) {
-                for (const { data, title, } of snoozeActions) {
-                    haActions.push({
-                        action: `scrypted_an_snooze_${cameraId}_${notifierId}_${data}_${snoozeId}`,
-                        icon: 'sfsymbols:bell',
-                        title,
-                    });
-                }
-            }
-            for (const { action, icon, title, destructive } of actionsToUse) {
-                haActions.push({
-                    action,
-                    icon,
-                    title,
-                    destructive,
-                })
-            }
-
-            if (withClearNotification) {
-                haActions.push({
-                    action: 'clear',
-                    title: this.getTextKey({ notifierId, textKey: 'discardText' }),
-                    icon: "sfsymbols:trash",
-                    destructive: true
-                });
-            }
-
-            payload.data.ha.actions = haActions;
-
-            if (priority === NotificationPriority.High) {
-                payload.data.ha.push['interruption-level'] = 'critical';
-                payload.data.ha.push.sound = {
-                    ...payload.data.ha.push.sound,
-                    critical: 1,
-                    volume: 1.0
-                };
-            }
-
-            if (gifUrl) {
-                payload.data.ha.image = gifUrl;
-            }
-        } else if (notifier.pluginId === NTFY_PLUGIN_ID) {
-            const ntfyActions: any[] = [{
-                action: 'view',
-                label: openNvrText,
-                url: externalUrl
-            }];
-
-            if (addSnozeActions) {
-                ntfyActions.push(...snoozeActions.slice(0, 2).map(action => ({
-                    action: 'http',
-                    label: action.title,
-                    url: action.url,
-                    method: 'GET',
-                })));
-            } else {
-                ntfyActions.push(...actionsToUse.slice(0, 2).map(action => ({
-                    action: 'http',
-                    label: action.title,
-                    url: action.url,
-                    method: 'GET',
-                })));
-            }
-
-            payload.data.ntfy = {
-                actions: ntfyActions
-            };
-
-            const priorityToUse = priority === NotificationPriority.SuperHigh ? 5 :
-                priority === NotificationPriority.High ? 4 :
-                    priority === NotificationPriority.Normal ? 3 :
-                        priority === NotificationPriority.Low ? 2 :
-                            1;
-
-            payload.data.ntfy.priority = priorityToUse;
-            if (gifUrl) {
-                payload.data.ntfy.attach = gifUrl;
-            }
-        } else if (notifier.pluginId === NVR_PLUGIN_ID) {
-            const localAddresses = safeParseJson(this.storageSettings.getItem('localAddresses'));
-            payload.data = {
-                ...payload.data,
-                hash: timelinePart,
-                localAddresses: localAddresses,
-                actionUrl: endpoint,
-                snoozeId,
-            };
-
-            if (addSnozeActions) {
-                payload.actions = snoozeActions.map((action => ({
-                    action: action.action,
-                    title: action.title
-                })));
-            }
-
-            if (priority === NotificationPriority.High) {
-                payload.critical = true;
-            } else if (priority === NotificationPriority.Low) {
-                payload.silent = true;
-            }
-        }
-
-        let message = messageParent;
-        const { externalUrl: externalUrlForText } = this.getUrls(device?.id, triggerTime);
-
-        if (message) {
-            message = this.applyNotificationPlaceholders({
-                text: message,
-                detection,
-                externalUrl: externalUrlForText,
-                detectionTime: triggerTime,
-                notifierId: notifier.id,
-                eventType,
-                device,
-                rule: rule as DetectionRule,
-            }) ?? message;
-        } else {
-            message = await this.getNotificationText({
-                detection,
-                externalUrl: externalUrlForText,
-                detectionTime: triggerTime,
-                notifierId: notifier.id,
-                eventType,
-                device,
-                rule: rule as DetectionRule,
-            });
-        }
-
-        if (additionalMessageText) {
-            message += additionalMessageText;
-        }
-
-        const logMessage = messageParent ?
-            'Custom message provided, skipping text generation.' :
-            'Notification content generated';
-
-        logger.log(`${logMessage}: ${JSON.stringify({
-            notifier: notifier.name,
-            actionsEnabled,
-            addSnozeActions,
-            payload,
-            message,
-        })}`);
-
-        return { payload, message };
-    }
-
-    async notifyDetection(props: {
-        cameraDevice?: DeviceInterface,
-        triggerDevice: DeviceInterface,
-        notifierId: string,
-        snoozeId?: string,
-        time: number,
-        message?: string,
-        image?: MediaObject,
-        b64Image?: string,
-        detection?: ObjectDetectionResult
-        eventType?: DetectionEvent,
-        rule?: DetectionRule,
-        logger: Console,
-        videoUrl?: string,
-        gifUrl?: string,
-        imageUrl?: string,
-    }) {
-        try {
-            const {
-                triggerDevice,
-                cameraDevice,
-                notifierId,
-                time,
-                image,
-                b64Image,
-                detection,
-                logger,
-                rule,
-                snoozeId,
-                eventType,
-                message,
-                videoUrl,
-                gifUrl,
-                imageUrl,
-            } = props;
-
-            const device = cameraDevice ?? (await this.getLinkedCamera(triggerDevice.id))?.device;
-
-            if (!device) {
-                logger.log(`There is no camera linked to the device ${triggerDevice.name}`);
-                return;
-            }
-
-            const notifier = systemManager.getDeviceById<DeviceInterface>(notifierId);
-            if (!notifier) {
-                logger.error(`notifyDetection: notifier not found for notifierId ${notifierId} (rule ${rule?.name ?? 'unknown'})`);
-                return;
-            }
-
-            let title = (triggerDevice ?? device).name;
-
-            let zone: string;
-            if (rule && detection) {
-                zone = this.getTriggerZone(detection, rule);
-            }
-
-            if (zone) {
-                title += ` (${zone})`;
-            }
-
-            await this.sendNotificationInternal({
-                notifier,
-                title,
-                icon: undefined,
-                image,
-                b64Image,
-                message,
-                triggerTime: time,
-                device,
-                rule,
-                detection,
-                eventType,
-                snoozeId,
-                logger,
-                videoUrl,
-                gifUrl,
-                imageUrl,
-            });
-        } catch (e) {
-            this.getLogger().log('Error in notifyCamera', e);
-        }
-    }
-
-    async sendNotificationInternal(props: {
-        title?: string,
-        b64Image?: string,
-        image?: MediaObject | string,
-        imageUrl?: string,
-        icon?: MediaObject | string,
-        notifier: DeviceInterface,
-        rule: BaseRule,
-        snoozeId?: string,
-        triggerTime?: number,
-        message?: string,
-        videoUrl?: string,
-        gifUrl?: string,
-        clickUrl?: string,
-        videoSize?: number,
-        detection?: ObjectDetectionResult,
-        device?: DeviceInterface,
-        eventType?: DetectionEvent,
-        logger?: Console
-    }) {
-        const {
-            title: titleParent,
-            icon,
-            image,
-            b64Image,
-            notifier,
-            device,
             rule,
-            snoozeId,
-            triggerTime,
-            videoUrl,
-            clickUrl,
-            message: messageParent,
-            detection,
-            eventType,
-            logger: loggerParent,
-            videoSize,
-            gifUrl,
-            imageUrl,
-        } = props;
-        const cameraId = device?.id;
-        const cameraMixin = cameraId ? this.currentCameraMixinsMap[cameraId] : undefined;
-        const logger = loggerParent ?? cameraMixin?.getLogger?.() ?? this.getLogger(device);
-
-        if (!notifier) {
-            logger?.error?.(`sendNotificationInternal: notifier is undefined (cameraId ${cameraId ?? 'unknown'}, rule ${rule?.name ?? 'unknown'})`);
-            return;
+          });
         }
-        if (!device) {
-            logger?.error?.(`sendNotificationInternal: device is undefined (notifierId ${notifier?.id ?? 'unknown'}, rule ${rule?.name ?? 'unknown'})`);
-            return;
-        }
-        if (!rule) {
-            logger?.error?.(`sendNotificationInternal: rule is undefined (cameraId ${cameraId ?? 'unknown'}, notifierId ${notifier?.id ?? 'unknown'})`);
-            return;
-        }
-        if (cameraId && !cameraMixin) {
-            logger?.error?.(`sendNotificationInternal: camera mixin not found for cameraId ${cameraId}`);
-        }
-
-        let title = titleParent;
-        if (!title) {
-            title = device?.name ?? 'Unknown device';
-        }
-
-        const content = await this.getNotificationContent({
-            device,
-            notifier,
-            rule,
-            triggerTime,
-            videoUrl,
-            logger,
-            b64Image,
-            detection,
-            eventType,
-            message: messageParent,
-            snoozeId,
-            videoSize,
-            clickUrl,
-            gifUrl,
-        });
-
-        const payload = content?.payload ?? {};
-        const message = content?.message ?? messageParent;
-
-        const notifierOptions: NotifierOptions = {
-            body: message,
-            ...payload,
-        };
-
-        logger.log(`Sending rule ${rule.name} (${rule.ruleType}) notification ${triggerTime} to ${notifier.name}`);
-        logger.info(JSON.stringify({
-            notifierOptions,
-            title,
-            message,
-            rule,
-            payload
-        }));
-
-        notifier.sendNotification(title, notifierOptions, imageUrl ?? image, icon).catch(logger.error);
+      }
+    } catch (e) {
+      logger.log("Error in mainFlow", e);
+    } finally {
+      this.mainFlowInProgress = false;
     }
+  }
 
-    async executeNotificationTest() {
-        const {
-            testAddActions,
-            testAddSnoozing,
-            testBypassSnooze,
-            testDevice,
-            testEventSource,
-            testEventType,
-            testGenerateClip,
-            testGenerateClipSpeed,
-            testGenerateClipType,
-            testClipPostSeconds,
-            testClipPreSeconds,
-            testNotifier,
-            testPriority,
-            testLabel,
-            testSound,
-            testUseAi,
-            testPostProcessing,
-            testZones,
-            testShowActiveZones,
-        } = this.storageSettings.values;
+  private async checkPluginConfigurations(manual: boolean) {
+    const logger = this.getLogger();
+    try {
+      const notifiersRegex = new RegExp(
+        "(rule|occupancyRule|timelapseRule):(.*):notifiers",
+      );
+      const devicesRegex = new RegExp(
+        "(rule|occupancyRule|timelapseRule):(.*):devices",
+      );
+      const activationTypeRegex = new RegExp("rule:(.*):activation");
+      const allDevices = getElegibleDevices();
 
-        const logger = this.getLogger();
+      const missingNotifiersOfDeviceRules: {
+        deviceName: string;
+        ruleName: string;
+        notifierIds: string[];
+      }[] = [];
+      const missingNotifiersOfPluginRules: {
+        ruleName: string;
+        notifierIds: string[];
+      }[] = [];
+      const missingDevicesOfPluginRules: {
+        ruleName: string;
+        deviceIds: string[];
+      }[] = [];
+      const devicesWithoutRoom: string[] = [];
 
-        try {
-            if (testDevice && testEventType && testNotifier) {
-                const currentTime = new Date().getTime();
-                const testNotifierId = testNotifier.id
-                const { sensorType, isCamera } = isDeviceSupported(testDevice);
-                const eventType = sensorType ?? testEventType;
-                const isDetection = isDetectionClass(testEventType);
-
-                logger.log(`Sending ${eventType} test notification to ${testNotifier.name}: ${JSON.stringify({
-                    deviceName: testDevice.name,
-                    testAddActions,
-                    testAddSnoozing,
-                    testBypassSnooze,
-                    testEventSource,
-                    testEventType,
-                    testGenerateClip,
-                    testGenerateClipSpeed,
-                    testGenerateClipType,
-                    testClipPreSeconds,
-                    testClipPostSeconds,
-                    testLabel,
-                    testNotifier,
-                    testPriority,
-                    testSound,
-                    testUseAi,
-                    testPostProcessing,
-                    testZones,
-                    testShowActiveZones,
-                })}`);
-
-                const snoozeId = testBypassSnooze ? Math.random().toString(36).substring(2, 12) : undefined;
-
-                const match: ObjectDetectionResult = isDetection ? {
-                    label: testLabel,
-                    className: testEventType,
-                    score: 1,
-                    ...(testShowActiveZones && testZones?.length ? { zones: testZones } : {}),
-                } : undefined;
-
-                const rule = {
-                    notifierData: {
-                        [testNotifierId]: {
-                            priority: testPriority,
-                            actions: [],
-                            addSnooze: testAddSnoozing,
-                            addCameraActions: testAddActions,
-                            sound: testSound
-                        }
-                    },
-                    imageProcessing: testPostProcessing,
-                    generateClipSpeed: testGenerateClipSpeed,
-                    generateClipType: testGenerateClipType,
-                    generateClip: testGenerateClip,
-                    generateClipPreSeconds: testClipPreSeconds,
-                    generateClipPostSeconds: testClipPostSeconds,
-                    useAi: testUseAi,
-                    ruleType: RuleType.Detection,
-                    activationType: DetectionRuleActivation.Always,
-                    source: RuleSource.Plugin,
-                    isEnabled: true,
-                    name: 'Test rule',
-                    detectionSource: (testEventSource as ScryptedEventSource) ?? ScryptedEventSource.RawDetection,
-                    notifiers: [testNotifier?.id],
-                    showActiveZones: testShowActiveZones,
-                } as DetectionRule;
-
-                const payload: NotifyDetectionProps = {
-                    eventType,
-                    eventSource: NotifyRuleSource.Test,
-                    triggerDeviceId: testDevice.id,
-                    triggerTime: currentTime - 2000,
-                    snoozeId,
-                    forceExecution: true,
-                    matchRule: {
-                        match,
-                        rule,
-                    },
-                    forceAi: testUseAi,
-                };
-
-                if (isCamera) {
-                    const cameraMixin = this.currentCameraMixinsMap[testDevice.id];
-                    await cameraMixin.notifyDetectionRule(payload);
-                } else {
-                    await this.notifyDetectionEvent(payload);
-                }
-            }
-        } catch (e) {
-            logger.log('Error in executeNotificationTest', e);
-        }
-    }
-
-    async getCameraDevice(device: DeviceInterface) {
-        const deviceId = device.id;
-        const { isCamera } = isDeviceSupported(device);
-
-        if (isCamera) {
-            return device;
+      for (const device of allDevices) {
+        if (!device.room) {
+          devicesWithoutRoom.push(device.name);
         }
 
-        const linkedCameraId = this.deviceVideocameraMap[deviceId];
-        return systemManager.getDeviceById<DeviceInterface>(linkedCameraId);
-    }
-
-    public getFsPaths(props: {
-        cameraId?: string,
-        triggerTime?: number,
-    }) {
-        const { cameraId, triggerTime } = props;
-        const storagePath = this.getStoragePath();
-        const cameraPath = cameraId ? path.join(storagePath, cameraId) : undefined;
-        const decoderpath = cameraPath ? path.join(cameraPath, 'decoder') : undefined;
-        const framePath = triggerTime && decoderpath ? path.join(decoderpath, `${triggerTime}.jpg`) : undefined;
-
-        return {
-            storagePath,
-            cameraPath,
-            decoderpath,
-            framePath,
-        };
-    }
-
-    public getDetectionImagePaths = (props: { imageIdentifier?: string, device: ScryptedDeviceBase }) => {
-        const { device, imageIdentifier } = props;
-        const { cameraPath } = this.getFsPaths({ cameraId: device.id });
-        const objectDetectionPath = path.join(cameraPath, 'detections');
-        const filePath = imageIdentifier ? path.join(objectDetectionPath, `${imageIdentifier}.jpg`) : undefined;
-
-        return { filePath, objectDetectionPath };
-    }
-
-    async decodeFileId(props: { fileId: string }) {
-        const { fileId } = props;
-
-        const [identifier, cameraId] = fileId.split('__');
-
-        const device = systemManager.getDeviceById<DeviceInterface>(cameraId);
-
-        if (identifier === 'rule') {
-            const [_, __, ruleName, triggerTime] = fileId.split('__');
-            const { videoHistoricalPath, imageHistoricalPath } = this.getRulePaths({
-                cameraId,
-                ruleName,
-                triggerTime: Number(triggerTime),
-            });
-
-            const { videoRuleUrl, imageRuleUrl } = await getWebHookUrls({
-                console: this.getLogger(),
-                device: device,
-                plugin: this,
-                fileId: triggerTime,
-            });
-
-            return {
-                videPath: videoHistoricalPath,
-                imagePath: imageHistoricalPath,
-                videoUrl: videoRuleUrl,
-                imageUrl: imageRuleUrl
-            };
-        } else if (identifier === 'event') {
-            const [_, __, fileName] = fileId.split('__');
-            const { recordedClipPath, recordedThumbnailPath } = this.getRecordedEventPath({
-                cameraId,
-                fileName
-            });
-
-            const { recordedClipThumbnailPath, recordedClipVideoPath } = await getWebHookUrls({
-                console: this.getLogger(),
-                device: device,
-                plugin: this,
-                fileId: fileName,
-            });
-
-            return {
-                videPath: recordedClipPath,
-                imagePath: recordedThumbnailPath,
-                videoUrl: recordedClipVideoPath,
-                imageUrl: recordedClipThumbnailPath
-            };
-        }
-    }
-
-    public getRulePaths = (props: {
-        cameraId: string,
-        ruleName?: string,
-        variant?: string,
-        triggerTime?: number,
-    }) => {
-        const { cameraId, ruleName, variant, triggerTime } = props;
-        const { cameraPath } = this.getFsPaths({ cameraId });
-
-        const rulesPath = path.join(cameraPath, 'rules');
-        const rulePath = ruleName ? path.join(rulesPath, ruleName) : undefined;
-        const framesPath = rulePath ? path.join(rulePath, 'frames') : undefined;
-        const framePath = triggerTime && framesPath ? path.join(framesPath, `${triggerTime}.jpg`) : undefined;
-        const filesListPath = rulePath ? path.join(rulePath, 'file_list.txt') : undefined;
-        const generatedPath = rulePath ? path.join(rulePath, 'generated') : undefined;
-
-        const gifHistoricalPath = generatedPath ? path.join(generatedPath, `${triggerTime}.gif`) : undefined;
-        const videoHistoricalPath = generatedPath ? path.join(generatedPath, `${triggerTime}.mp4`) : undefined;
-        const imageHistoricalPath = generatedPath ? path.join(generatedPath, `${triggerTime}.jpg`) : undefined;
-        const gifLatestPath = rulePath ? path.join(rulePath, `latest.gif`) : undefined;
-        const videoclipLatestPath = rulePath ? path.join(rulePath, `latest.mp4`) : undefined;
-        const imageLatestPath = rulePath ? path.join(rulePath, `latest.jpg`) : undefined;
-        const imageLatestPathVariant = rulePath ? path.join(rulePath, `latest_${variant}.jpg`) : undefined;
-
-        const fileId = `rule__${cameraId}__${ruleName}__${triggerTime}`;
-
-        return {
-            rulePath,
-            framesPath,
-            generatedPath,
-            framePath,
-            rulesPath,
-            imageLatestPathVariant,
-            filesListPath,
-            videoclipLatestPath,
-            gifLatestPath,
-            imageLatestPath,
-            gifHistoricalPath,
-            imageHistoricalPath,
-            videoHistoricalPath,
-            fileId
-        };
-    }
-
-    /** Enqueue a DB write (event or motion). Worker in main drains the queue sequentially. */
-    private enqueueDbWrite = (item: DbWriteQueueItem) => {
-        this.dbWriteQueue.push(item);
-        this.scheduleDbWriteProcess();
-    };
-
-    private scheduleDbWriteProcess = () => {
-        if (this.processingDbWriteQueue || this.dbWriteQueue.length === 0) return;
-        this.processingDbWriteQueue = true;
-        setImmediate(() => this.runDbWriteProcess());
-    };
-
-    private runDbWriteProcess = async () => {
-        const items = this.dbWriteQueue.splice(0, this.dbWriteQueue.length);
-        if (items.length === 0) {
-            this.processingDbWriteQueue = false;
-            return;
-        }
-        const dbFileFormat = 'YYYYMMDD';
-        type Group = { events: DbDetectionEvent[]; motion: DbMotionEvent[]; logger: Console };
-        const groups = new Map<string, Group>();
-        for (const item of items) {
-            const dbsPath = item.dbsPath;
-            const dayStr = item.type === 'event'
-                ? moment(item.event.timestamp).format(dbFileFormat)
-                : moment(item.motionEvent.timestamp).format(dbFileFormat);
-            const key = `${dbsPath}|${dayStr}`;
-            let g = groups.get(key);
-            if (!g) {
-                g = { events: [], motion: [], logger: item.logger };
-                groups.set(key, g);
-            }
-            if (item.type === 'event') g.events.push(item.event);
-            else g.motion.push(item.motionEvent);
-        }
-        for (const [key, group] of groups) {
-            const pipe = key.lastIndexOf('|');
-            const dbsPath = key.slice(0, pipe);
-            const dayStr = key.slice(pipe + 1);
-            try {
-                await writeEventsAndMotionBatch({
-                    dbsPath,
-                    dayStr,
-                    newEvents: group.events,
-                    newMotion: group.motion,
-                    logger: group.logger,
-                });
-            } catch (e) {
-                group.logger.error('DB write queue batch error', e);
-            }
-        }
-        this.processingDbWriteQueue = false;
-        if (this.dbWriteQueue.length > 0) this.scheduleDbWriteProcess();
-    };
-
-    public getEventPaths = (props: {
-        cameraId?: string,
-        fileName?: string,
-    }) => {
-        const { cameraId, fileName } = props;
-        const { cameraPath, storagePath } = this.getFsPaths({ cameraId });
-        const eventsPath = cameraPath ? path.join(cameraPath, 'events') : undefined;
-        const dbsPath = eventsPath ? path.join(eventsPath, 'dbs') : undefined;
-
-        const thumbnailsPath = eventsPath ? path.join(eventsPath, 'thumbnails') : undefined;
-        const imagesPath = eventsPath ? path.join(eventsPath, 'images') : undefined;
-        const eventThumbnailPath = fileName ? path.join(thumbnailsPath, `${fileName}.jpg`) : undefined;
-        const eventImagePath = fileName ? path.join(imagesPath, `${fileName}.jpg`) : undefined;
-
-        return {
-            eventsPath,
-            eventThumbnailPath,
-            eventImagePath,
-            fileId: fileName,
-            dbsPath,
-            storagePath,
-            thumbnailsPath,
-            imagesPath,
-        };
-    }
-
-    public getRecordedEventPath = (props: {
-        cameraId: string,
-        fileName?: string,
-    }) => {
-        const { cameraId, fileName } = props;
-        const { cameraPath } = this.getFsPaths({ cameraId });
-
-        const recordedEventsPath = path.join(cameraPath, 'recordedEvents');
-        const recordedClipPath = fileName ? path.join(recordedEventsPath, `${fileName}.mp4`) : undefined;
-        const recordedThumbnailPath = fileName ? path.join(recordedEventsPath, `${fileName}.jpg`) : undefined;
-
-        const fileId = `event__${cameraId}__${fileName}`;
-
-        return {
-            recordedEventsPath,
-            recordedClipPath,
-            recordedThumbnailPath,
-            fileId,
-        };
-    }
-
-    public storeDetectionImages = async (props: {
-        device: ScryptedDeviceBase,
-        timestamp: number,
-        b64Image?: string,
-        detections?: ObjectDetectionResult[],
-        eventSource: ScryptedEventSource,
-        ruleName?: string,
-        variant?: string,
-    }) => {
-        const { device, timestamp, b64Image, detections, eventSource, variant, ruleName } = props;
-        const logger = this.getLogger(device);
-        const mixin = this.currentCameraMixinsMap[device.id];
-
-        const {
-            postDetectionImageUrls,
-            postDetectionImageClasses,
-            postDetectionImageWebhook
-        } = mixin.mixinState.storageSettings.values;
-
-        if (b64Image && mixin) {
-            const base64Data = b64Image.replace(/^data:image\/png;base64,/, "");
-
-            if (ruleName) {
-                const { imageLatestPath, imageLatestPathVariant } = this.getRulePaths({
-                    cameraId: device.id,
-                    ruleName,
-                    variant
-                });
-
-                await fs.promises.writeFile(imageLatestPath, base64Data, 'base64');
-
-                if (variant) {
-                    await fs.promises.writeFile(imageLatestPathVariant, base64Data, 'base64');
-                }
-            } else {
-                const { objectDetectionPath } = this.getDetectionImagePaths({ device });
-
-                try {
-                    await fs.promises.access(objectDetectionPath);
-                } catch {
-                    await fs.promises.mkdir(objectDetectionPath, { recursive: true });
-                }
-
-                const filesToProcess: { filename: string, className?: string, label?: string }[] = [];
-                for (const detection of detections) {
-                    const { className, label } = detection;
-                    const detectionClass = detectionClassesDefaultMap[className];
-
-                    if (detectionClass) {
-                        let filename = className;
-
-                        if (label && !isPlateClassname(className)) {
-                            filename += `-${label}`;
-                        }
-
-                        if (eventSource !== ScryptedEventSource.RawDetection) {
-                            filename += `__${eventSource}`;
-                        }
-
-                        if (mixin.isDelayPassed({ type: DelayType.FsImageUpdate, filename })?.timePassed) {
-                            filesToProcess.push({ filename, className, label });
-                        }
-                    }
-                }
-
-                for (const { filename, className, label } of filesToProcess) {
-                    const imagePath = path.join(objectDetectionPath, `${filename}.jpg`);
-                    await fs.promises.writeFile(imagePath, base64Data, 'base64');
-
-                    if (
-                        postDetectionImageWebhook &&
-                        className &&
-                        postDetectionImageClasses?.includes(className) &&
-                        mixin.isDelayPassed({
-                            type: DelayType.PostWebhookImage,
-                            classname: className,
-                            eventSource,
-                        }).timePassed
-                    ) {
-                        for (const url of postDetectionImageUrls) {
-                            logger.log(`Posting ${className} image to ${getUrlLog(url)}, ${timestamp} ${label}`);
-                            try {
-                                await axios.post(url, {
-                                    classname: className,
-                                    label,
-                                    b64Image,
-                                    timestamp,
-                                    name: filename
-                                }, { timeout: 5000 })
-                            } catch (e) {
-                                logger.log(`Error webhook POST ${getUrlLog(url)}: ${e.message}`);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    public storeTimelapseFrame = async (props: {
-        rule: TimelapseRule,
-        timestamp: number,
-        device: ScryptedDeviceBase,
-        imageMo: MediaObject
-    }) => {
-        const { rule, timestamp, imageMo: imageMoParent, device } = props;
-
-        let imageMo = imageMoParent;
-
-        if (!imageMo) {
-            return;
-        }
-
-        if (imageMo) {
-            const { framePath, framesPath } = this.getRulePaths({
-                cameraId: device.id,
-                ruleName: rule.name,
-                triggerTime: timestamp,
-            });
-
-            try {
-                await fs.promises.access(framesPath);
-            } catch {
-                await fs.promises.mkdir(framesPath, { recursive: true });
-            }
-
-            const jpeg = await mediaManager.convertMediaObjectToBuffer(imageMo, 'image/jpeg');
-            await fs.promises.writeFile(framePath, jpeg);
-        }
-    }
-
-    public clearTimelapseFrames = async (props: {
-        rule: TimelapseRule,
-        device: ScryptedDeviceBase,
-        logger: Console
-    }) => {
-        const { rule, logger, device } = props;
-        logger.log(`Clearing frames for rule ${rule.name}.`);
-        try {
-            const { framesPath } = this.getRulePaths({
-                cameraId: device.id,
-                ruleName: rule.name,
-            });
-
-            await fs.promises.rm(framesPath, { recursive: true, force: true, maxRetries: 10 });
-            logger.log(`Folder ${framesPath} removed`);
-        } catch (e) {
-            logger.error(`Error clearing timelapse frames for rule ${rule.name}`, e);
-        }
-    }
-
-    public queueTimelapseGeneration(props: {
-        rule: TimelapseRule,
-        device: ScryptedDeviceBase,
-        logger: Console
-    }) {
-        const { rule, device } = props;
-        this.accumulatedTimelapsesToGenerate.push({ ruleName: rule.name, deviceId: device.id });
-    }
-
-    public generateTimelapse = async (props: {
-        rule: TimelapseRule,
-        device: ScryptedDeviceBase,
-        logger: Console,
-        triggerTime: number
-    }) => {
-        const { rule, logger, device, triggerTime } = props;
-
-        try {
-            const {
-                framesPath,
-                filesListPath,
-                videoHistoricalPath,
-                imageHistoricalPath,
-                generatedPath,
-                videoclipLatestPath,
-                imageLatestPath,
-            } = this.getRulePaths({
-                cameraId: device.id,
-                ruleName: rule.name,
-                triggerTime
-            });
-
-            try {
-                await fs.promises.access(generatedPath);
-            } catch {
-                await fs.promises.mkdir(generatedPath, { recursive: true });
-            }
-
-            const files = await fs.promises.readdir(framesPath);
-            const sortedFiles = files
-                .map(file => file.split('.')[0])
-                .sort((a, b) => parseInt(a) - parseInt(b));
-            const fileListContent = sortedFiles
-                .map(file => `file '${this.getRulePaths({
-                    cameraId: device.id,
-                    ruleName: rule.name,
-                    triggerTime: Number(file)
-                }).framePath}'`)
-                .join('\n');
-            await fs.promises.writeFile(filesListPath, fileListContent);
-
-            const ffmpegArgs = [
-                '-loglevel', 'error',
-                '-nostdin',
-                '-f', 'concat',
-                '-safe', '0',
-                '-i', filesListPath,
-                '-r', `${rule.timelapseFramerate}`,
-                '-vf', [
-                    'scale=min(1280\\,iw):-2:force_original_aspect_ratio=decrease',
-                    'pad=ceil(iw/2)*2:ceil(ih/2)*2:(ow-iw)/2:(oh-ih)/2:black',
-                    'format=yuv420p'
-                ].join(','),
-                '-c:v', 'libx264',
-                '-preset', 'faster',
-                '-crf', '28',
-                '-profile:v', 'main',
-                '-level', '4.0',
-                '-pix_fmt', 'yuv420p',
-                '-fps_mode', 'cfr',
-                '-movflags', '+faststart',
-                '-max_muxing_queue_size', '1024',
-                '-y',
-                videoHistoricalPath
-            ];
-
-            logger.log(`Generating timelapse ${rule.name} with ${sortedFiles.length} frames and arguments: ${ffmpegArgs}`);
-
-            const cp = child_process.spawn(await sdk.mediaManager.getFFmpegPath(), ffmpegArgs, {
-                stdio: 'inherit',
-            });
-
-            await once(cp, 'exit');
-
-            if (videoclipLatestPath) {
-                try {
-                    await fs.promises.copyFile(videoHistoricalPath, videoclipLatestPath);
-                    logger.log(`Storing timelapse latest video at ${videoclipLatestPath}`);
-                } catch (e) {
-                    logger.error(`Error copying timelapse video to latest: ${e}`);
-                }
-            }
-            await this.copyArtifactToAdditionalStorage({ rule, deviceId: device.id, triggerTime, sourcePath: videoHistoricalPath, ext: "mp4", logger });
-
-            const selectedFrame = sortedFiles[Math.floor(sortedFiles.length / 2)].split('.')[0];
-            const { framePath } = this.getRulePaths({
-                cameraId: device.id,
-                triggerTime: Number(selectedFrame),
-                ruleName: rule.name
-            });
-
-            const jpeg = await fs.promises.readFile(framePath);
-            const buf = await ffmpegFilterImageBuffer(jpeg, {
-                ffmpegPath: await sdk.mediaManager.getFFmpegPath(),
-                blur: true,
-                brightness: -.2,
-                text: {
-                    fontFile: undefined,
-                    text: rule.name,
-                },
-                timeout: 10000,
-            });
-
-            if (jpeg.length) {
-                logger.log(`Saving thumbnail in ${imageHistoricalPath}`);
-                await fs.promises.writeFile(imageHistoricalPath, buf);
-                if (imageLatestPath) {
-                    try {
-                        await fs.promises.copyFile(imageHistoricalPath, imageLatestPath);
-                        logger.log(`Storing timelapse latest image at ${imageLatestPath}`);
-                    } catch (e) {
-                        logger.error(`Error copying timelapse image to latest: ${e}`);
-                    }
-                }
-                await this.copyArtifactToAdditionalStorage({ rule, deviceId: device.id, triggerTime, sourcePath: imageHistoricalPath, ext: "jpg", logger });
-            } else {
-                logger.log('Not saving, image is corrupted');
-            }
-
-            if (rule.onGeneratedSequences?.length) {
-                const { videoRuleUrl, imageRuleUrl } = await getWebHookUrls({
-                    console: logger,
-                    plugin: this,
-                    fileId: String(triggerTime),
-                    ruleName: rule.name,
-                    device,
-                });
-                this.triggerRuleSequences({
-                    sequences: rule.onGeneratedSequences,
-                    postFix: 'generated',
-                    rule,
-                    deviceId: device.id,
-                    payload: { rule, videoUrl: videoRuleUrl, imageUrl: imageRuleUrl, videoPath: videoHistoricalPath, imagePath: imageHistoricalPath },
-                }).catch(logger.error);
-            }
-        } catch (e) {
-            logger.log('Error generating timelapse', e);
-        }
-    }
-
-    public getStoragePath() {
-        const { imagesPath } = this.storageSettings.values;
-
-        return imagesPath || process.env.SCRYPTED_PLUGIN_VOLUME;
-    }
-
-    public storeDecoderFrame = async (props: {
-        timestamp: number,
-        device: ScryptedDeviceBase,
-        imageMo?: MediaObject
-        imageBuffer?: Buffer
-    }) => {
-        const { timestamp, imageMo: imageMoParent, imageBuffer, device } = props;
-
-        let imageMo = imageMoParent;
-
-        if (!imageMo && !imageBuffer) {
-            return;
-        }
-
-        const { decoderpath } = this.getFsPaths({ cameraId: device.id });
-
-        try {
-            await fs.promises.access(decoderpath);
-        } catch {
-            await fs.promises.mkdir(decoderpath, { recursive: true });
-        }
-
-        if (imageMo) {
-            const jpeg = await mediaManager.convertMediaObjectToBuffer(imageMo, 'image/jpeg');
-            await fs.promises.writeFile(path.join(decoderpath, `${timestamp}.jpg`), jpeg);
-        } else {
-            await fs.promises.writeFile(path.join(decoderpath, `${timestamp}.jpg`), imageBuffer);
-        }
-    }
-
-    public clearVideoclipsData = async (props: {
-        device: ScryptedDeviceBase,
-        logger: Console,
-        additionalCutoffDays?: number,
-    }) => {
-        const { device } = props;
-
-        this.clearVideoclipsQueue.push({
-            deviceId: device.id,
-            task: async () => {
-                try {
-                    await this.doClearVideoclipsData(props);
-                } catch (e) {
-                    props.logger.error('Error in clearVideoclipsData', e);
-                }
-            }
-        });
-
-        this.processClearVideoclipsQueue();
-    }
-
-    private processClearVideoclipsQueue() {
-        if (this.processingClearVideoclips) {
-            return;
-        }
-        this.processingClearVideoclips = true;
-
-        const processNext = () => {
-            const entry = this.clearVideoclipsQueue.shift();
-            if (!entry) {
-                this.processingClearVideoclips = false;
-                return;
-            }
-
-            entry.task().finally(() => {
-                setTimeout(processNext, 500);
-            });
-        };
-        processNext();
-    }
-
-    private doClearVideoclipsData = async (props: {
-        device: ScryptedDeviceBase,
-        logger: Console,
-        additionalCutoffDays?: number,
-    }) => {
-        const { device, logger, additionalCutoffDays = 0 } = props;
-        const deviceMixin = this.currentCameraMixinsMap[device.id];
-        const { maxSpaceInGb, storageRetentionDays, storageEventsRetentionDays } = deviceMixin.mixinState.storageSettings.values;
-
-        if (additionalCutoffDays && additionalCutoffDays >= storageRetentionDays) {
-            logger.log(`Skipping cleanup, additionalCutoffDays ${additionalCutoffDays} >= storageRetentionDays ${storageRetentionDays}`);
-            return;
-        }
-
-        const now = Date.now();
-        const videoclipsThreshold = now - (1000 * 60 * 60 * 24 * (storageRetentionDays - additionalCutoffDays));
-        const { cameraPath } = this.getFsPaths({ cameraId: device.id });
-        const eventsThreshold = now - ((storageEventsRetentionDays - additionalCutoffDays) * 1000 * 60 * 60 * 24);
-        logger.log(`Cleaning up generated data: additionalCutoffDays=${additionalCutoffDays}, maxDays=${storageEventsRetentionDays}, maxSpaceInGb=${maxSpaceInGb}, videoclipsThreshold=${videoclipsThreshold}, eventsThreshold=${eventsThreshold}`);
-
-        const logData = {
-            clipsFound: 0,
-            clipsRemoved: 0,
-            snapshotsFound: 0,
-            snapshotsRemoved: 0,
-            gifsFound: 0,
-            gifsRemoved: 0,
-            eventsFound: 0,
-            eventsRemoved: 0,
-            recordedEventsFound: 0,
-            recordedEventsRemoved: 0,
-        };
-
-        const { occupiedSizeInBytes: occupiedSizeBefore } = await calculateSize({
-            currentPath: cameraPath,
-        });
-
-        // Rules artifacts cleanup
-        const { rulesPath } = this.getRulePaths({ cameraId: device.id });
-        const rulesRegisterPath = getRulesRegisterPath(this.getStoragePath(), device.id);
-        try {
-            await fs.promises.access(rulesPath);
-            const rulesFolder = await fs.promises.readdir(rulesPath);
-
-            for (const ruleFolder of rulesFolder) {
-                if (ruleFolder === REGISTER_FILENAME) continue;
-                const { generatedPath } = this.getRulePaths({
-                    cameraId: device.id,
-                    ruleName: ruleFolder,
-                });
-
-                const generatedData = await fs.promises.readdir(generatedPath);
-                const clips: string[] = [];
-                const snapshots: string[] = [];
-                const gifs: string[] = [];
-
-                for (const filename of generatedData) {
-                    if (filename.endsWith('.mp4')) {
-                        clips.push(filename);
-                    } else if (filename.endsWith('.jpg')) {
-                        snapshots.push(filename);
-                    } else if (filename.endsWith('.gif')) {
-                        gifs.push(filename);
-                    }
-                }
-
-                logData.clipsFound += clips.length;
-                logData.gifsFound += gifs.length;
-
-                for (const filename of clips) {
-                    const filepath = path.join(generatedPath, filename);
-                    const fileTimestamp = parseInt(filename, 10);
-
-                    if (fileTimestamp < videoclipsThreshold) {
-                        try {
-                            await fs.promises.unlink(filepath);
-                            logData.clipsRemoved += 1;
-                            await removeRuleArtifactUrl(rulesRegisterPath, ruleFolder, fileTimestamp, 'videoUrl');
-                        } catch (err) {
-                            logger.error(`Error removing clip ${filename}`, err.message);
-                        }
-                    }
-                }
-
-                logData.snapshotsFound += snapshots.length;
-
-                for (const filename of snapshots) {
-                    const filepath = path.join(generatedPath, filename);
-                    const fileTimestamp = parseInt(filename, 10);
-
-                    if (fileTimestamp < videoclipsThreshold) {
-                        try {
-                            await fs.promises.unlink(filepath);
-                            logData.snapshotsRemoved += 1;
-                            await removeRuleArtifactUrl(rulesRegisterPath, ruleFolder, fileTimestamp, 'imageUrl');
-                        } catch (err) {
-                            logger.error(`Error removing snapshot ${filename}`, err.message);
-                        }
-                    }
-                }
-
-                for (const filename of gifs) {
-                    const filepath = path.join(generatedPath, filename);
-                    const fileTimestamp = parseInt(filename, 10);
-
-                    if (fileTimestamp < videoclipsThreshold) {
-                        try {
-                            await fs.promises.unlink(filepath);
-                            logData.gifsRemoved += 1;
-                            await removeRuleArtifactUrl(rulesRegisterPath, ruleFolder, fileTimestamp, 'gifUrl');
-                        } catch (err) {
-                            logger.error(`Error removing gif ${filename}`, err.message);
-                        }
-                    }
-                }
-            }
-        } catch { }
-
-        // Recorded events cleanup (images, thumbnails, DBs)
-        const { imagesPath, thumbnailsPath, dbsPath } = this.getEventPaths({ cameraId: device.id });
-
-        await cleanupOldDeviceDbs({ logger, dbsPath, thresholdTimestamp: eventsThreshold });
-
-        try {
-            await fs.promises.access(imagesPath);
-
-            const imageFiles = await fs.promises.readdir(imagesPath);
-
-            logData.eventsFound += imageFiles.length;
-
-            for (const filename of imageFiles) {
-                const fileName = filename.split('_')[0];
-                const { eventImagePath } = this.getEventPaths({ cameraId: device.id, fileName: filename.split('.')[0] });
-
-                const startTime = Number(fileName);
-                if (startTime < eventsThreshold) {
-                    try {
-                        await fs.promises.unlink(eventImagePath);
-                        logData.eventsRemoved += 1;
-                    } catch (err) {
-                        logger.error(`Error removing event ${filename}`, err.message);
-                    }
-                }
-            }
-            const thumbnailFiles = await fs.promises.readdir(thumbnailsPath);
-
-            for (const filename of thumbnailFiles) {
-                const fileName = filename.split('_')[0];
-                const { eventThumbnailPath } = this.getEventPaths({ cameraId: device.id, fileName: filename.split('.')[0] });
-
-                const startTime = Number(fileName);
-                if (startTime < eventsThreshold) {
-                    try {
-                        await fs.promises.unlink(eventThumbnailPath);
-                        logData.eventsRemoved += 1;
-                    } catch (err) {
-                        logger.error(`Error removing event ${filename}`, err.message);
-                    }
-                }
-            }
-
-        } catch { }
-
-        // Recorded events cleanup
-        const { recordedEventsPath } = this.getRecordedEventPath({ cameraId: device.id });
-        try {
-            await fs.promises.access(recordedEventsPath);
-
-            const recordedEvents = await fs.promises.readdir(recordedEventsPath);
-            const clips: string[] = [];
-            const snapshots: string[] = [];
-
-            for (const fullFileName of recordedEvents) {
-                const [filename, ext] = fullFileName.split('.');
-                if (ext === 'mp4') {
-                    clips.push(filename);
-                } else if (ext === 'jpg') {
-                    snapshots.push(filename);
-                }
-            }
-
-            logData.recordedEventsFound += clips.length;
-
-            for (const filename of clips) {
-                const { recordedClipPath, recordedThumbnailPath } = this.getRecordedEventPath({ cameraId: device.id, fileName: filename });
-
-                const { startTime } = parseVideoFileName(filename);
-
-                if (startTime < videoclipsThreshold) {
-                    try {
-                        await fs.promises.unlink(recordedClipPath);
-                        await fs.promises.unlink(recordedThumbnailPath);
-                        logData.recordedEventsRemoved += 1;
-                    } catch (err) {
-                        logger.error(`Error removing recorded event ${filename}`, err.message);
-                    }
-                }
-            }
-
-        } catch { }
-
-        const { occupiedSizeInBytes: occupiedSizeAfter } = await calculateSize({
-            currentPath: cameraPath,
-        });
-        const sizeFreed = occupiedSizeBefore - occupiedSizeAfter;
-        const { formatted: sizeFreedFormatted } = formatSize(sizeFreed);
-
-        const cameraMixin = this.currentCameraMixinsMap[device.id];
-        const { value: occupiedSizeInGb, formatted: formattedOccupiedSizeInGb } = formatSize(occupiedSizeAfter, 'GB');
-        cameraMixin.mixinState.storageSettings.values.occupiedSpaceInGb = occupiedSizeInGb;
-        this.cameraSpaceOccupancy[device.id] = {
-            occupiedSize: occupiedSizeInGb,
-            totalSize: maxSpaceInGb,
-        };
-        this.updateTotalOccupiedSpace();
-
-        logger.log(`Cleanup completed ${JSON.stringify(logData)}, freed space: ${sizeFreedFormatted}, occupied space: ${formattedOccupiedSizeInGb}`);
-
-        if (occupiedSizeInGb > (maxSpaceInGb * 0.95)) {
-            logger.log(`Should clean additional space: occupiedSizeInGb ${occupiedSizeInGb} > maxSpaceInGb ${maxSpaceInGb} (95% cutoff)`);
-            await this.clearVideoclipsData({
-                device,
-                logger,
-                additionalCutoffDays: additionalCutoffDays + 1,
-            });
-        }
-    }
-
-    private updateTotalOccupiedSpace() {
-        let totalOccupied = 0;
-        let totalAvailable = 0;
-
-        Object.values(this.cameraSpaceOccupancy).forEach(({ occupiedSize, totalSize }) => {
-            totalOccupied += occupiedSize;
-            totalAvailable += totalSize;
-        });
-
-        const totalAvailableSpaceInGb = Number(totalAvailable.toFixed(2));
-        this.storageSettings.values.totalAvailableSpaceInGb = totalAvailableSpaceInGb;
-        this.storageSettings.values.totalOccupiedSpaceInGb = Number(totalOccupied.toFixed(2));
-        this.storageSettings.settings.totalOccupiedSpaceInGb.range = [
-            0,
-            this.storageSettings.values.totalAvailableSpaceInGb
-        ];
-
-    };
-
-    public clearDecoderFrames = async (props: {
-        device: ScryptedDeviceBase,
-        logger: Console,
-        framesThreshold: number,
-    }) => {
-        const { device } = props;
-
-        this.clearVideoclipsQueue.push({
-            deviceId: device.id,
-            task: async () => {
-                try {
-                    await this.doClearDecoderFrames(props);
-                } catch (e) {
-                    props.logger.error('Error in clearDecoderFrames', e);
-                }
-            }
-        });
-
-        this.processClearVideoclipsQueue();
-    }
-
-    private doClearDecoderFrames = async (props: {
-        device: ScryptedDeviceBase,
-        logger: Console,
-        framesThreshold: number,
-    }) => {
-        const { device, logger, framesThreshold } = props;
-        logger.log(`Cleaning up decoder frames: framesThreshold=${framesThreshold}`);
-        const { decoderpath } = this.getFsPaths({ cameraId: device.id });
-
-        const logData = {
-            framesFound: 0,
-            framesRemoved: 0,
-        };
-
-        try {
-            const frames = await fs.promises.readdir(decoderpath);
-            logData.framesFound = frames.length;
-
-            for (const filename of frames) {
-                const filepath = path.join(decoderpath, filename);
-                const fileTimestamp = parseInt(filename);
-
-                if (fileTimestamp < framesThreshold) {
-                    try {
-                        await fs.promises.unlink(filepath);
-                        logData.framesRemoved += 1;
-                    } catch (err) {
-                        logger.error(`Error removing frame ${filename}`, err.message);
-                    }
-                }
-            }
-        } catch { }
-
-        logger.log(`Decoder frames cleanup completed ${JSON.stringify(logData)}`);
-    }
-
-    public prepareClipGenerationFiles = async (props: {
-        rule: TimelapseRule,
-        device: ScryptedDeviceBase,
-        logger: Console,
-        triggerTime: number,
-        pastMs: number,
-    }) => {
-        const { triggerTime, device, pastMs, rule } = props;
-        const minTime = triggerTime - pastMs;
-        const cameraMixin = this.currentCameraMixinsMap[device.id];
-
-        const { decoderpath } = this.getFsPaths({ cameraId: device.id });
-        const { filesListPath } = this.getRulePaths({ cameraId: device.id, triggerTime, ruleName: rule.name });
-
-        let preTriggerFrames = 0;
-        let postTriggerFrames = 0;
-        let eventFrameTriggerTime: number;
-        const files = await fs.promises.readdir(decoderpath);
-        const filteredFiles = files
-            .map(file => file.split('.')[0])
-            .sort((a, b) => parseInt(a) - parseInt(b))
-            .filter(frameName => {
-                const fileTimestamp = parseInt(frameName);
-
-                if (fileTimestamp > minTime) {
-                    if (fileTimestamp < triggerTime) {
-                        preTriggerFrames++;
-                    } else {
-                        if (postTriggerFrames === 0) {
-                            eventFrameTriggerTime = fileTimestamp;
-                        }
-                        postTriggerFrames++;
-                    }
-
-                    return true;
-                }
-
-                if (!eventFrameTriggerTime) {
-                    eventFrameTriggerTime = fileTimestamp;
-                }
-
-                return false;
-            })
-            .map(file => `file '${this.getFsPaths({
-                cameraId: device.id,
-                triggerTime: Number(file),
-            }).framePath}'`);
-        const framesAmount = filteredFiles.length;
-
-        if (framesAmount) {
-            const inputFps = 1000 / cameraMixin.mixinState.storageSettings.values.decoderFrequency;
-            const fpsMultiplier = videoclipSpeedMultiplier[rule.generateClipSpeed ?? VideoclipSpeed.Fast];
-            const fps = inputFps * fpsMultiplier;
-            const fileListContent = filteredFiles.join('\n');
-
-            await fs.promises.writeFile(filesListPath, fileListContent);
-
-            return {
-                fps,
-                framesAmount,
-                filesListPath,
-                eventFrameTriggerTime,
-                preTriggerFrames,
-                postTriggerFrames,
-                filteredFiles,
-                inputFps
-            };
-        }
-    }
-
-    public generateVideoclip = async (props: {
-        rule: BaseRule,
-        device: ScryptedDeviceBase,
-        logger: Console,
-        triggerTime: number,
-        pastMs: number,
-    }) => {
-        const { device, rule, logger, triggerTime } = props;
-
-        try {
-            const {
-                fps,
-                framesAmount,
-                filesListPath,
-                eventFrameTriggerTime,
-                preTriggerFrames,
-                postTriggerFrames,
-                filteredFiles,
-                inputFps
-            } = await this.prepareClipGenerationFiles(props);
-
-            const fileName = String(triggerTime);
-            const {
-                videoHistoricalPath,
-                imageHistoricalPath,
-                videoclipLatestPath
-            } = this.getRulePaths({ cameraId: device.id, triggerTime, ruleName: rule.name });
-
-            if (framesAmount) {
-                const ffmpegArgs = [
-                    '-loglevel', 'error',
-                    '-f', 'concat',
-                    '-safe', '0',
-                    '-r', `${fps}`,
-                    '-i', filesListPath,
-                    '-vf', `scale='min(${SNAPSHOT_WIDTH},iw)':'-2',pad=ceil(iw/2)*2:ceil(ih/2)*2`,
-                    '-c:v', 'libx264',
-                    '-pix_fmt', 'yuv420p',
-                    '-y',
-                    videoHistoricalPath,
-                ];
-                logger.log(`Start detection MP4 clip generation ${rule.name} ${triggerTime} ${inputFps} fps with ${framesAmount} total frames (${preTriggerFrames} pre and ${postTriggerFrames} post) and arguments: ${ffmpegArgs}`);
-
-                const cp = child_process.spawn(await sdk.mediaManager.getFFmpegPath(), ffmpegArgs, {
-                    stdio: 'inherit',
-                });
-                await once(cp, 'exit');
-                await fs.promises.copyFile(videoHistoricalPath, videoclipLatestPath);
-                logger.log(`Detection clip ${videoHistoricalPath} generated`);
-                await this.copyArtifactToAdditionalStorage({ rule, deviceId: device.id, triggerTime, sourcePath: videoHistoricalPath, ext: "mp4", logger });
-
-                const { framePath } = this.getFsPaths({
-                    cameraId: device.id,
-                    triggerTime: eventFrameTriggerTime,
-                });
-                try {
-                    const jpeg = await fs.promises.readFile(framePath);
-
-                    logger.log(`Saving thumbnail in ${imageHistoricalPath}`);
-                    await this.storeRuleImage({
-                        rule,
-                        device,
-                        triggerTime,
-                        bufferImage: jpeg,
-                        logger,
-                    });
-                } catch (e) {
-                    logger.log(`Error generating videoclip thumbnail ${JSON.stringify({
-                        eventFrameTriggerTime,
-                        framePath,
-                    })}`, e);
-                }
-            } else {
-                logger.log(`Skipping ${rule.name} ${triggerTime} clip generation, no frames available`);
-
-            }
-
-            return { fileName, preTriggerFrames, postTriggerFrames, filteredFiles };
-
-        } catch (e) {
-            logger.log('Error generating videoclip', e);
-
-            return {};
-        }
-    }
-
-    public generateGif = async (props: {
-        rule: TimelapseRule,
-        device: ScryptedDeviceBase,
-        logger: Console,
-        triggerTime: number,
-        pastMs: number,
-    }) => {
-        const { device, rule, logger, triggerTime } = props;
-
-        try {
-            const {
-                fps,
-                framesAmount,
-                filesListPath,
-                preTriggerFrames,
-                postTriggerFrames,
-                filteredFiles,
-                inputFps,
-                eventFrameTriggerTime,
-            } = await this.prepareClipGenerationFiles(props);
-
-            const { gifLatestPath, gifHistoricalPath, imageHistoricalPath } = this.getRulePaths({ cameraId: device.id, ruleName: rule.name, triggerTime });
-
-            if (framesAmount) {
-                const ffmpegArgs = [
-                    '-loglevel', 'error',
-                    '-f', 'concat',
-                    '-safe', '0',
-                    '-r', `${fps}`,
-                    '-i', filesListPath,
-                    '-vf', `scale='min(${SNAPSHOT_WIDTH},iw)':'-2',pad=ceil(iw/2)*2:ceil(ih/2)*2`,
-                    '-y',
-                    gifHistoricalPath,
-                ];
-                logger.log(`Start detection GIF generation ${rule.name} ${triggerTime} ${inputFps} fps with ${framesAmount} total frames (${preTriggerFrames} pre and ${postTriggerFrames} post) and arguments: ${ffmpegArgs}`);
-
-                const cp = child_process.spawn(await sdk.mediaManager.getFFmpegPath(), ffmpegArgs, {
-                    stdio: 'inherit',
-                });
-                await once(cp, 'exit');
-                await fs.promises.copyFile(gifHistoricalPath, gifLatestPath);
-                logger.log(`GIF ${gifHistoricalPath} generated`);
-                await this.copyArtifactToAdditionalStorage({ rule, deviceId: device.id, triggerTime, sourcePath: gifHistoricalPath, ext: "gif", logger });
-
-                const { gifRuleUrl } = await getWebHookUrls({
-                    fileId: String(triggerTime),
-                    ruleName: rule.name,
-                    plugin: this,
-                    device,
-                });
-                const gifRegisterPath = getRulesRegisterPath(this.getStoragePath(), device.id);
-                await addOrUpdateRuleArtifacts(gifRegisterPath, { ruleName: rule.name, ruleType: rule.ruleType, timestamp: triggerTime, gifUrl: gifRuleUrl });
-
-                const { framePath } = this.getFsPaths({
-                    cameraId: device.id,
-                    triggerTime: eventFrameTriggerTime,
-                });
-
-                try {
-                    const jpeg = await fs.promises.readFile(framePath);
-
-                    logger.log(`Saving thumbnail in ${imageHistoricalPath}`);
-                    await this.storeRuleImage({
-                        rule,
-                        device,
-                        triggerTime,
-                        bufferImage: jpeg,
-                        logger,
-                    });
-                } catch (e) {
-                    logger.log(`Error generating gif thumbnail ${JSON.stringify({
-                        eventFrameTriggerTime,
-                        framePath,
-                    })}`, e);
-                }
-            } else {
-                logger.log(`Skipping ${rule.name} ${triggerTime} GIF generation, no frames available`);
-            }
-
-            return { preTriggerFrames, postTriggerFrames, filteredFiles };
-
-        } catch (e) {
-            logger.log('Error generating gif', e);
-
-            return {};
-        }
-    }
-
-    public async storeEventImage(props: {
-        device: ScryptedDeviceBase,
-        triggerDevice?: ScryptedDeviceBase,
-        logger: Console,
-        b64Image: string,
-        image: MediaObject,
-        detections: ObjectDetectionResult[],
-        timestamp: number,
-        eventSource: ScryptedEventSource,
-        eventId?: string,
-        detectionId?: string,
-        inputDimensions?: [number, number],
-    }) {
-        const {
-            triggerDevice,
-            device,
-            timestamp,
-            logger,
-            b64Image,
-            detections,
-            eventSource,
-            image,
-            eventId,
-            detectionId,
-            inputDimensions,
-        } = props;
-        const classNames = uniq(detections.map(det => det.className));
-        const label = detections.find(det => det.label)?.label;
-        const deviceMixin = this.currentCameraMixinsMap[device.id];
-
-        const identifiers = detections.map(det => {
-            let identifier = `${eventSource}_${det.className}`;
-            if (isMotionClassname(det.className)) {
-                return det.className;
-            }
-            if (det.label) {
-                identifier += `_${det.label}`;
-            }
-            if (detectionId) {
-                identifier += `_${detectionId}`;
-            } else if (det.id) {
-                identifier += `_${det.id}`;
-            }
-
-            return identifier;
-        });
-
-        if (!deviceMixin?.isDelayPassed({
-            type: DelayType.EventStore,
-            identifiers,
-            eventSource,
-        })?.timePassed) {
-            return;
-        }
-
-        const fileName = `${timestamp}_${eventSource}_${getDetectionsLogShort(detections)}`;
-        const { eventImagePath, eventThumbnailPath, thumbnailsPath, imagesPath, fileId } = this.getEventPaths({ fileName, cameraId: device.id });
-
-        try {
-            await fs.promises.access(thumbnailsPath);
-        } catch {
-            await fs.promises.mkdir(thumbnailsPath, { recursive: true });
-        }
-
-        try {
-            await fs.promises.access(imagesPath);
-        } catch {
-            await fs.promises.mkdir(imagesPath, { recursive: true });
-        }
-
-        logger.log(`Storing ${eventSource} event for classes ${getDetectionsLog(detections)} ${fileId}`);
-        const base64Data = b64Image.replace(/^data:image\/png;base64,/, "");
-        await fs.promises.writeFile(eventImagePath, base64Data, 'base64');
-
-        const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(image, ScryptedMimeTypes.Image);
-        const resizedImage = await convertedImage.toImage({
-            resize: {
-                height: 400,
-            },
-        });
-        const smallB64Image = await moToB64(resizedImage);
-        const smallBase64Data = smallB64Image.replace(/^data:image\/png;base64,/, "");
-        await fs.promises.writeFile(eventThumbnailPath, smallBase64Data, 'base64');
-
-        let keyEvent = false;
-        let croppedImageUrl: string | undefined;
-        const additionalCrops: import('./db').DbCropInfo[] = [];
-
-        const AUDIO_KEY_EVENT_MIN_INTERVAL_MS = 60 * 1000; // 1 minute
-        const hasAudioDetection = detections.some((d) => isAudioClassname(d.className));
-        const lastAudioKey = this.lastAudioKeyEventTimestampByDevice[device.id] ?? 0;
-        if (hasAudioDetection && timestamp - lastAudioKey >= AUDIO_KEY_EVENT_MIN_INTERVAL_MS) {
-            keyEvent = true;
-            this.lastAudioKeyEventTimestampByDevice[device.id] = timestamp;
-            this.lastKeyEventTimestampByDevice[device.id] = timestamp;
-        }
-
-        if (eventSource === ScryptedEventSource.RawDetection && inputDimensions?.length === 2 && detections?.length) {
-            const keyEventSet = this.keyEventObjectIdsByDevice[device.id] ??= new Set<string>();
-            const { candidates: allCandidates, stationary } = selectKeyEventDetections({
-                detections,
-                inputDimensions: inputDimensions as [number, number],
-                objectIdsAlreadyKeyEvent: keyEventSet,
-                logger,
-            });
-            if (stationary.length) {
-                logger.debug?.(`Stationary objects detected: ${stationary.map(s => `${s.detection.className}(${s.objectId})`).join(', ')}`);
-            }
-            for (let i = 0; i < allCandidates.length; i++) {
-                const candidate = allCandidates[i];
-                const bbox = candidate.detection.boundingBox as [number, number, number, number];
-                const pixelBox = bbox && bbox.length >= 4 ? toPixelBbox(bbox, inputDimensions as [number, number]) : undefined;
-                if (!pixelBox) continue;
-                try {
-                    const cropResult = await cropImageToDetection({
-                        image,
-                        boundingBox: pixelBox,
-                        inputDimensions: inputDimensions as [number, number],
-                        plugin: this,
-                        console: logger,
-                    });
-                    if (cropResult?.newB64Image) {
-                        const suffix = i === 0 ? '_keyEvent' : `_keyEvent_${i}`;
-                        const keyEventFileName = `${fileName}${suffix}`;
-                        const cropBase64 = cropResult.newB64Image.replace(/^data:image\/png;base64,/, '');
-                        // Save full-size crop
-                        await fs.promises.writeFile(path.join(imagesPath, `${keyEventFileName}.jpg`), cropBase64, 'base64');
-                        // Save thumbnail crop (resized to 400px height)
-                        try {
-                            const croppedConverted = await sdk.mediaManager.convertMediaObject<Image>(cropResult.newImage, ScryptedMimeTypes.Image);
-                            const croppedThumb = await croppedConverted.toImage({ resize: { height: 400 } });
-                            const thumbB64 = await moToB64(croppedThumb);
-                            const thumbBase64 = thumbB64.replace(/^data:image\/png;base64,/, '');
-                            await fs.promises.writeFile(path.join(thumbnailsPath, `${keyEventFileName}.jpg`), thumbBase64, 'base64');
-                        } catch {
-                            // Fallback: save full-size as thumbnail too
-                            await fs.promises.writeFile(path.join(thumbnailsPath, `${keyEventFileName}.jpg`), cropBase64, 'base64');
-                        }
-                        keyEvent = true;
-                        const cropInfo: import('./db').DbCropInfo = {
-                            url: keyEventFileName,
-                            className: candidate.detection.className,
-                            label: candidate.detection.label,
-                            score: candidate.detection.score,
-                        };
-                        // First candidate (best priority/score) is the primary cropped image
-                        if (!croppedImageUrl) {
-                            croppedImageUrl = keyEventFileName;
-                        } else {
-                            additionalCrops.push(cropInfo);
-                        }
-                        keyEventSet.add(candidate.objectId);
-                        this.lastKeyEventTimestampByDevice[device.id] = timestamp;
-                    }
-                } catch (e) {
-                    logger.warn?.(`Key event crop failed for candidate ${i} (${candidate.objectId})`, e);
-                }
-            }
-        }
-
-        // Sensor and doorbell: always key event, no cropped image (like motion)
-        const isSensorOrDoorbellOnly =
-            classNames.length > 0 &&
-            classNames.every(
-                (c) => c === DetectionClass.Sensor || isDoorbellClassname(c)
+        const { mixin, settings } = this.getRealMixin(device.id);
+        if (mixin) {
+          const notifiersSettings = (await settings.getSettings()).filter(
+            (sett) => sett.key?.match(notifiersRegex),
+          );
+
+          for (const notifiersSetting of notifiersSettings) {
+            const [_, type, name] = notifiersSetting.key.match(notifiersRegex);
+            const missingNotifiers = (
+              notifiersSetting.value as string[]
+            )?.filter(
+              (notifierId) => !sdk.systemManager.getDeviceById(notifierId),
             );
-        if (isSensorOrDoorbellOnly) {
-            keyEvent = true;
-            croppedImageUrl = undefined;
-            this.lastKeyEventTimestampByDevice[device.id] = timestamp;
-        }
-
-        // Motion full-screen key event: if no key event in the last minute, allow motion-only as key event
-        const MOTION_KEY_EVENT_GAP_MS = 2 * 60 * 1000; // 2 minutes
-        if (
-            !keyEvent &&
-            eventSource === ScryptedEventSource.RawDetection &&
-            detections?.length &&
-            classNames.length > 0 &&
-            classNames.every((c) => isMotionClassname(c)) &&
-            timestamp - (this.lastKeyEventTimestampByDevice[device.id] ?? 0) >= MOTION_KEY_EVENT_GAP_MS
-        ) {
-            keyEvent = true;
-            this.lastKeyEventTimestampByDevice[device.id] = timestamp;
-        }
-
-        const { dbsPath } = this.getEventPaths({ cameraId: device.id });
-
-        if (keyEvent) {
-            const logClasses = classNames.join(', ');
-            (deviceMixin?.getLogger?.() ?? logger).log(`Saving key event (${logClasses}${label ? `, ${label}` : ''})`);
-        }
-
-        const bestScore = detections.reduce((best, d) => Math.max(best, d.score ?? 0), 0) || undefined;
-
-        this.enqueueDbWrite({
-            type: 'event',
-            dbsPath,
-            event: {
-                id: fileId,
-                classes: classNames,
-                label,
-                score: bestScore,
-                timestamp,
-                source: eventSource,
+            if (missingNotifiers.length) {
+              missingNotifiersOfDeviceRules.push({
                 deviceName: device.name,
-                deviceId: device.id,
-                sensorName: triggerDevice?.name,
-                eventId,
-                detections,
-                ...(keyEvent && {
-                    keyEvent: true,
-                    ...(croppedImageUrl && { croppedImageUrl }),
-                    ...(additionalCrops.length > 0 && { additionalCrops }),
-                }),
-            },
-            logger,
+                notifierIds: missingNotifiers,
+                ruleName: `${type}_${name}`,
+              });
+            }
+          }
+        } else {
+          logger.info(`Mixin not found for device ${device.name}`);
+        }
+      }
+
+      const pluginStorage = this.storageSettings;
+      const notifiersSettings = (
+        await this.storageSettings.getSettings()
+      ).filter((sett) => sett.key?.match(notifiersRegex));
+
+      for (const notifiersSetting of notifiersSettings) {
+        const [_, type, name] = notifiersSetting.key.match(notifiersRegex);
+        const missingNotifiers = (notifiersSetting.value as string[])?.filter(
+          (notifierId) => !sdk.systemManager.getDeviceById(notifierId),
+        );
+        if (missingNotifiers.length) {
+          missingNotifiersOfPluginRules.push({
+            notifierIds: missingNotifiers,
+            ruleName: `${type}_${name}`,
+          });
+        }
+      }
+
+      const devicesSettings = (await this.storageSettings.getSettings()).filter(
+        (sett) => sett.key?.match(devicesRegex),
+      );
+
+      for (const devicesSetting of devicesSettings) {
+        const [_, type, name] = devicesSetting.key.match(devicesRegex);
+        const missingDevices = (devicesSetting.value as string[])?.filter(
+          (deviceId) => !sdk.systemManager.getDeviceById(deviceId),
+        );
+        if (missingDevices.length) {
+          missingDevicesOfPluginRules.push({
+            deviceIds: missingDevices,
+            ruleName: `${type}_${name}`,
+          });
+        }
+      }
+
+      const anyActiveOnRules = Object.entries(pluginStorage).filter(
+        ([key, setting]) =>
+          key?.match(activationTypeRegex) &&
+          setting.value === DetectionRuleActivation.OnActive,
+      );
+
+      const sensorsNotLinkedToAnyCamera = allDevices
+        .filter(
+          (device) =>
+            device.type === ScryptedDeviceType.Sensor &&
+            !this.deviceVideocameraMap[device.id],
+        )
+        .map((sensor) => sensor.name);
+
+      const {
+        devNotifier,
+        devNotifications,
+        scryptedToken,
+        nvrUrl,
+        objectDetectionDevice,
+        clipDevice,
+        haEnabled,
+        securitySystem,
+      } = this.storageSettings.values;
+      let storagePathError;
+
+      const imagesPath = this.getStoragePath();
+
+      const imagesPathSet = imagesPath && imagesPath !== "";
+
+      if (imagesPathSet) {
+        try {
+          await fs.promises.access(imagesPath);
+        } catch (e) {
+          storagePathError = e;
+        }
+      }
+
+      const alertHaIssues = haEnabled && anyActiveOnRules;
+
+      const securitySystemDevice: SecuritySystem =
+        typeof securitySystem === "string"
+          ? sdk.systemManager.getDeviceById<SecuritySystem>(securitySystem)
+          : securitySystem;
+      const securitySyetemState = securitySystemDevice?.securitySystemState;
+      const securitySystemCorrectMode = securitySyetemState
+        ? Object.keys(SecuritySystemMode).includes(securitySyetemState.mode)
+        : undefined;
+
+      const body = JSON.stringify({
+        missingNotifiersOfDeviceRules: missingNotifiersOfDeviceRules.length
+          ? missingNotifiersOfDeviceRules
+          : undefined,
+        missingNotifiersOfPluginRules: missingNotifiersOfPluginRules.length
+          ? missingNotifiersOfPluginRules
+          : undefined,
+        missingDevicesOfPluginRules: missingDevicesOfPluginRules.length
+          ? missingDevicesOfPluginRules
+          : undefined,
+        sensorsNotLinkedToAnyCamera: sensorsNotLinkedToAnyCamera.length
+          ? sensorsNotLinkedToAnyCamera
+          : undefined,
+        devicesWithoutRoom: devicesWithoutRoom.length
+          ? devicesWithoutRoom
+          : undefined,
+        storagePathError:
+          storagePathError ?? (imagesPathSet ? "No error" : "Not set"),
+        scryptedToken: scryptedToken ? "Set" : "Not set",
+        serverId: this.storageSettings.getItem("serverId")
+          ? "Found"
+          : "Not found",
+        nvrUrl: nvrUrl ? "Set" : "Not set",
+        objectDetectionDevice: objectDetectionDevice
+          ? objectDetectionDevice.name
+          : "Not set",
+        clipDevice: clipDevice ? clipDevice.name : "Not set",
+        securitySystemSet: securitySystemDevice ? "Set" : "Not set",
+        securitySystemState: securitySystemDevice
+          ? securitySystemCorrectMode
+            ? "Ok"
+            : `Wrong: ${securitySyetemState?.mode}`
+          : undefined,
+      });
+
+      if (manual) {
+        logger.log(`checkPluginConfigurations results: ${body}`);
+      } else {
+        logger.debug(`Results: ${body}`);
+
+        if (
+          missingNotifiersOfDeviceRules.length ||
+          missingNotifiersOfPluginRules.length ||
+          missingDevicesOfPluginRules.length ||
+          sensorsNotLinkedToAnyCamera.length ||
+          (alertHaIssues && devicesWithoutRoom.length) ||
+          !!storagePathError
+        ) {
+          devNotifications?.includes(DevNotifications.ConfigCheckError) &&
+            (devNotifier as Notifier).sendNotification(
+              "Advanced notifier not correctly configured",
+              {
+                body,
+              },
+            );
+        }
+      }
+    } catch (e) {
+      logger.log("Error in checkExistingDevices", e);
+    }
+  }
+
+  async toggleRule(ruleName: string, ruleType: RuleType, enabled: boolean) {
+    const mqttClient = await this.getHaClient();
+
+    if (mqttClient) {
+      const logger = this.getLogger();
+      const rule = this.allAvailableRules.find(
+        (rule) => rule.ruleType === ruleType && rule.name === ruleName,
+      );
+
+      logger.log(`Setting ${ruleType} rule ${ruleName} enabled to ${enabled}`);
+
+      if (rule) {
+        await publishRuleEnabled({
+          console: logger,
+          rule,
+          enabled,
+          mqttClient,
         });
+      }
+    }
+  }
+
+  async triggerRuleSequences(props: {
+    sequences: RuleActionsSequence[];
+    postFix: "test" | string;
+    rule: BaseRule;
+    deviceId?: string;
+    payload?: unknown;
+  }) {
+    const { postFix, sequences, rule, deviceId, payload } = props;
+    const isTest = postFix === "test";
+
+    if (sequences?.length) {
+      const logger = this.getLogger();
+
+      for (const sequence of sequences) {
+        let canExecute = !deviceId;
+        if (deviceId) {
+          const cameraMixin = deviceId
+            ? this.currentCameraMixinsMap[deviceId]
+            : undefined;
+          const { timePassed } = cameraMixin.isDelayPassed({
+            type: DelayType.SequenceExecution,
+            delay: sequence.minimumExecutionDelay,
+            postFix,
+          });
+          canExecute = timePassed;
+        }
+
+        if (isTest || (canExecute && sequence.enabled)) {
+          try {
+            logger.log(
+              `Triggering sequence ${sequence.name} from rule ${rule.name}: ${JSON.stringify(sequence)}`,
+            );
+            for (const action of sequence.actions) {
+              logger[isTest ? "log" : "info"](
+                `Executing action ${action.actionName} of type ${action.type} in sequence ${sequence.name}`,
+              );
+
+              if (action.type === RuleActionType.Wait && action.seconds) {
+                await new Promise((resolve) =>
+                  setTimeout(resolve, action.seconds * 1000),
+                );
+              }
+              if (action.type === RuleActionType.Script) {
+                const device = sdk.systemManager.getDeviceById<Program>(
+                  action.deviceId,
+                );
+                await device.run(
+                  typeof payload !== "undefined" ? { payload } : undefined,
+                );
+              } else if (action.type === RuleActionType.Ptz) {
+                const device = sdk.systemManager.getDeviceById<PanTiltZoom>(
+                  action.deviceId,
+                );
+                const presetId = action.presetName?.split(":")[1];
+                await device.ptzCommand({
+                  preset: presetId,
+                  movement: PanTiltZoomMovement.Preset,
+                });
+              } else if (action.type === RuleActionType.Switch) {
+                const device = sdk.systemManager.getDeviceById<OnOff>(
+                  action.deviceId,
+                );
+                if (action.turnOn) {
+                  await device.turnOn();
+                } else {
+                  await device.turnOff();
+                }
+              } else if (action.type === RuleActionType.Lock) {
+                const device = sdk.systemManager.getDeviceById<Lock>(
+                  action.deviceId,
+                );
+                if (action.lock) {
+                  await device.lock();
+                } else {
+                  await device.unlock();
+                }
+              } else if (action.type === RuleActionType.Entry) {
+                const device = sdk.systemManager.getDeviceById<Entry>(
+                  action.deviceId,
+                );
+                if (action.openEntry) {
+                  await device.openEntry();
+                } else {
+                  await device.closeEntry();
+                }
+              }
+            }
+          } catch (e) {
+            logger.log(
+              `Error triggering sequence ${sequence.name} from rule ${rule.name}: ${e.message}`,
+            );
+          }
+        } else {
+          logger[isTest ? "log" : "info"](
+            `Skipping sequence ${sequence.name}: enabled ${sequence.enabled}, canExecute ${canExecute}`,
+          );
+        }
+      }
+    }
+  }
+
+  async testSequence(sequenceName: string) {
+    const logger = this.getLogger();
+
+    const sequence = getSequenceObject({
+      sequenceName,
+      storage: this.storageSettings,
+    });
+
+    logger.log(`Testing sequence ${sequenceName}: ${JSON.stringify(sequence)}`);
+    await this.triggerRuleSequences({
+      sequences: [sequence],
+      postFix: "test",
+      rule: {
+        name: "test",
+      } as BaseRule,
+    });
+  }
+
+  async refreshSettings() {
+    const logger = this.getLogger();
+    const dynamicSettings: StorageSetting[] = [];
+
+    const detectionRulesSettings = await getDetectionRulesSettings({
+      storage: this.storageSettings,
+      ruleSource: RuleSource.Plugin,
+      logger,
+      refreshSettings: this.refreshSettings.bind(this),
+      plugin: this,
+    });
+    dynamicSettings.push(...detectionRulesSettings);
+
+    const recordingRulesSettings = await getRecordingRulesSettings({
+      storage: this.storageSettings,
+      ruleSource: RuleSource.Plugin,
+      logger,
+      plugin: this,
+      refreshSettings: async () => await this.refreshSettings(),
+    });
+    dynamicSettings.push(...recordingRulesSettings);
+
+    const actionRuleSettings = await getSequencesSettings({
+      logger,
+      refreshSettings: async () => await this.refreshSettings(),
+      storage: this.storageSettings,
+      onTestSequence: async (sequenceName: string) => {
+        await this.testSequence(sequenceName);
+      },
+    });
+    dynamicSettings.push(...actionRuleSettings);
+
+    dynamicSettings.push(
+      ...getAiSettings({
+        storage: this.storageSettings,
+        logger,
+        onRefresh: async () => await this.refreshSettings(),
+      }),
+    );
+
+    const { labels: frigateLabels } = await this.getFrigateData();
+    const { labels: audioLabels } = await this.getAudioData();
+    const additionalLabels = uniq([
+      ...(frigateLabels ?? []),
+      ...(audioLabels ?? []),
+    ]);
+
+    if (additionalLabels.length) {
+      for (const label of additionalLabels) {
+        dynamicSettings.push({
+          key: getFrigateTextKey(label),
+          group: "Texts",
+          subgroup: "Additional labels",
+          title: `${label} text`,
+          type: "string",
+          defaultValue: label,
+          placeholder: label,
+        });
+      }
     }
 
-    public addMotionEvent = async (props: { motionEvent: DbMotionEvent; logger: Console }) => {
-        const { motionEvent, logger } = props;
-        const { dbsPath } = this.getEventPaths({ cameraId: motionEvent.deviceId });
-        this.enqueueDbWrite({ type: 'motion', dbsPath, motionEvent, logger });
+    this.storageSettings = await convertSettingsToStorageSettings({
+      device: this,
+      dynamicSettings,
+      initStorage: this.initStorage,
+    });
+
+    const {
+      mqttEnabled,
+      haTransport,
+      testDevice,
+      testNotifier,
+      testGenerateClip,
+      haEnabled,
+    } = this.storageSettings.values;
+
+    const haIntegrationActive =
+      mqttEnabled || haTransport === HomeassistantTransport.websocket;
+    const isMqttOnly =
+      mqttEnabled && haTransport !== HomeassistantTransport.websocket;
+
+    try {
+      if (haIntegrationActive) {
+        this.storageSettings.settings.detectionSourceForMqtt.choices =
+          this.enabledDetectionSources;
+        this.storageSettings.settings.facesSourceForMqtt.choices =
+          this.enabledFacesSources;
+        this.storageSettings.settings.zonesSourceForMqtt.choices =
+          this.enabledZonesSources;
+        // this.storageSettings.settings.occupancySourceForMqtt.choices = this.enabledOccupancySources;
+      }
+      this.storageSettings.settings.testEventSource.choices =
+        this.enabledDetectionSources.filter(
+          (s) => s !== ScryptedEventSource.All,
+        );
+
+      this.storageSettings.settings.detectionSourceForMqtt.hide =
+        !haIntegrationActive;
+      this.storageSettings.settings.facesSourceForMqtt.hide =
+        !haIntegrationActive;
+      this.storageSettings.settings.zonesSourceForMqtt.hide =
+        !haIntegrationActive;
+      // this.storageSettings.settings.occupancySourceForMqtt.hide = !haIntegrationActive;
+      this.storageSettings.settings.mqttActiveEntitiesTopic.hide = !isMqttOnly;
+      this.storageSettings.settings.mqttResetAllTopics.hide = !isMqttOnly;
+      this.storageSettings.settings.updateFrequencyMotionImagesInSeconds.hide =
+        !haIntegrationActive;
+      this.storageSettings.settings.updateFrequencyObjectImagesInSeconds.hide =
+        !haIntegrationActive;
+
+      this.storageSettings.settings.scryptedToken.hide = !haEnabled;
+
+      applySettingsShow(this.storageSettings);
+    } catch (e) {
+      logger.error("Error applying settings show/hide", e);
+    }
+
+    const { isCamera } = testDevice ? isDeviceSupported(testDevice) : {};
+    this.storageSettings.settings.testEventType.hide = !isCamera;
+    this.storageSettings.settings.testEventSource.hide = !isCamera;
+    this.storageSettings.settings.testZones.hide = !isCamera;
+    this.storageSettings.settings.testGenerateClipSpeed.hide =
+      !testGenerateClip;
+    this.storageSettings.settings.testGenerateClipType.hide = !testGenerateClip;
+    this.storageSettings.settings.testClipPostSeconds.hide = !testGenerateClip;
+    this.storageSettings.settings.testClipPreSeconds.hide = !testGenerateClip;
+    // this.storageSettings.settings.frigateEnabled.hide = !this.frigateApi;
+
+    if (testNotifier) {
+      const { priorityChoices } = getNotifierData({
+        notifierId: testNotifier.id,
+        ruleType: RuleType.Detection,
+      });
+      this.storageSettings.settings.testPriority.choices = priorityChoices;
+    }
+
+    // Update testEventSource choices and testZones list based on selected camera and source.
+    if (isCamera && testDevice) {
+      const cameraMixin = this.currentCameraMixinsMap[testDevice.id];
+      if (cameraMixin) {
+        try {
+          const testEventSource = this.storageSettings.values
+            .testEventSource as ScryptedEventSource;
+          if (testEventSource === ScryptedEventSource.Frigate) {
+            const { frigateZones } = await cameraMixin.getFrigateData();
+            const zoneNames = (frigateZones || [])
+              .map((z) => z.name)
+              .filter(Boolean);
+            this.storageSettings.settings.testZones.choices = zoneNames;
+          } else {
+            const zonesData = await cameraMixin.getObserveZones();
+            const zoneNames = (zonesData || [])
+              .map((z) => z.name)
+              .filter(Boolean);
+            this.storageSettings.settings.testZones.choices = zoneNames;
+          }
+        } catch (e) {
+          logger.log("Error fetching zones for testZones setting", e);
+        }
+      }
+    }
+
+    const originSource = this.storageSettings.values.assetsOriginSource;
+    this.storageSettings.settings.customOriginUrl.hide =
+      originSource !== AssetOriginSource.Custom;
+
+    this.storageSettings.settings.totalOccupiedSpaceInGb.range = [
+      0,
+      this.storageSettings.values.totalAvailableSpaceInGb,
+    ];
+
+    const defaultSource = this.defaultDetectionSource;
+    this.storageSettings.settings.detectionSourceForMqtt.defaultValue =
+      defaultSource;
+    this.storageSettings.settings.facesSourceForMqtt.defaultValue =
+      defaultSource;
+
+    this.onDeviceEvent(ScryptedInterface.Settings, "settingsChanged");
+  }
+
+  get defaultDetectionSource() {
+    return this.nvrObjectDetectionDevice
+      ? ScryptedEventSource.NVR
+      : ScryptedEventSource.All;
+  }
+
+  get enabledDetectionSources() {
+    const sources: ScryptedEventSource[] = [
+      ScryptedEventSource.All,
+      ScryptedEventSource.RawDetection,
+      ScryptedEventSource.Onboard,
+    ];
+    if (this.nvrObjectDetectionDevice) {
+      sources.push(ScryptedEventSource.NVR);
+    }
+    if (this.frigateApi) {
+      sources.push(ScryptedEventSource.Frigate);
+    }
+    return sources;
+  }
+
+  get defaultFacesSource() {
+    return this.nvrObjectDetectionDevice
+      ? ScryptedEventSource.NVR
+      : ScryptedEventSource.All;
+  }
+
+  get enabledFacesSources() {
+    const sources: ScryptedEventSource[] = [ScryptedEventSource.All];
+    if (this.nvrObjectDetectionDevice) {
+      sources.push(ScryptedEventSource.NVR);
+    }
+    if (this.frigateApi) {
+      sources.push(ScryptedEventSource.Frigate);
+    }
+    return sources;
+  }
+
+  get defaultZonesSource() {
+    return ZonesSource.All;
+  }
+
+  get enabledZonesSources() {
+    const sources: ZonesSource[] = [ZonesSource.All, ZonesSource.Scrypted];
+    if (this.frigateApi) {
+      sources.push(ZonesSource.Frigate);
+    }
+    return sources;
+  }
+
+  get defaultOccupancySource() {
+    return OccupancySource.Off;
+  }
+
+  get enabledOccupancySources() {
+    const sources: OccupancySource[] = [
+      OccupancySource.Off,
+      OccupancySource.Scrypted,
+    ];
+    if (this.frigateApi) {
+      sources.push(OccupancySource.Frigate);
+    }
+    return sources;
+  }
+
+  async getSettings() {
+    try {
+      const settings = await this.storageSettings.getSettings();
+
+      return settings;
+    } catch (e) {
+      this.getLogger().log("Error in getSettings", e);
+      return [];
+    }
+  }
+
+  generateHomeassistantHelpers = async () => {
+    const logger = this.getLogger();
+
+    try {
+      const haApi = await this.getHaApi();
+      const res = await haApi.postAutomation(
+        haSnoozeAutomationId,
+        haSnoozeAutomation,
+      );
+      logger.log(`Generation snoozing automation: ${res.data.result}`);
+      const res2 = await haApi.postAutomation(
+        haAlarmAutomationId,
+        haAlarmAutomation,
+      );
+      logger.log(`Generation alarm automation: ${res2.data.result}`);
+    } catch (e) {
+      logger.log(e);
+    }
+  };
+
+  async canMixin(
+    type: ScryptedDeviceType,
+    interfaces: string[],
+  ): Promise<string[]> {
+    const { isNotifier, isCamera, isSupported } = isDeviceSupported({
+      interfaces,
+      type,
+    } as DeviceBase);
+
+    if (
+      isSupported &&
+      !interfaces.includes(ADVANCED_NOTIFIER_NOTIFIER_INTERFACE) &&
+      !interfaces.includes(ADVANCED_NOTIFIER_CAMERA_INTERFACE)
+    ) {
+      const interfaces = [
+        ScryptedInterface.Settings,
+        ADVANCED_NOTIFIER_INTERFACE,
+      ];
+
+      if (isNotifier) {
+        interfaces.push(ScryptedInterface.Notifier);
+      } else if (isCamera) {
+        interfaces.push(ScryptedInterface.VideoClips);
+      }
+
+      return interfaces;
+    }
+
+    return undefined;
+  }
+
+  async checkIfClipRequired(props: {
+    cb: (props: {
+      videoUrl?: string;
+      gifUrl?: string;
+      imageUrl?: string;
+    }) => Promise<void>;
+    rule: BaseRule;
+    device: ScryptedDeviceBase;
+    logger: Console;
+    triggerTime: number;
+    b64Image?: string;
+  }) {
+    const { cb, rule, device, logger, triggerTime } = props;
+    const deviceMixin = this.currentCameraMixinsMap[device.id];
+
+    let pastMs: number;
+
+    const { postClips } = getBaseRuleDefaults({
+      ruleType: rule.ruleType,
+      source: rule.detectionSource,
+    });
+
+    const pastSeconds = rule.generateClipPreSeconds;
+    if (pastSeconds !== undefined) {
+      pastMs = pastSeconds * 1000;
+    } else {
+      pastMs = postClips * 1000;
+    }
+
+    const prepareClip = async () => {
+      if (rule.generateClipType === VideoclipType.MP4) {
+        const { fileName, filteredFiles } =
+          (await this.generateVideoclip({
+            device,
+            logger,
+            rule,
+            triggerTime,
+            pastMs,
+          })) ?? {};
+
+        if (filteredFiles?.length) {
+          const { videoRuleUrl, imageRuleUrl } = await getWebHookUrls({
+            console: logger,
+            fileId: fileName,
+            plugin: this,
+            ruleName: rule.name,
+            device,
+          });
+
+          await cb({ videoUrl: videoRuleUrl, imageUrl: imageRuleUrl });
+        } else {
+          await cb({});
+        }
+      } else if (rule.generateClipType === VideoclipType.GIF) {
+        const { filteredFiles } =
+          (await this.generateGif({
+            device,
+            logger,
+            rule,
+            triggerTime,
+            pastMs,
+          })) ?? {};
+
+        if (filteredFiles?.length) {
+          const { gifRuleUrl, imageRuleUrl } = await getWebHookUrls({
+            console: logger,
+            fileId: String(triggerTime),
+            plugin: this,
+            ruleName: rule.name,
+            device,
+          });
+
+          await cb({ gifUrl: gifRuleUrl, imageUrl: imageRuleUrl });
+        } else {
+          await cb({});
+        }
+      }
     };
 
-    private forceStorageCleanup = async () => {
-        Object.values(this.currentCameraMixinsMap).forEach(async (mixin) => {
-            await this.clearVideoclipsData({
-                device: mixin.cameraDevice,
-                logger: mixin.getLogger(),
-            });
-        });
+    const decoderType = deviceMixin.decoderType;
+    if (rule.generateClip && decoderType !== DecoderType.Off) {
+      const cameraState = this.cameraStates[device.id];
+      const delay = rule.generateClipPostSeconds ?? 3;
+      const key = `${device.id}_${rule.name}`;
+      const now = Date.now();
+      const maxExtensionRange = (rule as any).maxClipExtensionRange || 0;
+      const maxExtensionMs = maxExtensionRange * 1000;
+      const lastGeneration = cameraState.lastClipGenerationTimestamps[key];
+
+      if (lastGeneration && now - lastGeneration < maxExtensionMs) {
+        // Extend the existing clip generation by resetting the timeout
+        logger.log(
+          `Extending clip generation for rule ${rule.name} on device ${device.name}, within ${maxExtensionRange}s range`,
+        );
+        cameraState.clipGenerationTimeout[rule.name] &&
+          clearTimeout(cameraState.clipGenerationTimeout[rule.name]);
+        cameraState.clipGenerationTimeout[rule.name] = setTimeout(async () => {
+          cameraState.lastClipGenerationTimestamps[key] = Date.now();
+          await prepareClip();
+        }, 1000 * delay);
+      } else {
+        // Start new clip generation
+        logger.log(
+          `Starting clip ${rule.generateClipType} recording for rule ${rule.name} in ${delay} seconds (${decoderType})`,
+        );
+        cameraState.clipGenerationTimeout[rule.name] &&
+          clearTimeout(cameraState.clipGenerationTimeout[rule.name]);
+        cameraState.clipGenerationTimeout[rule.name] = setTimeout(async () => {
+          cameraState.lastClipGenerationTimestamps[key] = Date.now();
+          await prepareClip();
+        }, 1000 * delay);
+      }
+    } else {
+      cb({});
     }
+  }
 
-    public clearAllEventsData = async () => {
-        const logger = this.getLogger();
-        logger.log(`Clearing all events`);
-        try {
-            for (const deviceId of Object.keys(this.currentCameraMixinsMap)) {
-                const device = sdk.systemManager.getDeviceById<ScryptedDeviceBase>(deviceId);
-                const deviceLogger = this.currentCameraMixinsMap[deviceId].getLogger();
-                await this.clearEventsData({ device, logger: deviceLogger })
-            }
-            const { storagePath } = this.getEventPaths({});
+  async notifyOccupancyEvent(props: {
+    cameraDevice: DeviceInterface;
+    triggerTime: number;
+    rule: OccupancyRule;
+    image: MediaObject;
+    b64Image: string;
+    occupancyData: OccupancyRuleData;
+  }) {
+    const { cameraDevice, rule, triggerTime, image, b64Image, occupancyData } =
+      props;
+    const logger = this.getLogger(cameraDevice);
 
-            await cleanupEvents({ logger, storagePath });
-        } catch (e) {
-            logger.error(`Error clearing all events data`, e);
-        }
-    }
+    await this.ensureRuleFoldersExist({
+      cameraId: cameraDevice.id,
+      ruleName: rule.name,
+    });
 
-    public clearEventsData = async (props: {
-        device: ScryptedDeviceBase,
-        logger: Console
+    let message = occupancyData.occupies
+      ? rule.zoneOccupiedText
+      : rule.zoneNotOccupiedText;
+
+    message = message
+      .toString()
+      .replace(
+        "${detectedObjects}",
+        String(occupancyData.objectsDetected) ?? "",
+      )
+      .replace("${maxObjects}", String(rule.maxObjects) ?? "");
+
+    const executeNotify = async (props: {
+      videoUrl?: string;
+      gifUrl?: string;
+      imageUrl?: string;
     }) => {
-        const { logger, device } = props;
-        logger.log(`Clearing events for device ${device.name}`);
+      const { gifUrl, videoUrl } = props;
+
+      const imageUrl = await this.storeRuleImage({
+        device: cameraDevice,
+        rule,
+        b64Image,
+        triggerTime,
+        logger,
+      });
+
+      logger.log(
+        `${rule.notifiers.length} notifiers will be notified: ${JSON.stringify({
+          rule,
+          gifUrl: getUrlLog(gifUrl),
+          videoUrl: getUrlLog(videoUrl),
+          imageUrl: getUrlLog(imageUrl),
+          assetsOriginSource: this.storageSettings.values.assetsOriginSource,
+        })} `,
+      );
+
+      for (const notifierId of rule.notifiers) {
+        const notifier =
+          systemManager.getDeviceById<DeviceInterface>(notifierId);
+
+        this.sendNotificationInternal({
+          notifier,
+          image,
+          message,
+          triggerTime,
+          device: cameraDevice,
+          rule,
+          videoUrl,
+          gifUrl,
+          imageUrl,
+        }).catch(logger.error);
+      }
+
+      if (rule.onGeneratedSequences?.length) {
+        this.triggerRuleSequences({
+          sequences: rule.onGeneratedSequences,
+          postFix: "generated",
+          rule,
+          deviceId: cameraDevice.id,
+          payload: { rule, videoUrl, gifUrl, imageUrl },
+        }).catch(logger.error);
+      }
+    };
+
+    this.checkIfClipRequired({
+      cb: executeNotify,
+      device: cameraDevice,
+      logger,
+      rule,
+      triggerTime,
+      b64Image,
+    }).catch(logger.error);
+  }
+
+  async ensureRuleFoldersExist(props: { cameraId: string; ruleName: string }) {
+    const { cameraId, ruleName } = props;
+    const logger = this.getLogger();
+    const { generatedPath } = this.getRulePaths({
+      cameraId,
+      ruleName,
+    });
+
+    try {
+      await fs.promises.access(generatedPath);
+    } catch {
+      logger.log(`Creating rule folder at ${generatedPath}`);
+      await fs.promises.mkdir(generatedPath, { recursive: true });
+    }
+  }
+
+  async notifyAudioEvent(props: {
+    cameraDevice: DeviceInterface;
+    triggerTime: number;
+    message: string;
+    b64Image: string;
+    rule: AudioRule;
+    image: MediaObject;
+  }) {
+    const { cameraDevice, rule, triggerTime, b64Image, image, message } = props;
+    const logger = this.getLogger(cameraDevice);
+    const imageUrl = await this.storeRuleImage({
+      device: cameraDevice,
+      rule,
+      b64Image,
+      triggerTime,
+      logger,
+    });
+    await this.ensureRuleFoldersExist({
+      cameraId: cameraDevice.id,
+      ruleName: rule.name,
+    });
+
+    for (const notifierId of rule.notifiers) {
+      const notifier = systemManager.getDeviceById<DeviceInterface>(notifierId);
+
+      await this.sendNotificationInternal({
+        notifier,
+        image,
+        message,
+        triggerTime,
+        device: cameraDevice,
+        rule,
+        imageUrl,
+      });
+    }
+  }
+
+  /**
+   * If rule.additionalStoragePath is set, copies the artifact to that directory as ${deviceId}_${ruleName}_${triggerTime}.${ext}.
+   * Checks directory access (creates if missing, then verifies writable). Logs and ignores errors.
+   */
+  private async copyArtifactToAdditionalStorage(props: {
+    rule: BaseRule;
+    deviceId: string;
+    triggerTime: number;
+    sourcePath: string;
+    ext: string;
+    logger: Console;
+  }): Promise<void> {
+    const { rule, deviceId, triggerTime, sourcePath, ext, logger } = props;
+    const dir = rule.additionalStoragePath?.trim();
+    if (!dir) return;
+    const safeDeviceId = String(deviceId).replace(/[/\\]/g, "_");
+    const safeName = rule.name.replace(/[/\\]/g, "_");
+    const destPath = path.join(
+      dir,
+      `${safeDeviceId}_${safeName}_${triggerTime}.${ext}`,
+    );
+    try {
+      try {
+        await fs.promises.access(dir, fs.constants.W_OK);
+      } catch {
+        await fs.promises.mkdir(dir, { recursive: true });
+        await fs.promises.access(dir, fs.constants.W_OK);
+      }
+      await fs.promises.copyFile(sourcePath, destPath);
+      logger.log(`Copied artifact to additional storage: ${destPath}`);
+    } catch (e) {
+      logger.error(`Error copying artifact to additional storage ${dir}: ${e}`);
+    }
+  }
+
+  async storeRuleImage(props: {
+    device: ScryptedDeviceBase;
+    rule: BaseRule;
+    b64Image?: string;
+    bufferImage?: Buffer;
+    triggerTime: number;
+    logger: Console;
+  }) {
+    const { device, rule, b64Image, bufferImage, triggerTime, logger } = props;
+    const { imageLatestPath, imageHistoricalPath, generatedPath } =
+      this.getRulePaths({
+        cameraId: device.id,
+        ruleName: rule.name,
+        triggerTime,
+      });
+
+    logger.log(
+      `Storing rule image for ${rule.name} into ${imageHistoricalPath} and latest at ${imageLatestPath}`,
+    );
+
+    try {
+      await fs.promises.access(generatedPath);
+    } catch {
+      await fs.promises.mkdir(generatedPath, { recursive: true });
+    }
+
+    if (b64Image) {
+      const base64Data = b64Image.replace(/^data:image\/png;base64,/, "");
+      await fs.promises.writeFile(imageHistoricalPath, base64Data, "base64");
+    } else if (bufferImage) {
+      await fs.promises.writeFile(imageHistoricalPath, bufferImage);
+    }
+    await fs.promises.copyFile(imageHistoricalPath, imageLatestPath);
+
+    await this.copyArtifactToAdditionalStorage({
+      rule,
+      deviceId: device.id,
+      triggerTime,
+      sourcePath: imageHistoricalPath,
+      ext: "jpg",
+      logger,
+    });
+
+    const { imageRuleUrl } = await getWebHookUrls({
+      fileId: String(triggerTime),
+      ruleName: rule.name,
+      plugin: this,
+      device,
+    });
+
+    const registerPath = getRulesRegisterPath(this.getStoragePath(), device.id);
+    await addOrUpdateRuleArtifacts(registerPath, {
+      ruleName: rule.name,
+      ruleType: rule.ruleType,
+      timestamp: triggerTime,
+      imageUrl: imageRuleUrl,
+    });
+
+    return imageRuleUrl;
+  }
+
+  async notifyTimelapse(props: {
+    cameraDevice: DeviceInterface;
+    rule: TimelapseRule;
+    triggerTime: number;
+  }) {
+    const { cameraDevice, rule, triggerTime } = props;
+    const logger = this.getLogger(cameraDevice);
+
+    const { videoRuleUrl, imageRuleUrl } = await getWebHookUrls({
+      console: logger,
+      plugin: this,
+      fileId: String(triggerTime),
+      ruleName: rule.name,
+      device: cameraDevice,
+    });
+
+    await this.ensureRuleFoldersExist({
+      cameraId: cameraDevice.id,
+      ruleName: rule.name,
+    });
+
+    const registerPath = getRulesRegisterPath(
+      this.getStoragePath(),
+      cameraDevice.id,
+    );
+    await addOrUpdateRuleArtifacts(registerPath, {
+      ruleName: rule.name,
+      ruleType: rule.ruleType,
+      timestamp: triggerTime,
+      videoUrl: videoRuleUrl,
+      imageUrl: imageRuleUrl,
+    });
+
+    const { videoHistoricalPath } = this.getRulePaths({
+      ruleName: rule.name,
+      cameraId: cameraDevice.id,
+      triggerTime,
+    });
+
+    const fileStats = await fs.promises.stat(videoHistoricalPath);
+    const sizeInBytes = fileStats.size;
+
+    for (const notifierId of rule.notifiers ?? []) {
+      const notifier = systemManager.getDeviceById<DeviceInterface>(notifierId);
+
+      await this.sendNotificationInternal({
+        notifier,
+        device: cameraDevice,
+        rule,
+        videoUrl: videoRuleUrl,
+        clickUrl: videoRuleUrl,
+        videoSize: sizeInBytes,
+        imageUrl: imageRuleUrl,
+        triggerTime: Date.now(),
+      });
+    }
+  }
+
+  async notifyNvrEvent(
+    props: ParseNotificationMessageResult & {
+      cameraDevice: DeviceInterface;
+      triggerTime: number;
+    },
+  ) {
+    const { eventType, detection, triggerDevice, cameraDevice, triggerTime } =
+      props;
+    const rules = this.runningDetectionRules.filter(
+      (rule) =>
+        rule.detectionSource === ScryptedEventSource.NVR &&
+        rule.nvrEvents.includes(eventType as NvrEvent),
+    );
+    const logger = this.getLogger();
+
+    for (const rule of rules) {
+      if (rules.length) {
+        logger.log(
+          `Starting notifiers for NVR event rule (${eventType}): ${JSON.stringify({ rule })}`,
+        );
+      }
+
+      const notifiers = rule.notifiers;
+      for (const notifierId of notifiers) {
+        const notifier =
+          systemManager.getDeviceById<DeviceInterface>(notifierId);
+
+        const title = triggerDevice.name;
+        await this.sendNotificationInternal({
+          notifier,
+          device: cameraDevice,
+          rule,
+          triggerTime,
+          detection,
+          eventType,
+          title,
+        });
+      }
+    }
+  }
+
+  async onNvrNotification(
+    cameraName: string,
+    options?: NotifierOptions,
+    image?: MediaObject,
+    icon?: MediaObject | string,
+  ) {
+    const logger = this.getLogger();
+    const triggerTime =
+      options?.recordedEvent?.data.timestamp ?? new Date().getTime();
+    const cameraDevice =
+      sdk.systemManager.getDeviceByName<DeviceInterface>(cameraName);
+    const deviceSensors = this.videocameraDevicesMap[cameraDevice.id] ?? [];
+    const result = await parseNvrNotificationMessage(
+      cameraDevice,
+      deviceSensors,
+      options,
+      logger,
+    );
+    const { allDetections, eventType, triggerDevice } = result;
+    const { isCamera } = isDeviceSupported(triggerDevice);
+
+    const foundDevice =
+      this.currentCameraMixinsMap[triggerDevice.id] ||
+      this.currentSensorMixinsMap[triggerDevice.id];
+
+    if (!foundDevice) {
+      logger.info(
+        `Device not found for NVR notification: ${cameraName} ${eventType} ${triggerDevice?.name}`,
+      );
+      return;
+    }
+
+    if (isCamera) {
+      logger.info(
+        `NVR detections incoming: ${JSON.stringify({ allDetections, cameraName, options })}`,
+      );
+      if (isDetectionClass(eventType)) {
+        await (foundDevice as AdvancedNotifierCameraMixin)?.processDetections({
+          detect: { ...options.recordedEvent.data, detections: allDetections },
+          image,
+          eventSource: ScryptedEventSource.NVR,
+        });
+      } else {
+        if (eventType) {
+          await this.notifyNvrEvent({
+            ...result,
+            cameraDevice,
+            triggerTime,
+          });
+        } else {
+          logger.error(
+            `Notification coming from NVR not mapped yet: ${JSON.stringify({
+              cameraName,
+              options,
+              allDetections,
+              eventType,
+              triggerDevice: triggerDevice.name,
+            })} `,
+          );
+        }
+      }
+    }
+  }
+
+  public getLinkedCamera = async (deviceId: string) => {
+    const device = systemManager.getDeviceById<DeviceInterface>(deviceId);
+    const cameraDevice = await this.getCameraDevice(device);
+
+    if (!device || !cameraDevice) {
+      this.getLogger().log(
+        `Camera device for ID ${deviceId} not found.Device found: ${!!device} and camera was found: ${!!cameraDevice} `,
+      );
+    }
+
+    return { device: cameraDevice, triggerDevice: device };
+  };
+
+  public applyAiToMessage = async (props: {
+    logger: Console;
+    b64Image: string;
+    prompt?: string;
+    message: string;
+    match: ObjectDetectionResult;
+    device: ScryptedDeviceBase;
+    triggerTime: number;
+  }) => {
+    const {
+      logger,
+      b64Image,
+      prompt: promptParent,
+      message,
+      match,
+      device,
+      triggerTime,
+    } = props;
+    const { aiSource } = this.storageSettings.values;
+
+    let transformedMessage = message;
+
+    if (aiSource !== AiSource.Disabled) {
+      const { systemPromptKey } = getAiSettingKeys();
+
+      const prompt =
+        promptParent || this.storageSettings.getItem(systemPromptKey as any);
+      const aiResponse = await getAiMessage({
+        b64Image,
+        logger,
+        originalTitle: message,
+        plugin: this,
+        detection: match,
+        timeStamp: triggerTime,
+        device,
+        prompt,
+      });
+
+      if (aiResponse.message) {
+        transformedMessage = aiResponse.message;
+      }
+
+      if (aiResponse.fromCache) {
+        logger.info(
+          `AI response retrieved from cache: ${JSON.stringify(aiResponse)}`,
+        );
+      } else {
+        logger.log(`AI response generated: ${JSON.stringify(aiResponse)}`);
+      }
+    }
+
+    return { transformedMessage };
+  };
+
+  public notifyDetectionEvent = async (props: NotifyDetectionProps) => {
+    const {
+      eventType,
+      triggerDeviceId,
+      snoozeId,
+      triggerTime: triggerTimeParent,
+      forceAi,
+      imageData,
+      matchRule,
+    } = props;
+    const { rule: ruleParent, match } = matchRule;
+    const rule = ruleParent as DetectionRule;
+    const triggerTime = triggerTimeParent || Date.now();
+    const { device: cameraDevice, triggerDevice } =
+      await this.getLinkedCamera(triggerDeviceId);
+    const logger = this.getLogger(cameraDevice);
+    const cameraMixin = this.currentCameraMixinsMap[cameraDevice.id];
+
+    await this.ensureRuleFoldersExist({
+      cameraId: cameraDevice.id,
+      ruleName: rule.name,
+    });
+
+    let image: MediaObject;
+    let b64Image: string;
+    let imageSource: ImageSource;
+
+    if (!imageData) {
+      let {
+        b64Image: newB64Image,
+        image: newImage,
+        imageSource: newImageSource,
+      } = await cameraMixin.getImage({
+        reason: GetImageReason.Notification,
+      });
+
+      image = newImage;
+      b64Image = newB64Image;
+      imageSource = newImageSource;
+    } else {
+      image = imageData.image;
+      b64Image = image ? await moToB64(image) : undefined;
+      imageSource = imageData.imageSource;
+    }
+
+    if (
+      rule.activationType === DetectionRuleActivation.AdvancedSecuritySystem
+    ) {
+      this.alarmSystem.onEventTrigger({ triggerDevice }).catch(logger.log);
+    }
+
+    const executeNotify = async (props: {
+      videoUrl?: string;
+      gifUrl?: string;
+      imageUrl?: string;
+    }) => {
+      const { gifUrl, videoUrl } = props;
+
+      const imageUrl = await this.storeRuleImage({
+        device: cameraDevice,
+        rule,
+        b64Image,
+        triggerTime,
+        logger,
+      });
+
+      logger.log(
+        `${rule.notifiers.length} notifiers will be notified with image from ${imageSource}: ${JSON.stringify(
+          {
+            match,
+            rule,
+            videoUrl: getUrlLog(videoUrl),
+            gifUrl: getUrlLog(gifUrl),
+            imageUrl: getUrlLog(imageUrl),
+            assetsOriginSource: this.storageSettings.values.assetsOriginSource,
+          },
+        )} `,
+      );
+
+      let message: string;
+
+      if (rule?.customText) {
+        message = rule.customText;
+      } else {
+        const { aiEnabled: cameraAiEnabled } =
+          cameraMixin?.mixinState.storageSettings.values ?? {};
+        const anyNotifierAiEnabled = rule.notifiers.some((notifierId) => {
+          const notifierMixin = this.currentNotifierMixinsMap[notifierId];
+          const { aiEnabled: notifierAiEnabled } =
+            notifierMixin?.storageSettings.values ?? {};
+          return notifierAiEnabled;
+        });
+
+        const { aiSource } = this.storageSettings.values;
+        if (forceAi || rule?.useAi || cameraAiEnabled || anyNotifierAiEnabled) {
+          logger.log(
+            `Notification AI: ${JSON.stringify({
+              aiSource,
+              camera: cameraDevice.name,
+              forceAi,
+              cameraAiEnabled,
+              anyNotifierAiEnabled,
+            })}`,
+          );
+        }
+
+        const isAiEnabled =
+          forceAi ||
+          rule?.useAi ||
+          (!rule && cameraAiEnabled && anyNotifierAiEnabled);
+
+        if (isAiEnabled) {
+          const { transformedMessage } = await this.applyAiToMessage({
+            b64Image,
+            device: cameraDevice,
+            logger,
+            match,
+            message,
+            triggerTime,
+            prompt: rule?.aiPrompt,
+          });
+
+          message = transformedMessage;
+        }
+      }
+
+      for (const notifierId of rule.notifiers) {
+        const notifier = systemManager.getDeviceById<
+          Settings & ScryptedDeviceBase
+        >(notifierId);
+
+        this.notifyDetection({
+          triggerDevice,
+          cameraDevice,
+          notifierId,
+          time: triggerTime,
+          image,
+          b64Image,
+          detection: match,
+          eventType,
+          logger,
+          snoozeId,
+          rule: rule as DetectionRule,
+          videoUrl,
+          gifUrl,
+          imageUrl,
+          message,
+        }).catch((e) => logger.log(`Error on notifier ${notifier.name} `, e));
+
+        const decoderType = cameraMixin.decoderType;
+        if (rule.generateClip && decoderType !== DecoderType.Off) {
+          cameraMixin.mixinState.clipGenerationTimeout[rule.name] &&
+            clearTimeout(
+              cameraMixin.mixinState.clipGenerationTimeout[rule.name],
+            );
+          cameraMixin.mixinState.clipGenerationTimeout[rule.name] = undefined;
+        }
+      }
+
+      if (rule.onGeneratedSequences?.length) {
+        this.triggerRuleSequences({
+          sequences: rule.onGeneratedSequences,
+          postFix: "generated",
+          rule,
+          deviceId: cameraDevice.id,
+          payload: { rule, videoUrl, gifUrl, imageUrl },
+        }).catch(logger.error);
+      }
+    };
+
+    this.checkIfClipRequired({
+      cb: executeNotify,
+      device: cameraDevice,
+      logger,
+      rule,
+      triggerTime,
+    }).catch(logger.error);
+  };
+
+  async getMixin(
+    mixinDevice: any,
+    mixinDeviceInterfaces: ScryptedInterface[],
+    mixinDeviceState: WritableDeviceState,
+  ): Promise<any> {
+    const props = {
+      mixinDevice,
+      mixinDeviceInterfaces,
+      mixinDeviceState,
+      mixinProviderNativeId: this.nativeId,
+      group: "Advanced notifier",
+      groupKey: "homeassistantMetadata",
+    };
+    const logger = this.getLogger();
+
+    const { isCamera, isSensor, isNotifier, sensorType } = isDeviceSupported({
+      interfaces: mixinDeviceInterfaces,
+    } as DeviceBase);
+
+    try {
+      if (isCamera) {
+        const mixin = new AdvancedNotifierCameraMixin(props, this);
+        return mixin;
+      } else if (isSensor) {
+        const mixin = new AdvancedNotifierSensorMixin(props, sensorType, this);
+        return mixin;
+      } else if (isNotifier) {
+        const mixin = new AdvancedNotifierNotifierMixin(props, this);
+        return mixin;
+      }
+    } catch (e) {
+      logger.log(`Error in getMixin for device ${mixinDeviceState.name}`, e);
+    }
+  }
+
+  async releaseMixin(id: string, mixinDevice: any): Promise<void> {
+    await mixinDevice.release();
+  }
+
+  private getUrls(cameraId: string, time: number) {
+    const serverId = this.storageSettings.getItem("serverId");
+    const nvrUrl = this.storageSettings.getItem("nvrUrl");
+    const scryptedToken = this.storageSettings.getItem("scryptedToken");
+
+    const timelinePart = `#/timeline/${cameraId}?time=${time}&from=notification&serverId=${serverId}&disableTransition=true`;
+    const haUrl = `/api/scrypted/${scryptedToken}/endpoint/@scrypted/nvr/public/${timelinePart} `;
+    const externalUrl = `${nvrUrl}/${timelinePart}`;
+    return {
+      externalUrl: externalUrl,
+      haUrl: `/scrypted_${scryptedToken}?url=${encodeURIComponent(haUrl)}`,
+      timelinePart,
+    };
+  }
+
+  private getTriggerZone = (
+    detection: ObjectDetectionResult,
+    rule: DetectionRule,
+  ) => {
+    const { zones } = detection ?? {};
+    let zone: string;
+    if (rule?.whitelistedZones) {
+      zone = detection?.zones?.find((detectedZone) =>
+        rule.whitelistedZones.find((whiltelistedZone) => {
+          if (rule.source === RuleSource.Device) {
+            return whiltelistedZone === detectedZone;
+          } else {
+            const [_, zonePart] = whiltelistedZone.split("::");
+            return zonePart === detectedZone;
+          }
+        }),
+      );
+    } else {
+      zone = zones?.[0];
+    }
+
+    return zone;
+  };
+
+  getTextKey(props: { textKey: TextSettingKey; notifierId: string }) {
+    const { notifierId, textKey } = props;
+    return (
+      this.currentNotifierMixinsMap[notifierId]?.storageSettings.values[
+        textKey
+      ] || this.storageSettings.values[textKey]
+    );
+  }
+
+  private applyNotificationPlaceholders(props: {
+    text?: string;
+    device: DeviceInterface;
+    detectionTime: number;
+    detection?: ObjectDetectionResult;
+    eventType?: DetectionEvent;
+    notifierId: string;
+    externalUrl?: string;
+    rule?: DetectionRule;
+  }) {
+    const {
+      text,
+      detection,
+      detectionTime,
+      notifierId,
+      device,
+      externalUrl,
+      rule,
+      eventType,
+    } = props;
+    if (!text) {
+      return undefined;
+    }
+
+    const { label: labelRaw, className } = detection ?? {};
+
+    let label = labelRaw;
+    if (!isLabelDetection(className)) {
+      const labelAttemptKey = getFrigateTextKey(labelRaw);
+      label =
+        this.getTextKey({ notifierId, textKey: labelAttemptKey }) ?? label;
+    }
+
+    const roomName = device?.room;
+    const { subKey } = getEventTextKey({ eventType, hasLabel: !!label });
+    const subkeyText = subKey
+      ? this.getTextKey({ notifierId, textKey: subKey })
+      : undefined;
+
+    const detectionTimeText = this.getTextKey({
+      notifierId,
+      textKey: "detectionTimeText",
+    });
+    const time = eval(detectionTimeText.replace("${time}", detectionTime));
+
+    const zone = this.getTriggerZone(detection, rule);
+
+    return text
+      .toString()
+      .replaceAll("${time}", String(time ?? ""))
+      .replaceAll("${classnameText}", subkeyText ?? "")
+      .replaceAll("${classname}", subkeyText ?? "")
+      .replaceAll("${nvrLink}", externalUrl ?? "")
+      .replaceAll("${person}", label ?? "")
+      .replaceAll("${plate}", label ?? "")
+      .replaceAll("${streamName}", label ?? "")
+      .replaceAll("${label}", label ?? "")
+      .replaceAll("${zone}", zone ?? "")
+      .replaceAll("${room}", roomName ?? "");
+  }
+
+  private async getNotificationText(props: {
+    device: DeviceInterface;
+    detectionTime: number;
+    detection?: ObjectDetectionResult;
+    eventType?: DetectionEvent;
+    notifierId: string;
+    externalUrl?: string;
+    rule?: DetectionRule;
+  }) {
+    const {
+      detection,
+      detectionTime,
+      notifierId,
+      device,
+      externalUrl,
+      rule,
+      eventType,
+    } = props;
+    const { key } = getEventTextKey({
+      eventType,
+      hasLabel: !!detection?.label,
+    });
+    const textToUse =
+      rule?.customText || this.getTextKey({ notifierId, textKey: key });
+
+    return this.applyNotificationPlaceholders({
+      text: textToUse,
+      detection,
+      detectionTime,
+      notifierId,
+      device,
+      externalUrl,
+      rule,
+      eventType,
+    });
+  }
+
+  async buildSnoozes(props: { notifierId: string }) {
+    const { notifierId } = props;
+    const { snoozes } = this.storageSettings.values;
+
+    const snoozePlaceholder = this.getTextKey({
+      notifierId,
+      textKey: "snoozeText",
+    });
+    const minutesPlaceholder = this.getTextKey({
+      notifierId,
+      textKey: "minutesText",
+    });
+    const hoursPlaceholder = this.getTextKey({
+      notifierId,
+      textKey: "hoursText",
+    });
+
+    const snoozeItems: SnoozeItem[] = [];
+
+    for (const minutesText of snoozes) {
+      const minutes = Number(minutesText);
+      const isHours = minutes % 60 === 0;
+      const time = isHours ? minutes / 60 : minutes;
+      const timeString = `${time} ${isHours ? hoursPlaceholder : minutesPlaceholder}`;
+
+      const text = snoozePlaceholder?.replaceAll("${timeText}", timeString);
+
+      snoozeItems.push({ text, minutes });
+    }
+
+    return { snoozeItems };
+  }
+
+  async getNotificationContent(props: {
+    notifier: DeviceBase & Notifier;
+    rule?: DetectionRule | OccupancyRule | TimelapseRule;
+    triggerTime?: number;
+    message?: string;
+    videoUrl?: string;
+    gifUrl?: string;
+    clickUrl?: string;
+    detection?: ObjectDetectionResult;
+    device?: DeviceInterface;
+    eventType?: DetectionEvent;
+    b64Image?: string;
+    logger: Console;
+    snoozeId?: string;
+    videoSize?: number;
+  }) {
+    const {
+      notifier,
+      rule,
+      triggerTime,
+      device,
+      videoUrl,
+      clickUrl,
+      detection,
+      eventType,
+      message: messageParent,
+      logger,
+      snoozeId: snoozeIdParent,
+      videoSize = 0,
+      gifUrl: giftUrlParent,
+    } = props;
+
+    if (!notifier) {
+      logger?.error?.(
+        "getNotificationContent: notifier is undefined, skipping notification content generation.",
+      );
+      return {};
+    }
+    const { notifierData } = rule ?? {};
+    const notifierId = notifier.id;
+    const cameraId = device?.id;
+    const {
+      actions,
+      priority,
+      addSnooze,
+      addCameraActions,
+      sound,
+      openInApp,
+      channel,
+      notificationIcon,
+      iconColor,
+    } = notifierData?.[notifierId] ?? {};
+    const {
+      withActions,
+      withSnoozing,
+      withSound,
+      withOpenInApp,
+      withChannel,
+      withNotificationIcon,
+      withClearNotification,
+      withDeleteNotification,
+      withOpenNotification,
+    } = getNotifierData({ notifierId, ruleType: rule?.ruleType });
+    const cameraMixin = cameraId
+      ? this.currentCameraMixinsMap[cameraId]
+      : undefined;
+    if (cameraId && !cameraMixin) {
+      logger?.error?.(
+        `getNotificationContent: camera mixin not found for cameraId ${cameraId}`,
+      );
+    }
+    if (cameraMixin && !cameraMixin?.mixinState?.storageSettings) {
+      logger?.error?.(
+        `getNotificationContent: storageSettings not available for cameraId ${cameraId}`,
+      );
+    }
+
+    const { notifierActions } =
+      cameraMixin?.mixinState?.storageSettings?.values ?? {};
+    const { haUrl, externalUrl, timelinePart } = this.getUrls(
+      cameraId,
+      triggerTime,
+    );
+    const deviceLogger = this.getLogger(device);
+
+    let additionalMessageText: string = "";
+
+    const actionsEnabled = withActions && addCameraActions;
+    const actionsToUseTmp: ExtendedNotificationAction[] = actionsEnabled
+      ? [
+          ...(actions ?? []),
+          ...((notifierActions || []).map((action) => safeParseJson(action)) ??
+            []),
+        ]
+      : [];
+    const actionsToUse: ExtendedNotificationAction[] = [];
+
+    let gifUrl = giftUrlParent;
+    if (gifUrl) {
+      const actualUrl = new URL(gifUrl);
+      gifUrl = `${actualUrl.origin}${actualUrl.pathname}${actualUrl.search}`;
+    }
+
+    for (const { action, title, icon, url, destructive } of actionsToUseTmp) {
+      let urlToUse = url;
+
+      // Assuming every action without url is an HA action
+      if (!urlToUse) {
+        const { haActionUrl } = await getWebHookUrls({
+          cameraIdOrAction: action,
+          console: deviceLogger,
+          device,
+          plugin: this,
+        });
+        urlToUse = haActionUrl;
+      }
+
+      actionsToUse.push({
+        action,
+        title,
+        icon,
+        url: urlToUse,
+        destructive,
+      });
+    }
+
+    let snoozeId = snoozeIdParent;
+    if (!snoozeId) {
+      snoozeId = getSnoozeId({
+        cameraId: device?.id,
+        notifierId,
+        priority,
+        rule,
+        detection,
+      });
+    }
+
+    const { snoozeItems } = await this.buildSnoozes({ notifierId });
+    const { snoozeActions, endpoint } = await getWebHookUrls({
+      console: deviceLogger,
+      device,
+      snoozeId,
+      snoozeItems,
+      plugin: this,
+    });
+    const openNvrText = this.getTextKey({ notifierId, textKey: "openNvrText" });
+
+    const addSnozeActions = withSnoozing && addSnooze;
+    let payload: any = {
+      data: {
+        isNotificationFromAnPlugin: true,
+        cameraId,
+        eventType,
+        snoozeId,
+      },
+    };
+
+    if (notifier.pluginId === TELEGRAM_PLUGIN_ID) {
+      payload.data.telegram = {};
+
+      const telegramActions: any[][] = [];
+      const firstLine: any[] = [];
+      if (videoUrl) {
+        firstLine.push({
+          title: "Clip",
+          url: videoUrl,
+        });
+      }
+      firstLine.push({
+        title: "Live",
+        url: externalUrl,
+      });
+      telegramActions.push(firstLine);
+
+      if (addSnozeActions) {
+        const snoozeLine: any[] = [];
+        for (const { data, url } of snoozeActions) {
+          snoozeLine.push({
+            action: `scrypted_an_snooze_${cameraId}_${notifierId}_${data}_${snoozeId}`,
+            title: `${data} mins`,
+            url,
+          });
+        }
+        telegramActions.push(snoozeLine);
+      }
+
+      if (actionsToUse.length) {
+        const actionsLine: any[] = [];
+        for (const { url, title, action } of actionsToUse) {
+          actionsLine.push({
+            action,
+            uri: url,
+            title,
+          });
+        }
+        telegramActions.push(actionsLine);
+      }
+
+      payload.data.telegram.actions = telegramActions;
+      if (videoUrl) {
+        payload.data.telegram.gifUrl = videoUrl;
+      }
+      if (gifUrl) {
+        payload.data.telegram.gifUrl = gifUrl;
+      }
+
+      payload.silent = priority !== NotificationPriority.Normal;
+    } else if (notifier.pluginId === PUSHOVER_PLUGIN_ID) {
+      payload.data.pushover = {
+        timestamp: triggerTime,
+        url: clickUrl ?? externalUrl,
+        html: 1,
+        sound,
+      };
+
+      const acts: ExtendedNotificationAction[] = [];
+      if (addSnozeActions) {
+        acts.push(...snoozeActions);
+      }
+      acts.push(...actionsToUse);
+      if (acts.length) {
+        additionalMessageText += "\n";
+        for (const { title, url } of acts) {
+          additionalMessageText += `<a href="${url}">${title}</a>\n`;
+        }
+      }
+      if (videoUrl) {
+        additionalMessageText += "\n" + `<a href="${videoUrl}">Clip</a>\n`;
+      }
+
+      const priorityToUse =
+        priority === NotificationPriority.High
+          ? 1
+          : priority === NotificationPriority.Normal
+            ? 0
+            : priority === NotificationPriority.Low
+              ? -1
+              : -2;
+
+      payload.data.pushover.priority = priorityToUse;
+
+      if (gifUrl) {
+        const gifMo = await sdk.mediaManager.createMediaObjectFromUrl(gifUrl);
+        const gifData = await sdk.mediaManager.convertMediaObjectToBuffer(
+          gifMo,
+          "image/gif",
+        );
+        payload.data.pushover.file = { name: "media.gif", data: gifData };
+      }
+    } else if (notifier.pluginId === ZENTIK_PLUGIN_ID) {
+      const zentikActions: any[] = [
+        {
+          type: "NAVIGATE",
+          title: openNvrText,
+          icon: "sfsymbols:video",
+          value: externalUrl,
+        },
+      ];
+
+      if (addSnozeActions) {
+        for (const { url, title } of snoozeActions) {
+          zentikActions.push({
+            title,
+            type: "BACKGROUND_CALL",
+            value: `POST::${url}`,
+            icon: "sfsymbols:bell",
+            destructive: false,
+          });
+        }
+      }
+
+      if (actionsToUse.length) {
+        for (const { url, title, icon } of actionsToUse) {
+          zentikActions.push({
+            type: "BACKGROUND_CALL",
+            value: `POST::${url}`,
+            title,
+            icon,
+            destructive: false,
+          });
+        }
+      }
+
+      const tapUrl =
+        openInApp && rule.ruleType === RuleType.Detection
+          ? externalUrl
+          : undefined;
+
+      payload.data.zentik = {
+        deliveryType:
+          priority === NotificationPriority.High
+            ? "CRITICAL"
+            : priority === NotificationPriority.Low
+              ? "SILENT"
+              : "NORMAL",
+        addMarkAsReadAction: withClearNotification,
+        addOpenNotificationAction: !!withOpenNotification && !!openInApp,
+        addDeleteAction: withDeleteNotification,
+        gifUrl,
+        videoUrl,
+        actions: zentikActions,
+        tapUrl,
+      };
+    } else if (notifier.pluginId === HOMEASSISTANT_PLUGIN_ID) {
+      const fileSizeInMegabytes = videoSize / (1024 * 1024);
+      const isVideoValid = fileSizeInMegabytes < 50;
+
+      const urlToUse = withOpenInApp && openInApp ? haUrl : externalUrl;
+      payload.data.ha = {
+        ttl: 0,
+        importance: "max",
+        priority: "high",
+        url: clickUrl ?? urlToUse,
+        clickAction: clickUrl ?? urlToUse,
+        video: isVideoValid ? videoUrl : undefined,
+        channel: withChannel ? channel : undefined,
+        notification_icon: withNotificationIcon ? notificationIcon : undefined,
+        color: iconColor,
+        push: {
+          sound: {
+            name: withSound && sound ? sound : "default",
+          },
+        },
+      };
+
+      const haActions: any[] = [];
+      if (videoUrl) {
+        haActions.push({
+          action: `URI`,
+          icon: "sfsymbols:video.circle",
+          title: "Clip",
+          uri: videoUrl,
+        });
+      }
+      if (addSnozeActions) {
+        for (const { data, title } of snoozeActions) {
+          haActions.push({
+            action: `scrypted_an_snooze_${cameraId}_${notifierId}_${data}_${snoozeId}`,
+            icon: "sfsymbols:bell",
+            title,
+          });
+        }
+      }
+      for (const { action, icon, title, destructive } of actionsToUse) {
+        haActions.push({
+          action,
+          icon,
+          title,
+          destructive,
+        });
+      }
+
+      if (withClearNotification) {
+        haActions.push({
+          action: "clear",
+          title: this.getTextKey({ notifierId, textKey: "discardText" }),
+          icon: "sfsymbols:trash",
+          destructive: true,
+        });
+      }
+
+      payload.data.ha.actions = haActions;
+
+      if (priority === NotificationPriority.High) {
+        payload.data.ha.push["interruption-level"] = "critical";
+        payload.data.ha.push.sound = {
+          ...payload.data.ha.push.sound,
+          critical: 1,
+          volume: 1.0,
+        };
+      }
+
+      if (gifUrl) {
+        payload.data.ha.image = gifUrl;
+      }
+    } else if (notifier.pluginId === NTFY_PLUGIN_ID) {
+      const ntfyActions: any[] = [
+        {
+          action: "view",
+          label: openNvrText,
+          url: externalUrl,
+        },
+      ];
+
+      if (addSnozeActions) {
+        ntfyActions.push(
+          ...snoozeActions.slice(0, 2).map((action) => ({
+            action: "http",
+            label: action.title,
+            url: action.url,
+            method: "GET",
+          })),
+        );
+      } else {
+        ntfyActions.push(
+          ...actionsToUse.slice(0, 2).map((action) => ({
+            action: "http",
+            label: action.title,
+            url: action.url,
+            method: "GET",
+          })),
+        );
+      }
+
+      payload.data.ntfy = {
+        actions: ntfyActions,
+      };
+
+      const priorityToUse =
+        priority === NotificationPriority.SuperHigh
+          ? 5
+          : priority === NotificationPriority.High
+            ? 4
+            : priority === NotificationPriority.Normal
+              ? 3
+              : priority === NotificationPriority.Low
+                ? 2
+                : 1;
+
+      payload.data.ntfy.priority = priorityToUse;
+      if (gifUrl) {
+        payload.data.ntfy.attach = gifUrl;
+      }
+    } else if (notifier.pluginId === NVR_PLUGIN_ID) {
+      const localAddresses = safeParseJson(
+        this.storageSettings.getItem("localAddresses"),
+      );
+      payload.data = {
+        ...payload.data,
+        hash: timelinePart,
+        localAddresses: localAddresses,
+        actionUrl: endpoint,
+        snoozeId,
+      };
+
+      if (addSnozeActions) {
+        payload.actions = snoozeActions.map((action) => ({
+          action: action.action,
+          title: action.title,
+        }));
+      }
+
+      if (priority === NotificationPriority.High) {
+        payload.critical = true;
+      } else if (priority === NotificationPriority.Low) {
+        payload.silent = true;
+      }
+    }
+
+    let message = messageParent;
+    const { externalUrl: externalUrlForText } = this.getUrls(
+      device?.id,
+      triggerTime,
+    );
+
+    if (message) {
+      message =
+        this.applyNotificationPlaceholders({
+          text: message,
+          detection,
+          externalUrl: externalUrlForText,
+          detectionTime: triggerTime,
+          notifierId: notifier.id,
+          eventType,
+          device,
+          rule: rule as DetectionRule,
+        }) ?? message;
+    } else {
+      message = await this.getNotificationText({
+        detection,
+        externalUrl: externalUrlForText,
+        detectionTime: triggerTime,
+        notifierId: notifier.id,
+        eventType,
+        device,
+        rule: rule as DetectionRule,
+      });
+    }
+
+    if (additionalMessageText) {
+      message += additionalMessageText;
+    }
+
+    const logMessage = messageParent
+      ? "Custom message provided, skipping text generation."
+      : "Notification content generated";
+
+    logger.log(
+      `${logMessage}: ${JSON.stringify({
+        notifier: notifier.name,
+        actionsEnabled,
+        addSnozeActions,
+        payload,
+        message,
+      })}`,
+    );
+
+    return { payload, message };
+  }
+
+  async notifyDetection(props: {
+    cameraDevice?: DeviceInterface;
+    triggerDevice: DeviceInterface;
+    notifierId: string;
+    snoozeId?: string;
+    time: number;
+    message?: string;
+    image?: MediaObject;
+    b64Image?: string;
+    detection?: ObjectDetectionResult;
+    eventType?: DetectionEvent;
+    rule?: DetectionRule;
+    logger: Console;
+    videoUrl?: string;
+    gifUrl?: string;
+    imageUrl?: string;
+  }) {
+    try {
+      const {
+        triggerDevice,
+        cameraDevice,
+        notifierId,
+        time,
+        image,
+        b64Image,
+        detection,
+        logger,
+        rule,
+        snoozeId,
+        eventType,
+        message,
+        videoUrl,
+        gifUrl,
+        imageUrl,
+      } = props;
+
+      const device =
+        cameraDevice ?? (await this.getLinkedCamera(triggerDevice.id))?.device;
+
+      if (!device) {
+        logger.log(
+          `There is no camera linked to the device ${triggerDevice.name}`,
+        );
+        return;
+      }
+
+      const notifier = systemManager.getDeviceById<DeviceInterface>(notifierId);
+      if (!notifier) {
+        logger.error(
+          `notifyDetection: notifier not found for notifierId ${notifierId} (rule ${rule?.name ?? "unknown"})`,
+        );
+        return;
+      }
+
+      let title = (triggerDevice ?? device).name;
+
+      let zone: string;
+      if (rule && detection) {
+        zone = this.getTriggerZone(detection, rule);
+      }
+
+      if (zone) {
+        title += ` (${zone})`;
+      }
+
+      await this.sendNotificationInternal({
+        notifier,
+        title,
+        icon: undefined,
+        image,
+        b64Image,
+        message,
+        triggerTime: time,
+        device,
+        rule,
+        detection,
+        eventType,
+        snoozeId,
+        logger,
+        videoUrl,
+        gifUrl,
+        imageUrl,
+      });
+    } catch (e) {
+      this.getLogger().log("Error in notifyCamera", e);
+    }
+  }
+
+  async sendNotificationInternal(props: {
+    title?: string;
+    b64Image?: string;
+    image?: MediaObject | string;
+    imageUrl?: string;
+    icon?: MediaObject | string;
+    notifier: DeviceInterface;
+    rule: BaseRule;
+    snoozeId?: string;
+    triggerTime?: number;
+    message?: string;
+    videoUrl?: string;
+    gifUrl?: string;
+    clickUrl?: string;
+    videoSize?: number;
+    detection?: ObjectDetectionResult;
+    device?: DeviceInterface;
+    eventType?: DetectionEvent;
+    logger?: Console;
+  }) {
+    const {
+      title: titleParent,
+      icon,
+      image,
+      b64Image,
+      notifier,
+      device,
+      rule,
+      snoozeId,
+      triggerTime,
+      videoUrl,
+      clickUrl,
+      message: messageParent,
+      detection,
+      eventType,
+      logger: loggerParent,
+      videoSize,
+      gifUrl,
+      imageUrl,
+    } = props;
+    const cameraId = device?.id;
+    const cameraMixin = cameraId
+      ? this.currentCameraMixinsMap[cameraId]
+      : undefined;
+    const logger =
+      loggerParent ?? cameraMixin?.getLogger?.() ?? this.getLogger(device);
+
+    if (!notifier) {
+      logger?.error?.(
+        `sendNotificationInternal: notifier is undefined (cameraId ${cameraId ?? "unknown"}, rule ${rule?.name ?? "unknown"})`,
+      );
+      return;
+    }
+    if (!device) {
+      logger?.error?.(
+        `sendNotificationInternal: device is undefined (notifierId ${notifier?.id ?? "unknown"}, rule ${rule?.name ?? "unknown"})`,
+      );
+      return;
+    }
+    if (!rule) {
+      logger?.error?.(
+        `sendNotificationInternal: rule is undefined (cameraId ${cameraId ?? "unknown"}, notifierId ${notifier?.id ?? "unknown"})`,
+      );
+      return;
+    }
+    if (cameraId && !cameraMixin) {
+      logger?.error?.(
+        `sendNotificationInternal: camera mixin not found for cameraId ${cameraId}`,
+      );
+    }
+
+    let title = titleParent;
+    if (!title) {
+      title = device?.name ?? "Unknown device";
+    }
+
+    const content = await this.getNotificationContent({
+      device,
+      notifier,
+      rule,
+      triggerTime,
+      videoUrl,
+      logger,
+      b64Image,
+      detection,
+      eventType,
+      message: messageParent,
+      snoozeId,
+      videoSize,
+      clickUrl,
+      gifUrl,
+    });
+
+    const payload = content?.payload ?? {};
+    const message = content?.message ?? messageParent;
+
+    const notifierOptions: NotifierOptions = {
+      body: message,
+      ...payload,
+    };
+
+    logger.log(
+      `Sending rule ${rule.name} (${rule.ruleType}) notification ${triggerTime} to ${notifier.name}`,
+    );
+    logger.info(
+      JSON.stringify({
+        notifierOptions,
+        title,
+        message,
+        rule,
+        payload,
+      }),
+    );
+
+    notifier
+      .sendNotification(title, notifierOptions, imageUrl ?? image, icon)
+      .catch(logger.error);
+  }
+
+  async executeNotificationTest() {
+    const {
+      testAddActions,
+      testAddSnoozing,
+      testBypassSnooze,
+      testDevice,
+      testEventSource,
+      testEventType,
+      testGenerateClip,
+      testGenerateClipSpeed,
+      testGenerateClipType,
+      testClipPostSeconds,
+      testClipPreSeconds,
+      testNotifier,
+      testPriority,
+      testLabel,
+      testSound,
+      testUseAi,
+      testPostProcessing,
+      testZones,
+      testShowActiveZones,
+    } = this.storageSettings.values;
+
+    const logger = this.getLogger();
+
+    try {
+      if (testDevice && testEventType && testNotifier) {
+        const currentTime = new Date().getTime();
+        const testNotifierId = testNotifier.id;
+        const { sensorType, isCamera } = isDeviceSupported(testDevice);
+        const eventType = sensorType ?? testEventType;
+        const isDetection = isDetectionClass(testEventType);
+
+        logger.log(
+          `Sending ${eventType} test notification to ${testNotifier.name}: ${JSON.stringify(
+            {
+              deviceName: testDevice.name,
+              testAddActions,
+              testAddSnoozing,
+              testBypassSnooze,
+              testEventSource,
+              testEventType,
+              testGenerateClip,
+              testGenerateClipSpeed,
+              testGenerateClipType,
+              testClipPreSeconds,
+              testClipPostSeconds,
+              testLabel,
+              testNotifier,
+              testPriority,
+              testSound,
+              testUseAi,
+              testPostProcessing,
+              testZones,
+              testShowActiveZones,
+            },
+          )}`,
+        );
+
+        const snoozeId = testBypassSnooze
+          ? Math.random().toString(36).substring(2, 12)
+          : undefined;
+
+        const match: ObjectDetectionResult = isDetection
+          ? {
+              label: testLabel,
+              className: testEventType,
+              score: 1,
+              ...(testShowActiveZones && testZones?.length
+                ? { zones: testZones }
+                : {}),
+            }
+          : undefined;
+
+        const rule = {
+          notifierData: {
+            [testNotifierId]: {
+              priority: testPriority,
+              actions: [],
+              addSnooze: testAddSnoozing,
+              addCameraActions: testAddActions,
+              sound: testSound,
+            },
+          },
+          imageProcessing: testPostProcessing,
+          generateClipSpeed: testGenerateClipSpeed,
+          generateClipType: testGenerateClipType,
+          generateClip: testGenerateClip,
+          generateClipPreSeconds: testClipPreSeconds,
+          generateClipPostSeconds: testClipPostSeconds,
+          useAi: testUseAi,
+          ruleType: RuleType.Detection,
+          activationType: DetectionRuleActivation.Always,
+          source: RuleSource.Plugin,
+          isEnabled: true,
+          name: "Test rule",
+          detectionSource:
+            (testEventSource as ScryptedEventSource) ??
+            ScryptedEventSource.RawDetection,
+          notifiers: [testNotifier?.id],
+          showActiveZones: testShowActiveZones,
+        } as DetectionRule;
+
+        const payload: NotifyDetectionProps = {
+          eventType,
+          eventSource: NotifyRuleSource.Test,
+          triggerDeviceId: testDevice.id,
+          triggerTime: currentTime - 2000,
+          snoozeId,
+          forceExecution: true,
+          matchRule: {
+            match,
+            rule,
+          },
+          forceAi: testUseAi,
+        };
+
+        if (isCamera) {
+          const cameraMixin = this.currentCameraMixinsMap[testDevice.id];
+          await cameraMixin.notifyDetectionRule(payload);
+        } else {
+          await this.notifyDetectionEvent(payload);
+        }
+      }
+    } catch (e) {
+      logger.log("Error in executeNotificationTest", e);
+    }
+  }
+
+  async getCameraDevice(device: DeviceInterface) {
+    const deviceId = device.id;
+    const { isCamera } = isDeviceSupported(device);
+
+    if (isCamera) {
+      return device;
+    }
+
+    const linkedCameraId = this.deviceVideocameraMap[deviceId];
+    return systemManager.getDeviceById<DeviceInterface>(linkedCameraId);
+  }
+
+  public getFsPaths(props: { cameraId?: string; triggerTime?: number }) {
+    const { cameraId, triggerTime } = props;
+    const storagePath = this.getStoragePath();
+    const cameraPath = cameraId ? path.join(storagePath, cameraId) : undefined;
+    const decoderpath = cameraPath
+      ? path.join(cameraPath, "decoder")
+      : undefined;
+    const framePath =
+      triggerTime && decoderpath
+        ? path.join(decoderpath, `${triggerTime}.jpg`)
+        : undefined;
+
+    return {
+      storagePath,
+      cameraPath,
+      decoderpath,
+      framePath,
+    };
+  }
+
+  public getDetectionImagePaths = (props: {
+    imageIdentifier?: string;
+    device: ScryptedDeviceBase;
+  }) => {
+    const { device, imageIdentifier } = props;
+    const { cameraPath } = this.getFsPaths({ cameraId: device.id });
+    const objectDetectionPath = path.join(cameraPath, "detections");
+    const filePath = imageIdentifier
+      ? path.join(objectDetectionPath, `${imageIdentifier}.jpg`)
+      : undefined;
+
+    return { filePath, objectDetectionPath };
+  };
+
+  async decodeFileId(props: { fileId: string }) {
+    const { fileId } = props;
+
+    const [identifier, cameraId] = fileId.split("__");
+
+    const device = systemManager.getDeviceById<DeviceInterface>(cameraId);
+
+    if (identifier === "rule") {
+      const [_, __, ruleName, triggerTime] = fileId.split("__");
+      const { videoHistoricalPath, imageHistoricalPath } = this.getRulePaths({
+        cameraId,
+        ruleName,
+        triggerTime: Number(triggerTime),
+      });
+
+      const { videoRuleUrl, imageRuleUrl } = await getWebHookUrls({
+        console: this.getLogger(),
+        device: device,
+        plugin: this,
+        fileId: triggerTime,
+      });
+
+      return {
+        videPath: videoHistoricalPath,
+        imagePath: imageHistoricalPath,
+        videoUrl: videoRuleUrl,
+        imageUrl: imageRuleUrl,
+      };
+    } else if (identifier === "event") {
+      const [_, __, fileName] = fileId.split("__");
+      const { recordedClipPath, recordedThumbnailPath } =
+        this.getRecordedEventPath({
+          cameraId,
+          fileName,
+        });
+
+      const { recordedClipThumbnailPath, recordedClipVideoPath } =
+        await getWebHookUrls({
+          console: this.getLogger(),
+          device: device,
+          plugin: this,
+          fileId: fileName,
+        });
+
+      return {
+        videPath: recordedClipPath,
+        imagePath: recordedThumbnailPath,
+        videoUrl: recordedClipVideoPath,
+        imageUrl: recordedClipThumbnailPath,
+      };
+    }
+  }
+
+  public getRulePaths = (props: {
+    cameraId: string;
+    ruleName?: string;
+    variant?: string;
+    triggerTime?: number;
+  }) => {
+    const { cameraId, ruleName, variant, triggerTime } = props;
+    const { cameraPath } = this.getFsPaths({ cameraId });
+
+    const rulesPath = path.join(cameraPath, "rules");
+    const rulePath = ruleName ? path.join(rulesPath, ruleName) : undefined;
+    const framesPath = rulePath ? path.join(rulePath, "frames") : undefined;
+    const framePath =
+      triggerTime && framesPath
+        ? path.join(framesPath, `${triggerTime}.jpg`)
+        : undefined;
+    const filesListPath = rulePath
+      ? path.join(rulePath, "file_list.txt")
+      : undefined;
+    const generatedPath = rulePath
+      ? path.join(rulePath, "generated")
+      : undefined;
+
+    const gifHistoricalPath = generatedPath
+      ? path.join(generatedPath, `${triggerTime}.gif`)
+      : undefined;
+    const videoHistoricalPath = generatedPath
+      ? path.join(generatedPath, `${triggerTime}.mp4`)
+      : undefined;
+    const imageHistoricalPath = generatedPath
+      ? path.join(generatedPath, `${triggerTime}.jpg`)
+      : undefined;
+    const gifLatestPath = rulePath
+      ? path.join(rulePath, `latest.gif`)
+      : undefined;
+    const videoclipLatestPath = rulePath
+      ? path.join(rulePath, `latest.mp4`)
+      : undefined;
+    const imageLatestPath = rulePath
+      ? path.join(rulePath, `latest.jpg`)
+      : undefined;
+    const imageLatestPathVariant = rulePath
+      ? path.join(rulePath, `latest_${variant}.jpg`)
+      : undefined;
+
+    const fileId = `rule__${cameraId}__${ruleName}__${triggerTime}`;
+
+    return {
+      rulePath,
+      framesPath,
+      generatedPath,
+      framePath,
+      rulesPath,
+      imageLatestPathVariant,
+      filesListPath,
+      videoclipLatestPath,
+      gifLatestPath,
+      imageLatestPath,
+      gifHistoricalPath,
+      imageHistoricalPath,
+      videoHistoricalPath,
+      fileId,
+    };
+  };
+
+  /** Enqueue a DB write (event or motion). Worker in main drains the queue sequentially. */
+  private enqueueDbWrite = (item: DbWriteQueueItem) => {
+    this.dbWriteQueue.push(item);
+    this.scheduleDbWriteProcess();
+  };
+
+  private scheduleDbWriteProcess = () => {
+    if (this.processingDbWriteQueue || this.dbWriteQueue.length === 0) return;
+    this.processingDbWriteQueue = true;
+    setImmediate(() => this.runDbWriteProcess());
+  };
+
+  private runDbWriteProcess = async () => {
+    const items = this.dbWriteQueue.splice(0, this.dbWriteQueue.length);
+    if (items.length === 0) {
+      this.processingDbWriteQueue = false;
+      return;
+    }
+    const dbFileFormat = "YYYYMMDD";
+    type Group = {
+      events: DbDetectionEvent[];
+      motion: DbMotionEvent[];
+      logger: Console;
+    };
+    const groups = new Map<string, Group>();
+    for (const item of items) {
+      const dbsPath = item.dbsPath;
+      const dayStr =
+        item.type === "event"
+          ? moment(item.event.timestamp).format(dbFileFormat)
+          : moment(item.motionEvent.timestamp).format(dbFileFormat);
+      const key = `${dbsPath}|${dayStr}`;
+      let g = groups.get(key);
+      if (!g) {
+        g = { events: [], motion: [], logger: item.logger };
+        groups.set(key, g);
+      }
+      if (item.type === "event") g.events.push(item.event);
+      else g.motion.push(item.motionEvent);
+    }
+    for (const [key, group] of groups) {
+      const pipe = key.lastIndexOf("|");
+      const dbsPath = key.slice(0, pipe);
+      const dayStr = key.slice(pipe + 1);
+      try {
+        await writeEventsAndMotionBatch({
+          dbsPath,
+          dayStr,
+          newEvents: group.events,
+          newMotion: group.motion,
+          logger: group.logger,
+        });
+      } catch (e) {
+        group.logger.error("DB write queue batch error", e);
+      }
+    }
+    this.processingDbWriteQueue = false;
+    if (this.dbWriteQueue.length > 0) this.scheduleDbWriteProcess();
+  };
+
+  public getEventPaths = (props: { cameraId?: string; fileName?: string }) => {
+    const { cameraId, fileName } = props;
+    const { cameraPath, storagePath } = this.getFsPaths({ cameraId });
+    const eventsPath = cameraPath ? path.join(cameraPath, "events") : undefined;
+    const dbsPath = eventsPath ? path.join(eventsPath, "dbs") : undefined;
+
+    const thumbnailsPath = eventsPath
+      ? path.join(eventsPath, "thumbnails")
+      : undefined;
+    const imagesPath = eventsPath ? path.join(eventsPath, "images") : undefined;
+    const eventThumbnailPath = fileName
+      ? path.join(thumbnailsPath, `${fileName}.jpg`)
+      : undefined;
+    const eventImagePath = fileName
+      ? path.join(imagesPath, `${fileName}.jpg`)
+      : undefined;
+
+    return {
+      eventsPath,
+      eventThumbnailPath,
+      eventImagePath,
+      fileId: fileName,
+      dbsPath,
+      storagePath,
+      thumbnailsPath,
+      imagesPath,
+    };
+  };
+
+  public getRecordedEventPath = (props: {
+    cameraId: string;
+    fileName?: string;
+  }) => {
+    const { cameraId, fileName } = props;
+    const { cameraPath } = this.getFsPaths({ cameraId });
+
+    const recordedEventsPath = path.join(cameraPath, "recordedEvents");
+    const recordedClipPath = fileName
+      ? path.join(recordedEventsPath, `${fileName}.mp4`)
+      : undefined;
+    const recordedThumbnailPath = fileName
+      ? path.join(recordedEventsPath, `${fileName}.jpg`)
+      : undefined;
+
+    const fileId = `event__${cameraId}__${fileName}`;
+
+    return {
+      recordedEventsPath,
+      recordedClipPath,
+      recordedThumbnailPath,
+      fileId,
+    };
+  };
+
+  public storeDetectionImages = async (props: {
+    device: ScryptedDeviceBase;
+    timestamp: number;
+    b64Image?: string;
+    detections?: ObjectDetectionResult[];
+    eventSource: ScryptedEventSource;
+    ruleName?: string;
+    variant?: string;
+  }) => {
+    const {
+      device,
+      timestamp,
+      b64Image,
+      detections,
+      eventSource,
+      variant,
+      ruleName,
+    } = props;
+    const logger = this.getLogger(device);
+    const mixin = this.currentCameraMixinsMap[device.id];
+
+    const {
+      postDetectionImageUrls,
+      postDetectionImageClasses,
+      postDetectionImageWebhook,
+    } = mixin.mixinState.storageSettings.values;
+
+    if (b64Image && mixin) {
+      const base64Data = b64Image.replace(/^data:image\/png;base64,/, "");
+
+      if (ruleName) {
+        const { imageLatestPath, imageLatestPathVariant } = this.getRulePaths({
+          cameraId: device.id,
+          ruleName,
+          variant,
+        });
+
+        await fs.promises.writeFile(imageLatestPath, base64Data, "base64");
+
+        if (variant) {
+          await fs.promises.writeFile(
+            imageLatestPathVariant,
+            base64Data,
+            "base64",
+          );
+        }
+      } else {
+        const { objectDetectionPath } = this.getDetectionImagePaths({ device });
+
         try {
-            const { eventsPath } = this.getEventPaths({
+          await fs.promises.access(objectDetectionPath);
+        } catch {
+          await fs.promises.mkdir(objectDetectionPath, { recursive: true });
+        }
+
+        const filesToProcess: {
+          filename: string;
+          className?: string;
+          label?: string;
+        }[] = [];
+        for (const detection of detections) {
+          const { className, label } = detection;
+          const detectionClass = detectionClassesDefaultMap[className];
+
+          if (detectionClass) {
+            let filename = className;
+
+            if (label && !isPlateClassname(className)) {
+              filename += `-${label}`;
+            }
+
+            if (eventSource !== ScryptedEventSource.RawDetection) {
+              filename += `__${eventSource}`;
+            }
+
+            if (
+              mixin.isDelayPassed({ type: DelayType.FsImageUpdate, filename })
+                ?.timePassed
+            ) {
+              filesToProcess.push({ filename, className, label });
+            }
+          }
+        }
+
+        for (const { filename, className, label } of filesToProcess) {
+          const imagePath = path.join(objectDetectionPath, `${filename}.jpg`);
+          await fs.promises.writeFile(imagePath, base64Data, "base64");
+
+          if (
+            postDetectionImageWebhook &&
+            className &&
+            postDetectionImageClasses?.includes(className) &&
+            mixin.isDelayPassed({
+              type: DelayType.PostWebhookImage,
+              classname: className,
+              eventSource,
+            }).timePassed
+          ) {
+            for (const url of postDetectionImageUrls) {
+              logger.log(
+                `Posting ${className} image to ${getUrlLog(url)}, ${timestamp} ${label}`,
+              );
+              try {
+                await axios.post(
+                  url,
+                  {
+                    classname: className,
+                    label,
+                    b64Image,
+                    timestamp,
+                    name: filename,
+                  },
+                  { timeout: 5000 },
+                );
+              } catch (e) {
+                logger.log(
+                  `Error webhook POST ${getUrlLog(url)}: ${e.message}`,
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+  };
+
+  public storeTimelapseFrame = async (props: {
+    rule: TimelapseRule;
+    timestamp: number;
+    device: ScryptedDeviceBase;
+    imageMo: MediaObject;
+  }) => {
+    const { rule, timestamp, imageMo: imageMoParent, device } = props;
+
+    let imageMo = imageMoParent;
+
+    if (!imageMo) {
+      return;
+    }
+
+    if (imageMo) {
+      const { framePath, framesPath } = this.getRulePaths({
+        cameraId: device.id,
+        ruleName: rule.name,
+        triggerTime: timestamp,
+      });
+
+      try {
+        await fs.promises.access(framesPath);
+      } catch {
+        await fs.promises.mkdir(framesPath, { recursive: true });
+      }
+
+      const jpeg = await mediaManager.convertMediaObjectToBuffer(
+        imageMo,
+        "image/jpeg",
+      );
+      await fs.promises.writeFile(framePath, jpeg);
+    }
+  };
+
+  public clearTimelapseFrames = async (props: {
+    rule: TimelapseRule;
+    device: ScryptedDeviceBase;
+    logger: Console;
+  }) => {
+    const { rule, logger, device } = props;
+    logger.log(`Clearing frames for rule ${rule.name}.`);
+    try {
+      const { framesPath } = this.getRulePaths({
+        cameraId: device.id,
+        ruleName: rule.name,
+      });
+
+      await fs.promises.rm(framesPath, {
+        recursive: true,
+        force: true,
+        maxRetries: 10,
+      });
+      logger.log(`Folder ${framesPath} removed`);
+    } catch (e) {
+      logger.error(`Error clearing timelapse frames for rule ${rule.name}`, e);
+    }
+  };
+
+  public queueTimelapseGeneration(props: {
+    rule: TimelapseRule;
+    device: ScryptedDeviceBase;
+    logger: Console;
+  }) {
+    const { rule, device } = props;
+    this.accumulatedTimelapsesToGenerate.push({
+      ruleName: rule.name,
+      deviceId: device.id,
+    });
+  }
+
+  public generateTimelapse = async (props: {
+    rule: TimelapseRule;
+    device: ScryptedDeviceBase;
+    logger: Console;
+    triggerTime: number;
+  }) => {
+    const { rule, logger, device, triggerTime } = props;
+
+    try {
+      const {
+        framesPath,
+        filesListPath,
+        videoHistoricalPath,
+        imageHistoricalPath,
+        generatedPath,
+        videoclipLatestPath,
+        imageLatestPath,
+      } = this.getRulePaths({
+        cameraId: device.id,
+        ruleName: rule.name,
+        triggerTime,
+      });
+
+      try {
+        await fs.promises.access(generatedPath);
+      } catch {
+        await fs.promises.mkdir(generatedPath, { recursive: true });
+      }
+
+      const files = await fs.promises.readdir(framesPath);
+      const sortedFiles = files
+        .map((file) => file.split(".")[0])
+        .sort((a, b) => parseInt(a) - parseInt(b));
+      const fileListContent = sortedFiles
+        .map(
+          (file) =>
+            `file '${
+              this.getRulePaths({
                 cameraId: device.id,
-            });
+                ruleName: rule.name,
+                triggerTime: Number(file),
+              }).framePath
+            }'`,
+        )
+        .join("\n");
+      await fs.promises.writeFile(filesListPath, fileListContent);
 
-            await fs.promises.rm(eventsPath, { recursive: true, force: true, maxRetries: 10 });
-            logger.log(`Folder ${eventsPath} removed`);
+      const ffmpegArgs = [
+        "-loglevel",
+        "error",
+        "-nostdin",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        filesListPath,
+        "-r",
+        `${rule.timelapseFramerate}`,
+        "-vf",
+        [
+          "scale=min(1280\\,iw):-2:force_original_aspect_ratio=decrease",
+          "pad=ceil(iw/2)*2:ceil(ih/2)*2:(ow-iw)/2:(oh-ih)/2:black",
+          "format=yuv420p",
+        ].join(","),
+        "-c:v",
+        "libx264",
+        "-preset",
+        "faster",
+        "-crf",
+        "28",
+        "-profile:v",
+        "main",
+        "-level",
+        "4.0",
+        "-pix_fmt",
+        "yuv420p",
+        "-fps_mode",
+        "cfr",
+        "-movflags",
+        "+faststart",
+        "-max_muxing_queue_size",
+        "1024",
+        "-y",
+        videoHistoricalPath,
+      ];
+
+      logger.log(
+        `Generating timelapse ${rule.name} with ${sortedFiles.length} frames and arguments: ${ffmpegArgs}`,
+      );
+
+      const cp = child_process.spawn(
+        await sdk.mediaManager.getFFmpegPath(),
+        ffmpegArgs,
+        {
+          stdio: "inherit",
+        },
+      );
+
+      await once(cp, "exit");
+
+      if (videoclipLatestPath) {
+        try {
+          await fs.promises.copyFile(videoHistoricalPath, videoclipLatestPath);
+          logger.log(
+            `Storing timelapse latest video at ${videoclipLatestPath}`,
+          );
         } catch (e) {
-            logger.error(`Error clearing events data for device ${device.name}`, e);
+          logger.error(`Error copying timelapse video to latest: ${e}`);
         }
+      }
+      await this.copyArtifactToAdditionalStorage({
+        rule,
+        deviceId: device.id,
+        triggerTime,
+        sourcePath: videoHistoricalPath,
+        ext: "mp4",
+        logger,
+      });
+
+      const selectedFrame =
+        sortedFiles[Math.floor(sortedFiles.length / 2)].split(".")[0];
+      const { framePath } = this.getRulePaths({
+        cameraId: device.id,
+        triggerTime: Number(selectedFrame),
+        ruleName: rule.name,
+      });
+
+      const jpeg = await fs.promises.readFile(framePath);
+      const buf = await ffmpegFilterImageBuffer(jpeg, {
+        ffmpegPath: await sdk.mediaManager.getFFmpegPath(),
+        blur: true,
+        brightness: -0.2,
+        text: {
+          fontFile: undefined,
+          text: rule.name,
+        },
+        timeout: 10000,
+      });
+
+      if (jpeg.length) {
+        logger.log(`Saving thumbnail in ${imageHistoricalPath}`);
+        await fs.promises.writeFile(imageHistoricalPath, buf);
+        if (imageLatestPath) {
+          try {
+            await fs.promises.copyFile(imageHistoricalPath, imageLatestPath);
+            logger.log(`Storing timelapse latest image at ${imageLatestPath}`);
+          } catch (e) {
+            logger.error(`Error copying timelapse image to latest: ${e}`);
+          }
+        }
+        await this.copyArtifactToAdditionalStorage({
+          rule,
+          deviceId: device.id,
+          triggerTime,
+          sourcePath: imageHistoricalPath,
+          ext: "jpg",
+          logger,
+        });
+      } else {
+        logger.log("Not saving, image is corrupted");
+      }
+
+      if (rule.onGeneratedSequences?.length) {
+        const { videoRuleUrl, imageRuleUrl } = await getWebHookUrls({
+          console: logger,
+          plugin: this,
+          fileId: String(triggerTime),
+          ruleName: rule.name,
+          device,
+        });
+        this.triggerRuleSequences({
+          sequences: rule.onGeneratedSequences,
+          postFix: "generated",
+          rule,
+          deviceId: device.id,
+          payload: {
+            rule,
+            videoUrl: videoRuleUrl,
+            imageUrl: imageRuleUrl,
+            videoPath: videoHistoricalPath,
+            imagePath: imageHistoricalPath,
+          },
+        }).catch(logger.error);
+      }
+    } catch (e) {
+      logger.log("Error generating timelapse", e);
+    }
+  };
+
+  public getStoragePath() {
+    const { imagesPath } = this.storageSettings.values;
+
+    return imagesPath || process.env.SCRYPTED_PLUGIN_VOLUME;
+  }
+
+  public storeDecoderFrame = async (props: {
+    timestamp: number;
+    device: ScryptedDeviceBase;
+    imageMo?: MediaObject;
+    imageBuffer?: Buffer;
+  }) => {
+    const { timestamp, imageMo: imageMoParent, imageBuffer, device } = props;
+
+    let imageMo = imageMoParent;
+
+    if (!imageMo && !imageBuffer) {
+      return;
     }
 
-    getAudioAnalysisDevice(source: AudioAnalyzerSource) {
-        let device: ObjectDetection = null;
-        let pluginName: string = '';
+    const { decoderpath } = this.getFsPaths({ cameraId: device.id });
 
-        if (source === AudioAnalyzerSource.YAMNET) {
-            pluginName = 'YAMNet Audio Classification';
-        }
-
-        if (pluginName) {
-            device = sdk.systemManager.getDeviceByName<ObjectDetection>(pluginName);
-        }
-
-        return { device, pluginName };
+    try {
+      await fs.promises.access(decoderpath);
+    } catch {
+      await fs.promises.mkdir(decoderpath, { recursive: true });
     }
+
+    if (imageMo) {
+      const jpeg = await mediaManager.convertMediaObjectToBuffer(
+        imageMo,
+        "image/jpeg",
+      );
+      await fs.promises.writeFile(
+        path.join(decoderpath, `${timestamp}.jpg`),
+        jpeg,
+      );
+    } else {
+      await fs.promises.writeFile(
+        path.join(decoderpath, `${timestamp}.jpg`),
+        imageBuffer,
+      );
+    }
+  };
+
+  public clearVideoclipsData = async (props: {
+    device: ScryptedDeviceBase;
+    logger: Console;
+    additionalCutoffDays?: number;
+  }) => {
+    const { device } = props;
+
+    this.clearVideoclipsQueue.push({
+      deviceId: device.id,
+      task: async () => {
+        try {
+          await this.doClearVideoclipsData(props);
+        } catch (e) {
+          props.logger.error("Error in clearVideoclipsData", e);
+        }
+      },
+    });
+
+    this.processClearVideoclipsQueue();
+  };
+
+  private processClearVideoclipsQueue() {
+    if (this.processingClearVideoclips) {
+      return;
+    }
+    this.processingClearVideoclips = true;
+
+    const processNext = () => {
+      const entry = this.clearVideoclipsQueue.shift();
+      if (!entry) {
+        this.processingClearVideoclips = false;
+        return;
+      }
+
+      entry.task().finally(() => {
+        setTimeout(processNext, 500);
+      });
+    };
+    processNext();
+  }
+
+  private doClearVideoclipsData = async (props: {
+    device: ScryptedDeviceBase;
+    logger: Console;
+    additionalCutoffDays?: number;
+  }) => {
+    const { device, logger, additionalCutoffDays = 0 } = props;
+    const deviceMixin = this.currentCameraMixinsMap[device.id];
+    const { maxSpaceInGb, storageRetentionDays, storageEventsRetentionDays } =
+      deviceMixin.mixinState.storageSettings.values;
+
+    if (additionalCutoffDays && additionalCutoffDays >= storageRetentionDays) {
+      logger.log(
+        `Skipping cleanup, additionalCutoffDays ${additionalCutoffDays} >= storageRetentionDays ${storageRetentionDays}`,
+      );
+      return;
+    }
+
+    const now = Date.now();
+    const videoclipsThreshold =
+      now - 1000 * 60 * 60 * 24 * (storageRetentionDays - additionalCutoffDays);
+    const { cameraPath } = this.getFsPaths({ cameraId: device.id });
+    const eventsThreshold =
+      now -
+      (storageEventsRetentionDays - additionalCutoffDays) * 1000 * 60 * 60 * 24;
+    logger.log(
+      `Cleaning up generated data: additionalCutoffDays=${additionalCutoffDays}, maxDays=${storageEventsRetentionDays}, maxSpaceInGb=${maxSpaceInGb}, videoclipsThreshold=${videoclipsThreshold}, eventsThreshold=${eventsThreshold}`,
+    );
+
+    const logData = {
+      clipsFound: 0,
+      clipsRemoved: 0,
+      snapshotsFound: 0,
+      snapshotsRemoved: 0,
+      gifsFound: 0,
+      gifsRemoved: 0,
+      eventsFound: 0,
+      eventsRemoved: 0,
+      recordedEventsFound: 0,
+      recordedEventsRemoved: 0,
+    };
+
+    const { occupiedSizeInBytes: occupiedSizeBefore } = await calculateSize({
+      currentPath: cameraPath,
+    });
+
+    // Rules artifacts cleanup
+    const { rulesPath } = this.getRulePaths({ cameraId: device.id });
+    const rulesRegisterPath = getRulesRegisterPath(
+      this.getStoragePath(),
+      device.id,
+    );
+    try {
+      await fs.promises.access(rulesPath);
+      const rulesFolder = await fs.promises.readdir(rulesPath);
+
+      for (const ruleFolder of rulesFolder) {
+        if (ruleFolder === REGISTER_FILENAME) continue;
+        const { generatedPath } = this.getRulePaths({
+          cameraId: device.id,
+          ruleName: ruleFolder,
+        });
+
+        const generatedData = await fs.promises.readdir(generatedPath);
+        const clips: string[] = [];
+        const snapshots: string[] = [];
+        const gifs: string[] = [];
+
+        for (const filename of generatedData) {
+          if (filename.endsWith(".mp4")) {
+            clips.push(filename);
+          } else if (filename.endsWith(".jpg")) {
+            snapshots.push(filename);
+          } else if (filename.endsWith(".gif")) {
+            gifs.push(filename);
+          }
+        }
+
+        logData.clipsFound += clips.length;
+        logData.gifsFound += gifs.length;
+
+        for (const filename of clips) {
+          const filepath = path.join(generatedPath, filename);
+          const fileTimestamp = parseInt(filename, 10);
+
+          if (fileTimestamp < videoclipsThreshold) {
+            try {
+              await fs.promises.unlink(filepath);
+              logData.clipsRemoved += 1;
+              await removeRuleArtifactUrl(
+                rulesRegisterPath,
+                ruleFolder,
+                fileTimestamp,
+                "videoUrl",
+              );
+            } catch (err) {
+              logger.error(`Error removing clip ${filename}`, err.message);
+            }
+          }
+        }
+
+        logData.snapshotsFound += snapshots.length;
+
+        for (const filename of snapshots) {
+          const filepath = path.join(generatedPath, filename);
+          const fileTimestamp = parseInt(filename, 10);
+
+          if (fileTimestamp < videoclipsThreshold) {
+            try {
+              await fs.promises.unlink(filepath);
+              logData.snapshotsRemoved += 1;
+              await removeRuleArtifactUrl(
+                rulesRegisterPath,
+                ruleFolder,
+                fileTimestamp,
+                "imageUrl",
+              );
+            } catch (err) {
+              logger.error(`Error removing snapshot ${filename}`, err.message);
+            }
+          }
+        }
+
+        for (const filename of gifs) {
+          const filepath = path.join(generatedPath, filename);
+          const fileTimestamp = parseInt(filename, 10);
+
+          if (fileTimestamp < videoclipsThreshold) {
+            try {
+              await fs.promises.unlink(filepath);
+              logData.gifsRemoved += 1;
+              await removeRuleArtifactUrl(
+                rulesRegisterPath,
+                ruleFolder,
+                fileTimestamp,
+                "gifUrl",
+              );
+            } catch (err) {
+              logger.error(`Error removing gif ${filename}`, err.message);
+            }
+          }
+        }
+      }
+    } catch {}
+
+    // Recorded events cleanup (images, thumbnails, DBs)
+    const { imagesPath, thumbnailsPath, dbsPath } = this.getEventPaths({
+      cameraId: device.id,
+    });
+
+    await cleanupOldDeviceDbs({
+      logger,
+      dbsPath,
+      thresholdTimestamp: eventsThreshold,
+    });
+
+    try {
+      await fs.promises.access(imagesPath);
+
+      const imageFiles = await fs.promises.readdir(imagesPath);
+
+      logData.eventsFound += imageFiles.length;
+
+      for (const filename of imageFiles) {
+        const fileName = filename.split("_")[0];
+        const { eventImagePath } = this.getEventPaths({
+          cameraId: device.id,
+          fileName: filename.split(".")[0],
+        });
+
+        const startTime = Number(fileName);
+        if (startTime < eventsThreshold) {
+          try {
+            await fs.promises.unlink(eventImagePath);
+            logData.eventsRemoved += 1;
+          } catch (err) {
+            logger.error(`Error removing event ${filename}`, err.message);
+          }
+        }
+      }
+      const thumbnailFiles = await fs.promises.readdir(thumbnailsPath);
+
+      for (const filename of thumbnailFiles) {
+        const fileName = filename.split("_")[0];
+        const { eventThumbnailPath } = this.getEventPaths({
+          cameraId: device.id,
+          fileName: filename.split(".")[0],
+        });
+
+        const startTime = Number(fileName);
+        if (startTime < eventsThreshold) {
+          try {
+            await fs.promises.unlink(eventThumbnailPath);
+            logData.eventsRemoved += 1;
+          } catch (err) {
+            logger.error(`Error removing event ${filename}`, err.message);
+          }
+        }
+      }
+    } catch {}
+
+    // Recorded events cleanup
+    const { recordedEventsPath } = this.getRecordedEventPath({
+      cameraId: device.id,
+    });
+    try {
+      await fs.promises.access(recordedEventsPath);
+
+      const recordedEvents = await fs.promises.readdir(recordedEventsPath);
+      const clips: string[] = [];
+      const snapshots: string[] = [];
+
+      for (const fullFileName of recordedEvents) {
+        const [filename, ext] = fullFileName.split(".");
+        if (ext === "mp4") {
+          clips.push(filename);
+        } else if (ext === "jpg") {
+          snapshots.push(filename);
+        }
+      }
+
+      logData.recordedEventsFound += clips.length;
+
+      for (const filename of clips) {
+        const { recordedClipPath, recordedThumbnailPath } =
+          this.getRecordedEventPath({
+            cameraId: device.id,
+            fileName: filename,
+          });
+
+        const { startTime } = parseVideoFileName(filename);
+
+        if (startTime < videoclipsThreshold) {
+          try {
+            await fs.promises.unlink(recordedClipPath);
+            await fs.promises.unlink(recordedThumbnailPath);
+            logData.recordedEventsRemoved += 1;
+          } catch (err) {
+            logger.error(
+              `Error removing recorded event ${filename}`,
+              err.message,
+            );
+          }
+        }
+      }
+    } catch {}
+
+    const { occupiedSizeInBytes: occupiedSizeAfter } = await calculateSize({
+      currentPath: cameraPath,
+    });
+    const sizeFreed = occupiedSizeBefore - occupiedSizeAfter;
+    const { formatted: sizeFreedFormatted } = formatSize(sizeFreed);
+
+    const cameraMixin = this.currentCameraMixinsMap[device.id];
+    const { value: occupiedSizeInGb, formatted: formattedOccupiedSizeInGb } =
+      formatSize(occupiedSizeAfter, "GB");
+    cameraMixin.mixinState.storageSettings.values.occupiedSpaceInGb =
+      occupiedSizeInGb;
+    this.cameraSpaceOccupancy[device.id] = {
+      occupiedSize: occupiedSizeInGb,
+      totalSize: maxSpaceInGb,
+    };
+    this.updateTotalOccupiedSpace();
+
+    logger.log(
+      `Cleanup completed ${JSON.stringify(logData)}, freed space: ${sizeFreedFormatted}, occupied space: ${formattedOccupiedSizeInGb}`,
+    );
+
+    if (occupiedSizeInGb > maxSpaceInGb * 0.95) {
+      logger.log(
+        `Should clean additional space: occupiedSizeInGb ${occupiedSizeInGb} > maxSpaceInGb ${maxSpaceInGb} (95% cutoff)`,
+      );
+      await this.clearVideoclipsData({
+        device,
+        logger,
+        additionalCutoffDays: additionalCutoffDays + 1,
+      });
+    }
+  };
+
+  private updateTotalOccupiedSpace() {
+    let totalOccupied = 0;
+    let totalAvailable = 0;
+
+    Object.values(this.cameraSpaceOccupancy).forEach(
+      ({ occupiedSize, totalSize }) => {
+        totalOccupied += occupiedSize;
+        totalAvailable += totalSize;
+      },
+    );
+
+    const totalAvailableSpaceInGb = Number(totalAvailable.toFixed(2));
+    this.storageSettings.values.totalAvailableSpaceInGb =
+      totalAvailableSpaceInGb;
+    this.storageSettings.values.totalOccupiedSpaceInGb = Number(
+      totalOccupied.toFixed(2),
+    );
+    this.storageSettings.settings.totalOccupiedSpaceInGb.range = [
+      0,
+      this.storageSettings.values.totalAvailableSpaceInGb,
+    ];
+  }
+
+  public clearDecoderFrames = async (props: {
+    device: ScryptedDeviceBase;
+    logger: Console;
+    framesThreshold: number;
+  }) => {
+    const { device } = props;
+
+    this.clearVideoclipsQueue.push({
+      deviceId: device.id,
+      task: async () => {
+        try {
+          await this.doClearDecoderFrames(props);
+        } catch (e) {
+          props.logger.error("Error in clearDecoderFrames", e);
+        }
+      },
+    });
+
+    this.processClearVideoclipsQueue();
+  };
+
+  private doClearDecoderFrames = async (props: {
+    device: ScryptedDeviceBase;
+    logger: Console;
+    framesThreshold: number;
+  }) => {
+    const { device, logger, framesThreshold } = props;
+    logger.log(
+      `Cleaning up decoder frames: framesThreshold=${framesThreshold}`,
+    );
+    const { decoderpath } = this.getFsPaths({ cameraId: device.id });
+
+    const logData = {
+      framesFound: 0,
+      framesRemoved: 0,
+    };
+
+    try {
+      const frames = await fs.promises.readdir(decoderpath);
+      logData.framesFound = frames.length;
+
+      for (const filename of frames) {
+        const filepath = path.join(decoderpath, filename);
+        const fileTimestamp = parseInt(filename);
+
+        if (fileTimestamp < framesThreshold) {
+          try {
+            await fs.promises.unlink(filepath);
+            logData.framesRemoved += 1;
+          } catch (err) {
+            logger.error(`Error removing frame ${filename}`, err.message);
+          }
+        }
+      }
+    } catch {}
+
+    logger.log(`Decoder frames cleanup completed ${JSON.stringify(logData)}`);
+  };
+
+  public prepareClipGenerationFiles = async (props: {
+    rule: TimelapseRule;
+    device: ScryptedDeviceBase;
+    logger: Console;
+    triggerTime: number;
+    pastMs: number;
+  }) => {
+    const { triggerTime, device, pastMs, rule } = props;
+    const minTime = triggerTime - pastMs;
+    const cameraMixin = this.currentCameraMixinsMap[device.id];
+
+    const { decoderpath } = this.getFsPaths({ cameraId: device.id });
+    const { filesListPath } = this.getRulePaths({
+      cameraId: device.id,
+      triggerTime,
+      ruleName: rule.name,
+    });
+
+    let preTriggerFrames = 0;
+    let postTriggerFrames = 0;
+    let eventFrameTriggerTime: number;
+    const files = await fs.promises.readdir(decoderpath);
+    const filteredFiles = files
+      .map((file) => file.split(".")[0])
+      .sort((a, b) => parseInt(a) - parseInt(b))
+      .filter((frameName) => {
+        const fileTimestamp = parseInt(frameName);
+
+        if (fileTimestamp > minTime) {
+          if (fileTimestamp < triggerTime) {
+            preTriggerFrames++;
+          } else {
+            if (postTriggerFrames === 0) {
+              eventFrameTriggerTime = fileTimestamp;
+            }
+            postTriggerFrames++;
+          }
+
+          return true;
+        }
+
+        if (!eventFrameTriggerTime) {
+          eventFrameTriggerTime = fileTimestamp;
+        }
+
+        return false;
+      })
+      .map(
+        (file) =>
+          `file '${
+            this.getFsPaths({
+              cameraId: device.id,
+              triggerTime: Number(file),
+            }).framePath
+          }'`,
+      );
+    const framesAmount = filteredFiles.length;
+
+    if (!framesAmount) {
+      return {
+        fps: 0,
+        framesAmount: 0,
+        filesListPath,
+        eventFrameTriggerTime,
+        preTriggerFrames: 0,
+        postTriggerFrames: 0,
+        filteredFiles: [],
+        inputFps: 0,
+      };
+    }
+
+    const inputFps =
+      1000 / cameraMixin.mixinState.storageSettings.values.decoderFrequency;
+    const fpsMultiplier =
+      videoclipSpeedMultiplier[rule.generateClipSpeed ?? VideoclipSpeed.Fast];
+    const fps = inputFps * fpsMultiplier;
+    const fileListContent = filteredFiles.join("\n");
+
+    await fs.promises.writeFile(filesListPath, fileListContent);
+
+    return {
+      fps,
+      framesAmount,
+      filesListPath,
+      eventFrameTriggerTime,
+      preTriggerFrames,
+      postTriggerFrames,
+      filteredFiles,
+      inputFps,
+    };
+  };
+
+  public generateVideoclip = async (props: {
+    rule: BaseRule;
+    device: ScryptedDeviceBase;
+    logger: Console;
+    triggerTime: number;
+    pastMs: number;
+  }) => {
+    const { device, rule, logger, triggerTime } = props;
+
+    try {
+      const {
+        fps,
+        framesAmount,
+        filesListPath,
+        eventFrameTriggerTime,
+        preTriggerFrames,
+        postTriggerFrames,
+        filteredFiles,
+        inputFps,
+      } = await this.prepareClipGenerationFiles(props);
+
+      const fileName = String(triggerTime);
+      const { videoHistoricalPath, imageHistoricalPath, videoclipLatestPath } =
+        this.getRulePaths({
+          cameraId: device.id,
+          triggerTime,
+          ruleName: rule.name,
+        });
+
+      if (framesAmount) {
+        const ffmpegArgs = [
+          "-loglevel",
+          "error",
+          "-f",
+          "concat",
+          "-safe",
+          "0",
+          "-r",
+          `${fps}`,
+          "-i",
+          filesListPath,
+          "-vf",
+          `scale='min(${SNAPSHOT_WIDTH},iw)':'-2',pad=ceil(iw/2)*2:ceil(ih/2)*2`,
+          "-c:v",
+          "libx264",
+          "-pix_fmt",
+          "yuv420p",
+          "-y",
+          videoHistoricalPath,
+        ];
+        logger.log(
+          `Start detection MP4 clip generation ${rule.name} ${triggerTime} ${inputFps} fps with ${framesAmount} total frames (${preTriggerFrames} pre and ${postTriggerFrames} post) and arguments: ${ffmpegArgs}`,
+        );
+
+        const cp = child_process.spawn(
+          await sdk.mediaManager.getFFmpegPath(),
+          ffmpegArgs,
+          {
+            stdio: "inherit",
+          },
+        );
+        await once(cp, "exit");
+        await fs.promises.copyFile(videoHistoricalPath, videoclipLatestPath);
+        logger.log(`Detection clip ${videoHistoricalPath} generated`);
+        await this.copyArtifactToAdditionalStorage({
+          rule,
+          deviceId: device.id,
+          triggerTime,
+          sourcePath: videoHistoricalPath,
+          ext: "mp4",
+          logger,
+        });
+
+        const { framePath } = this.getFsPaths({
+          cameraId: device.id,
+          triggerTime: eventFrameTriggerTime,
+        });
+        try {
+          const jpeg = await fs.promises.readFile(framePath);
+
+          logger.log(`Saving thumbnail in ${imageHistoricalPath}`);
+          await this.storeRuleImage({
+            rule,
+            device,
+            triggerTime,
+            bufferImage: jpeg,
+            logger,
+          });
+        } catch (e) {
+          logger.log(
+            `Error generating videoclip thumbnail ${JSON.stringify({
+              eventFrameTriggerTime,
+              framePath,
+            })}`,
+            e,
+          );
+        }
+      } else {
+        logger.log(
+          `Skipping ${rule.name} ${triggerTime} clip generation, no frames available`,
+        );
+      }
+
+      return { fileName, preTriggerFrames, postTriggerFrames, filteredFiles };
+    } catch (e) {
+      logger.log("Error generating videoclip", e);
+
+      return {};
+    }
+  };
+
+  public generateGif = async (props: {
+    rule: TimelapseRule;
+    device: ScryptedDeviceBase;
+    logger: Console;
+    triggerTime: number;
+    pastMs: number;
+  }) => {
+    const { device, rule, logger, triggerTime } = props;
+
+    try {
+      const {
+        fps,
+        framesAmount,
+        filesListPath,
+        preTriggerFrames,
+        postTriggerFrames,
+        filteredFiles,
+        inputFps,
+        eventFrameTriggerTime,
+      } = await this.prepareClipGenerationFiles(props);
+
+      const { gifLatestPath, gifHistoricalPath, imageHistoricalPath } =
+        this.getRulePaths({
+          cameraId: device.id,
+          ruleName: rule.name,
+          triggerTime,
+        });
+
+      if (framesAmount) {
+        const ffmpegArgs = [
+          "-loglevel",
+          "error",
+          "-f",
+          "concat",
+          "-safe",
+          "0",
+          "-r",
+          `${fps}`,
+          "-i",
+          filesListPath,
+          "-vf",
+          `scale='min(${SNAPSHOT_WIDTH},iw)':'-2',pad=ceil(iw/2)*2:ceil(ih/2)*2`,
+          "-y",
+          gifHistoricalPath,
+        ];
+        logger.log(
+          `Start detection GIF generation ${rule.name} ${triggerTime} ${inputFps} fps with ${framesAmount} total frames (${preTriggerFrames} pre and ${postTriggerFrames} post) and arguments: ${ffmpegArgs}`,
+        );
+
+        const cp = child_process.spawn(
+          await sdk.mediaManager.getFFmpegPath(),
+          ffmpegArgs,
+          {
+            stdio: "inherit",
+          },
+        );
+        await once(cp, "exit");
+        await fs.promises.copyFile(gifHistoricalPath, gifLatestPath);
+        logger.log(`GIF ${gifHistoricalPath} generated`);
+        await this.copyArtifactToAdditionalStorage({
+          rule,
+          deviceId: device.id,
+          triggerTime,
+          sourcePath: gifHistoricalPath,
+          ext: "gif",
+          logger,
+        });
+
+        const { gifRuleUrl } = await getWebHookUrls({
+          fileId: String(triggerTime),
+          ruleName: rule.name,
+          plugin: this,
+          device,
+        });
+        const gifRegisterPath = getRulesRegisterPath(
+          this.getStoragePath(),
+          device.id,
+        );
+        await addOrUpdateRuleArtifacts(gifRegisterPath, {
+          ruleName: rule.name,
+          ruleType: rule.ruleType,
+          timestamp: triggerTime,
+          gifUrl: gifRuleUrl,
+        });
+
+        const { framePath } = this.getFsPaths({
+          cameraId: device.id,
+          triggerTime: eventFrameTriggerTime,
+        });
+
+        try {
+          const jpeg = await fs.promises.readFile(framePath);
+
+          logger.log(`Saving thumbnail in ${imageHistoricalPath}`);
+          await this.storeRuleImage({
+            rule,
+            device,
+            triggerTime,
+            bufferImage: jpeg,
+            logger,
+          });
+        } catch (e) {
+          logger.log(
+            `Error generating gif thumbnail ${JSON.stringify({
+              eventFrameTriggerTime,
+              framePath,
+            })}`,
+            e,
+          );
+        }
+      } else {
+        logger.log(
+          `Skipping ${rule.name} ${triggerTime} GIF generation, no frames available`,
+        );
+      }
+
+      return { preTriggerFrames, postTriggerFrames, filteredFiles };
+    } catch (e) {
+      logger.log("Error generating gif", e);
+
+      return {};
+    }
+  };
+
+  public async storeEventImage(props: {
+    device: ScryptedDeviceBase;
+    triggerDevice?: ScryptedDeviceBase;
+    logger: Console;
+    b64Image: string;
+    image: MediaObject;
+    detections: ObjectDetectionResult[];
+    timestamp: number;
+    eventSource: ScryptedEventSource;
+    eventId?: string;
+    detectionId?: string;
+    inputDimensions?: [number, number];
+  }) {
+    const {
+      triggerDevice,
+      device,
+      timestamp,
+      logger,
+      b64Image,
+      detections,
+      eventSource,
+      image,
+      eventId,
+      detectionId,
+      inputDimensions,
+    } = props;
+    const classNames = uniq(detections.map((det) => det.className));
+    const label = detections.find((det) => det.label)?.label;
+    const deviceMixin = this.currentCameraMixinsMap[device.id];
+
+    const identifiers = detections.map((det) => {
+      let identifier = `${eventSource}_${det.className}`;
+      if (isMotionClassname(det.className)) {
+        return det.className;
+      }
+      if (det.label) {
+        identifier += `_${det.label}`;
+      }
+      if (detectionId) {
+        identifier += `_${detectionId}`;
+      } else if (det.id) {
+        identifier += `_${det.id}`;
+      }
+
+      return identifier;
+    });
+
+    if (
+      !deviceMixin?.isDelayPassed({
+        type: DelayType.EventStore,
+        identifiers,
+        eventSource,
+      })?.timePassed
+    ) {
+      return;
+    }
+
+    const fileName = `${timestamp}_${eventSource}_${getDetectionsLogShort(detections)}`;
+    const {
+      eventImagePath,
+      eventThumbnailPath,
+      thumbnailsPath,
+      imagesPath,
+      fileId,
+    } = this.getEventPaths({ fileName, cameraId: device.id });
+
+    try {
+      await fs.promises.access(thumbnailsPath);
+    } catch {
+      await fs.promises.mkdir(thumbnailsPath, { recursive: true });
+    }
+
+    try {
+      await fs.promises.access(imagesPath);
+    } catch {
+      await fs.promises.mkdir(imagesPath, { recursive: true });
+    }
+
+    logger.log(
+      `Storing ${eventSource} event for classes ${getDetectionsLog(detections)} ${fileId}`,
+    );
+    const base64Data = b64Image.replace(/^data:image\/png;base64,/, "");
+    await fs.promises.writeFile(eventImagePath, base64Data, "base64");
+
+    const convertedImage = await sdk.mediaManager.convertMediaObject<Image>(
+      image,
+      ScryptedMimeTypes.Image,
+    );
+    const resizedImage = await convertedImage.toImage({
+      resize: {
+        height: 400,
+      },
+    });
+    const smallB64Image = await moToB64(resizedImage);
+    await resizedImage.close().catch(() => {});
+    await convertedImage.close().catch(() => {});
+    const smallBase64Data = smallB64Image.replace(
+      /^data:image\/png;base64,/,
+      "",
+    );
+    await fs.promises.writeFile(eventThumbnailPath, smallBase64Data, "base64");
+
+    let keyEvent = false;
+    let croppedImageUrl: string | undefined;
+    const additionalCrops: import("./db").DbCropInfo[] = [];
+
+    const AUDIO_KEY_EVENT_MIN_INTERVAL_MS = 60 * 1000; // 1 minute
+    const hasAudioDetection = detections.some((d) =>
+      isAudioClassname(d.className),
+    );
+    const lastAudioKey =
+      this.lastAudioKeyEventTimestampByDevice[device.id] ?? 0;
+    if (
+      hasAudioDetection &&
+      timestamp - lastAudioKey >= AUDIO_KEY_EVENT_MIN_INTERVAL_MS
+    ) {
+      keyEvent = true;
+      this.lastAudioKeyEventTimestampByDevice[device.id] = timestamp;
+      this.lastKeyEventTimestampByDevice[device.id] = timestamp;
+    }
+
+    if (
+      eventSource === ScryptedEventSource.RawDetection &&
+      inputDimensions?.length === 2 &&
+      detections?.length
+    ) {
+      const keyEventSet = (this.keyEventObjectIdsByDevice[device.id] ??=
+        new Set<string>());
+      const { candidates: allCandidates, stationary } =
+        selectKeyEventDetections({
+          detections,
+          inputDimensions: inputDimensions as [number, number],
+          objectIdsAlreadyKeyEvent: keyEventSet,
+          logger,
+        });
+      if (stationary.length) {
+        logger.debug?.(
+          `Stationary objects detected: ${stationary.map((s) => `${s.detection.className}(${s.objectId})`).join(", ")}`,
+        );
+      }
+      for (let i = 0; i < allCandidates.length; i++) {
+        const candidate = allCandidates[i];
+        const bbox = candidate.detection.boundingBox as [
+          number,
+          number,
+          number,
+          number,
+        ];
+        const pixelBox =
+          bbox && bbox.length >= 4
+            ? toPixelBbox(bbox, inputDimensions as [number, number])
+            : undefined;
+        if (!pixelBox) continue;
+        try {
+          const cropResult = await cropImageToDetection({
+            image,
+            boundingBox: pixelBox,
+            inputDimensions: inputDimensions as [number, number],
+            plugin: this,
+            console: logger,
+          });
+          if (cropResult?.newB64Image) {
+            const suffix = i === 0 ? "_keyEvent" : `_keyEvent_${i}`;
+            const keyEventFileName = `${fileName}${suffix}`;
+            const cropBase64 = cropResult.newB64Image.replace(
+              /^data:image\/png;base64,/,
+              "",
+            );
+            // Save full-size crop
+            await fs.promises.writeFile(
+              path.join(imagesPath, `${keyEventFileName}.jpg`),
+              cropBase64,
+              "base64",
+            );
+            // Save thumbnail crop (resized to 400px height)
+            try {
+              const croppedConverted =
+                await sdk.mediaManager.convertMediaObject<Image>(
+                  cropResult.newImage,
+                  ScryptedMimeTypes.Image,
+                );
+              const croppedThumb = await croppedConverted.toImage({
+                resize: { height: 400 },
+              });
+              const thumbB64 = await moToB64(croppedThumb);
+              await croppedThumb.close().catch(() => {});
+              await croppedConverted.close().catch(() => {});
+              const thumbBase64 = thumbB64.replace(
+                /^data:image\/png;base64,/,
+                "",
+              );
+              await fs.promises.writeFile(
+                path.join(thumbnailsPath, `${keyEventFileName}.jpg`),
+                thumbBase64,
+                "base64",
+              );
+            } catch {
+              // Fallback: save full-size as thumbnail too
+              await fs.promises.writeFile(
+                path.join(thumbnailsPath, `${keyEventFileName}.jpg`),
+                cropBase64,
+                "base64",
+              );
+            }
+            keyEvent = true;
+            const cropInfo: import("./db").DbCropInfo = {
+              url: keyEventFileName,
+              className: candidate.detection.className,
+              label: candidate.detection.label,
+              score: candidate.detection.score,
+            };
+            // First candidate (best priority/score) is the primary cropped image
+            if (!croppedImageUrl) {
+              croppedImageUrl = keyEventFileName;
+            } else {
+              additionalCrops.push(cropInfo);
+            }
+            keyEventSet.add(candidate.objectId);
+            this.lastKeyEventTimestampByDevice[device.id] = timestamp;
+          }
+        } catch (e) {
+          logger.warn?.(
+            `Key event crop failed for candidate ${i} (${candidate.objectId})`,
+            e,
+          );
+        }
+      }
+    }
+
+    // Sensor and doorbell: always key event, no cropped image (like motion)
+    const isSensorOrDoorbellOnly =
+      classNames.length > 0 &&
+      classNames.every(
+        (c) => c === DetectionClass.Sensor || isDoorbellClassname(c),
+      );
+    if (isSensorOrDoorbellOnly) {
+      keyEvent = true;
+      croppedImageUrl = undefined;
+      this.lastKeyEventTimestampByDevice[device.id] = timestamp;
+    }
+
+    // Motion full-screen key event: if no key event in the last minute, allow motion-only as key event
+    const MOTION_KEY_EVENT_GAP_MS = 2 * 60 * 1000; // 2 minutes
+    if (
+      !keyEvent &&
+      eventSource === ScryptedEventSource.RawDetection &&
+      detections?.length &&
+      classNames.length > 0 &&
+      classNames.every((c) => isMotionClassname(c)) &&
+      timestamp - (this.lastKeyEventTimestampByDevice[device.id] ?? 0) >=
+        MOTION_KEY_EVENT_GAP_MS
+    ) {
+      keyEvent = true;
+      this.lastKeyEventTimestampByDevice[device.id] = timestamp;
+    }
+
+    const { dbsPath } = this.getEventPaths({ cameraId: device.id });
+
+    if (keyEvent) {
+      const logClasses = classNames.join(", ");
+      (deviceMixin?.getLogger?.() ?? logger).log(
+        `Saving key event (${logClasses}${label ? `, ${label}` : ""})`,
+      );
+    }
+
+    const bestScore =
+      detections.reduce((best, d) => Math.max(best, d.score ?? 0), 0) ||
+      undefined;
+
+    this.enqueueDbWrite({
+      type: "event",
+      dbsPath,
+      event: {
+        id: fileId,
+        classes: classNames,
+        label,
+        score: bestScore,
+        timestamp,
+        source: eventSource,
+        deviceName: device.name,
+        deviceId: device.id,
+        sensorName: triggerDevice?.name,
+        eventId,
+        detections,
+        ...(keyEvent && {
+          keyEvent: true,
+          ...(croppedImageUrl && { croppedImageUrl }),
+          ...(additionalCrops.length > 0 && { additionalCrops }),
+        }),
+      },
+      logger,
+    });
+  }
+
+  public addMotionEvent = async (props: {
+    motionEvent: DbMotionEvent;
+    logger: Console;
+  }) => {
+    const { motionEvent, logger } = props;
+    const { dbsPath } = this.getEventPaths({ cameraId: motionEvent.deviceId });
+    this.enqueueDbWrite({ type: "motion", dbsPath, motionEvent, logger });
+  };
+
+  private forceStorageCleanup = async () => {
+    Object.values(this.currentCameraMixinsMap).forEach(async (mixin) => {
+      await this.clearVideoclipsData({
+        device: mixin.cameraDevice,
+        logger: mixin.getLogger(),
+      });
+    });
+  };
+
+  public clearAllEventsData = async () => {
+    const logger = this.getLogger();
+    logger.log(`Clearing all events`);
+    try {
+      for (const deviceId of Object.keys(this.currentCameraMixinsMap)) {
+        const device =
+          sdk.systemManager.getDeviceById<ScryptedDeviceBase>(deviceId);
+        const deviceLogger = this.currentCameraMixinsMap[deviceId].getLogger();
+        await this.clearEventsData({ device, logger: deviceLogger });
+      }
+      const { storagePath } = this.getEventPaths({});
+
+      await cleanupEvents({ logger, storagePath });
+    } catch (e) {
+      logger.error(`Error clearing all events data`, e);
+    }
+  };
+
+  public clearEventsData = async (props: {
+    device: ScryptedDeviceBase;
+    logger: Console;
+  }) => {
+    const { logger, device } = props;
+    logger.log(`Clearing events for device ${device.name}`);
+    try {
+      const { eventsPath } = this.getEventPaths({
+        cameraId: device.id,
+      });
+
+      await fs.promises.rm(eventsPath, {
+        recursive: true,
+        force: true,
+        maxRetries: 10,
+      });
+      logger.log(`Folder ${eventsPath} removed`);
+    } catch (e) {
+      logger.error(`Error clearing events data for device ${device.name}`, e);
+    }
+  };
+
+  getAudioAnalysisDevice(source: AudioAnalyzerSource) {
+    let device: ObjectDetection = null;
+    let pluginName: string = "";
+
+    if (source === AudioAnalyzerSource.YAMNET) {
+      pluginName = "YAMNet Audio Classification";
+    }
+
+    if (pluginName) {
+      device = sdk.systemManager.getDeviceByName<ObjectDetection>(pluginName);
+    }
+
+    return { device, pluginName };
+  }
 }
-

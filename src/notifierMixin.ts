@@ -5,7 +5,7 @@ import { getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin
 import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, reportNotifierValues, setupNotifierAutodiscovery, subscribeToNotifierMqttTopics } from "./mqtt-utils";
-import { convertSettingsToStorageSettings, DeviceInterface, GetImageReason, getMixinBaseSettings, getTextSettings, getWebHookUrls, HomeassistantTransport, isSchedulerActive, MixinBaseSettingKey, moToB64, NotifierPayloadKey, NVR_NOTIFIER_INTERFACE, parseNvrNotificationMessage, TextSettingKey } from "./utils";
+import { AUTODISCOVERY_INTERVAL_MS, convertSettingsToStorageSettings, DeviceInterface, GetImageReason, getMixinBaseSettings, getTextSettings, getWebHookUrls, HomeassistantTransport, isSchedulerActive, MixinBaseSettingKey, moToB64, NotifierPayloadKey, NVR_NOTIFIER_INTERFACE, parseNvrNotificationMessage, TextSettingKey } from "./utils";
 
 export type SendNotificationToPluginFn = (notifierId: string, title: string, options?: NotifierOptions, media?: MediaObject, icon?: MediaObject | string) => Promise<void>
 
@@ -257,7 +257,7 @@ export class AdvancedNotifierNotifierMixin extends SettingsMixinDeviceBase<any> 
                     const mqttClient = await this.getMqttClient();
                     if (mqttClient) {
                         // Every 60 minutes repeat the autodiscovery
-                        if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
+                        if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > AUTODISCOVERY_INTERVAL_MS) {
                             logger.log('Starting autodiscovery');
                             setupNotifierAutodiscovery({
                                 mqttClient,

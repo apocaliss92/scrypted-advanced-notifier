@@ -120,13 +120,15 @@ export async function handleHaRestApi(
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+  // Allow empty origin (server-to-server requests from HA don't set Origin header)
   const originAllowed =
-    allowedOrigins.length > 0 &&
+    !origin ||
+    (allowedOrigins.length > 0 &&
     allowedOrigins.some(
       (o) =>
         o.replace(/\/$/, "").toLowerCase() ===
         String(origin).replace(/\/$/, "").toLowerCase(),
-    );
+    ));
   const authHeader = request.headers?.["authorization"] ?? "";
   const token = String(authHeader).replace(/^Bearer\s+/i, "");
 
@@ -472,11 +474,13 @@ function handleCommand(
       const notifierMixin = plugin.currentNotifierMixinsMap[scryptedId];
       const mixin = cameraMixin || sensorMixin || notifierMixin;
       if (mixin && !mixin.isEnabledForHa) {
-        plugin
-          .getLogger()
-          .warn(
-            `[handleCommand] Command for device "${mixin.name}" (${scryptedId}) ignored: device is not enabled for HA integration. Enable "HA integration" in the device settings on the plugin.`,
-          );
+        const errorMsg = `Command for device "${mixin.name}" (${scryptedId}) ignored: "Report to Home Assistant" is disabled in device settings (Advanced Notifier > Home Assistant). Enable it and restart the plugin.`;
+        plugin.getLogger().warn(`[handleCommand] ${errorMsg}`);
+        response.send(JSON.stringify({ error: errorMsg }), {
+          code: 422,
+          headers: { ...corsHeaders(), "Content-Type": "application/json" },
+        });
+        return true;
       }
     }
     plugin.wsHaClient.routeCommand(topic, value);

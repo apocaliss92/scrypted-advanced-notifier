@@ -603,6 +603,7 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                 bucketMs: rawBucketMs,
                 enabledClasses: rawEnabledClasses,
                 classFilter: rawClassFilter,
+                sources: rawSources,
             } = (payload ?? {}) as Record<string, unknown>;
 
             if (!deviceId || typeof deviceId !== 'string') {
@@ -614,6 +615,15 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
             const bucketMs = typeof rawBucketMs === 'number' && rawBucketMs > 0 ? rawBucketMs : 5 * 60 * 1000;
             const enabledClasses: string[] = Array.isArray(rawEnabledClasses) ? rawEnabledClasses.filter((c: unknown) => typeof c === 'string') : [];
             const classFilter = typeof rawClassFilter === 'string' ? rawClassFilter : '';
+            // Optional sources filter — default to RawDetection for backward compat
+            // Special source "Sensors" = RawDetection filtered to sensor/doorbell/lock/audio classes only
+            const SENSOR_CLASSES = new Set(['sensor', 'doorbell', 'lock', 'audio']);
+            const hasSensorsSource = Array.isArray(rawSources) && rawSources.includes('Sensors');
+            const eventSources: string[] | undefined = Array.isArray(rawSources) && rawSources.length > 0
+                ? rawSources.filter((s: unknown) => typeof s === 'string' && s !== 'Sensors')
+                : [ScryptedEventSource.RawDetection];
+            // If "Sensors" requested, also fetch RawDetection (will be class-filtered after)
+            const fetchRawForSensors = hasSensorsSource && !eventSources.includes(ScryptedEventSource.RawDetection);
 
             const { storagePath } = plugin.getEventPaths({});
 
@@ -623,25 +633,53 @@ export class AdvancedNotifierDataFetcher extends ScryptedDeviceBase implements S
                     if (!moment(day, 'YYYYMMDD').isValid()) return { events: [], allRawEvents: [], motion: [], artifacts: [] };
                     const startOfDay = moment(day, 'YYYYMMDD').startOf('day').valueOf();
                     const endOfDay = moment(day, 'YYYYMMDD').endOf('day').valueOf();
-                    // Clusters are based only on raw key events; only RawDetection source is used.
-                    const [recordedKey, recordedAllRaw, motion, artifacts] = await Promise.all([
+                    // Clusters use key events from all detection sources. keyEventsOnlyForRaw keeps
+                    // all non-RawDetection events (Frigate, NVR, Onboard) and filters RawDetection to key-only.
+                    const queries: Promise<any>[] = [
                         this.getRecordedEventsV2({
                             startTime: startOfDay,
                             endTime: endOfDay,
                             deviceIds: [deviceId as string],
-                            sources: [ScryptedEventSource.RawDetection],
+                            sources: eventSources,
                             keyEventsOnlyForRaw: true,
                         }),
                         this.getRecordedEventsV2({
                             startTime: startOfDay,
                             endTime: endOfDay,
                             deviceIds: [deviceId as string],
-                            sources: [ScryptedEventSource.RawDetection],
+                            sources: eventSources,
                             keyEventsOnlyForRaw: false,
                         }),
                         getMotionInRange({ startTimestamp: startOfDay, endTimestamp: endOfDay, storagePath, deviceIds: [deviceId as string] }),
                         getRuleArtifactsInRange({ storagePath, deviceId: deviceId as string, startTimestamp: startOfDay, endTimestamp: endOfDay }),
-                    ]);
+                    ];
+                    // Fetch RawDetection separately for sensor classes if "Sensors" source requested
+                    if (fetchRawForSensors) {
+                        queries.push(
+                            this.getRecordedEventsV2({
+                                startTime: startOfDay,
+                                endTime: endOfDay,
+                                deviceIds: [deviceId as string],
+                                sources: [ScryptedEventSource.RawDetection],
+                                keyEventsOnlyForRaw: true,
+                            }),
+                        );
+                    }
+                    const results = await Promise.all(queries);
+                    let recordedKey = results[0] as RecordedEvent[];
+                    let recordedAllRaw = results[1] as RecordedEvent[];
+                    const motion = results[2] as Awaited<ReturnType<typeof getMotionInRange>>;
+                    const artifacts = results[3] as Awaited<ReturnType<typeof getRuleArtifactsInRange>>;
+                    // Merge sensor-only RawDetection events
+                    if (fetchRawForSensors && results[4]) {
+                        const sensorEvents = (results[4] as RecordedEvent[]).filter(
+                            (e) => (e.data?.classes as string[] ?? []).some((c: string) => SENSOR_CLASSES.has(c)),
+                        );
+                        recordedKey = [...recordedKey, ...sensorEvents];
+                        // Also add to allRaw for re-cluster fill
+                        const sensorAllRaw = sensorEvents; // already key-only, good enough for fill
+                        recordedAllRaw = [...recordedAllRaw, ...sensorAllRaw];
+                    }
                     const toEvent = (r: RecordedEvent) => ({
                         id: r.data?.id ?? r.details?.eventId ?? '',
                         timestamp: r.data?.timestamp ?? r.details?.eventTime ?? 0,

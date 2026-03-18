@@ -124,6 +124,8 @@ export class CameraMixinState {
 
     lastMotionEnd: number;
     currentSnapshotTimeout = 4000;
+    snapshotConsecutiveErrors = 0;
+    snapshotDeferredUntil?: number;
 
     clipGenerationTimeout: Record<string, NodeJS.Timeout> = {};
     detectionIdEventIdMap: Record<string, string> = {};

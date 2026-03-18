@@ -784,7 +784,7 @@ export const publishMqttDeviceDiscovery = async (props: {
 
     const devicePayload = buildDeviceDiscoveryPayload({ mqttDevice, deviceId, mqttEntities, device, streamDestinations });
     await mqttClient.publish(getDeviceDiscoveryTopic(device), JSON.stringify(devicePayload), true);
-    console.log(`Device ${idPrefix}-${deviceIdParent}: discovered ${mqttEntities.length} entities (device-based)`);
+    console.log(`Device ${idPrefix}-${deviceIdParent}: discovered ${mqttEntities.length} entities`);
 
     const statePublishes: Array<{ topic: string; payload: string; retain?: boolean }> = [];
     const entitiesEnsuredReset: string[] = [];
@@ -1714,7 +1714,7 @@ const getCameraClassEntities = async (props: {
                 if (defaultClass || isAudioClassname(supportedClass)) {
                     detectionClassesSet.add(supportedClass);
                 } else {
-                    console.log(`Class ${supportedClass} not supported`);
+                    console.info(`Class ${supportedClass} not supported`);
                 }
             }
 

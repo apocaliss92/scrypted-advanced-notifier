@@ -7,7 +7,7 @@ import MqttClient from "../../scrypted-apocaliss-base/src/mqtt-client";
 import { DetectionClass } from "./detectionClasses";
 import HomeAssistantUtilitiesProvider from "./main";
 import { idPrefix, reportSensorValues, setupSensorAutodiscovery, subscribeToSensorMqttTopics } from "./mqtt-utils";
-import { BinarySensorMetadata, binarySensorMetadataMap, cameraFilter, convertSettingsToStorageSettings, DetectionRule, DeviceInterface, getActiveRules, getDetectionRulesSettings, GetImageReason, getMixinBaseSettings, getRuleKeys, HomeassistantTransport, MixinBaseSettingKey, NotifyRuleSource, RuleSource, RuleType, ScryptedEventSource, splitRules, SupportedSensorType } from "./utils";
+import { AUTODISCOVERY_INTERVAL_MS, BinarySensorMetadata, binarySensorMetadataMap, cameraFilter, convertSettingsToStorageSettings, DetectionRule, DeviceInterface, getActiveRules, getDetectionRulesSettings, GetImageReason, getMixinBaseSettings, getRuleKeys, HomeassistantTransport, MixinBaseSettingKey, NotifyRuleSource, RuleSource, RuleType, ScryptedEventSource, splitRules, SupportedSensorType } from "./utils";
 
 const { systemManager } = sdk;
 
@@ -180,7 +180,7 @@ export class AdvancedNotifierSensorMixin extends SettingsMixinDeviceBase<any> im
                 const mqttClient = await this.getMqttClient();
                 if (mqttClient) {
                     // Every 60 minutes repeat the autodiscovery
-                    if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > 1000 * 60 * 60) {
+                    if (!this.lastAutoDiscovery || (now - this.lastAutoDiscovery) > AUTODISCOVERY_INTERVAL_MS) {
                         logger.log('Starting autodiscovery');
                         setupSensorAutodiscovery({
                             mqttClient,
