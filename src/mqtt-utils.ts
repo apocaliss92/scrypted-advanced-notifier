@@ -40,6 +40,7 @@ export enum MqttEntityIdentifier {
     LastDetection = 'LastDetection',
     Detected = 'Detected',
     Object = 'Object',
+    NvrStorageHealth = 'NvrStorageHealth',
 }
 
 export const AlarmSupportedFeatureToHaMap: Partial<Record<SecuritySystemMode, string>> = {
@@ -345,6 +346,16 @@ const getBasicMqttEntities = () => {
         stateClass: 'measurement',
         precision: 0,
     };
+    const nvrStorageHealthEntity: MqttEntity = {
+        domain: 'binary_sensor',
+        entity: 'nvr_storage_health',
+        name: 'NVR storage health',
+        deviceClass: 'problem',
+        entityCategory: 'diagnostic',
+        icon: 'mdi:harddisk',
+        retain: true,
+        identifier: MqttEntityIdentifier.NvrStorageHealth,
+    };
 
     return {
         triggeredEntity,
@@ -371,6 +382,7 @@ const getBasicMqttEntities = () => {
         rssMemoryEntity,
         heapMemoryEntity,
         pendingResultsEntity,
+        nvrStorageHealthEntity,
     };
 }
 
@@ -1061,8 +1073,9 @@ export const setupPluginAutodiscovery = async (props: {
     people: string[],
     console: Console,
     rules: BaseRule[];
+    hasNvrStoragePaths?: boolean;
 }) => {
-    const { people, mqttClient, rules, console } = props;
+    const { people, mqttClient, rules, console, hasNvrStoragePaths } = props;
 
     if (!mqttClient) {
         return;
@@ -1109,6 +1122,7 @@ export const setupPluginAutodiscovery = async (props: {
         rssMemoryEntity,
         heapMemoryEntity,
         pendingResultsEntity,
+        nvrStorageHealthEntity,
     } = getBasicMqttEntities();
 
     mqttEntities.push(
@@ -1118,6 +1132,10 @@ export const setupPluginAutodiscovery = async (props: {
         heapMemoryEntity,
         pendingResultsEntity,
     );
+
+    if (hasNvrStoragePaths) {
+        mqttEntities.push(nvrStorageHealthEntity);
+    }
 
     const pluginTopics = await publishMqttDeviceDiscovery({ mqttClient, mqttEntities, console, device: pluginId });
     const peopleTopics = await publishMqttDeviceDiscovery({ mqttClient, mqttEntities: peopleEntities, device: peopleTrackerId, console });
@@ -2524,6 +2542,7 @@ export const publishPluginValues = async (props: {
     rssMemoryMB?: number,
     heapMemoryMB?: number,
     pendingResults?: number,
+    nvrStorageHealthy?: boolean,
 }) => {
     const {
         mqttClient,
@@ -2534,6 +2553,7 @@ export const publishPluginValues = async (props: {
         rssMemoryMB,
         heapMemoryMB,
         pendingResults,
+        nvrStorageHealthy,
     } = props;
 
     if (!mqttClient) {
@@ -2566,6 +2586,12 @@ export const publishPluginValues = async (props: {
     if (pendingResults !== undefined) {
         const { stateTopic } = getMqttTopics({ mqttEntity: pendingResultsEntity, device: pluginId });
         await mqttClient.publish(stateTopic, String(pendingResults), pendingResultsEntity.retain);
+    }
+    if (nvrStorageHealthy !== undefined) {
+        const { nvrStorageHealthEntity } = getBasicMqttEntities();
+        const { stateTopic } = getMqttTopics({ mqttEntity: nvrStorageHealthEntity, device: pluginId });
+        // deviceClass "problem" → ON means problem detected, OFF means healthy
+        await mqttClient.publish(stateTopic, nvrStorageHealthy ? PAYLOAD_OFF : PAYLOAD_ON, nvrStorageHealthEntity.retain);
     }
 
     for (const rule of rulesToEnable) {

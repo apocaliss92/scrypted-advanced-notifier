@@ -1,6 +1,10 @@
 <details>
 <summary>Changelog</summary>
 
+### 5.0.16
+
+Add health check of NVR paths, best effort on all the configured paths
+
 ### 5.0.3
 
 Use REST interface to update entities instead of websocket, to avoid usage of admin permissions

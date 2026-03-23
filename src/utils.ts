@@ -89,6 +89,8 @@ export type DeviceInterface = ScryptedDevice &
 export const ADVANCED_NOTIFIER_INTERFACE = name;
 /** How often autodiscovery runs (ms). */
 export const AUTODISCOVERY_INTERVAL_MS = 1000 * 60 * 60 * 2; // 2 hours
+/** How often NVR storage health is checked (ms). */
+export const STORAGE_HEALTH_CHECK_INTERVAL_MS = 1000 * 60 * 5; // 5 minutes
 export const ADVANCED_NOTIFIER_CAMERA_INTERFACE = `${ADVANCED_NOTIFIER_INTERFACE}:Camera`;
 export const ADVANCED_NOTIFIER_NOTIFIER_INTERFACE = `${ADVANCED_NOTIFIER_INTERFACE}:Notifier`;
 export const ADVANCED_NOTIFIER_ALARM_SYSTEM_INTERFACE = `${ADVANCED_NOTIFIER_INTERFACE}:SecuritySystem`;
@@ -3730,6 +3732,60 @@ export const nvrAcceleratedMotionSensorId = sdk.systemManager.getDeviceById(
   NVR_PLUGIN_ID,
   "motion",
 )?.id;
+
+/**
+ * Fetch all storage paths configured in the NVR plugin settings.
+ * Returns a deduplicated list of paths from recordingsPath, largeDisks and fastDisks.
+ */
+export const getNvrStoragePaths = async (logger: Console): Promise<string[]> => {
+  try {
+    const nvrDevice = sdk.systemManager.getDeviceById<Settings>(NVR_PLUGIN_ID);
+    if (!nvrDevice) {
+      return [];
+    }
+    const settings = await nvrDevice.getSettings();
+    const paths: string[] = [];
+
+    const recordingsPath = settings.find(s => s.key === 'recordingsPath')?.value as string | undefined;
+    if (recordingsPath) {
+      paths.push(recordingsPath);
+    }
+
+    const largeDisks = settings.find(s => s.key === 'largeDisks')?.value as string[] | undefined;
+    if (largeDisks?.length) {
+      paths.push(...largeDisks);
+    }
+
+    const fastDisks = settings.find(s => s.key === 'fastDisks')?.value as string[] | undefined;
+    if (fastDisks?.length) {
+      paths.push(...fastDisks);
+    }
+
+    return [...new Set(paths)];
+  } catch (e) {
+    logger.error('Error fetching NVR storage paths', e);
+    return [];
+  }
+};
+
+/**
+ * Check whether all NVR storage paths are accessible and correctly mounted.
+ * Returns a map of path → healthy (true if the path exists and is a directory).
+ * The overall result is healthy only when every path passes.
+ */
+export const checkNvrStorageHealth = async (storagePaths: string[]): Promise<{ healthy: boolean; results: Record<string, boolean> }> => {
+  const results: Record<string, boolean> = {};
+  for (const p of storagePaths) {
+    try {
+      const stat = await fs.promises.stat(p);
+      results[p] = stat.isDirectory();
+    } catch {
+      results[p] = false;
+    }
+  }
+  const healthy = storagePaths.length > 0 && Object.values(results).every(Boolean);
+  return { healthy, results };
+};
 
 export const getBaseRuleDefaults = (props: {
   source: ScryptedEventSource;

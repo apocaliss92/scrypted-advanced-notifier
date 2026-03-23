@@ -117,12 +117,14 @@ import {
   ADVANCED_NOTIFIER_INTERFACE,
   ADVANCED_NOTIFIER_NOTIFIER_INTERFACE,
   AUTODISCOVERY_INTERVAL_MS,
+  STORAGE_HEALTH_CHECK_INTERVAL_MS,
   ALARM_SYSTEM_NATIVE_ID,
   AssetOriginSource,
   AudioRule,
   BaseRule,
   calculateSize,
   CAMERA_NATIVE_ID,
+  checkNvrStorageHealth,
   checkUserLogin,
   convertSettingsToStorageSettings,
   DATA_FETCHER_NATIVE_ID,
@@ -153,6 +155,7 @@ import {
   getEventTextKey,
   getFrigateTextKey,
   GetImageReason,
+  getNvrStoragePaths,
   getNotifierData,
   getRecordingRules,
   getRecordingRulesSettings,
@@ -1076,6 +1079,9 @@ export default class AdvancedNotifierPlugin
   lastNotExistingNotifier: number;
   public allAvailableRules: BaseRule[] = [];
   lastAutoDiscovery: number;
+  lastStorageHealthCheck: number;
+  lastNvrStorageHealthy: boolean | undefined;
+  cachedNvrStoragePaths: string[] = [];
   lastConfigurationsCheck: number;
   lastKnownPeopleFetched: number;
   lastFacesSource: ScryptedEventSource;
@@ -2953,11 +2959,13 @@ export default class AdvancedNotifierPlugin
             this.aiMessageResponseMap = {};
 
             logger.log("Starting autodiscovery");
+            this.cachedNvrStoragePaths = await getNvrStoragePaths(logger);
             setupPluginAutodiscovery({
               mqttClient,
               people: await this.getKnownPeople(facesSourceForMqtt),
               console: logger,
               rules: availableRules,
+              hasNvrStoragePaths: this.cachedNvrStoragePaths.length > 0,
             }).catch(logger.error);
 
             await this.setupMqttEntities();
@@ -2976,6 +2984,25 @@ export default class AdvancedNotifierPlugin
             );
           }
 
+          // NVR storage health check (every 5 minutes)
+          const hasNvrPaths = this.cachedNvrStoragePaths.length > 0;
+          if (hasNvrPaths && (!this.lastStorageHealthCheck || now - this.lastStorageHealthCheck > STORAGE_HEALTH_CHECK_INTERVAL_MS)) {
+            this.lastStorageHealthCheck = now;
+            try {
+              const { healthy, results } = await checkNvrStorageHealth(this.cachedNvrStoragePaths);
+              this.lastNvrStorageHealthy = healthy;
+              if (!healthy) {
+                const failedPaths = Object.entries(results)
+                  .filter(([, ok]) => !ok)
+                  .map(([p]) => p);
+                logger.log(`NVR storage health check FAILED for: ${failedPaths.join(', ')}`);
+              }
+            } catch (e) {
+              logger.error("Error checking NVR storage health", e);
+              this.lastNvrStorageHealthy = false;
+            }
+          }
+
           publishPluginValues({
             mqttClient,
             notificationsEnabled,
@@ -2991,6 +3018,7 @@ export default class AdvancedNotifierPlugin
               typeof process !== "undefined" && process.memoryUsage
                 ? Math.round(process.memoryUsage().heapUsed / 1024 / 1024)
                 : undefined,
+            nvrStorageHealthy: hasNvrPaths ? this.lastNvrStorageHealthy : undefined,
           }).catch(logger.error);
         }
       }
