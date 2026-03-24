@@ -352,6 +352,7 @@ export type PluginSettingKey =
   | "includeUserToken"
   | "migrationDbPerDeviceDone"
   | "migrationRulesArtifactsRegisterDone"
+  | "customComponentAlertDismissed"
   | "haTransport"
   | "haSecret"
   | "regenerateHaSecret"
@@ -476,6 +477,11 @@ export default class AdvancedNotifierPlugin
     },
     migrationRulesArtifactsRegisterDone: {
       title: "Migration rules artifacts register done",
+      type: "boolean",
+      defaultValue: false,
+      hide: true,
+    },
+    customComponentAlertDismissed: {
       type: "boolean",
       defaultValue: false,
       hide: true,
@@ -1569,6 +1575,16 @@ export default class AdvancedNotifierPlugin
       await this.init();
       await this.refreshSettings();
       await this.refreshSettings();
+
+      const { haTransport, mqttEnabled, customComponentAlertDismissed } = this.storageSettings.values;
+      if (!customComponentAlertDismissed && mqttEnabled && haTransport !== HomeassistantTransport.websocket) {
+        this.log.a(
+          'The HA custom component (websocket transport) is now available and will become the default in the next major version. ' +
+          'Switch to it in Settings → Discovery layer → "websocket" for better performance and reliability.',
+        );
+        await this.storageSettings.putSetting('customComponentAlertDismissed', true);
+      }
+
       await this.mainFlow();
 
       this.mainFlowInterval = setInterval(async () => {
