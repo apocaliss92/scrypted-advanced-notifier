@@ -46,6 +46,8 @@
 - Update **both**: Home Assistant autodiscovery config (config topics) and state publishing (state/image topics). Don’t add “publish-only” values.
 - If the entity is per-camera/per-rule, ensure the camera mixin publishes it (see [src/cameraMixin.ts](src/cameraMixin.ts)).
 - If you change entity IDs/names, expect users may need to clear retained discovery/state topics; the plugin also exposes a “Reset all MQTT topics” action (see `mqttResetAllTopics` in [src/main.ts](src/main.ts)).
+- **Interface-conditional entities** (e.g. Battery, Charger, Online, Sleep): define the entity in `getBasicMqttEntities()`, then guard inclusion with `device.interfaces.includes(ScryptedInterface.XXX)` in discovery (`getCameraMqttEntitiesForDiscovery`), initial state (`buildCameraInitialEntityStates`), publishing (`publishCameraValues`), and topic-clear (`resetAllPluginMqttTopicsAndRediscover`).
+- **Plugin-level diagnostic entities** (e.g. memory, RPC, NVR storage health): define in `getBasicMqttEntities()`, add to `setupPluginAutodiscovery()`, and publish in `publishPluginValues()`. Use `entityCategory: ‘diagnostic’`. For conditional plugin entities, pass a flag (e.g. `hasNvrStoragePaths`) to control discovery inclusion.
 
 ### When you add/change a setting or rule option
 - Add a stable key to the correct `...SettingKey` union (plugin keys in [src/main.ts](src/main.ts), camera keys in [src/cameraMixin.ts](src/cameraMixin.ts), notifier keys in [src/notifierMixin.ts](src/notifierMixin.ts)).

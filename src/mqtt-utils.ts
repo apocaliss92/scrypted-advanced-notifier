@@ -181,6 +181,15 @@ const getBasicMqttEntities = () => {
         stateClass: 'measurement',
         retain: true,
     };
+    const chargerEntity: MqttEntity = {
+        domain: 'binary_sensor',
+        entity: 'charger',
+        name: 'Charger',
+        deviceClass: 'plug',
+        entityCategory: 'diagnostic',
+        retain: true,
+        icon: 'mdi:battery-charging',
+    };
     const sleepingEntity: MqttEntity = {
         domain: 'binary_sensor',
         entity: 'sleeping',
@@ -360,6 +369,7 @@ const getBasicMqttEntities = () => {
     return {
         triggeredEntity,
         batteryEntity,
+        chargerEntity,
         sleepingEntity,
         notificationsEnabledEntity,
         audioPressureEntity,
@@ -959,6 +969,7 @@ export const resetAllPluginMqttTopicsAndRediscover = async (props: {
         const {
             audioPressureEntity,
             batteryEntity,
+            chargerEntity,
             notificationsEnabledEntity,
             onlineEntity,
             ptzPresetEntity,
@@ -980,6 +991,9 @@ export const resetAllPluginMqttTopicsAndRediscover = async (props: {
 
         if (camera.device.interfaces.includes(ScryptedInterface.Battery)) {
             mqttEntities.push(cloneDeep(batteryEntity));
+        }
+        if (camera.device.interfaces.includes(ScryptedInterface.Charger)) {
+            mqttEntities.push(cloneDeep(chargerEntity));
         }
         if (camera.device.interfaces.includes(ScryptedInterface.Online)) {
             mqttEntities.push(cloneDeep(onlineEntity));
@@ -1811,6 +1825,7 @@ export const getCameraMqttEntitiesForDiscovery = async (props: {
     const {
         audioPressureEntity,
         batteryEntity,
+        chargerEntity,
         notificationsEnabledEntity,
         onlineEntity,
         ptzPresetEntity,
@@ -1835,13 +1850,17 @@ export const getCameraMqttEntitiesForDiscovery = async (props: {
     mqttEntities.push(...getCameraAccessorySwitchEntities(accessorySwitchKinds));
 
     const hasBattery = device.interfaces.includes(ScryptedInterface.Battery);
+    const hasCharger = device.interfaces.includes(ScryptedInterface.Charger);
     const hasOnline = device.interfaces.includes(ScryptedInterface.Online);
     const hasSleep = device.interfaces.includes(ScryptedInterface.Sleep);
-    console.info(`[getCameraMqttEntitiesForDiscovery] Device "${device.name}" (${device.id}) diagnostic interfaces: Battery=${hasBattery}, Online=${hasOnline}, Sleep=${hasSleep}`);
+    console.info(`[getCameraMqttEntitiesForDiscovery] Device "${device.name}" (${device.id}) diagnostic interfaces: Battery=${hasBattery}, Charger=${hasCharger}, Online=${hasOnline}, Sleep=${hasSleep}`);
     console.info(`[getCameraMqttEntitiesForDiscovery] Device interfaces: ${JSON.stringify(device.interfaces)}`);
 
     if (hasBattery) {
         mqttEntities.push(cloneDeep(batteryEntity));
+    }
+    if (hasCharger) {
+        mqttEntities.push(cloneDeep(chargerEntity));
     }
     if (hasOnline) {
         mqttEntities.push(cloneDeep(onlineEntity));
@@ -1909,6 +1928,7 @@ const buildCameraInitialEntityStates = (props: {
     }
     const {
         batteryEntity,
+        chargerEntity,
         notificationsEnabledEntity,
         onlineEntity,
         recordingEntity,
@@ -1941,6 +1961,11 @@ const buildCameraInitialEntityStates = (props: {
     if (device.interfaces.includes(ScryptedInterface.Battery) && device.batteryLevel !== undefined && device.batteryLevel !== null) {
         out[batteryEntity.entity] = String(device.batteryLevel);
         console?.info(`[buildCameraInitialEntityStates] Including battery initial state: ${device.batteryLevel}`);
+    }
+    if (device.interfaces.includes(ScryptedInterface.Charger) && device.chargeState !== undefined && device.chargeState !== null) {
+        const isCharging = device.chargeState === 'charging' || device.chargeState === 'trickle';
+        out[chargerEntity.entity] = isCharging ? PAYLOAD_ON : PAYLOAD_OFF;
+        console?.info(`[buildCameraInitialEntityStates] Including charger initial state: ${device.chargeState}`);
     }
     if (device.interfaces.includes(ScryptedInterface.Online) && device.online !== undefined && device.online !== null) {
         out[onlineEntity.entity] = device.online ? PAYLOAD_ON : PAYLOAD_OFF;
@@ -2428,6 +2453,7 @@ export const publishCameraValues = async (props: {
 
     const {
         batteryEntity,
+        chargerEntity,
         notificationsEnabledEntity,
         onlineEntity,
         privacyEntity,
@@ -2447,9 +2473,10 @@ export const publishCameraValues = async (props: {
 
     if (device) {
         const hasBattery = device.interfaces.includes(ScryptedInterface.Battery);
+        const hasCharger = device.interfaces.includes(ScryptedInterface.Charger);
         const hasOnline = device.interfaces.includes(ScryptedInterface.Online);
         const hasSleep = device.interfaces.includes(ScryptedInterface.Sleep);
-        console.info(`[publishCameraValues] Diagnostic interfaces: Battery=${hasBattery} (level=${device.batteryLevel}), Online=${hasOnline} (value=${device.online}), Sleep=${hasSleep} (value=${device.sleeping})`);
+        console.info(`[publishCameraValues] Diagnostic interfaces: Battery=${hasBattery} (level=${device.batteryLevel}), Charger=${hasCharger} (state=${device.chargeState}), Online=${hasOnline} (value=${device.online}), Sleep=${hasSleep} (value=${device.sleeping})`);
 
         if (hasBattery) {
             const { stateTopic } = getMqttTopics({ mqttEntity: batteryEntity, device });
@@ -2458,6 +2485,16 @@ export const publishCameraValues = async (props: {
                 console.info(`[publishCameraValues] Published battery: ${device.batteryLevel} to ${stateTopic}`);
             } else {
                 console.info(`[publishCameraValues] Skipped battery publish: batteryLevel is ${device.batteryLevel}`);
+            }
+        }
+        if (hasCharger) {
+            const { stateTopic } = getMqttTopics({ mqttEntity: chargerEntity, device });
+            if (device.chargeState !== undefined && device.chargeState !== null) {
+                const isCharging = device.chargeState === 'charging' || device.chargeState === 'trickle';
+                await mqttClient.publish(stateTopic, isCharging ? PAYLOAD_ON : PAYLOAD_OFF, chargerEntity.retain);
+                console.info(`[publishCameraValues] Published charger: ${device.chargeState} to ${stateTopic}`);
+            } else {
+                console.info(`[publishCameraValues] Skipped charger publish: chargeState is ${device.chargeState}`);
             }
         }
         if (hasOnline) {

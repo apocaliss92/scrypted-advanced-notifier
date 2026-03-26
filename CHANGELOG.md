@@ -1,6 +1,12 @@
 <details>
 <summary>Changelog</summary>
 
+### 5.0.18
+
+- Add NVR storage health binary sensor: automatically fetches all NVR storage paths (recordingsPath, largeDisks, fastDisks) and checks every 5 minutes whether they are mounted correctly. Exposed as a `binary_sensor` (device class `problem`) diagnostic entity on Home Assistant
+- Add Charger entity: cameras with the `Charger` interface now expose a `binary_sensor` (device class `plug`) diagnostic entity showing whether the device is charging or on trickle charge
+- Add one-time alert at startup notifying users that the HA custom component (websocket transport) is available and will become the default in the next major version
+
 ### 5.0.16
 
 Add health check of NVR paths, best effort on all the configured paths
