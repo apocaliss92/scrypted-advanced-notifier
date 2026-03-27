@@ -40,6 +40,7 @@ import {
   getActiveRules,
   ALARM_SYSTEM_NATIVE_ID,
   ScryptedEventSource,
+  toSnakeCase,
 } from "./utils";
 
 /**
@@ -612,6 +613,45 @@ async function handleImage(
 
   try {
     const { storagePath } = plugin.getFsPaths({});
+
+    // Deterministic rule-image mapping:
+    // <rule_name_snake>_last_image -> <storage>/<cameraId>/rules/<OriginalRuleName>/latest.jpg
+    if (classFilter) {
+      const mixin = plugin.currentCameraMixinsMap[scryptedId];
+      const matchedRule = mixin?.mixinState?.allAvailableRules?.find(
+        (rule) => toSnakeCase(rule.name) === classFilter,
+      );
+      if (matchedRule) {
+        const latestRuleImagePath = path.join(
+          storagePath,
+          scryptedId,
+          "rules",
+          matchedRule.name,
+          "latest.jpg",
+        );
+        try {
+          await fs.promises.access(latestRuleImagePath);
+          logger.info(
+            `[HA Image] Rule mapping hit for ${classFilter} -> ${latestRuleImagePath}`,
+          );
+          const jpeg = await fs.promises.readFile(latestRuleImagePath);
+          response.send(jpeg, {
+            code: 200,
+            headers: {
+              ...corsHeaders(),
+              "Content-Type": "image/jpeg",
+              "Cache-Control": "no-cache",
+            },
+          });
+          return true;
+        } catch {
+          logger.info(
+            `[HA Image] Rule mapping found (${matchedRule.name}) but latest image missing at ${latestRuleImagePath}`,
+          );
+        }
+      }
+    }
+
     const detectionsDir = path.join(storagePath, scryptedId, "detections");
     logger.info(
       `[HA Image] Looking in ${detectionsDir}, classFilter=${classFilter}`,
