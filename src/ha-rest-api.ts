@@ -74,10 +74,10 @@ class DiscoveryCapture implements IHaClient {
       });
     }
   }
-  async subscribe(): Promise<void> {}
-  async unsubscribe(): Promise<void> {}
-  async disconnect(): Promise<void> {}
-  async cleanupAutodiscoveryTopics(): Promise<void> {}
+  async subscribe(): Promise<void> { }
+  async unsubscribe(): Promise<void> { }
+  async disconnect(): Promise<void> { }
+  async cleanupAutodiscoveryTopics(): Promise<void> { }
 }
 
 /** Minimal interface for the plugin instance — avoids importing the full class (circular dep). */
@@ -124,11 +124,11 @@ export async function handleHaRestApi(
   const originAllowed =
     !origin ||
     (allowedOrigins.length > 0 &&
-    allowedOrigins.some(
-      (o) =>
-        o.replace(/\/$/, "").toLowerCase() ===
-        String(origin).replace(/\/$/, "").toLowerCase(),
-    ));
+      allowedOrigins.some(
+        (o) =>
+          o.replace(/\/$/, "").toLowerCase() ===
+          String(origin).replace(/\/$/, "").toLowerCase(),
+      ));
   const authHeader = request.headers?.["authorization"] ?? "";
   const token = String(authHeader).replace(/^Bearer\s+/i, "");
 
@@ -261,6 +261,7 @@ async function handleEntities(
   const facesSourceForMqtt = plugin.storageSettings.values
     .facesSourceForMqtt as ScryptedEventSource;
   const rules = plugin.allAvailableRules ?? [];
+  const pluginForRules = plugin as Parameters<typeof getActiveRules>[0]["plugin"];
 
   const deviceNameMap = new Map<string, string>();
   for (const m of Object.values(plugin.currentCameraMixinsMap))
@@ -333,17 +334,20 @@ async function handleEntities(
       (async () => {
         try {
           const zones = await mixin.getMqttZones();
-          const accessorySwitchKinds = (
-            mixin as unknown as {
-              cameraAccessorySwitchKinds: CameraAccessorySwitchKind[];
-            }
-          ).cameraAccessorySwitchKinds;
+          const accessorySwitchKinds = mixin.getAccessorySwitchKinds();
+          const cameraStorageSettings = mixin.mixinState.storageSettings;
+          const { allAvailableRules } = await getActiveRules({
+            device: mixin,
+            console: logger,
+            plugin: pluginForRules,
+            deviceStorage: cameraStorageSettings,
+          });
           const initialCameraState = await mixin.getCameraMqttCurrentState();
           await setupCameraAutodiscovery({
             mqttClient: capture,
-            device: mixin.cameraDevice as DeviceInterface,
+            device: mixin.cameraDevice,
             console: logger,
-            rules,
+            rules: allAvailableRules ?? [],
             zones,
             accessorySwitchKinds,
             initialCameraState,
@@ -369,18 +373,14 @@ async function handleEntities(
       (async () => {
         try {
           const { availableDetectionRules } = await getActiveRules({
-            device: mixin as unknown as Parameters<
-              typeof getActiveRules
-            >[0]["device"],
+            device: mixin,
             console: logger,
-            plugin: plugin as unknown as Parameters<
-              typeof getActiveRules
-            >[0]["plugin"],
+            plugin: pluginForRules,
             deviceStorage: mixin.storageSettings,
           });
           await setupSensorAutodiscovery({
             mqttClient: capture,
-            device: mixin.sensorDevice as DeviceInterface,
+            device: mixin.sensorDevice,
             rules: availableDetectionRules,
             console: logger,
           });
