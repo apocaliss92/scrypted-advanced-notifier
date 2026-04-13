@@ -227,6 +227,7 @@ type CameraSettingKey =
   | "occupiedSpaceInGb"
   | "batteryPrivacyEnabled"
   | "batteryPrivacyThresholds"
+  | "snapshotsDisabled"
   | MixinBaseSettingKey;
 
 export class AdvancedNotifierCameraMixin
@@ -327,6 +328,15 @@ export class AdvancedNotifierCameraMixin
       type: "number",
       defaultValue: 5,
       subgroup: "Advanced",
+    },
+    snapshotsDisabled: {
+      title: "Disable snapshots",
+      description:
+        "When enabled, the plugin will never call takePicture on this camera. Use when the camera snapshot endpoint is broken or unavailable.",
+      type: "boolean",
+      defaultValue: false,
+      subgroup: "Advanced",
+      immediate: true,
     },
     detectionSourceForMqtt: {
       title: "Detections source",
@@ -3045,10 +3055,16 @@ export class AdvancedNotifierCameraMixin
       const SNAPSHOT_MAX_CONSECUTIVE_ERRORS = 3;
       const SNAPSHOT_DEFER_DURATION_MS = 60_000;
 
+      const { snapshotsDisabled } = this.mixinState.storageSettings.values;
+      if (snapshotsDisabled) {
+        logger.debug(`Snapshot skipped: snapshots are disabled for this camera`);
+        return;
+      }
+
       const deferredUntil = this.mixinState.snapshotDeferredUntil;
       if (deferredUntil && now < deferredUntil) {
         const remainingSec = Math.round((deferredUntil - now) / 1000);
-        logger.log(
+        logger.debug(
           `Snapshot deferred for ${remainingSec}s due to repeated failures (${this.mixinState.snapshotConsecutiveErrors} consecutive errors)`,
         );
         return;

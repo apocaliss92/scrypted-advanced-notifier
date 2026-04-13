@@ -459,7 +459,11 @@ export type IsDelayPassedProps =
       eventSource: ScryptedEventSource;
       timestamp: number;
     }
-  | { type: DelayType.EventStore; identifiers: string[]; eventSource: ScryptedEventSource }
+  | {
+      type: DelayType.EventStore;
+      identifiers: string[];
+      eventSource: ScryptedEventSource;
+    }
   | { type: DelayType.PeopleTrackerImageUpdate; label: string }
   | {
       type: DelayType.BasicDetectionImage;
@@ -1690,8 +1694,10 @@ export const getActiveRules = async (props: {
     device,
   });
 
-  const { pluginEnabled, mqttEnabled, haTransport } = plugin.storageSettings.values;
-  const haIntegrationEnabled = mqttEnabled || haTransport === HomeassistantTransport.websocket;
+  const { pluginEnabled, mqttEnabled, haTransport } =
+    plugin.storageSettings.values;
+  const haIntegrationEnabled =
+    mqttEnabled || haTransport === HomeassistantTransport.websocket;
   const isDeviceEnabledToMqtt = deviceStorage?.values.enabledToMqtt;
 
   const allAvailableRules = [
@@ -2300,6 +2306,8 @@ const getNotifierSettings = (props: {
     return [];
   }
 
+  const pluginId = notifier.pluginId;
+
   const {
     actionsKey,
     priorityKey,
@@ -2641,7 +2649,8 @@ export const getRuleSettings = async (props: {
       },
     );
 
-    const supportsVideoclips = isDetectionRule || isOccupancyRule || ruleType === RuleType.Timelapse;
+    const supportsVideoclips =
+      isDetectionRule || isOccupancyRule || ruleType === RuleType.Timelapse;
     if (supportsVideoclips) {
       settings.push({
         key: additionalStoragePathKey,
@@ -2999,7 +3008,8 @@ export const getRuleSettings = async (props: {
       {
         key: onGeneratedSequencesKey,
         title: "On-generated sequences",
-        description: "Sequences to execute when all rule artifacts (video, gif, image) have been generated. Receives a payload with rule, videoUrl, gifUrl, imageUrl.",
+        description:
+          "Sequences to execute when all rule artifacts (video, gif, image) have been generated. Receives a payload with rule, videoUrl, gifUrl, imageUrl.",
         group,
         subgroup,
         multiple: true,
@@ -3737,7 +3747,9 @@ export const nvrAcceleratedMotionSensorId = sdk.systemManager.getDeviceById(
  * Fetch all storage paths configured in the NVR plugin settings.
  * Returns a deduplicated list of paths from recordingsPath, largeDisks and fastDisks.
  */
-export const getNvrStoragePaths = async (logger: Console): Promise<string[]> => {
+export const getNvrStoragePaths = async (
+  logger: Console,
+): Promise<string[]> => {
   try {
     const nvrDevice = sdk.systemManager.getDeviceById<Settings>(NVR_PLUGIN_ID);
     if (!nvrDevice) {
@@ -3746,24 +3758,29 @@ export const getNvrStoragePaths = async (logger: Console): Promise<string[]> => 
     const settings = await nvrDevice.getSettings();
     const paths: string[] = [];
 
-    const recordingsPath = settings.find(s => s.key === 'recordingsPath')?.value as string | undefined;
+    const recordingsPath = settings.find((s) => s.key === "recordingsPath")
+      ?.value as string | undefined;
     if (recordingsPath) {
       paths.push(recordingsPath);
     }
 
-    const largeDisks = settings.find(s => s.key === 'largeDisks')?.value as string[] | undefined;
+    const largeDisks = settings.find((s) => s.key === "largeDisks")?.value as
+      | string[]
+      | undefined;
     if (largeDisks?.length) {
       paths.push(...largeDisks);
     }
 
-    const fastDisks = settings.find(s => s.key === 'fastDisks')?.value as string[] | undefined;
+    const fastDisks = settings.find((s) => s.key === "fastDisks")?.value as
+      | string[]
+      | undefined;
     if (fastDisks?.length) {
       paths.push(...fastDisks);
     }
 
     return [...new Set(paths)];
   } catch (e) {
-    logger.error('Error fetching NVR storage paths', e);
+    logger.error("Error fetching NVR storage paths", e);
     return [];
   }
 };
@@ -3773,7 +3790,9 @@ export const getNvrStoragePaths = async (logger: Console): Promise<string[]> => 
  * Returns a map of path → healthy (true if the path exists and is a directory).
  * The overall result is healthy only when every path passes.
  */
-export const checkNvrStorageHealth = async (storagePaths: string[]): Promise<{ healthy: boolean; results: Record<string, boolean> }> => {
+export const checkNvrStorageHealth = async (
+  storagePaths: string[],
+): Promise<{ healthy: boolean; results: Record<string, boolean> }> => {
   const results: Record<string, boolean> = {};
   for (const p of storagePaths) {
     try {
@@ -3783,7 +3802,8 @@ export const checkNvrStorageHealth = async (storagePaths: string[]): Promise<{ h
       results[p] = false;
     }
   }
-  const healthy = storagePaths.length > 0 && Object.values(results).every(Boolean);
+  const healthy =
+    storagePaths.length > 0 && Object.values(results).every(Boolean);
   return { healthy, results };
 };
 
@@ -3849,7 +3869,8 @@ export const getOccupancyRulesSettings = async (props: {
       ruleType: RuleType.Occupancy,
     });
 
-    const { scoreThresholdKey, detectionSourceKey, onGeneratedSequencesKey } = common;
+    const { scoreThresholdKey, detectionSourceKey, onGeneratedSequencesKey } =
+      common;
     const sequenceNames = safeParseJson<string[]>(
       storage.getItem(ruleSequencesKey),
       [],
@@ -4017,7 +4038,8 @@ export const getOccupancyRulesSettings = async (props: {
       {
         key: onGeneratedSequencesKey,
         title: "On-generated sequences",
-        description: "Sequences to execute when all rule artifacts (video, gif, image) have been generated. Receives a payload with rule, videoUrl, gifUrl, imageUrl.",
+        description:
+          "Sequences to execute when all rule artifacts (video, gif, image) have been generated. Receives a payload with rule, videoUrl, gifUrl, imageUrl.",
         group,
         subgroup,
         multiple: true,
@@ -4078,7 +4100,13 @@ export const getTimelapseRulesSettings = async (props: {
       ruleType: RuleType.Timelapse,
     });
 
-    const { textKey, dayKey, startTimeKey, endTimeKey, onGeneratedSequencesKey } = common;
+    const {
+      textKey,
+      dayKey,
+      startTimeKey,
+      endTimeKey,
+      onGeneratedSequencesKey,
+    } = common;
     const sequenceNames = safeParseJson<string[]>(
       storage.getItem(ruleSequencesKey),
       [],
@@ -4181,7 +4209,8 @@ export const getTimelapseRulesSettings = async (props: {
       {
         key: onGeneratedSequencesKey,
         title: "On-generated sequences",
-        description: "Sequences to execute when the timelapse video (and thumbnail) have been generated. Receives a payload with rule, videoUrl, imageUrl.",
+        description:
+          "Sequences to execute when the timelapse video (and thumbnail) have been generated. Receives a payload with rule, videoUrl, imageUrl.",
         group,
         subgroup,
         multiple: true,
@@ -4784,7 +4813,9 @@ const initBasicRule = (props: {
     [],
   );
   const devices = safeParseJson<string[]>(storage.getItem(devicesKey), []);
-  const additionalStoragePath = safeParseJson<string>(storage.getItem(additionalStoragePathKey));
+  const additionalStoragePath = safeParseJson<string>(
+    storage.getItem(additionalStoragePathKey),
+  );
   const onActivationSequences: RuleActionsSequence[] = [];
   const onDeactivationSequences: RuleActionsSequence[] = [];
   if (activationType !== DetectionRuleActivation.Always) {
@@ -6415,7 +6446,9 @@ export const getFrigateTextKey = (label: string) =>
  * Token format: "Bearer {hash}#{\"u\":\"username\",\"t\":timestamp,\"d\":durationMs}"
  * Tries: (1) GET /login with Bearer header; (2) checkScryptedClientLogin with parsed username:hash as Basic.
  */
-async function validateBearerToken(authHeader: string): Promise<Awaited<ReturnType<typeof loginScryptedClient>> | undefined> {
+async function validateBearerToken(
+  authHeader: string,
+): Promise<Awaited<ReturnType<typeof loginScryptedClient>> | undefined> {
   const localUrl = await sdk.endpointManager.getLocalEndpoint();
   const baseUrl = new URL(localUrl).origin;
   const loginUrl = `${baseUrl.replace(/\/$/, "")}/login`;
@@ -6427,7 +6460,13 @@ async function validateBearerToken(authHeader: string): Promise<Awaited<ReturnTy
       validateStatus: () => true,
     });
     if (res.status === 200) {
-      const body = res.data as { error?: string; username?: string; authorization?: string; token?: string; queryToken?: unknown };
+      const body = res.data as {
+        error?: string;
+        username?: string;
+        authorization?: string;
+        token?: string;
+        queryToken?: unknown;
+      };
       if (!body.error && body.username) {
         return {
           error: body.error,
@@ -6435,7 +6474,8 @@ async function validateBearerToken(authHeader: string): Promise<Awaited<ReturnTy
           queryToken: body.queryToken,
           token: body.token,
           addresses: (body as { addresses?: string[] }).addresses ?? [],
-          externalAddresses: (body as { externalAddresses?: string[] }).externalAddresses ?? [],
+          externalAddresses:
+            (body as { externalAddresses?: string[] }).externalAddresses ?? [],
           hostname: (body as { hostname?: string }).hostname,
           scryptedCloud: false,
           directAddress: (body as { directAddress?: string }).directAddress,

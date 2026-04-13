@@ -1113,6 +1113,7 @@ export default class AdvancedNotifierPlugin
   /** Queue of pending DB writes (events + motion). Processed sequentially in main. */
   private dbWriteQueue: DbWriteQueueItem[] = [];
   private processingDbWriteQueue = false;
+  private readonly sanitizedLoggerSymbol = Symbol("sanitized-logger");
 
   imageEmbeddingCache: Record<string, Buffer> = {};
   textEmbeddingCache: Record<string, Buffer> = {};
@@ -2563,7 +2564,7 @@ export default class AdvancedNotifierPlugin
       const { mixin, settings } = this.getRealMixin(deviceId);
 
       if (mixin) {
-        return super.getLoggerInternal({
+        return this.getLoggerInternal({
           console: mixin.console,
           storage: settings,
           friendlyName: this.cameraStates[deviceId]?.clientId,
@@ -2571,7 +2572,68 @@ export default class AdvancedNotifierPlugin
       }
     }
 
-    return super.getLoggerInternal({});
+    return this.getLoggerInternal({});
+  }
+
+  private sanitizeLogString(value: string) {
+    return value
+      .replace(/serverId=([^&\s]+)/g, "serverId=***")
+      .replace(/([?&]user_token=)([^&\s]+)/g, "$1***")
+      .replace(/(\/api\/scrypted\/)([^/\\?\s]+)(\/endpoint)/g, "$1***$3")
+      .replace(/(\/scrypted_)([^?\/\s"]+)/g, "$1***");
+  }
+
+  private sanitizeLogValue(value: unknown): unknown {
+    if (typeof value === "string") {
+      return this.sanitizeLogString(value);
+    }
+
+    if (!value || typeof value !== "object") {
+      return value;
+    }
+
+    try {
+      return JSON.parse(
+        JSON.stringify(value, (_, item) => {
+          if (typeof item === "string") {
+            return this.sanitizeLogString(item);
+          }
+          return item;
+        }),
+      );
+    } catch {
+      return value;
+    }
+  }
+
+  private sanitizeLogArgs(args: unknown[]) {
+    return args.map((arg) => this.sanitizeLogValue(arg));
+  }
+
+  getLoggerInternal(options?: any): Console {
+    const baseLogger = super.getLoggerInternal(options);
+    if ((baseLogger as any)[this.sanitizedLoggerSymbol]) {
+      return baseLogger;
+    }
+
+    const wrap =
+      (method: keyof Console) =>
+      (...args: unknown[]) => {
+        const fn = (baseLogger as any)[method];
+        if (typeof fn === "function") {
+          fn.apply(baseLogger, this.sanitizeLogArgs(args));
+        }
+      };
+
+    const wrapped = Object.create(baseLogger) as Console;
+    (wrapped as any).log = wrap("log");
+    (wrapped as any).info = wrap("info");
+    (wrapped as any).warn = wrap("warn");
+    (wrapped as any).error = wrap("error");
+    (wrapped as any).debug = wrap("debug");
+    (wrapped as any)[this.sanitizedLoggerSymbol] = true;
+
+    return wrapped;
   }
 
   private async setupMqttEntities() {
@@ -4629,8 +4691,9 @@ export default class AdvancedNotifierPlugin
     const scryptedToken = this.storageSettings.getItem("scryptedToken");
 
     const timelinePart = `#/timeline/${cameraId}?time=${time}&from=notification&serverId=${serverId}&disableTransition=true`;
-    const haUrl = `/api/scrypted/${scryptedToken}/endpoint/@scrypted/nvr/public/${timelinePart} `;
-    const externalUrl = `${nvrUrl}/${timelinePart}`;
+    const haUrl =
+      `/api/scrypted/${scryptedToken}/endpoint/@scrypted/nvr/public/${timelinePart}`.trim();
+    const externalUrl = `${nvrUrl}/${timelinePart}`.trim();
     return {
       externalUrl: externalUrl,
       haUrl: `/scrypted_${scryptedToken}?url=${encodeURIComponent(haUrl)}`,
