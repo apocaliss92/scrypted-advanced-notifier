@@ -1118,6 +1118,9 @@ export default class AdvancedNotifierPlugin
   imageEmbeddingCache: Record<string, Buffer> = {};
   textEmbeddingCache: Record<string, Buffer> = {};
 
+  /** Topics currently subscribed at the plugin level — used to unsubscribe before re-subscribing to prevent callback accumulation. */
+  private pluginSubscribedMqttTopics: string[] = [];
+
   lastDelaySet: Record<string, number> = {};
 
   accumulatedTimelapsesToGenerate: { ruleName: string; deviceId: string }[] =
@@ -2646,11 +2649,12 @@ export default class AdvancedNotifierPlugin
 
         if (mqttClient) {
           this.getLogger().log(`Subscribing to mqtt topics`);
-          await subscribeToPluginMqttTopics({
+          this.pluginSubscribedMqttTopics = await subscribeToPluginMqttTopics({
             entitiesActiveTopic: mqttActiveEntitiesTopic,
             mqttClient,
             console: logger,
             rules: this.allAvailableRules,
+            previousTopics: this.pluginSubscribedMqttTopics,
             activeEntitiesCb: async (message) => {
               logger.debug(
                 `Received update for ${mqttActiveEntitiesTopic} topic: ${JSON.stringify(message)}`,
@@ -3976,6 +3980,7 @@ export default class AdvancedNotifierPlugin
         cameraState.clipGenerationTimeout[rule.name] &&
           clearTimeout(cameraState.clipGenerationTimeout[rule.name]);
         cameraState.clipGenerationTimeout[rule.name] = setTimeout(async () => {
+          delete cameraState.clipGenerationTimeout[rule.name];
           cameraState.lastClipGenerationTimestamps[key] = Date.now();
           await prepareClip();
         }, 1000 * delay);
@@ -3987,6 +3992,7 @@ export default class AdvancedNotifierPlugin
         cameraState.clipGenerationTimeout[rule.name] &&
           clearTimeout(cameraState.clipGenerationTimeout[rule.name]);
         cameraState.clipGenerationTimeout[rule.name] = setTimeout(async () => {
+          delete cameraState.clipGenerationTimeout[rule.name];
           cameraState.lastClipGenerationTimestamps[key] = Date.now();
           await prepareClip();
         }, 1000 * delay);

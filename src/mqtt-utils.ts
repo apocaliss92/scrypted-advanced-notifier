@@ -1199,21 +1199,30 @@ export const subscribeToPluginMqttTopics = async (
         activationRuleCb: (props: {
             ruleName: string;
             active: boolean
-        }) => void
+        }) => void,
+        /** Previously subscribed topics — unsubscribed before re-subscribing to prevent callback accumulation. */
+        previousTopics?: string[],
     }
-) => {
+): Promise<string[]> => {
     const {
         activeEntitiesCb,
         entitiesActiveTopic,
         mqttClient,
         rules,
         activationRuleCb,
-        switchNotificationsEnabledCb
+        switchNotificationsEnabledCb,
+        previousTopics,
     } = props;
 
     if (!mqttClient) {
-        return;
+        return [];
     }
+
+    if (previousTopics?.length) {
+        try { await mqttClient.unsubscribe(previousTopics); } catch { /* ignore */ }
+    }
+
+    const subscribedTopics: string[] = [];
 
     if (entitiesActiveTopic) {
         mqttClient.subscribe([entitiesActiveTopic], async (messageTopic, message) => {
@@ -1222,6 +1231,7 @@ export const subscribeToPluginMqttTopics = async (
                 activeEntitiesCb(messageString !== 'null' ? JSON.parse(messageString) : [])
             }
         });
+        subscribedTopics.push(entitiesActiveTopic);
     }
 
     const { notificationsEnabledEntity } = getBasicMqttEntities();
@@ -1239,6 +1249,7 @@ export const subscribeToPluginMqttTopics = async (
                 await mqttClient.publish(stateTopic, message, notificationsEnabledEntity.retain);
             }
         });
+        subscribedTopics.push(commandTopic, stateTopic);
     }
 
     for (const rule of rules) {
@@ -1262,8 +1273,11 @@ export const subscribeToPluginMqttTopics = async (
                     await mqttClient.publish(stateTopic, message, ruleActiveEntity.retain);
                 }
             });
+            subscribedTopics.push(commandTopic, stateTopic);
         }
     }
+
+    return subscribedTopics;
 }
 
 export const subscribeToAlarmSystemMqttTopics = async (
@@ -1361,8 +1375,10 @@ export const subscribeToCameraMqttTopics = async (
             active: boolean;
             ruleType: RuleType;
         }) => void,
+        /** Previously subscribed topics — unsubscribed before re-subscribing to prevent callback accumulation. */
+        previousTopics?: string[],
     }
-) => {
+): Promise<string[]> => {
     const {
         mqttClient,
         rules,
@@ -1376,10 +1392,17 @@ export const subscribeToCameraMqttTopics = async (
         accessorySwitchKinds,
         accessorySwitchCb,
         device,
+        previousTopics,
     } = props;
     if (!mqttClient) {
-        return;
+        return [];
     }
+
+    if (previousTopics?.length) {
+        try { await mqttClient.unsubscribe(previousTopics); } catch { /* ignore */ }
+    }
+
+    const subscribedTopics: string[] = [];
 
     for (const rule of rules) {
         const mqttEntity = getRuleMqttEntities({ rule, device, forDiscovery: false })?.find(item => item.identifier === MqttEntityIdentifier.RuleActive);
@@ -1406,6 +1429,7 @@ export const subscribeToCameraMqttTopics = async (
                     await mqttClient.publish(stateTopic, message, mqttEntity.retain);
                 }
             });
+            subscribedTopics.push(commandTopic, stateTopic);
         }
     }
 
@@ -1439,6 +1463,7 @@ export const subscribeToCameraMqttTopics = async (
                 await mqttClient.publish(stateTopic, message, privacyEntity.retain);
             }
         });
+        subscribedTopics.push(commandTopic, stateTopic);
     }
 
     if (switchRecordingCb) {
@@ -1454,6 +1479,7 @@ export const subscribeToCameraMqttTopics = async (
                 await mqttClient.publish(stateTopic, message, recordingEntity.retain);
             }
         });
+        subscribedTopics.push(commandTopic, stateTopic);
     }
 
     if (switchSnapshotsCb) {
@@ -1469,6 +1495,7 @@ export const subscribeToCameraMqttTopics = async (
                 await mqttClient.publish(stateTopic, message, snapshotsEntity.retain);
             }
         });
+        subscribedTopics.push(commandTopic, stateTopic);
     }
 
     if (switchRebroadcastCb) {
@@ -1484,6 +1511,7 @@ export const subscribeToCameraMqttTopics = async (
                 await mqttClient.publish(stateTopic, message, rebroadcastEntity.retain);
             }
         });
+        subscribedTopics.push(commandTopic, stateTopic);
     }
 
     if (switchNotificationsEnabledCb) {
@@ -1499,6 +1527,7 @@ export const subscribeToCameraMqttTopics = async (
                 await mqttClient.publish(stateTopic, message, notificationsEnabledEntity.retain);
             }
         });
+        subscribedTopics.push(commandTopic, stateTopic);
     }
 
     if (accessorySwitchKinds?.length && accessorySwitchCb) {
@@ -1529,6 +1558,7 @@ export const subscribeToCameraMqttTopics = async (
                     }
                 }
             });
+            subscribedTopics.push(commandTopic, stateTopic);
         }
     }
 
@@ -1543,6 +1573,7 @@ export const subscribeToCameraMqttTopics = async (
                 }
             }
         });
+        subscribedTopics.push(commandTopic);
     }
 
     if (ptzCommandCb) {
@@ -1577,8 +1608,11 @@ export const subscribeToCameraMqttTopics = async (
                     }
                 }
             });
+            subscribedTopics.push(commandTopic);
         }
     }
+
+    return subscribedTopics;
 }
 
 export const subscribeToNotifierMqttTopics = async (

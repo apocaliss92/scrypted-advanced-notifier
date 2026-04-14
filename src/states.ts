@@ -131,6 +131,9 @@ export class CameraMixinState {
     detectionIdEventIdMap: Record<string, string> = {};
     objectIdLastReport: Record<string, number> = {};
 
+    /** Topics currently subscribed on the per-camera MQTT client — used to unsubscribe before re-subscribing to prevent callback accumulation. */
+    subscribedMqttTopics: string[] = [];
+
     decoderEnablementLogged = false;
 
     patrolState: {

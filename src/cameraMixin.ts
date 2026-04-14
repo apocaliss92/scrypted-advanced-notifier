@@ -1492,12 +1492,13 @@ export class AdvancedNotifierCameraMixin
                 });
 
                 logger.debug(`Subscribing to mqtt topics`);
-                await subscribeToCameraMqttTopics({
+                this.mixinState.subscribedMqttTopics = await subscribeToCameraMqttTopics({
                   mqttClient,
                   rules: allAvailableRules,
                   device: this.cameraDevice,
                   console: logger,
                   accessorySwitchKinds: this.cameraAccessorySwitchKinds,
+                  previousTopics: this.mixinState.subscribedMqttTopics,
                   accessorySwitchCb: async ({ kind, active }) => {
                     const accessoryDevice =
                       this.cameraAccessorySwitchDevices[kind];
@@ -2824,6 +2825,29 @@ export class AdvancedNotifierCameraMixin
     this.stopPatrol("Mixin released");
     this.resetListeners();
     this.stopDecoder("Release");
+
+    // Unsubscribe camera MQTT topics and shut down the per-camera MQTT client
+    // to prevent callback / connection leaks on mixin reload.
+    try {
+      const mqttClient = this.mixinState?.mqttClient;
+      if (mqttClient) {
+        const topics = this.mixinState.subscribedMqttTopics;
+        if (topics?.length) {
+          try { await mqttClient.unsubscribe(topics); } catch { /* ignore */ }
+        }
+        try { await mqttClient.disconnect(); } catch { /* ignore */ }
+      }
+    } catch (e) {
+      logger.warn("Error while disconnecting MQTT client on release", e);
+    }
+
+    // NOTE: do not remove the mixin from plugin.currentCameraMixinsMap nor
+    // plugin.cameraStates here — Scrypted can call release() on transient
+    // mixin instances while the device is still present, and dropping the
+    // map entry causes downstream lookups to return undefined. The unsubscribe
+    // + mqtt disconnect above is still worth doing to stop listeners/timers.
+    // delete this.plugin.currentCameraMixinsMap[this.id];
+    // delete this.plugin.cameraStates[this.id];
   }
 
   public getLogger(forceNew?: boolean) {

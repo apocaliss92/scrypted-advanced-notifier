@@ -167,8 +167,15 @@ export class AudioRtspFfmpegStream extends EventEmitter {
     stop() {
         this.stopped = true;
         if (this.ffmpegProcess) {
-            this.ffmpegProcess.kill('SIGKILL');
+            const proc = this.ffmpegProcess;
             this.ffmpegProcess = null;
+            // Remove listeners and destroy stdio before killing so that the
+            // Buffer backing stdout/stderr and the respawn callbacks are
+            // eligible for GC as soon as the child exits.
+            try { proc.stdout?.removeAllListeners(); proc.stdout?.destroy(); } catch { /* ignore */ }
+            try { proc.stderr?.removeAllListeners(); proc.stderr?.destroy(); } catch { /* ignore */ }
+            try { proc.removeAllListeners(); } catch { /* ignore */ }
+            try { proc.kill('SIGKILL'); } catch { /* ignore */ }
         }
         if (this.respawnTimer) {
             clearTimeout(this.respawnTimer);
@@ -178,6 +185,8 @@ export class AudioRtspFfmpegStream extends EventEmitter {
             clearTimeout(this.restartTimer);
             this.restartTimer = null;
         }
+        // Release the rolling PCM buffer accumulated by the previous process.
+        this.audioBuffer = Buffer.alloc(0);
     }
 
     private scheduleRestart() {
@@ -256,9 +265,18 @@ export class AudioRtspFfmpegStream extends EventEmitter {
         ffmpeg.stderr.on('data', (data: Buffer) => {
             console.debug('[ffmpeg stderr]', data.toString());
         });
+        const cleanupProc = () => {
+            try { ffmpeg.stdout?.removeAllListeners(); ffmpeg.stdout?.destroy(); } catch { /* ignore */ }
+            try { ffmpeg.stderr?.removeAllListeners(); ffmpeg.stderr?.destroy(); } catch { /* ignore */ }
+            try { ffmpeg.removeAllListeners(); } catch { /* ignore */ }
+        };
+
         ffmpeg.on('exit', (code, signal) => {
             console.log(`ffmpeg terminated (code=${code}, signal=${signal})`);
+            cleanupProc();
             this.ffmpegProcess = null;
+            // Drop stale PCM buffer from the terminated process.
+            this.audioBuffer = Buffer.alloc(0);
             if (!this.stopped) {
                 if (this.respawnTimer) {
                     clearTimeout(this.respawnTimer);
@@ -271,7 +289,9 @@ export class AudioRtspFfmpegStream extends EventEmitter {
         });
         ffmpeg.on('error', (err) => {
             console.error('ffmpeg error:', err);
+            cleanupProc();
             this.ffmpegProcess = null;
+            this.audioBuffer = Buffer.alloc(0);
             if (!this.stopped) {
                 if (this.respawnTimer) {
                     clearTimeout(this.respawnTimer);

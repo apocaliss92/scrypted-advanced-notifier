@@ -49,8 +49,13 @@ export class VideoRtspFfmpegRecorder extends EventEmitter {
             this.ffmpegProcess = null;
 
             const exitPromise = new Promise<void>(resolve => proc.once('exit', () => resolve()));
-            proc.kill('SIGINT');
+            try { proc.kill('SIGINT'); } catch { /* ignore */ }
             await exitPromise;
+            // Drop listeners and destroy stdio so Buffer accumulations queued
+            // in 'data' handlers become eligible for GC immediately.
+            try { proc.stdout?.removeAllListeners(); proc.stdout?.destroy(); } catch { /* ignore */ }
+            try { proc.stderr?.removeAllListeners(); proc.stderr?.destroy(); } catch { /* ignore */ }
+            try { proc.removeAllListeners(); } catch { /* ignore */ }
         }
 
         if (thumbnailPath && this.outputPath && this.startTime) {
@@ -80,18 +85,24 @@ export class VideoRtspFfmpegRecorder extends EventEmitter {
                     thumbnailPath
                 ];
 
-                const ffmpeg = spawn(ffmpegPath || 'ffmpeg', args);
-
-                ffmpeg.stdout?.on('data', (data: any) => console.info(`[Thumbnail stdout] ${data}`));
-                ffmpeg.stderr?.on('data', (data: any) => console.info(`[Thumbnail stderr] ${data}`));
+                // Use 'ignore' for stdio to prevent Node from buffering
+                // large stderr output (ffmpeg is verbose) in memory for every
+                // thumbnail extraction.
+                const ffmpeg = spawn(ffmpegPath || 'ffmpeg', args, { stdio: ['ignore', 'ignore', 'ignore'] });
 
                 await new Promise<void>((resolve) => {
-                    ffmpeg.on('exit', (code: number) => {
+                    ffmpeg.once('exit', (code: number) => {
                         if (code !== 0) {
                             console.error(`Thumbnail extraction failed with code ${code}`);
                         } else {
                             console.log(`Thumbnail extracted successfully in ${thumbnailPath}`);
                         }
+                        try { ffmpeg.removeAllListeners(); } catch { /* ignore */ }
+                        resolve();
+                    });
+                    ffmpeg.once('error', (err) => {
+                        console.error(`Thumbnail extraction errored: ${err}`);
+                        try { ffmpeg.removeAllListeners(); } catch { /* ignore */ }
                         resolve();
                     });
                 });
@@ -184,8 +195,15 @@ export class VideoRtspFfmpegRecorder extends EventEmitter {
             }, backoffMs);
         }
 
+        const cleanupProc = () => {
+            try { ffmpeg.stdout?.removeAllListeners(); ffmpeg.stdout?.destroy(); } catch { /* ignore */ }
+            try { ffmpeg.stderr?.removeAllListeners(); ffmpeg.stderr?.destroy(); } catch { /* ignore */ }
+            try { ffmpeg.removeAllListeners(); } catch { /* ignore */ }
+        };
+
         ffmpeg.on('exit', (code, signal) => {
             console.log(`ffmpeg recording terminated (code=${code}, signal=${signal})`);
+            cleanupProc();
             this.ffmpegProcess = null;
 
             if (this.stopped) {
@@ -210,6 +228,7 @@ export class VideoRtspFfmpegRecorder extends EventEmitter {
 
         ffmpeg.on('error', (err) => {
             console.error('ffmpeg recording error:', err);
+            cleanupProc();
             this.ffmpegProcess = null;
             scheduleRestart('error');
         });
