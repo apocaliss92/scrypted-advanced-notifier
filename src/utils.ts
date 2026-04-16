@@ -795,6 +795,8 @@ export const getWebHookUrls = async (props: {
     videoRuleUrl = `${assetsOrigin}${publicPathnamePrefix}${videoRule}/${encodedId}/${ruleName}/${fileId}.mp4?${paramString}`;
     gifRuleUrl = `${assetsOrigin}${publicPathnamePrefix}${gifRule}/${encodedId}/${ruleName}/${fileId}.gif?${paramString}`;
 
+    endpoint = `${assetsOrigin}${publicPathnamePrefix}${snoozeNotification}?${paramString}`;
+
     privatePathnamePrefix = `${privatePathname}${eventsApp}`;
     eventThumbnailUrl = `${privatePathnamePrefix}/${eventThumbnail}/${device?.id}/${fileId}`;
     eventImageUrl = `${privatePathnamePrefix}/${eventImage}/${device?.id}/${fileId}`;
