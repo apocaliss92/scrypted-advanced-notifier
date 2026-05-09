@@ -916,6 +916,15 @@ export const parseNvrNotificationMessage = async (
         eventType = SupportedSensorType.Binary;
       } else if (subtitle.includes("Doorbell Ringing")) {
         eventType = DetectionClass.Doorbell;
+        if (!allDetections.length) {
+          allDetections = [
+            {
+              className: "doorbell",
+              score: 1,
+              zones: [],
+            },
+          ];
+        }
       } else if (subtitle.includes("Door Unlocked")) {
         eventType = SupportedSensorType.Lock;
       } else if (subtitle.includes("Package Detected")) {

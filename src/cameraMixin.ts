@@ -36,7 +36,7 @@ import fs from "fs";
 import { cloneDeep, keyBy, sortBy, uniq, uniqBy } from "lodash";
 import moment from "moment";
 import { getMqttBasicClient } from "../../scrypted-apocaliss-base/src/basePlugin";
-import { IHaClient } from '../../scrypted-apocaliss-base/src/ha-client';
+import { IHaClient } from "../../scrypted-apocaliss-base/src/ha-client";
 import { filterOverlappedDetections } from "../../scrypted-basic-object-detector/src/util";
 import {
   audioDetectorNativeId,
@@ -232,7 +232,8 @@ type CameraSettingKey =
 
 export class AdvancedNotifierCameraMixin
   extends SettingsMixinDeviceBase<any>
-  implements Settings, VideoClips {
+  implements Settings, VideoClips
+{
   initStorage: StorageSettingsDict<CameraSettingKey> = {
     ...getMixinBaseSettings({
       plugin: this.plugin,
@@ -424,7 +425,9 @@ export class AdvancedNotifierCameraMixin
         if (result.haError) {
           logger.warn("Rediscover completed with HA warning:", result.haError);
         } else if (result.haDeviceDeleted) {
-          logger.log("Device removed from Home Assistant, topics cleared, discovery republished.");
+          logger.log(
+            "Device removed from Home Assistant, topics cleared, discovery republished.",
+          );
         } else {
           logger.log("Topics cleared, discovery republished.");
         }
@@ -799,7 +802,7 @@ export class AdvancedNotifierCameraMixin
           videoId: clip.videoId ?? clip.id,
         });
       }
-    } catch { }
+    } catch {}
 
     if (showVideoclips) {
       const internalClips = await this.getVideoClipsInternal(options);
@@ -941,7 +944,7 @@ export class AdvancedNotifierCameraMixin
               });
             }
           }
-        } catch { }
+        } catch {}
       }
     } catch (e) {
       logger.error(
@@ -1151,7 +1154,10 @@ export class AdvancedNotifierCameraMixin
   }
 
   async toggleRecording(device: Settings, enabled: boolean) {
-    if (enabled && !this.cameraDevice.interfaces?.includes(ScryptedInterface.VideoRecorder)) {
+    if (
+      enabled &&
+      !this.cameraDevice.interfaces?.includes(ScryptedInterface.VideoRecorder)
+    ) {
       return;
     }
     await device.putSetting(`recording:privacyMode`, !enabled);
@@ -1479,7 +1485,8 @@ export class AdvancedNotifierCameraMixin
               this.plugin.enqueueCameraAutodiscovery(this.id, async () => {
                 const zones = await this.getMqttZones();
                 logger.log("Starting autodiscovery (queued)");
-                const initialCameraState = await this.getCameraMqttCurrentState();
+                const initialCameraState =
+                  await this.getCameraMqttCurrentState();
                 await setupCameraAutodiscovery({
                   mqttClient,
                   device: this.cameraDevice,
@@ -1492,109 +1499,116 @@ export class AdvancedNotifierCameraMixin
                 });
 
                 logger.debug(`Subscribing to mqtt topics`);
-                this.mixinState.subscribedMqttTopics = await subscribeToCameraMqttTopics({
-                  mqttClient,
-                  rules: allAvailableRules,
-                  device: this.cameraDevice,
-                  console: logger,
-                  accessorySwitchKinds: this.cameraAccessorySwitchKinds,
-                  previousTopics: this.mixinState.subscribedMqttTopics,
-                  accessorySwitchCb: async ({ kind, active }) => {
-                    const accessoryDevice =
-                      this.cameraAccessorySwitchDevices[kind];
-                    if (!accessoryDevice) {
-                      logger.warn(
-                        `Accessory switch command received but device missing: ${kind}`,
-                      );
-                      return;
-                    }
-                    if (active) {
-                      await accessoryDevice.turnOn();
-                    } else {
-                      await accessoryDevice.turnOff();
-                    }
-                  },
-                  activationRuleCb: async ({ active, ruleName, ruleType }) => {
-                    const {
-                      common: { enabledKey },
-                    } = getRuleKeys({ ruleName, ruleType });
-                    logger.log(
-                      `Setting ${ruleType} rule ${ruleName} to ${active}`,
-                    );
-                    await this.mixinState.storageSettings.putSetting(
-                      `${enabledKey}`,
-                      active,
-                    );
-                  },
-                  switchNotificationsEnabledCb: async (active) => {
-                    logger.log(`Setting notifications active to ${active}`);
-                    await this.mixinState.storageSettings.putSetting(
-                      `notificationsEnabled`,
-                      active,
-                    );
-                  },
-                  switchRecordingCb: this.cameraDevice.interfaces.includes(
-                    ScryptedInterface.VideoRecorder,
-                  )
-                    ? async (active) => {
-                      const state = await this.getCameraMqttCurrentState();
-                      if (state.isRecording === active) return;
-                      logger.log(`Setting NVR privacy mode to ${!active}`);
-                      await this.toggleRecording(this.cameraDevice, active);
-                    }
-                    : undefined,
-                  switchRebroadcastCb: async (active) => {
-                    const state = await this.getCameraMqttCurrentState();
-                    if (state.isRebroadcastEnabled === active) return;
-                    logger.log(
-                      `Setting Rebroadcast privacy mode to ${!active}`,
-                    );
-                    await this.toggleRebroadcastEnabled(
-                      this.cameraDevice,
-                      active,
-                    );
-                  },
-                  switchSnapshotsCb: async (active) => {
-                    const state = await this.getCameraMqttCurrentState();
-                    if (state.isSnapshotsEnabled === active) return;
-                    logger.log(`Setting Snapshots privacy mode to ${!active}`);
-                    await this.toggleSnapshotsEnabled(
-                      this.cameraDevice,
-                      active,
-                    );
-                  },
-                  rebootCb: this.cameraDevice.interfaces.includes(
-                    ScryptedInterface.Reboot,
-                  )
-                    ? async () => {
-                      logger.log(`Rebooting camera`);
-                      await this.cameraDevice.reboot();
-                    }
-                    : undefined,
-                  ptzCommandCb: this.cameraDevice.interfaces.includes(
-                    ScryptedInterface.PanTiltZoom,
-                  )
-                    ? async (ptzCommand: PanTiltZoomCommand) => {
-                      logger.log(
-                        `Executing ptz command: ${JSON.stringify(ptzCommand)}`,
-                      );
-                      if (ptzCommand.preset) {
-                        const presetId = Object.entries(
-                          this.cameraDevice.ptzCapabilities?.presets ?? {},
-                        ).find(
-                          ([id, name]) => name === ptzCommand.preset,
-                        )?.[0];
-                        if (presetId) {
-                          await this.cameraDevice.ptzCommand({
-                            preset: presetId,
-                          });
-                        }
-                      } else {
-                        await this.cameraDevice.ptzCommand(ptzCommand);
+                this.mixinState.subscribedMqttTopics =
+                  await subscribeToCameraMqttTopics({
+                    mqttClient,
+                    rules: allAvailableRules,
+                    device: this.cameraDevice,
+                    console: logger,
+                    accessorySwitchKinds: this.cameraAccessorySwitchKinds,
+                    previousTopics: this.mixinState.subscribedMqttTopics,
+                    accessorySwitchCb: async ({ kind, active }) => {
+                      const accessoryDevice =
+                        this.cameraAccessorySwitchDevices[kind];
+                      if (!accessoryDevice) {
+                        logger.warn(
+                          `Accessory switch command received but device missing: ${kind}`,
+                        );
+                        return;
                       }
-                    }
-                    : undefined,
-                });
+                      if (active) {
+                        await accessoryDevice.turnOn();
+                      } else {
+                        await accessoryDevice.turnOff();
+                      }
+                    },
+                    activationRuleCb: async ({
+                      active,
+                      ruleName,
+                      ruleType,
+                    }) => {
+                      const {
+                        common: { enabledKey },
+                      } = getRuleKeys({ ruleName, ruleType });
+                      logger.log(
+                        `Setting ${ruleType} rule ${ruleName} to ${active}`,
+                      );
+                      await this.mixinState.storageSettings.putSetting(
+                        `${enabledKey}`,
+                        active,
+                      );
+                    },
+                    switchNotificationsEnabledCb: async (active) => {
+                      logger.log(`Setting notifications active to ${active}`);
+                      await this.mixinState.storageSettings.putSetting(
+                        `notificationsEnabled`,
+                        active,
+                      );
+                    },
+                    switchRecordingCb: this.cameraDevice.interfaces.includes(
+                      ScryptedInterface.VideoRecorder,
+                    )
+                      ? async (active) => {
+                          const state = await this.getCameraMqttCurrentState();
+                          if (state.isRecording === active) return;
+                          logger.log(`Setting NVR privacy mode to ${!active}`);
+                          await this.toggleRecording(this.cameraDevice, active);
+                        }
+                      : undefined,
+                    switchRebroadcastCb: async (active) => {
+                      const state = await this.getCameraMqttCurrentState();
+                      if (state.isRebroadcastEnabled === active) return;
+                      logger.log(
+                        `Setting Rebroadcast privacy mode to ${!active}`,
+                      );
+                      await this.toggleRebroadcastEnabled(
+                        this.cameraDevice,
+                        active,
+                      );
+                    },
+                    switchSnapshotsCb: async (active) => {
+                      const state = await this.getCameraMqttCurrentState();
+                      if (state.isSnapshotsEnabled === active) return;
+                      logger.log(
+                        `Setting Snapshots privacy mode to ${!active}`,
+                      );
+                      await this.toggleSnapshotsEnabled(
+                        this.cameraDevice,
+                        active,
+                      );
+                    },
+                    rebootCb: this.cameraDevice.interfaces.includes(
+                      ScryptedInterface.Reboot,
+                    )
+                      ? async () => {
+                          logger.log(`Rebooting camera`);
+                          await this.cameraDevice.reboot();
+                        }
+                      : undefined,
+                    ptzCommandCb: this.cameraDevice.interfaces.includes(
+                      ScryptedInterface.PanTiltZoom,
+                    )
+                      ? async (ptzCommand: PanTiltZoomCommand) => {
+                          logger.log(
+                            `Executing ptz command: ${JSON.stringify(ptzCommand)}`,
+                          );
+                          if (ptzCommand.preset) {
+                            const presetId = Object.entries(
+                              this.cameraDevice.ptzCapabilities?.presets ?? {},
+                            ).find(
+                              ([id, name]) => name === ptzCommand.preset,
+                            )?.[0];
+                            if (presetId) {
+                              await this.cameraDevice.ptzCommand({
+                                preset: presetId,
+                              });
+                            }
+                          } else {
+                            await this.cameraDevice.ptzCommand(ptzCommand);
+                          }
+                        }
+                      : undefined,
+                  });
                 this.ensureMixinsOrder();
                 await this.refreshSettings();
 
@@ -1615,9 +1629,7 @@ export class AdvancedNotifierCameraMixin
         }
 
         // Battery-based privacy management
-        if (
-          this.cameraDevice.interfaces.includes(ScryptedInterface.Battery)
-        ) {
+        if (this.cameraDevice.interfaces.includes(ScryptedInterface.Battery)) {
           const batteryLevel = this.cameraDevice.batteryLevel;
           if (batteryLevel !== undefined && batteryLevel !== null) {
             const matchingThreshold = getMatchingBatteryThreshold({
@@ -1626,8 +1638,7 @@ export class AdvancedNotifierCameraMixin
             });
 
             const thresholdName = matchingThreshold?.name;
-            const lastApplied =
-              this.mixinState.lastAppliedBatteryThreshold;
+            const lastApplied = this.mixinState.lastAppliedBatteryThreshold;
 
             if (thresholdName !== lastApplied) {
               if (matchingThreshold) {
@@ -1656,10 +1667,7 @@ export class AdvancedNotifierCameraMixin
                 );
                 await this.toggleRecording(this.cameraDevice, true);
                 await this.toggleSnapshotsEnabled(this.cameraDevice, true);
-                await this.toggleRebroadcastEnabled(
-                  this.cameraDevice,
-                  true,
-                );
+                await this.toggleRebroadcastEnabled(this.cameraDevice, true);
               }
 
               this.mixinState.lastAppliedBatteryThreshold = thresholdName;
@@ -2252,7 +2260,7 @@ export class AdvancedNotifierCameraMixin
       } catch {
         await fs.promises.mkdir(recordedEventsPath, { recursive: true });
       }
-    } catch { }
+    } catch {}
 
     await this.refreshSettings();
     await this.refreshSettings();
@@ -2609,23 +2617,38 @@ export class AdvancedNotifierCameraMixin
   }
 
   /** Returns current camera switch state for MQTT publish and discovery initial state. */
-  async getCameraMqttCurrentState(): Promise<InitialCameraState & {
-    notificationsEnabled: boolean;
-    isRecording: boolean;
-    isSnapshotsEnabled: boolean;
-    isRebroadcastEnabled: boolean;
-    accessorySwitchStates: Partial<Record<CameraNativeIdAccessoryKind, boolean>>;
-  }> {
+  async getCameraMqttCurrentState(): Promise<
+    InitialCameraState & {
+      notificationsEnabled: boolean;
+      isRecording: boolean;
+      isSnapshotsEnabled: boolean;
+      isRebroadcastEnabled: boolean;
+      accessorySwitchStates: Partial<
+        Record<CameraNativeIdAccessoryKind, boolean>
+      >;
+    }
+  > {
     const settings = (await this.mixinDevice.getSettings()) as Setting[];
-    const hasVideoRecorder = this.cameraDevice.interfaces?.includes(ScryptedInterface.VideoRecorder);
+    const hasVideoRecorder = this.cameraDevice.interfaces?.includes(
+      ScryptedInterface.VideoRecorder,
+    );
     const isRecording =
-      hasVideoRecorder && !settings.find((s) => s.key === "recording:privacyMode")?.value;
-    const isSnapshotsEnabled = !settings.find((s) => s.key === "snapshot:privacyMode")?.value;
-    const isRebroadcastEnabled = !settings.find((s) => s.key === "prebuffer:privacyMode")?.value;
+      hasVideoRecorder &&
+      !settings.find((s) => s.key === "recording:privacyMode")?.value;
+    const isSnapshotsEnabled = !settings.find(
+      (s) => s.key === "snapshot:privacyMode",
+    )?.value;
+    const isRebroadcastEnabled = !settings.find(
+      (s) => s.key === "prebuffer:privacyMode",
+    )?.value;
     const { notificationsEnabled } = this.mixinState.storageSettings.values;
-    const accessorySwitchStates: Partial<Record<CameraNativeIdAccessoryKind, boolean>> = {};
+    const accessorySwitchStates: Partial<
+      Record<CameraNativeIdAccessoryKind, boolean>
+    > = {};
     // Only read state for accessory devices that exist (avoid proxy errors for missing devices)
-    for (const [kind, device] of Object.entries(this.cameraAccessorySwitchDevices) as [CameraNativeIdAccessoryKind, ScryptedDeviceBase & OnOff][]) {
+    for (const [kind, device] of Object.entries(
+      this.cameraAccessorySwitchDevices,
+    ) as [CameraNativeIdAccessoryKind, ScryptedDeviceBase & OnOff][]) {
       if (device) {
         try {
           accessorySwitchStates[kind] = !!device.on;
@@ -2645,34 +2668,44 @@ export class AdvancedNotifierCameraMixin
 
   async getStreamDestinations(): Promise<ScryptedStreamDestination[]> {
     if (!this.streams?.length) return [];
-    const snapshotUrl = this.mixinState?.storageSettings?.values?.lastSnapshotWebhookLocalUrl as string | undefined;
+    const snapshotUrl = this.mixinState?.storageSettings?.values
+      ?.lastSnapshotWebhookLocalUrl as string | undefined;
 
     // Scrypted returns RTSP URLs with localhost — replace with actual local IP
-    const localAddresses = safeParseJson(this.plugin.storageSettings.getItem('localAddresses'));
-    const localIp = Array.isArray(localAddresses) && localAddresses.length > 0
-      ? localAddresses[0] as string
-      : undefined;
+    const localAddresses = safeParseJson(
+      this.plugin.storageSettings.getItem("localAddresses"),
+    );
+    const localIp =
+      Array.isArray(localAddresses) && localAddresses.length > 0
+        ? (localAddresses[0] as string)
+        : undefined;
 
     // Match stream names to their Scrypted destinations (default, remote, remote-recorder, etc.)
     let streamOptions: ResponseMediaStreamOptions[] = [];
     try {
       streamOptions = await this.cameraDevice.getVideoStreamOptions();
-    } catch { /* ignore — destinations will be empty */ }
+    } catch {
+      /* ignore — destinations will be empty */
+    }
 
     return this.streams
       .map((setting) => {
-        const name = setting.subgroup?.replace('Stream: ', '') ?? setting.key ?? 'Stream';
+        const name =
+          setting.subgroup?.replace("Stream: ", "") ?? setting.key ?? "Stream";
         let rtspUrl = setting.value as string | undefined;
         if (rtspUrl && localIp) {
-          rtspUrl = rtspUrl.replace('localhost', localIp);
+          rtspUrl = rtspUrl.replace("localhost", localIp);
         }
-        const resolvedSnapshotUrl = snapshotUrl && localIp
-          ? snapshotUrl.replace('localhost', localIp)
-          : snapshotUrl;
+        const resolvedSnapshotUrl =
+          snapshotUrl && localIp
+            ? snapshotUrl.replace("localhost", localIp)
+            : snapshotUrl;
         // Find the first Scrypted destination for this stream name
-        const matchedStream = streamOptions.find(s => s.name === name);
+        const matchedStream = streamOptions.find((s) => s.name === name);
         const destination = matchedStream?.destinations?.[0];
-        return rtspUrl ? { name, destination, rtspUrl, snapshotUrl: resolvedSnapshotUrl } : null;
+        return rtspUrl
+          ? { name, destination, rtspUrl, snapshotUrl: resolvedSnapshotUrl }
+          : null;
       })
       .filter(Boolean) as ScryptedStreamDestination[];
   }
@@ -2833,9 +2866,17 @@ export class AdvancedNotifierCameraMixin
       if (mqttClient) {
         const topics = this.mixinState.subscribedMqttTopics;
         if (topics?.length) {
-          try { await mqttClient.unsubscribe(topics); } catch { /* ignore */ }
+          try {
+            await mqttClient.unsubscribe(topics);
+          } catch {
+            /* ignore */
+          }
         }
-        try { await mqttClient.disconnect(); } catch { /* ignore */ }
+        try {
+          await mqttClient.disconnect();
+        } catch {
+          /* ignore */
+        }
       }
     } catch (e) {
       logger.warn("Error while disconnecting MQTT client on release", e);
@@ -3069,7 +3110,7 @@ export class AdvancedNotifierCameraMixin
           imageSource = ImageSource.Detector;
         }
       } catch (e) {
-        logger.log(
+        logger.info(
           `Error finding the ${reason} image from the detector for detectionId ${detectionId} and eventId ${eventId} (${e.message})`,
         );
       }
@@ -3081,7 +3122,9 @@ export class AdvancedNotifierCameraMixin
 
       const { snapshotsDisabled } = this.mixinState.storageSettings.values;
       if (snapshotsDisabled) {
-        logger.debug(`Snapshot skipped: snapshots are disabled for this camera`);
+        logger.debug(
+          `Snapshot skipped: snapshots are disabled for this camera`,
+        );
         return;
       }
 
@@ -3112,8 +3155,8 @@ export class AdvancedNotifierCameraMixin
             picture: skipResize
               ? undefined
               : {
-                width: SNAPSHOT_WIDTH,
-              },
+                  width: SNAPSHOT_WIDTH,
+                },
           });
           this.mixinState.lastPictureTaken = now;
           imageSource = ImageSource.Snapshot;
@@ -3122,21 +3165,25 @@ export class AdvancedNotifierCameraMixin
           this.mixinState.snapshotDeferredUntil = undefined;
         } catch (e) {
           this.mixinState.snapshotConsecutiveErrors++;
-          logger.log(
+          logger.info(
             `Error taking a snapshot for reason ${reason} (timeout ${snapshotTimeout} ms, consecutive errors: ${this.mixinState.snapshotConsecutiveErrors}): (${e.message})`,
           );
           this.mixinState.lastPictureTaken = undefined;
 
-          if (this.mixinState.snapshotConsecutiveErrors >= SNAPSHOT_MAX_CONSECUTIVE_ERRORS) {
-            this.mixinState.snapshotDeferredUntil = Date.now() + SNAPSHOT_DEFER_DURATION_MS;
-            logger.log(
+          if (
+            this.mixinState.snapshotConsecutiveErrors >=
+            SNAPSHOT_MAX_CONSECUTIVE_ERRORS
+          ) {
+            this.mixinState.snapshotDeferredUntil =
+              Date.now() + SNAPSHOT_DEFER_DURATION_MS;
+            logger.info(
               `Snapshot deferred for ${SNAPSHOT_DEFER_DURATION_MS / 1000}s after ${this.mixinState.snapshotConsecutiveErrors} consecutive errors`,
             );
           } else if (
             this.mixinState.currentSnapshotTimeout <
             1000 * minSnapshotDelay
           ) {
-            logger.log(
+            logger.info(
               `Increasing timeout to ${this.mixinState.currentSnapshotTimeout + 1000}`,
             );
             this.mixinState.currentSnapshotTimeout += 1000;
@@ -3249,7 +3296,12 @@ export class AdvancedNotifierCameraMixin
           if (tryDetector) {
             runners = [checkDetector, checkDecoder, checkLatest, checkSnapshot];
           } else {
-            runners = [checkDecoder, checkVeryRecent, checkLatest, checkSnapshot];
+            runners = [
+              checkDecoder,
+              checkVeryRecent,
+              checkLatest,
+              checkSnapshot,
+            ];
           }
         } else if (tryDetector) {
           runners = [
@@ -3882,7 +3934,7 @@ export class AdvancedNotifierCameraMixin
                   ...occupancyRuleTmpData,
                   triggerTime: isFrigate
                     ? (currentState.confirmationStart ?? now) -
-                    frigateTriggerTimeShiftMs
+                      frigateTriggerTimeShiftMs
                     : currentState.confirmationStart,
                   changed: true,
                   b64Image: currentState.b64Image,
@@ -3947,7 +3999,7 @@ export class AdvancedNotifierCameraMixin
             ...occupancyRuleTmpData,
             triggerTime: isFrigate
               ? (currentState.confirmationStart ?? now) -
-              frigateTriggerTimeShiftMs
+                frigateTriggerTimeShiftMs
               : currentState.confirmationStart,
             changed: false,
           });
@@ -4116,32 +4168,38 @@ export class AdvancedNotifierCameraMixin
       logger.log(
         `[Audio level] threshold crossed above: level=${newLevel} dBs=${dBs?.toFixed(1)} (${lastLevel} -> ${newLevel})`,
       );
-      this.plugin.addMotionEvent({
-        motionEvent: {
-          timestamp: now,
-          deviceId: this.id,
-          motion: "on",
-          type: "audio",
-          level: newLevel,
-          dBFS: typeof dBs === "number" && Number.isFinite(dBs) ? dBs : undefined,
-        },
-        logger,
-      }).catch((e) => logger.error("Audio level event write", e));
+      this.plugin
+        .addMotionEvent({
+          motionEvent: {
+            timestamp: now,
+            deviceId: this.id,
+            motion: "on",
+            type: "audio",
+            level: newLevel,
+            dBFS:
+              typeof dBs === "number" && Number.isFinite(dBs) ? dBs : undefined,
+          },
+          logger,
+        })
+        .catch((e) => logger.error("Audio level event write", e));
     } else if (newLevel < lastLevel) {
       logger.log(
         `[Audio level] threshold crossed below: level=${lastLevel} dBs=${dBs?.toFixed(1)} (${lastLevel} -> ${newLevel})`,
       );
-      this.plugin.addMotionEvent({
-        motionEvent: {
-          timestamp: now,
-          deviceId: this.id,
-          motion: "off",
-          type: "audio",
-          level: lastLevel,
-          dBFS: typeof dBs === "number" && Number.isFinite(dBs) ? dBs : undefined,
-        },
-        logger,
-      }).catch((e) => logger.error("Audio level event write", e));
+      this.plugin
+        .addMotionEvent({
+          motionEvent: {
+            timestamp: now,
+            deviceId: this.id,
+            motion: "off",
+            type: "audio",
+            level: lastLevel,
+            dBFS:
+              typeof dBs === "number" && Number.isFinite(dBs) ? dBs : undefined,
+          },
+          logger,
+        })
+        .catch((e) => logger.error("Audio level event write", e));
     }
     this.lastAudioLevel = newLevel;
 
@@ -4337,7 +4395,7 @@ export class AdvancedNotifierCameraMixin
       !rulesToUpdate.length &&
       detections.length === 1 &&
       detectionClassesDefaultMap[detections[0]?.className] ===
-      DetectionClass.Motion;
+        DetectionClass.Motion;
 
     logger.debug(
       `Accumulated data to analyze: ${JSON.stringify({ triggerTime, detections, rules: rulesToUpdate.map(getDetectionKey) })}`,
@@ -5136,7 +5194,7 @@ export class AdvancedNotifierCameraMixin
       const { occupancySourceForMqtt } = this.mixinState.storageSettings.values;
       minDelayInSeconds =
         !!this.mixinState.runningOccupancyRules.length ||
-          occupancySourceForMqtt !== OccupancySource.Off
+        occupancySourceForMqtt !== OccupancySource.Off
           ? 0.3
           : 0;
     } else if (type === DelayType.SequenceExecution) {
@@ -5148,7 +5206,10 @@ export class AdvancedNotifierCameraMixin
 
       if (eventSource === ScryptedEventSource.NVR) {
         minDelayInSeconds = 0;
-      } else if (identifiers.length === 1 && isMotionClassname(identifiers[0])) {
+      } else if (
+        identifiers.length === 1 &&
+        isMotionClassname(identifiers[0])
+      ) {
         delayKey = `${DelayType.EventStore}_motion`;
         minDelayInSeconds = 30;
       } else {
@@ -5373,15 +5434,15 @@ export class AdvancedNotifierCameraMixin
 
       const isIncluded = whitelistedZones?.length
         ? zones?.some((zone) => {
-          const zoneName = isPlugin ? `${this.name}::${zone}` : zone;
-          return whitelistedZones.includes(zoneName);
-        })
+            const zoneName = isPlugin ? `${this.name}::${zone}` : zone;
+            return whitelistedZones.includes(zoneName);
+          })
         : true;
       const isExcluded = blacklistedZones?.length
         ? zones?.some((zone) => {
-          const zoneName = isPlugin ? `${this.name}::${zone}` : zone;
-          return blacklistedZones.includes(zoneName);
-        })
+            const zoneName = isPlugin ? `${this.name}::${zone}` : zone;
+            return blacklistedZones.includes(zoneName);
+          })
         : false;
 
       zonesOk = isIncluded && !isExcluded;
@@ -5584,17 +5645,19 @@ export class AdvancedNotifierCameraMixin
         .filter(Boolean);
 
       if (earlyClassnames.length > 0) {
-        this.getHaClient().then(mqttClient => {
-          if (mqttClient) {
-            publishImmediateDetectionState({
-              mqttClient,
-              device: this.cameraDevice,
-              console: logger,
-              classnames: earlyClassnames,
-              detected: true,
-            }).catch(logger.log);
-          }
-        }).catch(logger.log);
+        this.getHaClient()
+          .then((mqttClient) => {
+            if (mqttClient) {
+              publishImmediateDetectionState({
+                mqttClient,
+                device: this.cameraDevice,
+                console: logger,
+                classnames: earlyClassnames,
+                detected: true,
+              }).catch(logger.log);
+            }
+          })
+          .catch(logger.log);
       }
     }
 
@@ -5623,11 +5686,21 @@ export class AdvancedNotifierCameraMixin
       `${eventSource} detections received, classnames ${classnamesLog}`,
     );
 
-    if (isDetectionFromFrigate && markedImage && markedImageB64Image && !fullFrameImage) {
+    if (
+      isDetectionFromFrigate &&
+      markedImage &&
+      markedImageB64Image &&
+      !fullFrameImage
+    ) {
       fullFrameImage = markedImage;
       fullFrameB64Image = markedImageB64Image;
     }
-    if (isDetectionFromNvr && croppedImage && croppedImageB64Image && !fullFrameImage) {
+    if (
+      isDetectionFromNvr &&
+      croppedImage &&
+      croppedImageB64Image &&
+      !fullFrameImage
+    ) {
       fullFrameImage = croppedImage;
       fullFrameB64Image = croppedImageB64Image;
     }
@@ -6133,10 +6206,12 @@ export class AdvancedNotifierCameraMixin
               eventSource: ScryptedEventSource.RawDetection,
             }).catch(logger.log);
 
-            this.plugin.addMotionEvent({
-              motionEvent: { timestamp, deviceId: this.id, motion: "on" },
-              logger: this.getLogger(),
-            }).catch(logger.log);
+            this.plugin
+              .addMotionEvent({
+                motionEvent: { timestamp, deviceId: this.id, motion: "on" },
+                logger: this.getLogger(),
+              })
+              .catch(logger.log);
 
             if (shouldUseDecoder) {
               this.startDecoder("StartMotion").catch(logger.error);
@@ -6150,10 +6225,16 @@ export class AdvancedNotifierCameraMixin
               resetSource: "MotionSensor",
             }).catch(logger.log);
 
-            this.plugin.addMotionEvent({
-              motionEvent: { timestamp: now, deviceId: this.id, motion: "off" },
-              logger: this.getLogger(),
-            }).catch(logger.log);
+            this.plugin
+              .addMotionEvent({
+                motionEvent: {
+                  timestamp: now,
+                  deviceId: this.id,
+                  motion: "off",
+                },
+                logger: this.getLogger(),
+              })
+              .catch(logger.log);
 
             if (shouldUseDecoder) {
               this.stopDecoder("EndMotion");
@@ -6336,7 +6417,7 @@ export class AdvancedNotifierCameraMixin
       }
       this.audioRtspFfmpegStream?.stop();
       this.audioRtspFfmpegStream = undefined;
-    } catch { }
+    } catch {}
   }
 
   async startAudioAnalyzer() {
@@ -6751,7 +6832,7 @@ export class AdvancedNotifierCameraMixin
           if (videoRecorderProcessPid) {
             try {
               process.kill(parseInt(videoRecorderProcessPid), "SIGINT");
-            } catch { }
+            } catch {}
             this.mixinState.storageSettings.values.videoRecorderProcessPid =
               undefined;
           }

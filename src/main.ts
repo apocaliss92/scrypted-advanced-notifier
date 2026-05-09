@@ -2265,7 +2265,7 @@ export default class AdvancedNotifierPlugin
           let snoozeId: string;
           let deviceId: string;
           if (isNvrSnooze) {
-            deviceId = nvrSnoozeId.split("_")[1];
+            deviceId = nvrSnoozeId.split("_")[0];
             device = this.currentCameraMixinsMap[deviceId];
             snoozeId = nvrSnoozeId;
             snoozeTime = Number(nvrSnoozeAction.split("snooze")[1]);
