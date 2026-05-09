@@ -3837,11 +3837,27 @@ export default class AdvancedNotifierPlugin
 
     try {
       const haApi = await this.getHaApi();
-      const res = await haApi.postAutomation(
-        haSnoozeAutomationId,
-        haSnoozeAutomation,
-      );
-      logger.log(`Generation snoozing automation: ${res.data.result}`);
+      const { haTransport } = this.storageSettings.values;
+      if (haTransport === HomeassistantTransport.websocket) {
+        try {
+          await haApi.deleteAutomation(haSnoozeAutomationId);
+          logger.log(
+            `Native HA transport active: removed legacy snooze automation ${haSnoozeAutomationId}`,
+          );
+        } catch (e: any) {
+          if (e?.response?.status !== 404) {
+            logger.log(
+              `Failed deleting snooze automation: ${e?.message ?? e}`,
+            );
+          }
+        }
+      } else {
+        const res = await haApi.postAutomation(
+          haSnoozeAutomationId,
+          haSnoozeAutomation,
+        );
+        logger.log(`Generation snoozing automation: ${res.data.result}`);
+      }
       const res2 = await haApi.postAutomation(
         haAlarmAutomationId,
         haAlarmAutomation,
