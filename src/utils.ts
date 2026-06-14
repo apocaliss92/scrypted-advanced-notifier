@@ -1168,7 +1168,7 @@ export const getTextSettings = (props: {
       title: "Object detection",
       type: "string",
       description:
-        "Expression used to render the text when an object detection happens. Available arguments ${classnameText} ${room} ${time} ${nvrLink}",
+        "Expression used to render the text when an object detection happens. Available arguments ${classnameText} ${classname} ${detectionLabel} ${objectLabel} ${label} ${room} ${zone} ${time} ${nvrLink}",
       defaultValue: !forMixin
         ? "${classnameText} detected in ${room}"
         : undefined,
@@ -3038,7 +3038,7 @@ export const getRuleSettings = async (props: {
         title: isDetectionRule ? "Custom text" : "Notification text",
         description: isAudioRule
           ? "Available arguments ${duration} ${decibels}"
-          : "Available arguments ${room} ${time} ${nvrLink} ${zone} ${classname} ${label}",
+          : "Available arguments ${room} ${time} ${nvrLink} ${zone} ${classname} ${classnameText} ${label} ${detectionLabel} ${objectLabel}",
         group,
         subgroup,
         type: "string",

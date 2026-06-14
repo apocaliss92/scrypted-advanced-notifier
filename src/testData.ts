@@ -537,3 +537,41 @@ export const animalData = {
         }
     }
 };
+
+/**
+ * Fixture: bird classifier detection with a species label.
+ *
+ * Expected template rendering (no test runner required — this documents intent):
+ *   template "${detectionLabel} detected"  →  "Northern Cardinal detected"
+ *   template "${objectLabel} detected"     →  "Northern Cardinal detected"
+ *   template "${label} detected"           →  "Northern Cardinal detected"
+ *   template "${classnameText} detected"   →  "Animal (Northern Cardinal) detected"
+ *                                             (using default animalWithLabelText)
+ *
+ * When detection.label is undefined (same camera, no label):
+ *   template "${detectionLabel} detected"  →  "Animal detected"  (falls back to subkeyText)
+ *   template "${label} detected"           →  " detected"        (empty string)
+ */
+export const birdDetectionFixture = {
+    detection: {
+        className: "animal",
+        score: 0.5793830752372742,
+        id: "h",
+        history: { firstSeen: 1777133351630, lastSeen: 1777133360160 },
+        clipped: true,
+        movement: { firstSeen: 1777133351693, lastSeen: 1777133360160, moving: true },
+        label: "Northern Cardinal",
+        zones: [],
+    },
+    expectedValues: {
+        detectionLabel: "Northern Cardinal",
+        objectLabel: "Northern Cardinal",
+        label: "Northern Cardinal",
+    },
+    fallbackExpectedValues: {
+        // When label is absent (detection.label = undefined)
+        detectionLabel: "Animal",  // falls back to animalText subkeyText
+        objectLabel: "Animal",
+        label: "",                 // ${label} yields empty string
+    },
+};
