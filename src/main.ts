@@ -4367,8 +4367,22 @@ export default class AdvancedNotifierPlugin
     const logger = this.getLogger();
     const triggerTime =
       options?.recordedEvent?.data.timestamp ?? new Date().getTime();
+    const cameraId = options?.data?.cameraId;
     const cameraDevice =
+      (cameraId
+        ? sdk.systemManager.getDeviceById<DeviceInterface>(cameraId)
+        : undefined) ??
       sdk.systemManager.getDeviceByName<DeviceInterface>(cameraName);
+
+    if (!cameraDevice) {
+      logger.warn(
+        `NVR notification camera not resolvable from title "${cameraName}". ` +
+          `A notifier chained before Advanced Notifier (e.g. LLM Notifier) may have rewritten the title; ` +
+          `place Advanced Notifier's NVR notifier before such notifiers, or have them preserve the camera name.`,
+      );
+      throw new Error(`Camera not found for NVR notification: ${cameraName}`);
+    }
+
     const deviceSensors = this.videocameraDevicesMap[cameraDevice.id] ?? [];
     const result = await parseNvrNotificationMessage(
       cameraDevice,
