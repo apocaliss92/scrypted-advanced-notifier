@@ -4817,6 +4817,10 @@ export default class AdvancedNotifierPlugin
 
     const zone = this.getTriggerZone(detection, rule);
 
+    // detectionLabel: use the raw detection label when present, fall back to
+    // the class-name text (e.g. "Animal") so ${detectionLabel} always has a value.
+    const detectionLabel = label || subkeyText || "";
+
     return text
       .toString()
       .replaceAll("${time}", String(time ?? ""))
@@ -4827,6 +4831,8 @@ export default class AdvancedNotifierPlugin
       .replaceAll("${plate}", label ?? "")
       .replaceAll("${streamName}", label ?? "")
       .replaceAll("${label}", label ?? "")
+      .replaceAll("${detectionLabel}", detectionLabel)
+      .replaceAll("${objectLabel}", detectionLabel)
       .replaceAll("${zone}", zone ?? "")
       .replaceAll("${room}", roomName ?? "");
   }
