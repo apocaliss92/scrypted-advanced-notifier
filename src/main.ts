@@ -4422,15 +4422,25 @@ export default class AdvancedNotifierPlugin
             triggerTime,
           });
         } else {
-          logger.error(
-            `Notification coming from NVR not mapped yet: ${JSON.stringify({
+          const body = `Notification coming from NVR not mapped yet: ${JSON.stringify(
+            {
               cameraName,
               options,
               allDetections,
               eventType,
               triggerDevice: triggerDevice.name,
-            })} `,
-          );
+            },
+          )} `;
+          logger.log(body);
+
+          const { devNotifications, devNotifier } = this.storageSettings.values;
+          devNotifications?.includes(DevNotifications.UnmappedNvrEvent) &&
+            (devNotifier as Notifier).sendNotification(
+              "Advanced notifier unmapped NVR event",
+              {
+                body,
+              },
+            );
         }
       }
     }

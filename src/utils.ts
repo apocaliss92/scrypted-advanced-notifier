@@ -188,6 +188,7 @@ export const formatSize = (size: number, unit?: "MB" | "GB") => {
 export enum DevNotifications {
   ConfigCheckError = "ConfigCheckError",
   SoftRestart = "SoftRestart",
+  UnmappedNvrEvent = "UnmappedNvrEvent",
 }
 
 export enum RuleActionType {
