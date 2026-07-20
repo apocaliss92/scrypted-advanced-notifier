@@ -2563,35 +2563,56 @@ export class AdvancedNotifierCameraMixin
 
       const res: ObserveZoneData[] = [];
       const settings = await this.mixinDevice.getSettings();
-      const zonesSetting =
-        settings.find((setting: { key: string }) =>
-          new RegExp("objectdetectionplugin:.*:zones").test(setting.key),
-        )?.value ?? [];
 
-      const zoneNames = zonesSetting?.filter((zone) => {
-        return (
-          settings.find((setting: { key: string }) =>
-            new RegExp(
-              `objectdetectionplugin:.*:zoneinfo-filterMode-${zone}`,
-            ).test(setting.key),
-          )?.value === "observe"
-        );
-      });
+      // A camera can have several "objectdetectionplugin" mixins active at
+      // once (e.g. a motion-only backend grouped as "Motion Detection" and a
+      // full object-detection backend grouped as "Object Detection"), each
+      // exposing its own independent "zones" setting keyed by
+      // "objectdetectionplugin:<backendId>:zones". Using find() here used to
+      // only pick up the first backend's zones and silently drop any zones
+      // defined on the other backend(s), so we now aggregate zones across
+      // every matching backend instead.
+      const zonesSettingKeyRegex = /^objectdetectionplugin:([^:]+):zones$/;
+      const zonesSettingsPerBackend = settings.filter(
+        (setting: { key: string }) => zonesSettingKeyRegex.test(setting.key),
+      );
 
-      zoneNames.forEach((zoneName) => {
-        const zonePath = JSON.parse(
-          settings.find(
-            (setting) =>
-              setting.subgroup === `Zone: ${zoneName}` &&
-              setting.type === "clippath",
-          )?.value ?? "[]",
-        );
+      const seenZoneNames = new Set<string>();
 
-        res.push({
-          name: zoneName,
-          path: zonePath,
+      for (const zonesSetting of zonesSettingsPerBackend) {
+        const backendId = zonesSetting.key.match(zonesSettingKeyRegex)?.[1];
+        const zonesForBackend: string[] = zonesSetting.value ?? [];
+
+        const observedZoneNames = zonesForBackend.filter((zone) => {
+          return (
+            settings.find(
+              (setting: { key: string }) =>
+                setting.key ===
+                `objectdetectionplugin:${backendId}:zoneinfo-filterMode-${zone}`,
+            )?.value === "observe"
+          );
         });
-      });
+
+        observedZoneNames.forEach((zoneName) => {
+          if (seenZoneNames.has(zoneName)) {
+            return;
+          }
+          seenZoneNames.add(zoneName);
+
+          const zonePath = JSON.parse(
+            settings.find(
+              (setting) =>
+                setting.subgroup === `Zone: ${zoneName}` &&
+                setting.type === "clippath",
+            )?.value ?? "[]",
+          );
+
+          res.push({
+            name: zoneName,
+            path: zonePath,
+          });
+        });
+      }
 
       this.mixinState.observeZoneData = res;
       this.mixinState.lastObserveZonesFetched = now;
