@@ -8,3 +8,5 @@ src
 dist/*.js
 .venv
 log.json
+test/
+vitest.config.ts

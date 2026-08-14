@@ -178,6 +178,7 @@ import {
   getVideoClipName,
   parseVideoFileName,
 } from "./videoRecorderUtils";
+import { matchesDetectionSource } from "./detectionSourceMatch";
 
 const { systemManager } = sdk;
 
@@ -5949,7 +5950,11 @@ export class AdvancedNotifierCameraMixin
         cloneDeep(
           this.mixinState.runningDetectionRules.filter(
             (rule) =>
-              rule.detectionSource === eventSource &&
+              matchesDetectionSource({
+                ruleSource: rule.detectionSource,
+                eventSource,
+                defaultSource: this.plugin.defaultDetectionSource,
+              }) &&
               rule.currentlyActive &&
               rule.detectionClasses?.length,
           ),
