@@ -4375,12 +4375,30 @@ export default class AdvancedNotifierPlugin
       sdk.systemManager.getDeviceByName<DeviceInterface>(cameraName);
 
     if (!cameraDevice) {
-      logger.warn(
+      // Skip rather than throw. This is a reachable condition, not a broken
+      // invariant: anything upstream that rewrites the notification title
+      // leaves nothing to resolve a camera from. Scrypted NVR's own AI
+      // descriptions do exactly that, and they run ahead of every notifier —
+      // so unlike the LLM Notifier case below, no ordering of notifiers avoids
+      // it. Throwing escaped the notifier RPC call and surfaced as an
+      // unhandledRejection in the Scrypted log (#41), while the other two
+      // unresolvable conditions in this function already log and return.
+      const body =
         `NVR notification camera not resolvable from title "${cameraName}". ` +
-          `A notifier chained before Advanced Notifier (e.g. LLM Notifier) may have rewritten the title; ` +
-          `place Advanced Notifier's NVR notifier before such notifiers, or have them preserve the camera name.`,
-      );
-      throw new Error(`Camera not found for NVR notification: ${cameraName}`);
+        `Something ahead of Advanced Notifier rewrote the title — Scrypted NVR's AI ` +
+        `descriptions, or a notifier chained before it (e.g. LLM Notifier). ` +
+        `For a chained notifier, place Advanced Notifier's NVR notifier first or have ` +
+        `the other preserve the camera name; for NVR AI descriptions there is no ordering ` +
+        `that helps, so this notification is skipped.`;
+      logger.warn(body);
+
+      const { devNotifications, devNotifier } = this.storageSettings.values;
+      devNotifications?.includes(DevNotifications.UnmappedNvrEvent) &&
+        (devNotifier as Notifier).sendNotification(
+          "Advanced notifier unmapped NVR event",
+          { body },
+        );
+      return;
     }
 
     const deviceSensors = this.videocameraDevicesMap[cameraDevice.id] ?? [];
