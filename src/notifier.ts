@@ -1,62 +1,97 @@
-
-import sdk, { MediaObject, Notifier, NotifierOptions, ScryptedDeviceBase, ScryptedInterface, Setting, Settings, SettingValue } from '@scrypted/sdk';
-import AdvancedNotifierPlugin from './main';
-import { DeviceInterface } from './utils';
-import { StorageSettings } from '@scrypted/sdk/storage-settings';
+import sdk, {
+  MediaObject,
+  Notifier,
+  NotifierOptions,
+  ScryptedDeviceBase,
+  ScryptedInterface,
+  Setting,
+  Settings,
+  SettingValue,
+} from "@scrypted/sdk";
+import AdvancedNotifierPlugin from "./main";
+import { DeviceInterface } from "./utils";
+import { StorageSettings } from "@scrypted/sdk/storage-settings";
 const { systemManager } = sdk;
 
-export class AdvancedNotifierNotifier extends ScryptedDeviceBase implements Notifier, Settings {
-    storageSettings = new StorageSettings(this, {});
+export class AdvancedNotifierNotifier
+  extends ScryptedDeviceBase
+  implements Notifier, Settings
+{
+  storageSettings = new StorageSettings(this, {});
 
-    constructor(nativeId: string, private plugin: AdvancedNotifierPlugin) {
-        super(nativeId);
+  constructor(
+    nativeId: string,
+    private plugin: AdvancedNotifierPlugin,
+  ) {
+    super(nativeId);
 
-        (async () => {
-            const scryptedNvrUserDevice = systemManager.getDeviceByName('Scrypted NVR Users');
-            const mixins = (this.mixins || []).slice();
-            if (scryptedNvrUserDevice && !mixins.includes(scryptedNvrUserDevice.id)) {
-                mixins.push(scryptedNvrUserDevice.id);
-            }
-            if (!mixins.includes(this.plugin.id)) {
-                mixins.push(this.plugin.id);
-            }
-            const plugins = await systemManager.getComponent('plugins');
-            await plugins.setMixins(this.id, mixins);
+    (async () => {
+      const scryptedNvrUserDevice =
+        systemManager.getDeviceByName("Scrypted NVR Users");
+      const mixins = (this.mixins || []).slice();
+      if (scryptedNvrUserDevice && !mixins.includes(scryptedNvrUserDevice.id)) {
+        mixins.push(scryptedNvrUserDevice.id);
+      }
+      if (!mixins.includes(this.plugin.id)) {
+        mixins.push(this.plugin.id);
+      }
+      const plugins = await systemManager.getComponent("plugins");
+      await plugins.setMixins(this.id, mixins);
 
-            if (scryptedNvrUserDevice) {
-                setTimeout(async () => {
-                    const thisDevice = systemManager.getDeviceById<Settings>(this.id);
-                    if (thisDevice) {
-                        const settings = await thisDevice.getSettings();
+      if (scryptedNvrUserDevice) {
+        setTimeout(async () => {
+          const thisDevice = systemManager.getDeviceById<Settings>(this.id);
+          if (thisDevice) {
+            const settings = await thisDevice.getSettings();
 
-                        const defaultNotificationsSetting = settings.find(setting => setting.key === 'nvr:defaultNotifications');
-                        await thisDevice.putSetting('nvr:defaultNotifications', defaultNotificationsSetting.choices);
+            const defaultNotificationsSetting = settings.find(
+              (setting) => setting.key === "nvr:defaultNotifications",
+            );
+            await thisDevice.putSetting(
+              "nvr:defaultNotifications",
+              defaultNotificationsSetting.choices?.filter(choice => choice !== 'Summary'),
+            );
 
-                        const allUsers = Object.keys(sdk.systemManager.getSystemState())
-                            .map(deviceId => sdk.systemManager.getDeviceById<DeviceInterface>(deviceId))
-                            .filter(device => device.interfaces.includes(ScryptedInterface.ScryptedUser));
+            const allUsers = Object.keys(sdk.systemManager.getSystemState())
+              .map((deviceId) =>
+                sdk.systemManager.getDeviceById<DeviceInterface>(deviceId),
+              )
+              .filter((device) =>
+                device.interfaces.includes(ScryptedInterface.ScryptedUser),
+              );
 
-                        await thisDevice.putSetting('nvr:userId', allUsers[0].id);
-                        this.plugin.getLogger().log(`Default notifier initialized to all notification types and user ${allUsers[0].name}. The user should be enabled to all cameras to proxy them on the plugin`);
-                    }
-                }, 2000);
-            }
-        })();
-    }
+            await thisDevice.putSetting("nvr:userId", allUsers[0].id);
+            this.plugin
+              .getLogger()
+              .log(
+                `Default notifier initialized to all notification types and user ${allUsers[0].name}. The user should be enabled to all cameras to proxy them on the plugin`,
+              );
+          }
+        }, 2000);
+      }
+    })();
+  }
 
-    async getSettings(): Promise<Setting[]> {
-        const settings = await this.storageSettings.getSettings();
+  async getSettings(): Promise<Setting[]> {
+    const settings = await this.storageSettings.getSettings();
 
-        return settings;
-    }
+    return settings;
+  }
 
-    async putSetting(key: string, value: SettingValue): Promise<void> {
-        return this.storageSettings.putSetting(key, value);
-    }
+  async putSetting(key: string, value: SettingValue): Promise<void> {
+    return this.storageSettings.putSetting(key, value);
+  }
 
-    async sendNotification(title: string, options?: NotifierOptions, media?: MediaObject, icon?: MediaObject | string): Promise<void> {
-        const logger = this.plugin.getLogger();
-        logger.info(JSON.stringify({ title, options }));
-        await this.plugin.onNvrNotification(title, options, media, icon);
-    }
+  async sendNotification(
+    title: string,
+    options?: NotifierOptions,
+    media?: MediaObject,
+    icon?: MediaObject | string,
+  ): Promise<void> {
+    const logger = this.plugin.getLogger();
+    logger.info(
+      `NVR notification incomming: ${JSON.stringify({ title, options })}`,
+    );
+    await this.plugin.onNvrNotification(title, options, media, icon);
+  }
 }
