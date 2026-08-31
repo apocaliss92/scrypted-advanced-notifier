@@ -63,6 +63,7 @@ import {
   isVehicleClassname,
 } from "./detectionClasses";
 import AdvancedNotifierPlugin, { PluginSettingKey } from "./main";
+import { collectPluginZoneChoices } from "./triggerZone";
 import { detectionClassForObjectsReporting } from "./mqtt-utils";
 const { endpointManager } = sdk;
 import fs from "fs";
@@ -3413,23 +3414,38 @@ export const getDetectionRulesSettings = async (props: {
     let zones: string[] = [];
 
     if (isPlugin) {
-      const zonesToUse: string[] = [];
-      const devices = safeParseJson<string[]>(storage.getItem(devicesKey), []);
+      const selectedDeviceIds = safeParseJson<string[]>(
+        storage.getItem(devicesKey),
+        [],
+      );
+      const idsToLoad = selectedDeviceIds.length
+        ? selectedDeviceIds
+        : Object.keys(plugin.currentCameraMixinsMap);
 
-      for (const deviceId of devices) {
+      const cameras: Array<{
+        id: string;
+        name: string;
+        zoneNames: string[];
+      }> = [];
+      for (const deviceId of idsToLoad) {
         const deviceMixin = plugin.currentCameraMixinsMap[deviceId];
-        if (deviceMixin) {
-          const zones = await deviceMixin.getObserveZones();
-          const { frigateZones } = await deviceMixin.getFrigateData();
-
-          const cameraZones = isFrigate ? frigateZones : zones;
-          for (const cameraZone of cameraZones.map((item) => item.name)) {
-            zonesToUse.push(`${deviceMixin.name}::${cameraZone}`);
-          }
+        if (!deviceMixin) {
+          continue;
         }
+        const observeZones = await deviceMixin.getObserveZones();
+        const { frigateZones } = await deviceMixin.getFrigateData();
+        const cameraZones = isFrigate ? frigateZones : observeZones;
+        cameras.push({
+          id: deviceId,
+          name: deviceMixin.name,
+          zoneNames: cameraZones.map((item) => item.name),
+        });
       }
 
-      zones = zonesToUse;
+      zones = collectPluginZoneChoices({
+        selectedDeviceIds,
+        cameras,
+      });
 
       if (isFrigate) {
         const { labels: pluginLabels } = await plugin.getFrigateData();
@@ -3660,8 +3676,8 @@ export const getDetectionRulesSettings = async (props: {
     }
 
     const zonesDescription = isFrigate
-      ? "Zones defined on the Frigate interface"
-      : "Zones defined in the `Object detection` section of type `Observe`";
+      ? "Zones defined on the Frigate interface. Leave blank to match all zones"
+      : "Zones defined in the `Object detection` section of type `Observe`. Leave blank to match all zones";
     if (zones) {
       settings.push(
         {

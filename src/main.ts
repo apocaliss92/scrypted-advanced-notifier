@@ -226,6 +226,7 @@ import {
   ZENTIK_PLUGIN_ID,
   ZonesSource,
 } from "./utils";
+import { getTriggerZone } from "./triggerZone";
 import { parseVideoFileName } from "./videoRecorderUtils";
 
 const { systemManager, mediaManager } = sdk;
@@ -4765,30 +4766,6 @@ export default class AdvancedNotifierPlugin
     };
   }
 
-  private getTriggerZone = (
-    detection: ObjectDetectionResult,
-    rule: DetectionRule,
-  ) => {
-    const { zones } = detection ?? {};
-    let zone: string;
-    if (rule?.whitelistedZones) {
-      zone = detection?.zones?.find((detectedZone) =>
-        rule.whitelistedZones.find((whiltelistedZone) => {
-          if (rule.source === RuleSource.Device) {
-            return whiltelistedZone === detectedZone;
-          } else {
-            const [_, zonePart] = whiltelistedZone.split("::");
-            return zonePart === detectedZone;
-          }
-        }),
-      );
-    } else {
-      zone = zones?.[0];
-    }
-
-    return zone;
-  };
-
   getTextKey(props: { textKey: TextSettingKey; notifierId: string }) {
     const { notifierId, textKey } = props;
     return (
@@ -4843,7 +4820,7 @@ export default class AdvancedNotifierPlugin
     });
     const time = eval(detectionTimeText.replace("${time}", detectionTime));
 
-    const zone = this.getTriggerZone(detection, rule);
+    const zone = getTriggerZone(detection, rule);
 
     // detectionLabel: use the raw detection label when present, fall back to
     // the class-name text (e.g. "Animal") so ${detectionLabel} always has a value.
@@ -5493,7 +5470,7 @@ export default class AdvancedNotifierPlugin
 
       let zone: string;
       if (rule && detection) {
-        zone = this.getTriggerZone(detection, rule);
+        zone = getTriggerZone(detection, rule);
       }
 
       if (zone) {

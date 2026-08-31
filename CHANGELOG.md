@@ -1,6 +1,11 @@
 <details>
 <summary>Changelog</summary>
 
+### 5.1.7
+
+- Fix notification zone being empty when a detection rule's whitelist is left blank (empty arrays were treated as a filter). Leave whitelist/blacklist empty to match all zones.
+- Plugin detection rules now list every camera's zones when Devices is empty, instead of showing none.
+
 ### 5.0.18
 
 - Add NVR storage health binary sensor: automatically fetches all NVR storage paths (recordingsPath, largeDisks, fastDisks) and checks every 5 minutes whether they are mounted correctly. Exposed as a `binary_sensor` (device class `problem`) diagnostic entity on Home Assistant
